@@ -9,7 +9,7 @@ Live Microsoft Office automation via COM（会话式驱动）。目标：让 Cla
 ## 特性
 
 - **会话式常驻 server**：跨调用保持 Office 窗口存活、文档 / 工作簿 / 演示文稿状态不丢
-- **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF；Excel 另含格式能力——合并单元格、边框、条件格式（cell 规则 / 数据条 / 色阶）、冻结窗格、打印设置、行高 / 数字格式 / 自动列宽
+- **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF；Excel 另含格式能力——合并单元格、边框、条件格式（cell 规则 / 数据条 / 色阶）、冻结窗格、打印设置、行高 / 数字格式 / 自动列宽；Word 另含版式能力——样式系统（文字 / 段落格式）、页面结构（页眉页脚 / 页码 / 页面设置 / 目录）、列表与表格（合并 / 边框 / 列宽 / 行高 / 自动调整）、文档辅助（查找替换 / 图片 / 分页）
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
 - **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
@@ -43,6 +43,19 @@ office excel autofit --sheet 1 --range_addr A1:D5 --rows false
 
 office word new_doc
 office word write_line --text "你好，世界"
+office word format_text --paragraph 1 --bold true --size 18 --color "#2251FF"
+office word format_paragraph --paragraph 1 --alignment center --line_spacing double
+office word set_header_text --text "季度报告"
+office word add_page_number --alignment center
+office word page_setup --orientation landscape --paper a4 --top_margin 60
+office word insert_toc --levels 3
+office word add_list --style bullet
+office word merge_table_cells --table_idx 1 --start_row 1 --start_col 1 --end_row 1 --end_col 3
+office word set_table_border --table_idx 1 --style single --color "#9AA5B1" --sides all
+office word set_table_col_width --table_idx 1 --col 1 --width 140
+office word find_replace --find 季度 --replace 半年度 --replace_all true
+office word insert_image --path out/cover.png --width 360
+office word insert_page_break
 
 office ppt new_pres
 office ppt add_slide --layout 2

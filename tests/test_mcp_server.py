@@ -46,6 +46,23 @@ def test_initialize_and_tool_names(module):
         "excel_set_row_height",
         "excel_set_number_format",
         "excel_autofit",
+        "word_format_text",
+        "word_format_paragraph",
+        "word_set_header_text",
+        "word_set_footer_text",
+        "word_add_page_number",
+        "word_page_setup",
+        "word_insert_toc",
+        "word_update_toc",
+        "word_add_list",
+        "word_merge_table_cells",
+        "word_set_table_border",
+        "word_set_table_col_width",
+        "word_set_table_row_height",
+        "word_autofit_table",
+        "word_find_replace",
+        "word_insert_image",
+        "word_insert_page_break",
     ):
         assert expected in tools
 
@@ -81,3 +98,28 @@ def test_tool_input_schema_requires_typed_args(module):
         "print_titles_cols",
     ):
         assert prop in page["properties"]
+
+    para = tools["word_format_paragraph"].input_schema
+    assert para["required"] == ["paragraph"]
+    for prop in (
+        "alignment",
+        "line_spacing",
+        "space_before",
+        "space_after",
+        "left_indent",
+        "first_line_indent",
+    ):
+        assert prop in para["properties"]
+
+    fr = tools["word_find_replace"].input_schema
+    assert fr["required"] == ["find", "replace"]
+    assert fr["properties"]["replace_all"]["type"] == "boolean"
+
+    tbl = tools["word_set_table_border"].input_schema
+    assert tbl["required"] == ["table_idx"]
+    for prop in ("style", "weight", "color", "sides"):
+        assert prop in tbl["properties"]
+
+    lst = tools["word_add_list"].input_schema
+    assert lst["required"] == ["lines"]
+    assert lst["properties"]["lines"]["type"] == "array"
