@@ -25,6 +25,7 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 
 - **每次测试/验证通过后，主动关掉拉起的 Office 窗口**：`uv run office quit ppt`（/excel/word）。注意 `quit` 只是 `obj.Quit()`，PowerPoint 进程可能残留（加载项/关闭对话框卡住）——quit 后**确认进程已退**：`tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"`，仍有残留则 `taskkill //F //PID <pid>`，**清理后再确认一次，不留任何 Office 进程**。
 - 改了 server 依赖的模块（如 `ppt.py`、`server.py`、`mcp_server.py`）后，必须重启 8890 的 server 进程（`taskkill` 该 PID 后 CLI 自动重建），否则 server 加载旧代码。
+- **收工检查不看「是否用了 COM」**：就算本轮只跑纯转换（convert.py / Playwright 渲染），也可能有之前会话拉起的 Office 窗口没关。**每轮验证收尾，一律 `tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"` 确认零残留，不猜**。2026-08-04 教训：冒烟只跑 convert.py，想当然以为没拉 PowerPoint，实际 POWERPNT.EXE 残留 415MB；`office quit` 后仍卡加载项，需 `taskkill //F //PID`。
 
 ### 提交纪律
 
