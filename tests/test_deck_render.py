@@ -7,10 +7,13 @@ from offipy.envcheck import _check_browser
 
 STARTER = Path(__file__).resolve().parent.parent / "examples" / "decks" / "starter" / "deck.html"
 
-pytestmark = pytest.mark.skipif(
-    not CONVERT_PY.exists() or not _check_browser().ok,
-    reason="vendored 转换器缺失或 chromium 不可用",
-)
+pytestmark = [
+    pytest.mark.deck_render,
+    pytest.mark.skipif(
+        not CONVERT_PY.exists() or not _check_browser().ok,
+        reason="vendored 转换器缺失或 chromium 不可用",
+    ),
+]
 
 
 def test_render_produces_pptx(tmp_path):

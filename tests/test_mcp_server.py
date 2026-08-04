@@ -183,3 +183,112 @@ def test_save_tools_pass_overwrite_to_call(monkeypatch):
     assert captured["save_pdf"] == {"path": "b.pdf", "overwrite": False}
     mcp_server.excel_save()
     assert captured["save"] == {"path": None, "overwrite": False}
+
+
+# --- in-memory ClientSession（不起子进程，直连 MCPServer 协议层，P1-7） ---
+
+
+def _run_inmemory(assert_fn):
+    """在 in-memory transport 上跑 assert_fn(session)，验证 MCP 协议层行为。
+
+    用 create_client_server_memory_streams 造双向内存流，server 端由
+    _lowlevel_server.run 直接消费（与 run_stdio_async 同一路径），比
+    stdio_client 拉起子进程更快、无需真实 stdio。
+    """
+    from mcp.shared.memory import create_client_server_memory_streams
+
+    from offipy import mcp_server
+
+    async def main():
+        server = mcp_server.server
+        async with (
+            anyio.create_task_group() as tg,
+            create_client_server_memory_streams() as (client_streams, server_streams),
+        ):
+            client_read, client_write = client_streams
+            server_read, server_write = server_streams
+            tg.start_soon(
+                server._lowlevel_server.run,
+                server_read,
+                server_write,
+                server._lowlevel_server.create_initialization_options(),
+            )
+            async with ClientSession(client_read, client_write) as session:
+                await session.initialize()
+                await assert_fn(session)
+
+    anyio.run(main)
+
+
+def test_inmemory_structured_return_passthrough(monkeypatch):
+    from offipy import mcp_server
+
+    monkeypatch.setattr(
+        mcp_server,
+        "_call",
+        lambda app, op, **kw: [{"index": 1, "title": "T", "body": ["a"], "notes": ""}],
+    )
+
+    async def check(session):
+        r = await session.call_tool("ppt_read_slide_texts")
+        assert r.is_error is False
+        text = r.content[0].text
+        assert '"index": 1' in text and '"title": "T"' in text
+
+    _run_inmemory(check)
+
+
+def test_inmemory_int_and_void_and_args(monkeypatch):
+    from offipy import mcp_server
+
+    calls = {}
+
+    def fake_call(app, op, **kw):
+        calls[op] = kw
+        return 5 if op == "add_slide" else None
+
+    monkeypatch.setattr(mcp_server, "_call", fake_call)
+
+    async def check(session):
+        r_int = await session.call_tool("ppt_add_slide")
+        assert r_int.content[0].text == "5"
+        r_void = await session.call_tool("ppt_new_presentation")
+        assert r_void.content[0].text == "ok (new_pres)"
+        r_args = await session.call_tool("ppt_set_title", {"slide_idx": 2, "text": "x"})
+        assert r_args.content[0].text == "ok (set_title)"
+        assert calls["set_title"] == {"slide_idx": 2, "text": "x"}
+
+    _run_inmemory(check)
+
+
+def test_inmemory_tool_annotations_match_schema(monkeypatch):
+    from offipy import mcp_server
+
+    monkeypatch.setattr(mcp_server, "_call", lambda app, op, **kw: None)
+
+    async def check(session):
+        tools = {t.name: t for t in (await session.list_tools()).tools}
+        ro = tools["ppt_read_slide_texts"].annotations
+        assert ro is not None
+        assert ro.read_only_hint is True
+        assert ro.destructive_hint is None
+        ds = tools["ppt_set_title"].annotations
+        assert ds.read_only_hint is None
+        assert ds.destructive_hint is True
+
+    _run_inmemory(check)
+
+
+def test_inmemory_call_error_maps_to_mcp_error(monkeypatch):
+    from offipy import mcp_server
+
+    def bad_call(app, op, **kw):
+        raise RuntimeError("COM 失败: boom")
+
+    monkeypatch.setattr(mcp_server, "_call", bad_call)
+
+    async def check(session):
+        r = await session.call_tool("excel_new_workbook")
+        assert r.is_error is True
+
+    _run_inmemory(check)
