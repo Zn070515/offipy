@@ -331,6 +331,7 @@ def word_set_footer_text(text: str, section: int = 1) -> str:
     title="插入页码",
     description=(
         "在页脚插入页码。alignment 取 left/center/right；可带 color '#RRGGBB' 和 size 字号。"
+        "（会清空既有页脚文本）"
     ),
 )
 def word_add_page_number(

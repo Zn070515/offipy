@@ -71,6 +71,7 @@ call("word", "autofit_table", table_idx=1, behavior="window")
 call("word", "find_replace", find="季度", replace="半年度", replace_all=True)
 call("word", "insert_page_break")
 call("word", "set_header_text", text="2026 半年度经营分析报告 · 市场部")
+# 页脚文本与页码二选一：add_page_number 会清空既有页脚文本（幂等设计，避免页码域叠加）
 call("word", "set_footer_text", text="机密文件")
 call("word", "add_page_number", alignment="center")
 call("word", "page_setup", orientation="landscape", paper="a4", top_margin=60, bottom_margin=60)
