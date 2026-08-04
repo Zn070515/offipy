@@ -120,6 +120,22 @@ def test_whitespace_thresholds():
     assert findings and findings[0].severity == "HIGH"
 
 
+def test_background_shape_not_counted_as_content():
+    # convert 给每页记一个整页背景 shape，面积≠内容，不应把留白判成 0%
+    records = [
+        {
+            "id": 0,
+            "kind": "shape",
+            "rect": {"x": 0, "y": 0, "w": 1920, "h": 1080},
+            "deco": {"bg": "rgb(255, 255, 255)"},
+        },
+        _text({"x": 96, "y": 96, "w": 1200, "h": 90}, 52, "rgb(34, 34, 34)", "标题"),
+    ]
+    findings, ratio = aesthetic._audit_whitespace(records, 1)
+    assert findings == []
+    assert ratio < 0.75
+
+
 def test_type_scale_clusters():
     assert aesthetic._cluster_font_sizes([52, 24, 24, 18]) == 3
     assert aesthetic._cluster_font_sizes([52, 50, 51, 24]) == 2  # 52/50/51 合并

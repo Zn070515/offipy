@@ -200,7 +200,12 @@ def _cluster_font_sizes(sizes: list[float], tolerance: float = 2.0) -> int:
 
 def _audit_whitespace(records: list[dict], page_index: int) -> tuple[list[Finding], float]:
     page_area = _CANVAS_W * _CANVAS_H
-    content_area = sum(_rect_area(r) for r in records)
+    # 整页背景形状（≥90% 页面积的非文本 record）是画布本身，不算内容覆盖
+    content_area = sum(
+        _rect_area(r)
+        for r in records
+        if not (r.get("kind") != "text" and _rect_area(r) / page_area >= 0.90)
+    )
     ratio = min(1.0, content_area / page_area)
     findings = []
     if ratio > 0.75:

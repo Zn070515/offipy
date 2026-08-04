@@ -81,7 +81,7 @@ THEMES: dict[str, Theme] = {
             "--bg": "#FFFFFF",
             "--surface": "#F2F4F7",
             "--ink": "#222222",
-            "--muted": "#A2AAAD",
+            "--muted": "#667085",  # 白底对比 ≈5:1（正文 ≥4.5:1 达标）
             "--accent": "#2251FF",
             "--accent-soft": "#E9EDFF",
             "--divider": "#E4E8EC",
@@ -205,7 +205,9 @@ def theme_css(name: str) -> str:
     if missing:
         raise ValueError(f"主题 {name!r} 缺少 token: {missing}")
 
-    lines = _fmt_vars(theme.base_vars)
+    # :root 必须先含公共刻度（字号/间距/行高），再被主题颜色字体覆盖。
+    # 否则布局 CSS 的 var(--title) 等无定义，字号回落浏览器默认（16px）。
+    lines = _fmt_vars({**_BASE_TOKENS, **theme.base_vars})
     css = ":root {\n" + lines + "}\n"
     css += _SLIDE_BASE_CSS
     if theme.variant_selector:

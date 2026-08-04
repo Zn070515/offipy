@@ -64,6 +64,16 @@ def test_base_tokens_shared_across_themes():
     assert "--pad: 96px;" in css
 
 
+def test_root_block_includes_shared_tokens():
+    # 公共刻度必须在 :root 里（布局 CSS 的 var(--title) 依赖），不能只在 variant
+    css = design.theme_css("mckinsey")
+    root_block = css.split(":root {", 1)[1].split("}", 1)[0]
+    assert "--title: 52px;" in root_block
+    assert "--body: 24px;" in root_block
+    assert "--pad: 96px;" in root_block
+    assert "--gap: 24px;" in root_block
+
+
 def test_inject_theme_replaces_placeholder():
     html = '<html><head><style data-theme="mckinsey"></style></head><body>deck</body></html>'
     out = design.inject_theme(html, "mckinsey")
