@@ -324,6 +324,23 @@ class ExcelApp:
         else:
             raise ValueError(f"未知条件格式规则: {rule!r}（可选: cell/databar/colorscale）")
 
+    # --- 基础三件套 ---
+    def set_row_height(self, sheet, row, height: float):
+        self._ws(sheet).Rows(row).RowHeight = height
+
+    def set_number_format(self, sheet, range_addr: str, fmt: str):
+        self._ws(sheet).Range(range_addr).NumberFormat = fmt
+
+    def autofit(
+        self, sheet, range_addr: str | None = None, columns: bool = True, rows: bool = True
+    ):
+        ws = self._ws(sheet)
+        target = ws.Range(range_addr) if range_addr else ws.UsedRange
+        if columns:
+            target.Columns.AutoFit()
+        if rows:
+            target.Rows.AutoFit()
+
     # --- 生命周期 ---
     def quit(self):
         core.quit_app("excel")

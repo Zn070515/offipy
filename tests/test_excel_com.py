@@ -139,3 +139,23 @@ def test_conditional_format_colorscale_two():
     fc = _excel().ActiveWorkbook.Sheets(1).Range("D2:D5").FormatConditions(1)
     assert fc.Type == 3  # xlColorScale
     assert fc.ColorScaleCriteria.Count == 2
+
+
+def test_set_row_height():
+    call("excel", "new_book")
+    call("excel", "set_row_height", sheet=1, row=1, height=30)
+    assert _excel().ActiveWorkbook.Sheets(1).Rows(1).RowHeight == 30
+
+
+def test_set_number_format():
+    call("excel", "new_book")
+    call("excel", "set_cell", sheet=1, cell="A1", value=1234.5)
+    call("excel", "set_number_format", sheet=1, range_addr="A1:B1", fmt="#,##0.00")
+    assert _excel().ActiveWorkbook.Sheets(1).Range("A1").NumberFormat == "#,##0.00"
+
+
+def test_autofit_widens_long_text_column():
+    call("excel", "new_book")
+    call("excel", "set_cell", sheet=1, cell="A1", value="这是一段比较长的文本用于测试自动列宽")
+    call("excel", "autofit", sheet=1, columns=True, rows=False)
+    assert _excel().ActiveWorkbook.Sheets(1).Columns(1).ColumnWidth > 10
