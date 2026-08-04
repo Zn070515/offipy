@@ -8,7 +8,7 @@ description = "Live Microsoft Office automation via COM (session-based) + HTML-f
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "OfficeForClaude" }]
+authors = [{ name = "XuXin", email = "302025510036@zjut.edu.cn" }]
 # pywin32 仅支持 Windows：平台标记保证在 Linux/macOS 上也能解析依赖树
 # python-pptx/lxml/fonttools/playwright/Pillow 是 HTML→可编辑 PPTX 管线的硬依赖
 # （vendored 转换器的 requirements，先前散装 pip install、未入 pyproject，
