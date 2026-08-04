@@ -18,6 +18,7 @@ import json
 import os
 import platform
 import secrets
+import threading
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -31,6 +32,7 @@ from .word import WordApp
 
 DEFAULT_PORT = 8890
 _MAX_BODY = 16 * 1024 * 1024  # 请求体上限 16MB
+_MAX_RESPONSE = 64 * 1024 * 1024  # 响应上限 64MB（超限降级 500，不写大 payload）
 _TOKEN_FILENAME = "token"
 _STARTED_AT = time.time()
 
@@ -238,6 +240,17 @@ def _check_auth(handler) -> bool:
     return secrets.compare_digest(handler.headers.get("Authorization", ""), f"Bearer {_TOKEN}")
 
 
+def _encode_reply(obj, status: int = 200) -> tuple[int, bytes]:
+    """序列化响应；超过响应上限降级为 500 错误，不向客户端写超大 payload。"""
+    data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    if len(data) > _MAX_RESPONSE:
+        return 500, json.dumps(
+            {"ok": False, "error": f"响应超过 {_MAX_RESPONSE} 字节上限"},
+            ensure_ascii=False,
+        ).encode("utf-8")
+    return status, data
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/ping":
@@ -264,6 +277,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not _check_auth(self):
             return self._reply({"ok": False, "error": "unauthorized"}, status=401)
+        if self.path == "/shutdown":
+            # 鉴权过的优雅停机：回包后由独立线程触发 shutdown()——不能在 handler
+            # 线程内直调（serve_forever 要等当前请求完成，会死锁）。
+            self._reply({"ok": True, "result": "shutting down"})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
+        if self.path != "/call":
+            return self._reply({"ok": False, "error": "not found"}, status=404)
         ctype = (self.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
         if ctype != "application/json":
             return self._reply(
@@ -273,6 +294,9 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0) or 0)
         except (TypeError, ValueError):
             return self._reply({"ok": False, "error": "Content-Length 无效"}, status=400)
+        if n < 0:
+            # read(负值) 会吞掉整个连接缓冲，必须显式拒绝
+            return self._reply({"ok": False, "error": "Content-Length 不能为负"}, status=400)
         if n > _MAX_BODY:
             return self._reply(
                 {"ok": False, "error": f"请求体超过 {_MAX_BODY} 字节上限"}, status=413
@@ -309,7 +333,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
     def _reply(self, obj, status=200):
-        data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        status, data = _encode_reply(obj, status)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))

@@ -243,12 +243,16 @@ def _main(argv=None):
         return
     if args.app == "server":
         if args.action == "status":
-            ensure_server()
-            print(json.dumps(server_status(), ensure_ascii=False))
+            # 只读探测（P0-3）：未运行不拉起，直接报状态
+            st = server_status()
+            if st is None:
+                print("server 未在运行")
+            else:
+                print(json.dumps(st, ensure_ascii=False))
         elif args.action == "stop":
-            print("server 未在运行" if not stop_server() else "server 已停止")
+            print(stop_server())
         else:  # restart
-            stop_server()
+            print(stop_server())
             ensure_server()
             print("server 已重启")
         return

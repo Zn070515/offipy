@@ -138,10 +138,17 @@ def _check_browser() -> Check:
 
 
 def _check_server() -> Check:
-    from .client import _ping
+    from .client import _probe
 
-    if _ping():
+    state = _probe()
+    if state == "ok":
         return Check("本地 server", "127.0.0.1:8890", True, "运行中")
+    if state == "auth_fail":
+        return Check(
+            "本地 server", "127.0.0.1:8890", False, "端口有 server 但 token 不匹配", warn=True
+        )
+    if state == "mismatch":
+        return Check("本地 server", "127.0.0.1:8890", False, "端口被非 offipy 进程占用", warn=True)
     return Check(
         "本地 server",
         "127.0.0.1:8890",

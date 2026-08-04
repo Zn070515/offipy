@@ -33,6 +33,7 @@ def _post(
     token: str | None = None,
     ctype="application/json",
     content_length: int | None = None,
+    path="/call",
 ):
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": ctype}
@@ -41,7 +42,7 @@ def _post(
     if content_length is not None:
         headers["Content-Length"] = str(content_length)
     conn = http.client.HTTPConnection("127.0.0.1", port)
-    conn.request("POST", "/call", body=data, headers=headers)
+    conn.request("POST", path, body=data, headers=headers)
     resp = conn.getresponse()
     payload = resp.read().decode("utf-8")
     conn.close()
@@ -128,6 +129,48 @@ def test_server_survives_bad_auth(srv):
     assert status == 200
     status, _ = _get(srv, "/status", token=TOKEN)
     assert status == 200
+
+
+def test_post_non_call_path_404(srv):
+    # P0-10：POST 非 /call 路径 → 404，不进入 dispatch
+    status, body = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, path="/nope")
+    assert status == 404
+    assert "not found" in body["error"]
+
+
+def test_negative_content_length_rejected(srv):
+    # P0-10：负 Content-Length → 400（read(负值) 会吞掉整个连接缓冲）
+    status, _ = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, content_length=-5)
+    assert status == 400
+
+
+def test_shutdown_requires_auth(srv):
+    status, _ = _post(srv, {}, path="/shutdown")
+    assert status == 401
+    status, _ = _post(srv, {}, token="wrong-token", path="/shutdown")
+    assert status == 401
+
+
+def test_shutdown_ok(srv):
+    status, body = _post(srv, {}, token=TOKEN, path="/shutdown")
+    assert status == 200
+    assert body["ok"] is True
+
+
+def test_encode_reply_ok_normal():
+    status, data = server._encode_reply({"ok": True, "result": 3})
+    assert status == 200
+    assert json.loads(data) == {"ok": True, "result": 3}
+
+
+def test_encode_reply_caps_oversize(monkeypatch):
+    # P0-10：响应超上限 → 500 错误，不向客户端写大 payload
+    monkeypatch.setattr(server, "_MAX_RESPONSE", 100)
+    status, data = server._encode_reply({"ok": True, "result": "x" * 1000})
+    assert status == 500
+    payload = json.loads(data)
+    assert payload["ok"] is False
+    assert "上限" in payload["error"]
 
 
 # --- round-2：host 限制 / token 生命周期 / 显式白名单 / 惰性 COM ---

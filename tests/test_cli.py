@@ -178,10 +178,22 @@ def test_server_status_dispatch(monkeypatch, capsys):
     assert "0.9.0" in capsys.readouterr().out
 
 
+def test_server_status_not_running(monkeypatch, capsys):
+    from offipy import cli
+
+    # P0-3：未运行只报状态，不隐式拉起（不再调 ensure_server）
+    called = []
+    monkeypatch.setattr("offipy.cli.ensure_server", lambda: called.append("ensure"))
+    monkeypatch.setattr("offipy.cli.server_status", lambda: None)
+    assert cli.main(["server", "status"]) is None
+    assert "未在运行" in capsys.readouterr().out
+    assert called == []
+
+
 def test_server_stop_dispatch(monkeypatch, capsys):
     from offipy import cli
 
-    monkeypatch.setattr("offipy.cli.stop_server", lambda: True)
+    monkeypatch.setattr("offipy.cli.stop_server", lambda: "server 已停止")
     assert cli.main(["server", "stop"]) is None
     assert "已停止" in capsys.readouterr().out
 
@@ -190,7 +202,7 @@ def test_server_restart_dispatch(monkeypatch, capsys):
     from offipy import cli
 
     calls = []
-    monkeypatch.setattr("offipy.cli.stop_server", lambda: calls.append("stop") or True)
+    monkeypatch.setattr("offipy.cli.stop_server", lambda: calls.append("stop") or "server 已停止")
     monkeypatch.setattr("offipy.cli.ensure_server", lambda: calls.append("ensure"))
     assert cli.main(["server", "restart"]) is None
     assert calls == ["stop", "ensure"]

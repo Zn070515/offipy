@@ -218,17 +218,24 @@ def test_check_browser_missing_package(monkeypatch):
 
 
 def test_check_server_running(monkeypatch):
-    monkeypatch.setattr("offipy.client._ping", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     c = envcheck._check_server()
     assert c.ok is True
     assert c.detail == "运行中"
 
 
 def test_check_server_not_running_warns(monkeypatch):
-    monkeypatch.setattr("offipy.client._ping", lambda: False)
+    monkeypatch.setattr("offipy.client._probe", lambda: "down")
     c = envcheck._check_server()
     assert c.ok is False
     assert c.warn is True
+
+
+def test_check_server_auth_fail_warns(monkeypatch):
+    monkeypatch.setattr("offipy.client._probe", lambda: "auth_fail")
+    c = envcheck._check_server()
+    assert c.ok is False
+    assert "token 不匹配" in c.detail
 
 
 # --- PDF 可选路径 ---
