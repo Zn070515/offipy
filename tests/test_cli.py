@@ -75,3 +75,21 @@ def test_deck_outline_prints_json_without_out(tmp_path, capsys):
     md.write_text("# T\n\n## 页\n- 甲\n", encoding="utf-8")
     cli.main(["deck", "outline", "--input", str(md)])
     assert '"title": "T"' in capsys.readouterr().out
+
+
+def test_deck_outline_missing_input_raises():
+    from offipy import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["deck", "outline"])
+
+
+def test_deck_outline_missing_file_friendly_error(tmp_path, capsys):
+    # 回归：--input 指向不存在的文件时曾裸 FileNotFoundError traceback，
+    # 现在应 SystemExit 带友好提示。
+    from offipy import cli
+
+    missing = tmp_path / "nope.md"
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "outline", "--input", str(missing)])
+    assert "找不到文件" in str(exc.value)

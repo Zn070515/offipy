@@ -102,8 +102,13 @@ def main(argv=None):
                     "用法: office deck outline --input <outline.md> "
                     "[--theme <name>] [--out <deck.html>]"
                 )
-            with open(md_path, encoding="utf-8") as f:
-                outline = parse_outline(f.read())
+            try:
+                with open(md_path, encoding="utf-8") as f:
+                    outline = parse_outline(f.read())
+            except FileNotFoundError:
+                raise SystemExit(f"找不到文件: {md_path}") from None
+            except ValueError as e:
+                raise SystemExit(f"大纲格式错误: {e}") from None
             html = to_deck_html(outline, theme=kw.pop("theme", None))
             out = kw.pop("out", None)
             if out:
