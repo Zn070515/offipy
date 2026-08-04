@@ -121,3 +121,46 @@ def test_invalid_layout_directive_raises():
     # @layout 值拼进 class/data-layout 属性，必须拒绝注入尝试（引号/空格逃逸）
     with pytest.raises(ValueError):
         parse_outline('# T\n\n## 页\n@layout: cards-3" onmouseover="evil\n')
+
+
+CHART_OUTLINE = """# 季度业绩回顾
+
+## 营收增长
+@chart: bar
+@chart-data: {"categories":["Q1","Q2","Q3"],"series":[{"name":"营收","values":[40,55,70]}]}
+"""
+
+
+def test_parse_chart_directives():
+    o = parse_outline(CHART_OUTLINE)
+    s = o.slides[0]
+    assert s.chart_type == "bar"
+    assert '"Q1"' in s.chart_data
+    assert s.layout == "chart-dominant"  # @chart 隐式指定布局
+    # markdown 往返
+    o2 = parse_outline(o.markdown())
+    assert o2.to_dict() == o.to_dict()
+
+
+def test_parse_chart_invalid_type_raises():
+    with pytest.raises(ValueError):
+        parse_outline("# T\n\n## 页\n@chart: radar\n")
+
+
+def test_to_deck_html_emits_chart_div():
+    html = to_deck_html(parse_outline(CHART_OUTLINE))
+    assert 'data-chart="bar"' in html
+    assert "data-chart-data=" in html
+    assert 'data-layout="chart-dominant"' in html
+
+
+def test_chart_slide_skips_bullets_as_cards():
+    # 图表页的要点不该渲染成 .card（数据在 @chart-data，bullets 语义变了）
+    md = (
+        "# T\n\n## 页\n@chart: bar\n"
+        '@chart-data: {"categories":["a"],"series":[{"name":"s","values":[1]}]}\n'
+        "- 说明文字\n"
+    )
+    html = to_deck_html(parse_outline(md))
+    assert '<div class="cards">' not in html
+    assert '<div class="chart"' in html
