@@ -25,7 +25,7 @@ class PptApp:
         return self._pres
 
     def open_pres(self, path: str):
-        self._pres = self.app.Presentations.Open(path)
+        self._pres = self.app.Presentations.Open(os.path.abspath(path))
         return self._pres
 
     def active_pres(self):
