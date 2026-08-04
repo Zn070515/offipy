@@ -452,6 +452,46 @@ def test_inject_icon_lu(tmp_path, fake_assets):
     assert freeforms[0].line.width > 0
 
 
+def test_inject_icon_lu_round_stroke(tmp_path, fake_assets):
+    """stroke 集对齐 Lucide 设计：freeform 折线设 round cap + round join（默认 flat 尖角）。"""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.oxml.ns import qn
+    from pptx.util import Emu
+
+    from offipy.icons import inject_icons
+
+    prs = _blank_pptx(tmp_path)
+    slide = prs.slides[0]
+    slide.shapes.add_picture(
+        io.BytesIO(_png_bytes()), Emu(96 * 6350), Emu(225 * 6350), Emu(48 * 6350), Emu(48 * 6350)
+    )
+    out = tmp_path / "out.pptx"
+    prs.save(str(out))
+
+    decl = IconDecl(slide_index=1, data_icon="lu:zap", view_box=(0.0, 0.0, 24.0, 24.0))
+    matched = {
+        1: [
+            (
+                decl,
+                {
+                    "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                    "color": "rgb(51, 65, 85)",
+                    "outerHTML": '<svg data-icon="lu:zap"></svg>',
+                },
+            )
+        ]
+    }
+    inject_icons(str(out), matched)
+
+    prs2 = Presentation(str(out))
+    slide2 = prs2.slides[0]
+    freeforms = [s for s in slide2.shapes if s.shape_type == MSO_SHAPE_TYPE.FREEFORM]
+    for shp in freeforms:
+        ln = shp.line._get_or_add_ln()
+        assert ln.get("cap") == "rnd"
+        assert ln.find(qn("a:round")) is not None
+
+
 def test_inject_icons_multiple_on_page(tmp_path, fake_assets):
     from pptx.enum.shapes import MSO_SHAPE_TYPE
     from pptx.util import Emu
@@ -551,6 +591,104 @@ def test_inject_icon_lu_mixed_fill(tmp_path, fake_assets):
     bg = [s for s in freeforms if s.fill.type == MSO_FILL_TYPE.BACKGROUND]
     assert len(solid) == 1  # fill="currentColor" 闭合路径 → 实心填充
     assert len(bg) == 1  # 纯 stroke 路径 → noFill + 描边
+
+
+def test_inject_icon_color_fallback_theme_accent(tmp_path, fake_assets):
+    """svg record color 缺失 → 用传入的 fallback（主题 --accent），而非写死主蓝。"""
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.util import Emu
+
+    from offipy.icons import inject_icons
+
+    prs = _blank_pptx(tmp_path)
+    slide = prs.slides[0]
+    slide.shapes.add_picture(
+        io.BytesIO(_png_bytes()), Emu(96 * 6350), Emu(225 * 6350), Emu(48 * 6350), Emu(48 * 6350)
+    )
+    out = tmp_path / "out.pptx"
+    prs.save(str(out))
+
+    decl = IconDecl(slide_index=1, data_icon="ph:check", view_box=(0.0, 0.0, 256.0, 256.0))
+    matched = {
+        1: [
+            (
+                decl,
+                {
+                    "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                    "color": None,  # 容器没测到颜色 → 走 fallback
+                    "outerHTML": '<svg data-icon="ph:check"></svg>',
+                },
+            )
+        ]
+    }
+    inject_icons(str(out), matched, fallback=RGBColor(0x1F, 0x3A, 0x5F))  # academic --accent
+
+    prs2 = Presentation(str(out))
+    freeforms = [s for s in prs2.slides[0].shapes if s.shape_type == MSO_SHAPE_TYPE.FREEFORM]
+    assert freeforms[0].fill.fore_color.rgb == RGBColor(0x1F, 0x3A, 0x5F)
+
+
+def test_postprocess_color_fallback_uses_theme_accent(tmp_path, fake_assets):
+    """容器未设 color → 图标缺省色从 HTML <style data-theme> 的主题 --accent 取。"""
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.util import Emu
+
+    from offipy.icons import postprocess_icons
+
+    html = tmp_path / "d.html"
+    html.write_text(
+        '<html><head><style data-theme="academic"></style></head><body>'
+        '<section class="slide icons-row" data-pptx-slide data-layout="icons-row">'
+        '<svg class="icon" data-icon="ph:check" viewBox="0 0 256 256"></svg>'
+        "</section></body></html>",
+        encoding="utf-8",
+    )
+    prs = _blank_pptx(tmp_path)
+    prs.slides[0].shapes.add_picture(
+        io.BytesIO(_png_bytes()),
+        Emu(96 * 6350),
+        Emu(225 * 6350),
+        Emu(48 * 6350),
+        Emu(48 * 6350),
+    )
+    pptx = tmp_path / "d.pptx"
+    prs.save(str(pptx))
+    meas_dir = tmp_path / "d_audit" / "_cache"
+    meas_dir.mkdir(parents=True)
+    (meas_dir / "measurements.json").write_text(
+        json.dumps(
+            {
+                "slides": [
+                    {
+                        "slide": {},
+                        "records": [
+                            {
+                                "id": 1,
+                                "kind": "svg",
+                                "tag": "svg",
+                                "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                                "outerHTML": (
+                                    '<svg class="icon" data-icon="ph:check" '
+                                    'viewBox="0 0 256 256"></svg>'
+                                ),
+                                # 无 color 字段 → 走主题 fallback
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    postprocess_icons(str(html), str(pptx))
+
+    prs2 = Presentation(str(pptx))
+    freeforms = [s for s in prs2.slides[0].shapes if s.shape_type == MSO_SHAPE_TYPE.FREEFORM]
+    assert freeforms
+    assert freeforms[0].fill.fore_color.rgb == RGBColor(0x1F, 0x3A, 0x5F)  # academic --accent
 
 
 def test_postprocess_skips_without_icons(tmp_path, monkeypatch):

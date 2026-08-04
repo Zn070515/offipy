@@ -147,6 +147,14 @@ def test_icons_row_css_uses_tokens_only():
     assert "font-size: var(--body)" in css
 
 
+def test_icons_row_wraps_multiple_rows():
+    """icons-row 支持多行：flex-wrap + 固定 3 列/行 basis（>3 个图标自动换行）。"""
+    css = LAYOUTS["icons-row"].css
+    assert "flex-wrap: wrap" in css
+    assert "calc((100% - 2 * var(--gap)) / 3)" in css
+    assert "flex: 0 0" in css
+
+
 def test_inject_icons_row_layout():
     html = (
         "<html><head><style data-layouts></style></head><body>"

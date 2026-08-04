@@ -487,14 +487,48 @@ def _parse_color(color: str | None):
     return None
 
 
+def _set_round_stroke(shape) -> None:
+    """Lucide 源 SVG 用 stroke-linecap/linejoin=round；freeform 折线默认 flat，显式设回。
+
+    只对 stroke 模式生效（line 可见）。fill 模式的线已被 noFill 掉，无需设置。
+    """
+    from pptx.oxml.ns import qn
+
+    ln = shape.line._get_or_add_ln()
+    ln.set("cap", "rnd")
+    if ln.find(qn("a:round")) is None:
+        ln.append(ln.makeelement(qn("a:round"), {}))
+
+
+def _theme_accent_fallback(html_text: str):
+    """HTML <style data-theme="..."> 声明的主题 → 该主题 --accent（RGBColor）。
+
+    容器没测到 color 时兜底用主题强调色；未知/缺失主题返回 None（再落缺省主蓝）。
+    """
+    m = re.search(r'<style\s+data-theme="([a-z0-9-]+)"', html_text)
+    if not m:
+        return None
+    from .design import THEMES
+
+    theme = THEMES.get(m.group(1))
+    if theme is None:
+        return None
+    return _parse_color(theme.base_vars.get("--accent"))
+
+
 def _style_shape(
-    shape, mode: str, color: str | None, line_width_emu: int, filled: bool = False
+    shape,
+    mode: str,
+    color: str | None,
+    line_width_emu: int,
+    filled: bool = False,
+    fallback=None,
 ) -> None:
     rgb = _parse_color(color)
     if rgb is None:
         from pptx.dml.color import RGBColor
 
-        rgb = RGBColor(0x22, 0x51, 0xFF)  # 缺省主蓝（对齐 mckinsey --accent）
+        rgb = fallback if fallback is not None else RGBColor(0x22, 0x51, 0xFF)  # 缺省主蓝
     fill_mode = (mode == "fill") or filled
     if fill_mode:
         shape.fill.solid()
@@ -506,6 +540,7 @@ def _style_shape(
         shape.fill.background()
         shape.line.color.rgb = rgb
         shape.line.width = line_width_emu
+        _set_round_stroke(shape)
 
 
 def _build_icon_shapes(
@@ -516,6 +551,7 @@ def _build_icon_shapes(
     view_box: tuple[float, float, float, float],
     rect: dict,
     color: str | None,
+    fallback=None,
 ) -> None:
     """在 rect（px）位置画图标：每个子路径一个 freeform shape。"""
     vbx, vby, vbw, vbh = view_box
@@ -536,7 +572,7 @@ def _build_icon_shapes(
         if rest:
             fb.add_line_segments(rest, close=sp.close)
         shape = fb.convert_to_shape()
-        _style_shape(shape, mode, color, line_width_emu, sp.filled)
+        _style_shape(shape, mode, color, line_width_emu, sp.filled, fallback)
 
 
 def _remove_placeholder(slide, rect: dict) -> None:
@@ -553,8 +589,13 @@ def _remove_placeholder(slide, rect: dict) -> None:
             slide.shapes._spTree.remove(shape._element)
 
 
-def inject_icons(pptx_path: str, matched: dict[int, list[tuple[IconDecl, dict]]]) -> None:
-    """把图标占位替换成 freeform 矢量图标。matched: {slide_index: [(decl, svg_record), ...]}。"""
+def inject_icons(
+    pptx_path: str, matched: dict[int, list[tuple[IconDecl, dict]]], fallback=None
+) -> None:
+    """把图标占位替换成 freeform 矢量图标。matched: {slide_index: [(decl, svg_record), ...]}。
+
+    fallback: 容器没测到 color 时的兜底色（主题 --accent 的 RGBColor），None 落缺省主蓝。
+    """
     from pptx import Presentation
 
     prs = Presentation(pptx_path)
@@ -565,7 +606,14 @@ def inject_icons(pptx_path: str, matched: dict[int, list[tuple[IconDecl, dict]]]
             mode = SET_MODE[decl.data_icon.split(":", 1)[0]]
             subpaths, stroke_width = _svg_to_subpaths(load_icon_svg(decl.data_icon))
             _build_icon_shapes(
-                slide, mode, subpaths, stroke_width, decl.view_box, svg["rect"], svg["color"]
+                slide,
+                mode,
+                subpaths,
+                stroke_width,
+                decl.view_box,
+                svg["rect"],
+                svg["color"],
+                fallback,
             )
     prs.save(pptx_path)
 
@@ -603,4 +651,5 @@ def postprocess_icons(html_path: str, pptx_path: str) -> None:
             )
         svgs.remove(svg)  # 防同页重复匹配同一条 svg record
         matched.setdefault(decl.slide_index, []).append((decl, svg))
-    inject_icons(pptx_path, matched)
+    fallback = _theme_accent_fallback(html_text)
+    inject_icons(pptx_path, matched, fallback=fallback)
