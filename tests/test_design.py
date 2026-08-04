@@ -34,6 +34,15 @@ def test_theme_css_contains_root_and_variant():
     assert "--bg: #051C2C;" in css
 
 
+def test_theme_css_contains_slide_base_styles():
+    for name in design.THEMES:
+        css = design.theme_css(name)
+        assert "width: 1920px; height: 1080px" in css
+        assert ".slide {" in css
+        assert "background: var(--bg)" in css
+        assert "padding: var(--pad)" in css
+
+
 def test_light_default_theme_has_light_variant():
     css = design.theme_css("dark-tech")
     assert ".slide.light {" in css

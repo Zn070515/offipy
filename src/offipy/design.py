@@ -179,8 +179,21 @@ def themes() -> list[dict]:
     ]
 
 
+# 所有主题共享的页面基础样式：Claude 写 deck 时无需再手写 .slide 容器。
+# 只依赖 token，因此任何主题都成立（反色页的覆盖在 theme_css 里追加）。
+_SLIDE_BASE_CSS = """
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { margin: 0; font-family: var(--font); }
+.slide {
+  width: 1920px; height: 1080px; position: relative;
+  overflow: hidden; background: var(--bg); color: var(--ink);
+  padding: var(--pad);
+}
+"""
+
+
 def theme_css(name: str) -> str:
-    """生成一套主题的完整 CSS 块（:root 变量 + 反色页覆盖）。
+    """生成一套主题的完整 CSS 块（:root 变量 + .slide 基础样式 + 反色页覆盖）。
 
     Claude 在 HTML 的 <head> 写 `<style data-theme="<name>"></style>` 占位，
     deck.render 时替换成这里的输出；无占位则 append 到 </head> 前。
@@ -194,6 +207,7 @@ def theme_css(name: str) -> str:
 
     lines = _fmt_vars(theme.base_vars)
     css = ":root {\n" + lines + "}\n"
+    css += _SLIDE_BASE_CSS
     if theme.variant_selector:
         vv = {**_BASE_TOKENS, **theme.variant_vars}
         css += f"\n{theme.variant_selector} {{\n" + _fmt_vars(vv) + "}\n"
