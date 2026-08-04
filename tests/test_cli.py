@@ -187,8 +187,9 @@ def test_server_restart_dispatch(monkeypatch, capsys):
 def test_parse_kwargs_repeat_flag_aggregates():
     from offipy.cli import _parse_kwargs
 
+    # 值保留原始字符串（类型转换交给 _coerce_kwargs 按签名注解做）
     assert _parse_kwargs(["--lines", "a", "--lines", "b"]) == {"lines": ["a", "b"]}
-    assert _parse_kwargs(["--n", "1", "--n", "2"]) == {"n": [1, 2]}
+    assert _parse_kwargs(["--n", "1", "--n", "2"]) == {"n": ["1", "2"]}
 
 
 def test_parse_kwargs_payload_overrides():
@@ -233,3 +234,67 @@ def test_validate_kwargs_unknown_op_deferred_to_server():
     from offipy import cli
 
     cli._validate_kwargs("ppt", "no_such_op", {"x": 1})  # 不抛：未知 op 交给 server
+
+
+# --- 批次4：CLI 按签名类型转换 ---
+
+
+def test_coerce_kwargs_str_keeps_string():
+    from offipy.cli import _coerce_kwargs
+
+    # "00123" 前导零保留、"true" 不当 bool
+    assert _coerce_kwargs("word", "add_heading", {"text": "00123"}) == {"text": "00123"}
+    assert _coerce_kwargs("ppt", "set_title", {"text": "true"}) == {"text": "true"}
+
+
+def test_coerce_kwargs_int():
+    from offipy.cli import _coerce_kwargs
+
+    assert _coerce_kwargs("ppt", "add_slide", {"layout": "2"}) == {"layout": 2}
+
+
+def test_coerce_kwargs_bool():
+    from offipy.cli import _coerce_kwargs
+
+    assert _coerce_kwargs("excel", "page_setup", {"center_horizontally": "true"}) == {
+        "center_horizontally": True
+    }
+    assert _coerce_kwargs("excel", "page_setup", {"center_horizontally": "off"}) == {
+        "center_horizontally": False
+    }
+
+
+def test_coerce_kwargs_int_invalid_exits(capsys):
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._coerce_kwargs("ppt", "add_slide", {"layout": "abc"})
+    assert exc.value.code == 2
+    assert "整数" in capsys.readouterr().err
+
+
+def test_coerce_kwargs_list_wraps_scalar():
+    from offipy.cli import _coerce_kwargs
+
+    assert _coerce_kwargs("word", "add_list", {"lines": "x"}) == {"lines": ["x"]}
+    assert _coerce_kwargs("word", "add_list", {"lines": ["a", "b"]}) == {"lines": ["a", "b"]}
+
+
+def test_coerce_kwargs_unknown_op_passthrough():
+    from offipy.cli import _coerce_kwargs
+
+    assert _coerce_kwargs("ppt", "no_such_op", {"x": "1"}) == {"x": "1"}
+
+
+def test_main_coerces_before_call(monkeypatch):
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured.update(kw)
+        return None
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["ppt", "add_slide", "--layout", "2"])
+    assert captured == {"layout": 2}

@@ -217,23 +217,3 @@ def call(app: str, op: str, **args):
             msg += "\n" + "\n".join("  " + line for line in resp["trace"])
         raise RemoteCallError(msg)
     return resp.get("result")
-
-
-def convert_value(v: str):
-    s = v.strip()
-    low = s.lower()
-    if low == "true":
-        return True
-    if low == "false":
-        return False
-    if low in ("none", "null"):
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    return v
