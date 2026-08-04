@@ -78,18 +78,20 @@ def call(app: str, op: str, **args):
 
 
 def convert_value(v: str):
-    if v in ("true", "True"):
+    s = v.strip()
+    low = s.lower()
+    if low == "true":
         return True
-    if v in ("false", "False"):
+    if low == "false":
         return False
-    if v in ("none", "None"):
+    if low in ("none", "null"):
         return None
     try:
-        return int(v)
+        return int(s)
     except ValueError:
         pass
     try:
-        return float(v)
+        return float(s)
     except ValueError:
         pass
     return v

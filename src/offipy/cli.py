@@ -42,7 +42,7 @@ def _parse_kwargs(tokens):
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="office", description="offipy CLI")
-    sub = p.add_subparsers(dest="app")
+    sub = p.add_subparsers(dest="app", required=True)
     for app in ("excel", "word", "ppt"):
         sp = sub.add_parser(app)
         sp.add_argument("op")
@@ -80,13 +80,16 @@ def main(argv=None):
             if not html:
                 raise SystemExit(
                     "用法: office deck make --html <deck.html> "
-                    "[--out <x.pptx>] [--no-open] [--feedback <dir>]"
+                    "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
+                    "[--theme <name>] [--layouts]"
                 )
             pptx = deck_make(
                 html,
                 out=kw.pop("out", None),
                 open_live_flag=not (kw.pop("no-open", False) or kw.pop("no_open", False)),
                 feedback_dir=kw.pop("feedback", None),
+                theme=kw.pop("theme", None),
+                apply_layouts=bool(kw.pop("layouts", False) or kw.pop("apply-layouts", False)),
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
         return
