@@ -18,16 +18,27 @@ from dataclasses import dataclass
 from . import __version__
 from .exceptions import UnsupportedPlatformError
 
-# (dist 名, import 名)：pywin32 dist="pywin32" import="win32com"
+# (dist 名, import 名, 适用 sys.platform 或 None)：pywin32 仅 Windows，
+# 非 Windows 上 win32com import 不存在（Linux 纯模块 CI 不能炸）。
+# 其余依赖跨平台适用。
 _DEPS = [
-    ("pywin32", "win32com"),
-    ("python-pptx", "pptx"),
-    ("lxml", "lxml"),
-    ("fonttools", "fontTools"),  # dist 名小写，import 名大写 T
-    ("playwright", "playwright"),
-    ("Pillow", "PIL"),
-    ("mcp", "mcp"),
+    ("pywin32", "win32com", "win32"),
+    ("python-pptx", "pptx", None),
+    ("lxml", "lxml", None),
+    ("fonttools", "fontTools", None),  # dist 名小写，import 名大写 T
+    ("playwright", "playwright", None),
+    ("Pillow", "PIL", None),
+    ("mcp", "mcp", None),
 ]
+
+
+def _platform_deps() -> list[tuple[str, str]]:
+    """当前平台实际适用的依赖清单（保持声明顺序）。"""
+    return [
+        (dist, mod) for dist, mod, sys_name in _DEPS if sys_name is None or sys.platform == sys_name
+    ]
+
+
 _OFFICE = [
     ("word", "Word.Application"),
     ("excel", "Excel.Application"),
@@ -82,7 +93,7 @@ _EXTRA_HINT = {
 
 def _check_dependencies() -> list[Check]:
     out = []
-    for dist, mod in _DEPS:
+    for dist, mod in _platform_deps():
         try:
             importlib.import_module(mod)
             version = importlib.metadata.version(dist)

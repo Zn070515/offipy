@@ -8,15 +8,16 @@ from offipy.paths import converter_data_dir, user_data_dir
 
 def test_user_data_dir_windows_uses_localappdata(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\test\AppData\Local")
-    assert user_data_dir() == Path(r"C:\Users\test\AppData\Local\offipy")
+    # 正斜杠：Path 在 Windows 归一化为反斜杠、POSIX 保持正斜杠，跨平台断言一致
+    monkeypatch.setenv("LOCALAPPDATA", "C:/Users/test/AppData/Local")
+    assert user_data_dir() == Path("C:/Users/test/AppData/Local") / "offipy"
 
 
 def test_user_data_dir_windows_fallback_home(monkeypatch):
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.delenv("LOCALAPPDATA", raising=False)
-    monkeypatch.setattr("offipy.paths.Path.home", lambda: Path(r"C:\Users\test"))
-    assert user_data_dir() == Path(r"C:\Users\test\.offipy")
+    monkeypatch.setattr("offipy.paths.Path.home", lambda: Path("C:/Users/test"))
+    assert user_data_dir() == Path("C:/Users/test") / ".offipy"
 
 
 def test_user_data_dir_linux_xdg(monkeypatch):

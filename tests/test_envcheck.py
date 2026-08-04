@@ -55,7 +55,8 @@ def test_check_offipy_version():
 
 def test_check_dependencies_all_ok():
     checks = envcheck._check_dependencies()
-    assert len(checks) == len(envcheck._DEPS)
+    # 平台感知：pywin32 仅 Windows 适用，Linux 上不检查
+    assert len(checks) == len(envcheck._platform_deps())
     for c in checks:
         assert c.ok is True
         assert c.detail  # 版本号非空
@@ -75,7 +76,8 @@ def test_check_dependencies_import_failure(monkeypatch):
     checks = {c.name: c for c in envcheck._check_dependencies()}
     assert checks["fonttools"].ok is False
     assert "offipy[deck]" in checks["fonttools"].hint
-    assert checks["pywin32"].ok is True
+    if sys.platform == "win32":  # pywin32 仅 Windows 平台适用
+        assert checks["pywin32"].ok is True
 
 
 # --- Office 安装检测（fake winreg） ---
