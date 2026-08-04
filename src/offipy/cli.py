@@ -31,8 +31,8 @@ import sys
 import types
 import typing
 
-from . import excel, ppt, word
-from .client import call, ensure_server, server_status, stop_server
+from . import excel, ppt, schema, word
+from .client import call, ensure_server, server_status, set_port, stop_server
 from .exceptions import OffipyError
 
 _APP_CLASSES = {
@@ -45,7 +45,7 @@ _APP_CLASSES = {
 def _parse_kwargs(tokens):
     """--key value 解析：token 值保留原始字符串，重复 key 聚合为 list。
 
-    类型转换不再在这里做（弃全局猜测）：值按目标方法签名注解由 _coerce_kwargs
+    类型转换不再在这里做（弃全局猜测）：值按 schema 声明类型由 _coerce_kwargs
     统一转换，避免 "00123" 丢前导零、"true" 被误当 bool。--payload/--json 仍
     JSON 透传（结构化值覆盖同名 kwargs）。
     """
@@ -100,6 +100,30 @@ _BOOL_TOKENS = {
 }
 
 
+class _BoolAction(argparse.Action):
+    """--flag / --flag <true|false> 两用布尔：裸用为 True，显式值按 token 解析。
+
+    根除 bool("false") is True 陷阱：显式传 false 必须是 False。
+    """
+
+    def __init__(self, option_strings, dest, **kwargs):
+        kwargs.setdefault("nargs", "?")
+        kwargs.setdefault("const", True)
+        kwargs.setdefault("default", False)
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values is None:
+            setattr(namespace, self.dest, True)
+            return
+        token = str(values).strip().lower()
+        if token not in _BOOL_TOKENS:
+            raise argparse.ArgumentError(
+                self, f"布尔值（true/false/1/0/on/off/yes/no），收到: {values!r}"
+            )
+        setattr(namespace, self.dest, _BOOL_TOKENS[token])
+
+
 def _unwrap_optional(ann):
     """Optional[X] / X | None → X；其余注解原样返回。"""
     origin = typing.get_origin(ann)
@@ -139,26 +163,38 @@ def _coerce_value(key: str, ann, value):
         if token in _BOOL_TOKENS:
             return _BOOL_TOKENS[token]
         _coerce_fail(key, "布尔值（true/false/1/0/on/off/yes/no）", value)
-    if typing.get_origin(base) is list:
+    if base is list or typing.get_origin(base) is list:
+        # 裸 list 与 list[T] 都按列表处理：标量包一层，列表原样
         return value if isinstance(value, list) else [value]
     return value
 
 
-def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
-    """按目标方法签名注解转换参数类型（P1-3，取代全局 convert_value 猜测）。
+def _param_hints(app: str, op: str) -> dict[str, object]:
+    """参数名→类型：优先 schema 声明（P1-2 单一来源），缺失时回退方法签名。
 
-    无注解/str 保持字符串；int/float/bool/list 按注解转换；**kwargs 或未知
-    op 跳过（交给 server 侧处理）。
+    未知 op / 无法检视签名 → 空表（参数原样透传，交 server 侧校验）。
     """
+    sp = schema.spec(app, op)
+    if sp is not None and sp.params:
+        return dict(sp.params)
     cls = _APP_CLASSES.get(app)
     method = getattr(cls, op, None) if cls else None
     if method is None:
-        return kwargs
+        return {}
     try:
         sig = inspect.signature(method)
     except (TypeError, ValueError):
-        return kwargs
-    hints = {name: param.annotation for name, param in sig.parameters.items()}
+        return {}
+    return {name: param.annotation for name, param in sig.parameters.items() if name != "self"}
+
+
+def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
+    """按 schema 声明类型转换参数（P1-2，取代逐方法签名猜测）。
+
+    无注解/Any/str 保持字符串；int/float/bool/list 按声明类型转换；未知
+    op 跳过（交给 server 侧处理）。
+    """
+    hints = _param_hints(app, op)
     coerced = dict(kwargs)
     for key, value in kwargs.items():
         ann = hints.get(key)
@@ -169,28 +205,32 @@ def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
 
 
 def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
-    """未知 --key（不在该 op 签名内）→ stderr 报错并 exit 2（argparse 语义）。"""
-    cls = _APP_CLASSES.get(app)
-    method = getattr(cls, op, None) if cls else None
-    if method is None:
-        return  # 未知 op 交由 server 侧报错
-    try:
-        params = inspect.signature(method).parameters.values()
-    except (TypeError, ValueError):
-        return
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
-        return
-    known = {
-        p.name
-        for p in params
-        if p.name != "self"
-        and p.kind
-        in (
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-            inspect.Parameter.POSITIONAL_ONLY,
-        )
-    }
+    """未知 --key（不在 schema/方法参数内）→ stderr 报错并 exit 2（argparse 语义）。"""
+    sp = schema.spec(app, op)
+    if sp is not None and sp.params:
+        known = set(sp.params)
+    else:
+        cls = _APP_CLASSES.get(app)
+        method = getattr(cls, op, None) if cls else None
+        if method is None:
+            return  # 未知 op 交由 server 侧报错
+        try:
+            params = inspect.signature(method).parameters.values()
+        except (TypeError, ValueError):
+            return
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+            return
+        known = {
+            p.name
+            for p in params
+            if p.name != "self"
+            and p.kind
+            in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+                inspect.Parameter.POSITIONAL_ONLY,
+            )
+        }
     for key in kwargs:
         if key not in known:
             print(f"offipy: error: {app} {op}: unrecognized arguments: --{key}", file=sys.stderr)
@@ -199,6 +239,8 @@ def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="offipy", description="offipy CLI")
+    # P2-2 多实例：--port 指向指定端口的 server（env OFFIPY_SERVER_PORT 亦可）
+    p.add_argument("--port", type=int, help="连指定端口的 server 实例（默认 8890）")
     sub = p.add_subparsers(dest="app", required=True)
     for app in ("excel", "word", "ppt"):
         sp = sub.add_parser(app)
@@ -207,7 +249,17 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("kwargs", nargs=argparse.REMAINDER)
     deck = sub.add_parser("deck")
     deck.add_argument("action", choices=["make", "outline"])
-    deck.add_argument("kwargs", nargs=argparse.REMAINDER)
+    # 专用选项（P0-4）：布尔用 _BoolAction，`--overwrite false` 不再是
+    # bool("false")→True 的坑；未知 --key 由 argparse 直接 exit 2。
+    deck.add_argument("--html", help="HTML 幻灯片源文件（make 必填）")
+    deck.add_argument("--out", help="输出路径（make: .pptx；outline: .html）")
+    deck.add_argument("--no-open", action="store_true", help="渲染后不打开实况演示（make）")
+    deck.add_argument("--feedback", help="导出 PNG 反馈目录（make）")
+    deck.add_argument("--theme", help="注入内置主题名（make/outline）")
+    deck.add_argument("--layouts", action=_BoolAction, help="注入 data-layout 布局 CSS（make）")
+    deck.add_argument("--overwrite", action=_BoolAction, help="覆盖已存在的 .pptx（make）")
+    deck.add_argument("--input", help="大纲 markdown 源文件（outline）")
+    deck.add_argument("--md", help="大纲 markdown 源文件别名（outline）")
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
     q = sub.add_parser("quit")
@@ -222,11 +274,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="status",
         choices=["status", "stop", "restart"],
     )
+    srv.add_argument("--port", type=int, help="目标 server 端口（默认 8890）")
+    lg = sub.add_parser("log", help="读取操作日志（oplog.jsonl，P2-3）")
+    lg.add_argument("--tail", type=int, help="只显示末尾 N 条")
+    lg.add_argument("--port", type=int, help="目标 server 端口（默认 8890）")
     return p
 
 
 def _main(argv=None):
     args = build_parser().parse_args(argv)
+    if getattr(args, "port", None):
+        set_port(args.port)  # P2-2 多实例：后续调用指向该端口
     if args.app == "mcp":
         from .mcp_server import main as mcp_main
 
@@ -243,41 +301,54 @@ def _main(argv=None):
         return
     if args.app == "server":
         if args.action == "status":
-            ensure_server()
-            print(json.dumps(server_status(), ensure_ascii=False))
+            # 只读探测（P0-3）：未运行不拉起，直接报状态
+            st = server_status()
+            if st is None:
+                print("server 未在运行")
+            else:
+                print(json.dumps(st, ensure_ascii=False))
         elif args.action == "stop":
-            print("server 未在运行" if not stop_server() else "server 已停止")
+            print(stop_server())
         else:  # restart
-            stop_server()
+            print(stop_server())
             ensure_server()
             print("server 已重启")
         return
-    if args.app == "deck":
-        from .deck import make as deck_make
+    if args.app == "log":
+        from . import oplog
 
-        kw = _parse_kwargs(args.kwargs)
+        oplog.configure(getattr(args, "port", None) or 8890)
+        entries = oplog.read(tail=args.tail)
+        if not entries:
+            print("（暂无操作日志）")
+            return
+        for e in entries:
+            print(json.dumps(e, ensure_ascii=False))
+        return
+    if args.app == "deck":
         if args.action == "make":
-            html = kw.pop("html", None)
-            if not html:
+            from .deck import make as deck_make
+
+            if not args.html:
                 raise SystemExit(
                     "用法: offipy deck make --html <deck.html> "
                     "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
                     "[--theme <name>] [--layouts] [--overwrite]"
                 )
             pptx = deck_make(
-                html,
-                out=kw.pop("out", None),
-                open_live_flag=not (kw.pop("no-open", False) or kw.pop("no_open", False)),
-                feedback_dir=kw.pop("feedback", None),
-                theme=kw.pop("theme", None),
-                apply_layouts=bool(kw.pop("layouts", False) or kw.pop("apply-layouts", False)),
-                overwrite=bool(kw.pop("overwrite", False)),
+                args.html,
+                out=args.out,
+                open_live_flag=not args.no_open,
+                feedback_dir=args.feedback,
+                theme=args.theme,
+                apply_layouts=args.layouts,
+                overwrite=args.overwrite,
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
-        elif args.action == "outline":
+        else:  # outline
             from .outline import parse_outline, to_deck_html
 
-            md_path = kw.pop("input", None) or kw.pop("md", None)
+            md_path = args.input or args.md
             if not md_path:
                 raise SystemExit(
                     "用法: offipy deck outline --input <outline.md> "
@@ -290,12 +361,11 @@ def _main(argv=None):
                 raise SystemExit(f"找不到文件: {md_path}") from None
             except ValueError as e:
                 raise SystemExit(f"大纲格式错误: {e}") from None
-            html = to_deck_html(outline, theme=kw.pop("theme", None))
-            out = kw.pop("out", None)
-            if out:
-                with open(out, "w", encoding="utf-8") as f:
+            html = to_deck_html(outline, theme=args.theme)
+            if args.out:
+                with open(args.out, "w", encoding="utf-8") as f:
                     f.write(html)
-                print(json.dumps({"html": os.path.abspath(out)}, ensure_ascii=False))
+                print(json.dumps({"html": os.path.abspath(args.out)}, ensure_ascii=False))
             else:
                 print(outline.to_json())
         return

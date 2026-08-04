@@ -68,6 +68,18 @@ def _check_offipy() -> Check:
     return Check("offipy", "版本", True, __version__)
 
 
+# dist 名 → 所属 extra 的安装提示（offipy check 报告缺失 extra，P1-5）
+_EXTRA_HINT = {
+    "pywin32": "uv pip install 'offipy[office]'",
+    "python-pptx": "uv pip install 'offipy[deck]'",
+    "lxml": "uv pip install 'offipy[deck]'",
+    "fonttools": "uv pip install 'offipy[deck]'",
+    "playwright": "uv pip install 'offipy[deck]'",
+    "Pillow": "uv pip install 'offipy[deck]'",
+    "mcp": "uv pip install 'offipy[mcp]'",
+}
+
+
 def _check_dependencies() -> list[Check]:
     out = []
     for dist, mod in _DEPS:
@@ -77,7 +89,13 @@ def _check_dependencies() -> list[Check]:
             out.append(Check("依赖", dist, True, version))
         except ImportError:
             out.append(
-                Check("依赖", dist, False, "未安装", hint=f"uv pip install {dist} 或 uv sync")
+                Check(
+                    "依赖",
+                    dist,
+                    False,
+                    "未安装",
+                    hint=_EXTRA_HINT.get(dist, f"uv pip install {dist}"),
+                )
             )
     return out
 
@@ -123,7 +141,7 @@ def _check_browser() -> Check:
         from playwright.sync_api import sync_playwright
     except ImportError:
         return Check(
-            "浏览器", "Chromium", False, "playwright 包未安装", hint="uv pip install playwright"
+            "浏览器", "Chromium", False, "playwright 包未安装", hint="uv pip install 'offipy[deck]'"
         )
     try:
         with sync_playwright() as p:
@@ -138,10 +156,17 @@ def _check_browser() -> Check:
 
 
 def _check_server() -> Check:
-    from .client import _ping
+    from .client import _probe
 
-    if _ping():
+    state = _probe()
+    if state == "ok":
         return Check("本地 server", "127.0.0.1:8890", True, "运行中")
+    if state == "auth_fail":
+        return Check(
+            "本地 server", "127.0.0.1:8890", False, "端口有 server 但 token 不匹配", warn=True
+        )
+    if state == "mismatch":
+        return Check("本地 server", "127.0.0.1:8890", False, "端口被非 offipy 进程占用", warn=True)
     return Check(
         "本地 server",
         "127.0.0.1:8890",

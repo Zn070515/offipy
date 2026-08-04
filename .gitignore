@@ -12,6 +12,7 @@ dist/
 .mypy_cache/
 .coverage
 htmlcov/
+site/
 
 # --- 运行产物 ---
 .offipy.log
@@ -20,8 +21,9 @@ _audit/
 out/
 logs/
 
-# 内部开发计划（含本机绝对路径，不入库）
+# 内部开发文档（研究/审计/计划，不入库）——见 CLAUDE.md「开发文档不进 git 追踪」
 docs/superpowers/
+docs/development/
 
 # vendored 转换器本机偏好（跨机器不同，不入库）
 src/offipy/_vendor/html_to_editable_pptx/.config.local.toml

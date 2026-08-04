@@ -4,7 +4,12 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
+from contextlib import contextmanager
+from typing import Any
+
 from . import core
+from ._comguard import guard_com
+from .exceptions import InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 # ExportAsFixedFormat 的类型常量
@@ -12,14 +17,11 @@ XL_TYPE_PDF = 0
 
 
 def _parse_cell(cell: str):
-    """把 'A1' 解析成 (row, col)，行列为 1 基。"""
-    col_part = ""
-    row_part = ""
-    for ch in cell:
-        if ch.isalpha():
-            col_part += ch.upper()
-        else:
-            row_part += ch
+    """把 'A1' 解析成 (row, col)，行列为 1 基；非法格式抛 InvalidArgumentError。"""
+    col_part = "".join(ch for ch in cell if ch.isalpha()).upper()
+    row_part = "".join(ch for ch in cell if not ch.isalpha())
+    if not col_part or not row_part.isdigit() or int(row_part) < 1:
+        raise InvalidArgumentError(f"非法单元格: {cell!r}（期望如 'A1'）")
     col = 0
     for ch in col_part:
         col = col * 26 + (ord(ch) - ord("A") + 1)
@@ -27,11 +29,14 @@ def _parse_cell(cell: str):
 
 
 def _rgb(hex_color: str) -> int:
-    """把 '#RRGGBB' 转成 Excel 的 BGR 整数颜色。"""
+    """把 '#RRGGBB' 转成 Excel 的 BGR 整数颜色；非法颜色抛 InvalidArgumentError。"""
     h = hex_color.lstrip("#")
-    r = int(h[0:2], 16)
-    g = int(h[2:4], 16)
-    b = int(h[4:6], 16)
+    if len(h) != 6:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）")
+    try:
+        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）") from None
     return r + (g << 8) + (b << 16)
 
 
@@ -103,11 +108,11 @@ def _resolve_sides(side: str | None) -> list[int]:
         return [11, 12]
     parts = [p.strip() for p in name.split(",") if p.strip()]
     if not parts:
-        raise ValueError(f"无效边框侧: {side!r}")
+        raise InvalidArgumentError(f"无效边框侧: {side!r}")
     result = []
     for p in parts:
         if p not in _BORDER_INDEX:
-            raise ValueError(f"未知边框侧: {p!r}（可选: {', '.join(_BORDER_INDEX)}）")
+            raise InvalidArgumentError(f"未知边框侧: {p!r}（可选: {', '.join(_BORDER_INDEX)}）")
         result.append(_BORDER_INDEX[p])
     return result
 
@@ -115,66 +120,157 @@ def _resolve_sides(side: str | None) -> list[int]:
 def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
     key = (name or "").strip().lower()
     if key not in table:
-        raise ValueError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
+        raise InvalidArgumentError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
     return table[key]
 
 
+@guard_com
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
-        # 关闭所有提示（保存/覆盖/文件锁），避免模态对话框卡死单线程 server
-        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
-        self.app.DisplayAlerts = False
-        self._book = None
+        # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
+        self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
+        self._docs: dict[str, Any] = {}  # doc_id → 工作簿句柄（P2-2 多文档）
+        self._active_id: str | None = None
+        self._seq = 0
 
-    # --- 工作簿 ---
-    def new_book(self):
-        self._book = self.app.Workbooks.Add()
-        return self._book
+    @contextmanager
+    def _alerts_scope(self, value: bool = False):
+        """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
+        prev = self.app.DisplayAlerts
+        self.app.DisplayAlerts = value
+        try:
+            yield
+        finally:
+            self.app.DisplayAlerts = prev
 
-    def open_book(self, path: str):
-        self._book = self.app.Workbooks.Open(path)
-        return self._book
+    def _register(self, obj) -> str:
+        """登记一个新文档句柄，分配 doc_id 并设为活动。返回 doc_id。"""
+        self._seq += 1
+        did = f"book{self._seq}"
+        self._docs[did] = obj
+        self._active_id = did
+        return did
 
-    def active_book(self):
-        # 会话语义（P1.2）：优先解析实时 ActiveWorkbook（用户当前激活的
-        # 工作簿），仅当无活动工作簿时回退缓存句柄 + liveness probe。
+    def _sync_registered(self, obj) -> str:
+        """把实时解析到的句柄并入文档表：已登记则复用并置活动，否则登记为新文档。"""
+        for did, book in self._docs.items():
+            if book is obj:
+                self._active_id = did
+                return did
+        return self._register(obj)
+
+    # --- 工作簿（P2-2 多文档：doc_id 显式路由，缺省走活动） ---
+    def new_book(self) -> str:
+        """新建空白工作簿，登记进文档表并设为活动。返回 doc_id。"""
+        return self._register(self.app.Workbooks.Add())
+
+    def open_book(self, path: str) -> str:
+        """打开现有工作簿并设为活动。返回 doc_id。"""
+        return self._register(self.app.Workbooks.Open(path))
+
+    def active_book(self, doc_id: str | None = None):
+        # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
+        # 缺省 active：优先 app 登记的活动句柄（new_book/open_book/activate 切换）；
+        # 无登记或失效时实时解析 ActiveWorkbook 并并入文档表（重连既有会话场景）。
+        # P0-8：全程纯探测，绝不隐式 Workbooks.Add()。
+        if doc_id is not None:
+            book = self._docs.get(doc_id)
+            if book is None or not core.doc_alive(book):
+                raise TargetNotFoundError(
+                    f"未知工作簿句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
+                )
+            return book
+        if self._active_id is not None:
+            book = self._docs.get(self._active_id)
+            if book is not None and core.doc_alive(book):
+                return book
         book = core.active_doc("excel", "ActiveWorkbook")
         if book is not None:
-            self._book = book
+            self._sync_registered(book)
             return book
-        if self._book is not None and core.doc_alive(self._book):
-            return self._book
         book = self.app.ActiveWorkbook
         if book is None:
-            # 全新启动的 Excel 没有活动工作簿，自动新建一个保证可操作
-            book = self.app.Workbooks.Add()
-        self._book = book
+            return None
+        self._sync_registered(book)
         return book
 
-    def close_book(self, save: bool = True):
+    def _require_book(self, doc_id: str | None = None):
+        """操作前置：目标工作簿不存在则抛 TargetNotFoundError，不隐式创建。"""
+        book = self.active_book(doc_id)
+        if book is None:
+            raise TargetNotFoundError("没有打开的工作簿，请先 new_book/open_book")
+        return book
+
+    def activate(self, doc_id: str) -> str:
+        """把指定文档设为活动目标；未知句柄抛 TargetNotFoundError。"""
+        book = self._docs.get(doc_id)
+        if book is None or not core.doc_alive(book):
+            raise TargetNotFoundError(f"未知工作簿句柄: {doc_id!r}（用 list_docs 查看当前打开的）")
+        self._active_id = doc_id
+        return doc_id
+
+    def list_docs(self) -> dict:
+        """当前打开的文档表：{doc_id: {"name", "path"}}。只读，过滤失效句柄。"""
+        out = {}
+        for did, book in self._docs.items():
+            if not core.doc_alive(book):
+                continue
+            try:
+                name = book.Name
+            except Exception:
+                name = None
+            try:
+                path = book.FullName
+            except Exception:
+                path = None
+            out[did] = {"name": name, "path": path}
+        return out
+
+    def get_target(self):
+        """当前活动工作簿身份（app/name/path）；无则返回 None。只读探测。"""
         book = self.active_book()
-        if book is not None:
-            # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
+        if book is None:
+            return None
+        try:
+            name = book.Name
+        except Exception:
+            name = None
+        try:
+            path = book.FullName
+        except Exception:
+            path = None
+        return {"app": "excel", "name": name, "path": path}
+
+    def close_book(self, save: bool = True, doc_id: str | None = None):
+        book = self._require_book(doc_id)
+        # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
+        with self._alerts_scope():
             book.Close(SaveChanges=-1 if save else 2)
-        self._book = None
+        did = doc_id if doc_id is not None else self._active_id
+        if did is not None:
+            self._docs.pop(did, None)
+            if self._active_id == did:
+                self._active_id = None
 
-    def save(self, path: str | None = None, overwrite: bool = False):
+    def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite) if path else None
-        book = self.active_book()
-        if dest:
-            # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
-            book.SaveAs(dest)
-        else:
-            book.Save()
+        with self._alerts_scope():
+            book = self._require_book(doc_id)
+            if dest:
+                # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
+                book.SaveAs(dest)
+            else:
+                book.Save()
 
-    def save_pdf(self, path: str, overwrite: bool = False):
+    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
-        self.active_book().ExportAsFixedFormat(XL_TYPE_PDF, dest)
+        with self._alerts_scope():
+            self._require_book(doc_id).ExportAsFixedFormat(XL_TYPE_PDF, dest)
 
     # --- 工作表 ---
-    def _ws(self, sheet):
-        book = self.active_book()
+    def _ws(self, sheet, doc_id: str | None = None):
+        book = self._require_book(doc_id)
         if isinstance(sheet, str):
             try:
                 return book.Worksheets(sheet)
@@ -182,36 +278,46 @@ class ExcelApp:
                 return book.Worksheets(int(sheet))
         return book.Worksheets(sheet)
 
-    def add_sheet(self, name: str):
-        ws = self.app.Worksheets.Add()
+    def add_sheet(self, name: str, doc_id: str | None = None):
+        book = self._require_book(doc_id)
+        ws = book.Worksheets.Add()
         ws.Name = name
         return ws
 
     # --- 单元格 ---
-    def set_cell(self, sheet, cell: str, value):
+    def set_cell(self, sheet, cell: str, value, doc_id: str | None = None):
         row, col = _parse_cell(cell)
-        self._ws(sheet).Cells(row, col).Value = value
+        self._ws(sheet, doc_id).Cells(row, col).Value = value
 
-    def get_cell(self, sheet, cell: str):
+    def get_cell(self, sheet, cell: str, doc_id: str | None = None):
         row, col = _parse_cell(cell)
-        return self._ws(sheet).Cells(row, col).Value
+        return self._ws(sheet, doc_id).Cells(row, col).Value
 
-    def set_range(self, sheet, range_addr: str, values):
-        self._ws(sheet).Range(range_addr).Value = values
+    def set_range(self, sheet, range_addr: str, values, doc_id: str | None = None):
+        self._ws(sheet, doc_id).Range(range_addr).Value = values
 
-    def set_col_width(self, sheet, col, width):
-        self._ws(sheet).Columns(col).ColumnWidth = width
+    def set_col_width(self, sheet, col, width, doc_id: str | None = None):
+        self._ws(sheet, doc_id).Columns(col).ColumnWidth = width
 
-    def read_range(self, sheet, range_addr):
+    def read_range(self, sheet, range_addr, doc_id: str | None = None):
         """读取区域值，返回二维 list（行→列）。只读，不改状态。"""
-        return _normalize_range(self._ws(sheet).Range(range_addr).Value)
+        return _normalize_range(self._ws(sheet, doc_id).Range(range_addr).Value)
 
     # --- 格式化 ---
     def format_cell(
-        self, sheet, cell: str, bold=None, size=None, italic=None, bg=None, fg=None, align=None
+        self,
+        sheet,
+        cell: str,
+        bold=None,
+        size=None,
+        italic=None,
+        bg=None,
+        fg=None,
+        align=None,
+        doc_id: str | None = None,
     ):
         row, col = _parse_cell(cell)
-        cell_obj = self._ws(sheet).Cells(row, col)
+        cell_obj = self._ws(sheet, doc_id).Cells(row, col)
         font = cell_obj.Font
         if bold is not None:
             font.Bold = bold
@@ -227,11 +333,11 @@ class ExcelApp:
             cell_obj.HorizontalAlignment = align
 
     # --- 合并单元格 ---
-    def merge_cells(self, sheet, range_addr: str):
-        self._ws(sheet).Range(range_addr).Merge()
+    def merge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
+        self._ws(sheet, doc_id).Range(range_addr).Merge()
 
-    def unmerge_cells(self, sheet, range_addr: str):
-        self._ws(sheet).Range(range_addr).UnMerge()
+    def unmerge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
+        self._ws(sheet, doc_id).Range(range_addr).UnMerge()
 
     # --- 边框 ---
     def set_border(
@@ -242,8 +348,9 @@ class ExcelApp:
         style: str = "continuous",
         weight: str = "thin",
         color: str | None = None,
+        doc_id: str | None = None,
     ):
-        ws = self._ws(sheet)
+        ws = self._ws(sheet, doc_id)
         rng = ws.Range(range_addr)
         style_const = _resolve_style(style, _LINE_STYLE, "线型")
         weight_const = _resolve_style(weight, _BORDER_WEIGHT, "线宽")
@@ -255,10 +362,10 @@ class ExcelApp:
                 b.Color = _rgb(color)
 
     # --- 冻结窗格 ---
-    def freeze_panes(self, sheet, rows: int = 0, cols: int = 0):
+    def freeze_panes(self, sheet, rows: int = 0, cols: int = 0, doc_id: str | None = None):
         if rows < 0 or cols < 0:
-            raise ValueError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
-        ws = self._ws(sheet)
+            raise InvalidArgumentError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
+        ws = self._ws(sheet, doc_id)
         ws.Activate()
         if rows == 0 and cols == 0:
             self.app.ActiveWindow.FreezePanes = False
@@ -281,8 +388,9 @@ class ExcelApp:
         center_vertically: bool | None = None,
         print_titles_rows: str | None = None,
         print_titles_cols: str | None = None,
+        doc_id: str | None = None,
     ):
-        ps = self._ws(sheet).PageSetup
+        ps = self._ws(sheet, doc_id).PageSetup
         if orientation is not None:
             ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
         if paper is not None:
@@ -323,16 +431,17 @@ class ExcelApp:
         min_color: str | None = None,
         max_color: str | None = None,
         mid_color: str | None = None,
+        doc_id: str | None = None,
     ):
         rule = rule.strip().lower()
-        ws = self._ws(sheet)
+        ws = self._ws(sheet, doc_id)
         rng = ws.Range(range_addr)
         if rule == "cell":
             if operator is None or value is None:
-                raise ValueError("cell 规则必须给 operator 和 value")
+                raise InvalidArgumentError("cell 规则必须给 operator 和 value")
             op = _resolve_style(operator, _COND_OPERATOR, "条件格式运算符")
             if op in (1, 2) and value2 is None:  # between/not_between 需要 Formula2
-                raise ValueError("between/not_between 必须给 value2")
+                raise InvalidArgumentError("between/not_between 必须给 value2")
             fc = rng.FormatConditions.Add(1, op, value, value2)  # xlCellValue
             if bg is not None:
                 fc.Interior.Color = _rgb(bg)
@@ -344,7 +453,7 @@ class ExcelApp:
                 fc.BarColor.Color = _rgb(bg)  # Databar 实心填充色走 BarColor
         elif rule == "colorscale":
             if min_color is None or max_color is None:
-                raise ValueError("colorscale 必须给 min_color 和 max_color")
+                raise InvalidArgumentError("colorscale 必须给 min_color 和 max_color")
             n = 3 if mid_color else 2
             cs = rng.FormatConditions.AddColorScale(n)
             cs.ColorScaleCriteria(1).FormatColor.Color = _rgb(min_color)
@@ -352,19 +461,26 @@ class ExcelApp:
                 cs.ColorScaleCriteria(2).FormatColor.Color = _rgb(mid_color)
             cs.ColorScaleCriteria(n).FormatColor.Color = _rgb(max_color)
         else:
-            raise ValueError(f"未知条件格式规则: {rule!r}（可选: cell/databar/colorscale）")
+            raise InvalidArgumentError(
+                f"未知条件格式规则: {rule!r}（可选: cell/databar/colorscale）"
+            )
 
     # --- 基础三件套 ---
-    def set_row_height(self, sheet, row, height: float):
-        self._ws(sheet).Rows(row).RowHeight = height
+    def set_row_height(self, sheet, row, height: float, doc_id: str | None = None):
+        self._ws(sheet, doc_id).Rows(row).RowHeight = height
 
-    def set_number_format(self, sheet, range_addr: str, fmt: str):
-        self._ws(sheet).Range(range_addr).NumberFormat = fmt
+    def set_number_format(self, sheet, range_addr: str, fmt: str, doc_id: str | None = None):
+        self._ws(sheet, doc_id).Range(range_addr).NumberFormat = fmt
 
     def autofit(
-        self, sheet, range_addr: str | None = None, columns: bool = True, rows: bool = True
+        self,
+        sheet,
+        range_addr: str | None = None,
+        columns: bool = True,
+        rows: bool = True,
+        doc_id: str | None = None,
     ):
-        ws = self._ws(sheet)
+        ws = self._ws(sheet, doc_id)
         target = ws.Range(range_addr) if range_addr else ws.UsedRange
         if columns:
             target.Columns.AutoFit()

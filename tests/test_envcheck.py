@@ -74,7 +74,7 @@ def test_check_dependencies_import_failure(monkeypatch):
     monkeypatch.setattr(_importlib, "import_module", fake_import_module)
     checks = {c.name: c for c in envcheck._check_dependencies()}
     assert checks["fonttools"].ok is False
-    assert "uv pip install fonttools" in checks["fonttools"].hint
+    assert "offipy[deck]" in checks["fonttools"].hint
     assert checks["pywin32"].ok is True
 
 
@@ -211,24 +211,31 @@ def test_check_browser_missing_package(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
     c = envcheck._check_browser()
     assert c.ok is False
-    assert c.hint == "uv pip install playwright"
+    assert c.hint == "uv pip install 'offipy[deck]'"
 
 
 # --- 本地 server ---
 
 
 def test_check_server_running(monkeypatch):
-    monkeypatch.setattr("offipy.client._ping", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     c = envcheck._check_server()
     assert c.ok is True
     assert c.detail == "运行中"
 
 
 def test_check_server_not_running_warns(monkeypatch):
-    monkeypatch.setattr("offipy.client._ping", lambda: False)
+    monkeypatch.setattr("offipy.client._probe", lambda: "down")
     c = envcheck._check_server()
     assert c.ok is False
     assert c.warn is True
+
+
+def test_check_server_auth_fail_warns(monkeypatch):
+    monkeypatch.setattr("offipy.client._probe", lambda: "auth_fail")
+    c = envcheck._check_server()
+    assert c.ok is False
+    assert "token 不匹配" in c.detail
 
 
 # --- PDF 可选路径 ---
@@ -265,7 +272,7 @@ def test_check_pdf_both_missing(monkeypatch):
 def _checks_fixture():
     return [
         envcheck.Check("运行时", "Python", True, "3.12"),
-        envcheck.Check("依赖", "pywin32", False, "未安装", hint="uv pip install pywin32"),
+        envcheck.Check("依赖", "pywin32", False, "未安装", hint="uv pip install 'offipy[office]'"),
         envcheck.Check("本地 server", "127.0.0.1:8890", False, "未运行", warn=True),
     ]
 
@@ -275,7 +282,7 @@ def test_render_text_marks():
     assert "✓ Python" in text
     assert "✗ pywin32" in text
     assert "⚠ 127.0.0.1:8890" in text
-    assert "修复: uv pip install pywin32" in text
+    assert "修复: uv pip install 'offipy[office]'" in text
     assert "通过 1 | 警告 1 | 失败 1" in text
 
 
@@ -296,7 +303,7 @@ def test_render_json_structure():
     assert data["version"] == envcheck.__version__
     assert len(data["checks"]) == 3
     assert data["checks"][0]["name"] == "Python"
-    assert data["checks"][1]["hint"] == "uv pip install pywin32"
+    assert data["checks"][1]["hint"] == "uv pip install 'offipy[office]'"
 
 
 def test_main_exit_one_on_hard_fail(monkeypatch, capsys):

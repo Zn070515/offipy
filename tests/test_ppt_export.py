@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -5,10 +6,13 @@ import pytest
 from offipy import core
 from offipy.client import call
 
-pytestmark = pytest.mark.skipif(
-    not core.running("ppt"),
-    reason="需要存活的 PowerPoint（server 8890 持有）",
-)
+pytestmark = [
+    pytest.mark.com,
+    pytest.mark.skipif(
+        sys.platform != "win32" or not core.running("ppt"),
+        reason="需要存活的 PowerPoint（server 8890 持有）",
+    ),
+]
 
 
 def test_export_slides_pngs(tmp_path):

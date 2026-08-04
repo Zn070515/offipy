@@ -4,16 +4,21 @@
 直连读回断言；读不到就跑不起来 → pytestmark 兜底跳过。
 """
 
+import sys
+
 import pytest
 
 from offipy import core
 from offipy.client import call
 from offipy.word import _rgb
 
-pytestmark = pytest.mark.skipif(
-    not core.running("word"),
-    reason="需要存活的 Word（server 8890 持有）",
-)
+pytestmark = [
+    pytest.mark.com,
+    pytest.mark.skipif(
+        sys.platform != "win32" or not core.running("word"),
+        reason="需要存活的 Word（server 8890 持有）",
+    ),
+]
 
 
 def _word():

@@ -7,10 +7,13 @@ from offipy.deck import CONVERT_PY
 
 STARTER = Path(__file__).resolve().parent.parent / "examples" / "decks" / "starter" / "deck.html"
 
-pytestmark = pytest.mark.skipif(
-    not CONVERT_PY.exists() or not _ping(),
-    reason="需要 vendored 转换器 + 存活 server(8890)",
-)
+pytestmark = [
+    pytest.mark.deck_render,
+    pytest.mark.skipif(
+        not CONVERT_PY.exists() or not _ping(),
+        reason="需要 vendored 转换器 + 存活 server(8890)",
+    ),
+]
 
 
 def test_full_loop_render_open_export(tmp_path):

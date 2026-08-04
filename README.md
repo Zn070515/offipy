@@ -32,13 +32,18 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install -e ".[convert]"        # deck 管线（HTML→PPTX）需要 convert extra
+uv pip install -e ".[all]"            # 全部能力（office COM + deck 管线 + MCP）
 uv run playwright install chromium    # 转换器依赖 chromium 做 DOM 测量
 ```
 
-纯 COM 自动化只需 `uv pip install -e .`——核心依赖只有 pywin32 / mcp，开箱即用。deck 管线
-（HTML→PPTX）需要 **convert extra**（python-pptx / lxml / fonttools / playwright / Pillow）
-外加 `playwright install chromium`；转换器本体已 vendored 进 wheel，装完即可用。
+核心 `import offipy` 零额外依赖；按用途增量安装 extra：
+
+- `.[office]`：Windows COM 自动化（Word/Excel/PowerPoint）
+- `.[deck]`：HTML→可编辑 PPTX deck 管线（python-pptx / lxml / fonttools / playwright / Pillow）
+- `.[mcp]`：MCP server（`offipy mcp`，Claude Desktop 等接入）
+- `.[all]`：以上全部
+
+转换器本体已 vendored 进 wheel，装完即可用；deck 管线需额外跑 `playwright install chromium`。
 
 ## 会话语义（读我）
 
@@ -46,7 +51,12 @@ uv run playwright install chromium    # 转换器依赖 chromium 做 DOM 测量
 
 - 首次调用自动在后台拉起常驻 server（`127.0.0.1:8890`）；之后所有操作打到同一进程。
 - op 作用在**用户当前激活**的文档上——你在 Excel 里激活哪个工作簿，`set_cell` 就写到哪个。
-  没有活动文档时（全新启动）才自动新建。
+  **不隐式新建**：没有打开文档时，需要文档的 op 抛 `TargetNotFoundError`，提示先
+  `new_book` / `open_book`（round-3「只读不创建」）。用 `get_target` 查询当前激活目标身份：
+  `offipy excel get_target` → `{"app": "excel", "name": "Book1", "path": "..."}`（无则 `null`）。
+- 破坏性 op 可带 `expected_target`（`{"name": ..., "path": ...}`）做**目标绑定**：server 精确比对
+  当前激活文档，绑定失败抛 `TargetNotFoundError`——防止用户切到别的文档后被误改（Python client /
+  RPC 层可用，绕开按焦点路由）。
 - `quit excel` 等命令关掉应用；`__exit__`（Python API）**不**关 Office 窗口，窗口与文档跨调用保持存活。
 - 用户手动关窗后，下次调用自动重建会话（断连自愈）。
 
@@ -55,7 +65,11 @@ uv run playwright install chromium    # 转换器依赖 chromium 做 DOM 测量
 - server 只监听 `127.0.0.1`，不对外网开放。
 - **Bearer token 鉴权**：启动时生成随机 token（环境变量 `OFFIPY_SERVER_TOKEN` 优先，否则持久化到
   `%LOCALAPPDATA%\offipy\token`）。所有请求需 `Authorization: Bearer <token>`，否则 401。
-- op 白名单：只暴露各 app 类的公开方法；请求体上限 16MB；`Content-Type` 必须为 JSON。
+- op 白名单：只暴露各 app 类的公开方法；请求体上限 16MB；`Content-Type` 必须为 JSON；
+  `POST` 只接受 `/call` 与鉴权 `/shutdown`，其余路径 404；响应体上限 64MB。
+- **进程所有权（不杀策略）**：`server status` **只读**——未运行只报「未在运行」，**不隐式拉起**；
+  `server stop` 优先走鉴权 `/shutdown` 优雅停机；token 失配（`auth_fail`）或端口被非 offipy 进程
+  占用且无法证明归属（`mismatch`）时**一律不杀**，只提示手动处理。
 - **别把 token 泄漏给不信任的进程**——拿到 token 即等于拿到你当前 Office 会话的读写权限。
 - 详见 [`SECURITY.md`](SECURITY.md)。
 
@@ -95,7 +109,8 @@ offipy ppt add_slide --layout 2
 offipy ppt set_title --slide_idx 1 --text "标题"
 
 offipy check            # 环境就绪诊断：Python/依赖/Office/浏览器/server（--json 机器可读）
-offipy server status    # 常驻 server 状态（/status 握手）；stop / restart 同理
+offipy server status    # 常驻 server 状态（/status 握手，只读不拉起）；stop / restart 同理
+offipy excel get_target # 查询当前激活工作簿身份 {app,name,path}（无则 null）
 offipy word read_doc_text            # Agent 只读：全文档文本
 offipy ppt read_slide_texts          # Agent 只读：逐页 title/body/notes
 offipy excel read_range --sheet 1 --range_addr A1:B2   # Agent 只读：区域二维值
@@ -121,6 +136,17 @@ with Ppt() as p:
 ```
 
 未显式定义的 op 经 `__getattr__` 代理到底层 app；offipy 异常（`OffipyError` 家族）原样透传。
+
+**返回契约（OperationResult）**：Python client / RPC / MCP 统一返回
+`{ok, operation, resource_id, message, data}`。`operation` 是 `"excel.set_cell"` 式全名；
+`resource_id`（如 `excel:book:Book1`）标识本次操作作用的文档；`data` 是操作结果
+（读 op 的原值，void op 为 `null`）。原始 COM 对象不外泄。
+
+**异常契约（error_code）**：失败统一为 `OffipyError` 子类，每个带 `code`：
+`InvalidArgumentError`（`invalid_argument`）/ `TargetNotFoundError`（`target_not_found`）/
+`FileConflictError`（`file_conflict`）/ `ComOperationError`（`com_operation`，保留 `hresult`）/
+`ProtocolError`（`protocol`）。RPC 失败响应的 `error_code` 与异常一一对应，client 按表映射回
+对应领域异常，三入口同源。
 
 ## 设计系统（HTML deck）
 
@@ -227,6 +253,18 @@ offipy mcp        # 阻塞运行，等待 stdio 客户端接入
 | P1 全量 | CLI 改名 `offipy` + 复杂参数、高层 API、实时文档会话语义、save 覆盖保护、metadata/文档/类型/CI 治理 |
 | P2 架构 | 会话语义、CLI 参数系统、高层 API 三项架构项落地 |
 
+**round-3（ChatGPT_v3 审核）**：四条主线——目标身份 / 进程所有权 / 失败原子性 / 入口一致性，11 批按批收口：
+
+| 批次 | 修复 |
+|------|------|
+| 进程所有权 + HTTP 边界 | `_probe` 四态（ok/auth_fail/mismatch/down）、`ensure_server` 不杀策略、鉴权 `/shutdown`、`server status` 只读、路径 404 / 负长度 400 / 响应上限 500 |
+| 目标身份 + 只读不创建 | `get_target`、`/status` targets、`expected_target` 绑定、无文档抛 `TargetNotFoundError` |
+| DisplayAlerts 作用域 + deck 原子 + CLI 真布尔 | op 内自存自还、临时文件 + `os.replace` 原子替换、`store_true` 布尔 |
+| 线程 + worker + 返回 + 异常 | `ThreadingHTTPServer` + 单 COM worker 队列、`OperationResult` 契约、领域异常体系 A |
+| schema 单一来源 | 新增 RPC 只改 `schema.py`，server/CLI/MCP 三入口派生 |
+| extras + 品牌 | `office/deck/mcp/all` 拆分、`py.typed`、统一 `offipy` |
+| CI 矩阵 + 非 Windows | pure-module（覆盖率门槛）/ windows 3.10–3.13 / wheel-smoke / office-real；MCP in-memory 协议层测试 |
+
 ## 开发
 
 ```bash
@@ -244,9 +282,11 @@ uv run pytest tests -q                  # 测试（COM 集成测试无 Office �
 ```
 src/offipy/
   core.py       # COM 生命周期/会话管理 + active_doc/doc_alive 会话语义
-  exceptions.py # offipy 异常体系（OffipyError + 5 子类）
+  exceptions.py # offipy 异常体系（OffipyError + 10 子类，策略 A 领域异常）
+  schema.py     # operation schema 单一来源（OpSpec 表，server/CLI/MCP 三入口派生）
+  result.py     # OperationResult 统一返回契约（ok/operation/resource_id/message/data）
   paths.py      # 用户数据目录 / converter 数据目录 / ensure_writable 覆盖保护
-  server.py     # 常驻会话 HTTP server（token 鉴权 + /status + op 白名单）
+  server.py     # 常驻会话 HTTP server（token 鉴权 + worker 队列 + /status + /shutdown）
   cli.py        # `offipy` 命令入口（复杂参数：重复 flag → list / --payload JSON）
   api.py        # 高层 API facade：Excel() / Word() / Ppt() 上下文管理器
   mcp_server.py # MCP stdio server（三套件操作 → MCP 工具）
@@ -265,7 +305,7 @@ src/offipy/
   outline.py    # 内容工作流：markdown 大纲 → 逐页结构化内容 → HTML 骨架 *
   _vendor/html_to_editable_pptx/  # vendored HTML→PPTX 转换器（外协代码，MIT）*
 tests/        # pytest
-docs/         # 调研与差距分析
+docs/         # 协议（protocol.md）/ 弃用政策（deprecation.md）/ 兼容矩阵（compatibility.md）与调研
 examples/     # 可运行示例（decks / outline / excel / word）
 ```
 
@@ -274,3 +314,11 @@ examples/     # 可运行示例（decks / outline / excel / word）
 ## License
 
 MIT
+
+## 反馈与问题
+
+- **Bug / 功能请求**：到 [GitHub Issues](https://github.com/Zn070515/office-kit/issues) 提交，
+  附上 `offipy check --json` 输出与最小复现。
+- **预发布版本**：TestPyPI 冒烟用 `scripts/pypi_smoke.py --index https://test.pypi.org/simple --version <预发布号>`
+  （见 CHANGELOG「预发布编号策略」）。预发布版本仅供验证，稳定首发前 `__version__` / tag / CHANGELOG
+  顶层三者保持一致。

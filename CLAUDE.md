@@ -39,6 +39,17 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 - 提交前先 `git status` / `git diff` 确认只含本任务改动，不带无关文件。
 - 当前主干 `main`，但 main 只接受合并结果与紧急修复。
 
+### 开发文档不进 git 追踪
+
+- **内部开发产物一律不入库**：本地开发文档统一放 `docs/development/`（研究/审计，如
+  gap_analysis、ppt_research、ppt_design_research），计划放 `docs/superpowers/`——
+  两者都在 `.gitignore`。
+- 只有对外发布文档才进 git 追踪：`docs/index.md`、`docs/usage.md`、`docs/exceptions.md`、
+  `docs/api/`（schema 生成）、`docs/protocol.md`、`docs/compatibility.md`、
+  `docs/deprecation.md`、`docs/benchmarks.md`。
+- 新增内部开发文档 → 放 `docs/development/` 或 `docs/superpowers/`（已在 ignore 内），
+  不要 `git add`；误入库的用 `git rm --cached` 移出（文件保留在磁盘）。
+
 ## 版本号更新规则
 
 - **单一来源**：版本号只写在 `src/offipy/__init__.py` 的 `__version__`；`pyproject.toml` 经 `[tool.hatch.version]` 自动读取，**别处不重复写**。

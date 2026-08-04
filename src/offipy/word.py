@@ -4,8 +4,12 @@
 """
 
 import os
+from contextlib import contextmanager
+from typing import Any
 
 from . import core
+from ._comguard import guard_com
+from .exceptions import InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
@@ -72,16 +76,19 @@ _TABLE_LINE_WIDTH = {
 def _rgb(hex_color: str) -> int:
     """把 '#RRGGBB' 转成 COM Long 颜色（Word 与 Excel 同用 COLORREF 公式）。"""
     h = hex_color.lstrip("#")
-    r = int(h[0:2], 16)
-    g = int(h[2:4], 16)
-    b = int(h[4:6], 16)
+    if len(h) != 6:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）")
+    try:
+        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）") from None
     return r + (g << 8) + (b << 16)
 
 
 def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
     key = (name or "").strip().lower()
     if key not in table:
-        raise ValueError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
+        raise InvalidArgumentError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
     return table[key]
 
 
@@ -96,11 +103,11 @@ def _resolve_table_sides(sides: str | None) -> list[int]:
         return [5, 6]
     parts = [p.strip() for p in name.split(",") if p.strip()]
     if not parts:
-        raise ValueError(f"无效表格边: {sides!r}")
+        raise InvalidArgumentError(f"无效表格边: {sides!r}")
     result = []
     for p in parts:
         if p not in _TABLE_SIDES:
-            raise ValueError(f"未知表格边: {p!r}（可选: {', '.join(_TABLE_SIDES)}）")
+            raise InvalidArgumentError(f"未知表格边: {p!r}（可选: {', '.join(_TABLE_SIDES)}）")
         result.append(_TABLE_SIDES[p])
     return result
 
@@ -112,80 +119,175 @@ def _end_range(doc):
     return rng
 
 
+@guard_com
 class WordApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("word", visible=visible)
-        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
-        self.app.DisplayAlerts = WD_ALERTS_NONE
-        self._doc = None
+        # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
+        self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
+        self._docs: dict[str, Any] = {}  # doc_id → 文档句柄（P2-2 多文档）
+        self._active_id: str | None = None
+        self._seq = 0
 
-    # --- 文档 ---
-    def new_doc(self):
-        self._doc = self.app.Documents.Add()
-        return self._doc
+    @contextmanager
+    def _alerts_scope(self, value: int = WD_ALERTS_NONE):
+        """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
+        prev = self.app.DisplayAlerts
+        self.app.DisplayAlerts = value
+        try:
+            yield
+        finally:
+            self.app.DisplayAlerts = prev
 
-    def open_doc(self, path: str):
-        self._doc = self.app.Documents.Open(path)
-        return self._doc
+    def _register(self, obj) -> str:
+        """登记一个新文档句柄，分配 doc_id 并设为活动。返回 doc_id。"""
+        self._seq += 1
+        did = f"doc{self._seq}"
+        self._docs[did] = obj
+        self._active_id = did
+        return did
 
-    def active_doc(self):
-        # 会话语义（P1.2）：优先解析实时 ActiveDocument（用户当前激活的
-        # 文档），仅当无活动文档时回退缓存句柄 + liveness probe。
+    def _sync_registered(self, obj) -> str:
+        """把实时解析到的句柄并入文档表：已登记则复用并置活动，否则登记为新文档。"""
+        for did, doc in self._docs.items():
+            if doc is obj:
+                self._active_id = did
+                return did
+        return self._register(obj)
+
+    # --- 文档（P2-2 多文档：doc_id 显式路由，缺省走活动） ---
+    def new_doc(self) -> str:
+        """新建空白文档，登记进文档表并设为活动。返回 doc_id。"""
+        return self._register(self.app.Documents.Add())
+
+    def open_doc(self, path: str) -> str:
+        """打开现有文档并设为活动。返回 doc_id。"""
+        return self._register(self.app.Documents.Open(path))
+
+    def active_doc(self, doc_id: str | None = None):
+        # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
+        # 缺省 active：优先 app 登记的活动句柄（new_doc/open_doc/activate 切换）；
+        # 无登记或失效时实时解析 ActiveDocument 并并入文档表（重连既有会话场景）。
+        # P0-8：全程纯探测，绝不隐式 Documents.Add()。
+        if doc_id is not None:
+            doc = self._docs.get(doc_id)
+            if doc is None or not core.doc_alive(doc):
+                raise TargetNotFoundError(
+                    f"未知文档句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
+                )
+            return doc
+        if self._active_id is not None:
+            doc = self._docs.get(self._active_id)
+            if doc is not None and core.doc_alive(doc):
+                return doc
         doc = core.active_doc("word", "ActiveDocument")
         if doc is not None:
-            self._doc = doc
+            self._sync_registered(doc)
             return doc
-        if self._doc is not None and core.doc_alive(self._doc):
-            return self._doc
         doc = self.app.ActiveDocument
         if doc is None:
-            doc = self.app.Documents.Add()
-        self._doc = doc
+            return None
+        self._sync_registered(doc)
         return doc
 
-    def close_doc(self, save: bool = True):
+    def _require_doc(self, doc_id: str | None = None):
+        """操作前置：目标文档不存在则抛 TargetNotFoundError，不隐式创建。"""
+        doc = self.active_doc(doc_id)
+        if doc is None:
+            raise TargetNotFoundError("没有打开的 Word 文档，请先 new_doc/open_doc")
+        return doc
+
+    def activate(self, doc_id: str) -> str:
+        """把指定文档设为活动目标；未知句柄抛 TargetNotFoundError。"""
+        doc = self._docs.get(doc_id)
+        if doc is None or not core.doc_alive(doc):
+            raise TargetNotFoundError(f"未知文档句柄: {doc_id!r}（用 list_docs 查看当前打开的）")
+        self._active_id = doc_id
+        return doc_id
+
+    def list_docs(self) -> dict:
+        """当前打开的文档表：{doc_id: {"name", "path"}}。只读，过滤失效句柄。"""
+        out = {}
+        for did, doc in self._docs.items():
+            if not core.doc_alive(doc):
+                continue
+            try:
+                name = doc.Name
+            except Exception:
+                name = None
+            try:
+                path = doc.FullName
+            except Exception:
+                path = None
+            out[did] = {"name": name, "path": path}
+        return out
+
+    def get_target(self):
+        """当前活动文档身份（app/name/path）；无则返回 None。只读探测。"""
         doc = self.active_doc()
-        if doc is not None:
+        if doc is None:
+            return None
+        try:
+            name = doc.Name
+        except Exception:
+            name = None
+        try:
+            path = doc.FullName
+        except Exception:
+            path = None
+        return {"app": "word", "name": name, "path": path}
+
+    def close_doc(self, save: bool = True, doc_id: str | None = None):
+        doc = self._require_doc(doc_id)
+        with self._alerts_scope():
             doc.Close(SaveChanges=save)
-        self._doc = None
+        did = doc_id if doc_id is not None else self._active_id
+        if did is not None:
+            self._docs.pop(did, None)
+            if self._active_id == did:
+                self._active_id = None
 
-    def save(self, path: str | None = None, overwrite: bool = False):
+    def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite) if path else None
-        doc = self.active_doc()
-        if dest:
-            doc.SaveAs2(dest)
-        else:
-            doc.Save()
+        with self._alerts_scope():
+            doc = self._require_doc(doc_id)
+            if dest:
+                doc.SaveAs2(dest)
+            else:
+                doc.Save()
 
-    def save_pdf(self, path: str, overwrite: bool = False):
+    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
-        self.active_doc().ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
+        with self._alerts_scope():
+            self._require_doc(doc_id).ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
 
     # --- 内容 ---
-    def write(self, text: str):
-        self.active_doc().Content.InsertAfter(text)
+    def write(self, text: str, doc_id: str | None = None):
+        self._require_doc(doc_id).Content.InsertAfter(text)
 
-    def write_line(self, text: str):
-        self.active_doc().Content.InsertAfter(text + "\r\n")
+    def write_line(self, text: str, doc_id: str | None = None):
+        self._require_doc(doc_id).Content.InsertAfter(text + "\r\n")
 
-    def add_heading(self, text: str, level: int = 1):
-        self.write_line(text)
-        doc = self.active_doc()
+    def add_heading(self, text: str, level: int = 1, doc_id: str | None = None):
+        self.write_line(text, doc_id)
+        doc = self._require_doc(doc_id)
         style = _HEADING_STYLES.get(level, -2)
         # write_line = Content.InsertAfter(text + "\r\n")：文本落在末尾空段之前的 Count-1 段
         # （Count 是空尾段，实机验证）。若给 Count 上样式，随后正文会继承标题样式，
         # 目录（按标题样式收集）为空。
         doc.Paragraphs(doc.Paragraphs.Count - 1).Style = style
 
-    def add_table(self, rows: int, cols: int):
-        doc = self.active_doc()
+    def add_table(self, rows: int, cols: int, doc_id: str | None = None):
+        doc = self._require_doc(doc_id)
         rng = doc.Content
         rng.Collapse(0)  # wdCollapseEnd：折叠到文末
         doc.Tables.Add(rng, rows, cols)
         return doc.Tables.Count
 
-    def set_table_cell(self, table_idx: int, row: int, col: int, text: str):
-        self.active_doc().Tables(table_idx).Cell(row, col).Range.Text = text
+    def set_table_cell(
+        self, table_idx: int, row: int, col: int, text: str, doc_id: str | None = None
+    ):
+        self._require_doc(doc_id).Tables(table_idx).Cell(row, col).Range.Text = text
 
     # --- 样式系统：文字格式 ---
     def format_text(
@@ -198,8 +300,9 @@ class WordApp:
         color: str | None = None,
         underline: str | None = None,
         highlight: str | None = None,
+        doc_id: str | None = None,
     ):
-        font = self.active_doc().Paragraphs(paragraph).Range.Font
+        font = self._require_doc(doc_id).Paragraphs(paragraph).Range.Font
         if bold is not None:
             font.Bold = bold
         if italic is not None:
@@ -225,8 +328,9 @@ class WordApp:
         space_after: float | None = None,
         left_indent: float | None = None,
         first_line_indent: float | None = None,
+        doc_id: str | None = None,
     ):
-        fmt = self.active_doc().Paragraphs(paragraph).Format
+        fmt = self._require_doc(doc_id).Paragraphs(paragraph).Format
         if alignment is not None:
             fmt.Alignment = _resolve_style(alignment, _ALIGN, "对齐")
         if line_spacing is not None:
@@ -241,19 +345,20 @@ class WordApp:
             fmt.FirstLineIndent = first_line_indent
 
     # --- 页面结构：页眉页脚 / 页码 / 页面设置 ---
-    def set_header_text(self, text: str, section: int = 1):
-        self.active_doc().Sections(section).Headers(1).Range.Text = text
+    def set_header_text(self, text: str, section: int = 1, doc_id: str | None = None):
+        self._require_doc(doc_id).Sections(section).Headers(1).Range.Text = text
 
-    def set_footer_text(self, text: str, section: int = 1):
-        self.active_doc().Sections(section).Footers(1).Range.Text = text
+    def set_footer_text(self, text: str, section: int = 1, doc_id: str | None = None):
+        self._require_doc(doc_id).Sections(section).Footers(1).Range.Text = text
 
     def add_page_number(
         self,
         alignment: str = "right",
         color: str | None = None,
         size: float | None = None,
+        doc_id: str | None = None,
     ):
-        hf = self.active_doc().Sections(1).Footers(1)
+        hf = self._require_doc(doc_id).Sections(1).Footers(1)
         hf.Range.Text = ""  # 清空页脚，避免与既有文本叠加
         # PageNumber 对象没有 Range 属性（gen_py 实测 AttributeError），
         # 样式与文本都落在页脚 Range 上（页码域在其中）。
@@ -275,8 +380,9 @@ class WordApp:
         top_margin: float | None = None,
         bottom_margin: float | None = None,
         gutter: float | None = None,
+        doc_id: str | None = None,
     ):
-        ps = self.active_doc().PageSetup
+        ps = self._require_doc(doc_id).PageSetup
         if orientation is not None:
             ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
         if paper is not None:
@@ -293,24 +399,24 @@ class WordApp:
             ps.Gutter = gutter
 
     # --- 页面结构：目录 ---
-    def insert_toc(self, levels: int = 3):
-        doc = self.active_doc()
+    def insert_toc(self, levels: int = 3, doc_id: str | None = None):
+        doc = self._require_doc(doc_id)
         doc.TablesOfContents.Add(
             doc.Range(0, 0), UseHeadingStyles=True, UpperHeadingLevel=1, LowerHeadingLevel=levels
         )
         return doc.TablesOfContents.Count
 
-    def update_toc(self):
-        doc = self.active_doc()
+    def update_toc(self, doc_id: str | None = None):
+        doc = self._require_doc(doc_id)
         doc.TablesOfContents(1).Update()
         return doc.TablesOfContents.Count
 
     # --- 列表 ---
-    def add_list(self, lines: list[str], style: str = "bullet"):
-        doc = self.active_doc()
+    def add_list(self, lines: list[str], style: str = "bullet", doc_id: str | None = None):
+        doc = self._require_doc(doc_id)
         start = doc.Paragraphs.Count + 1  # 第一个新段落的序号
         for line in lines:
-            self.write_line(line)
+            self.write_line(line, doc_id)
         end = doc.Paragraphs.Count
         # Range 起点前移一个字符，落在上一段段末标记上，
         # 避免 ApplyBulletDefault 跳过 range 首段（Word 段落边界行为）
@@ -323,9 +429,15 @@ class WordApp:
 
     # --- 表格增强 ---
     def merge_table_cells(
-        self, table_idx: int, start_row: int, start_col: int, end_row: int, end_col: int
+        self,
+        table_idx: int,
+        start_row: int,
+        start_col: int,
+        end_row: int,
+        end_col: int,
+        doc_id: str | None = None,
     ):
-        t = self.active_doc().Tables(table_idx)
+        t = self._require_doc(doc_id).Tables(table_idx)
         t.Cell(start_row, start_col).Merge(t.Cell(end_row, end_col))
 
     def set_table_border(
@@ -335,8 +447,9 @@ class WordApp:
         weight: str | None = None,
         color: str | None = None,
         sides: str | None = None,
+        doc_id: str | None = None,
     ):
-        t = self.active_doc().Tables(table_idx)
+        t = self._require_doc(doc_id).Tables(table_idx)
         const = _resolve_style(style, _LINE_STYLE, "线型")
         for idx in _resolve_table_sides(sides):
             b = t.Borders(idx)
@@ -346,16 +459,25 @@ class WordApp:
             if color is not None:
                 b.Color = _rgb(color)
 
-    def set_table_col_width(self, table_idx: int, col: int, width: float):
-        self.active_doc().Tables(table_idx).Columns(col).Width = width
+    def set_table_col_width(
+        self, table_idx: int, col: int, width: float, doc_id: str | None = None
+    ):
+        self._require_doc(doc_id).Tables(table_idx).Columns(col).Width = width
 
-    def set_table_row_height(self, table_idx: int, row: int, height: float, rule: str = "at_least"):
-        r = self.active_doc().Tables(table_idx).Rows(row)
+    def set_table_row_height(
+        self,
+        table_idx: int,
+        row: int,
+        height: float,
+        rule: str = "at_least",
+        doc_id: str | None = None,
+    ):
+        r = self._require_doc(doc_id).Tables(table_idx).Rows(row)
         r.Height = height
         r.HeightRule = _resolve_style(rule, _ROW_HEIGHT_RULE, "行高规则")
 
-    def autofit_table(self, table_idx: int, behavior: str = "content"):
-        self.active_doc().Tables(table_idx).AutoFitBehavior(
+    def autofit_table(self, table_idx: int, behavior: str = "content", doc_id: str | None = None):
+        self._require_doc(doc_id).Tables(table_idx).AutoFitBehavior(
             _resolve_style(behavior, _AUTOFIT, "自动调整")
         )
 
@@ -367,8 +489,9 @@ class WordApp:
         match_case: bool = False,
         whole_word: bool = False,
         replace_all: bool = True,
+        doc_id: str | None = None,
     ):
-        f = self.active_doc().Content.Find
+        f = self._require_doc(doc_id).Content.Find
         f.Execute(
             FindText=find,
             ReplaceWith=replace,
@@ -378,8 +501,14 @@ class WordApp:
             MatchWholeWord=whole_word,
         )
 
-    def insert_image(self, path: str, width: float | None = None, height: float | None = None):
-        doc = self.active_doc()
+    def insert_image(
+        self,
+        path: str,
+        width: float | None = None,
+        height: float | None = None,
+        doc_id: str | None = None,
+    ):
+        doc = self._require_doc(doc_id)
         shape = doc.InlineShapes.AddPicture(os.path.abspath(path), Range=_end_range(doc))
         if width is not None:
             shape.Width = width
@@ -387,13 +516,13 @@ class WordApp:
             shape.Height = height
         return doc.InlineShapes.Count
 
-    def insert_page_break(self):
-        _end_range(self.active_doc()).InsertBreak(7)  # wdPageBreak
+    def insert_page_break(self, doc_id: str | None = None):
+        _end_range(self._require_doc(doc_id)).InsertBreak(7)  # wdPageBreak
 
     # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
-    def read_doc_text(self):
+    def read_doc_text(self, doc_id: str | None = None):
         """读取当前文档全文文本（只读，不改任何状态）。"""
-        return self.active_doc().Content.Text
+        return self._require_doc(doc_id).Content.Text
 
     def quit(self):
         # 库改全局状态（DisplayAlerts），释放前还原原值

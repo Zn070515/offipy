@@ -9,6 +9,14 @@ from offipy.client import call, ensure_server, request
 from offipy.exceptions import RemoteCallError, ServerStartError
 
 
+class _Ctx:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 def test_call_returns_result_on_ok(monkeypatch):
     monkeypatch.setattr("offipy.client.request", lambda app, op, **a: {"ok": True, "result": 3})
     assert call("ppt", "add_slide") == 3
@@ -29,7 +37,7 @@ def test_call_raises_remote_call_error_on_fail(monkeypatch):
 
 
 def test_ensure_server_returns_when_alive(monkeypatch):
-    monkeypatch.setattr("offipy.client._server_ok", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     assert ensure_server() is None
 
 
@@ -38,8 +46,7 @@ def test_ensure_server_raises_on_timeout(monkeypatch, tmp_path):
         def __init__(self, *a, **k):
             self.pid = 1
 
-    monkeypatch.setattr("offipy.client._server_ok", lambda: False)
-    monkeypatch.setattr("offipy.client._ping", lambda: False)
+    monkeypatch.setattr("offipy.client._probe", lambda: "down")
     monkeypatch.setattr("offipy.client.time.sleep", lambda s: None)
     monkeypatch.setattr("offipy.client.subprocess.Popen", FakePopen)
     monkeypatch.setattr("offipy.client.user_data_dir", lambda: tmp_path)
@@ -48,13 +55,26 @@ def test_ensure_server_raises_on_timeout(monkeypatch, tmp_path):
     assert "offipy server" in str(exc.value)
 
 
-def test_ensure_server_replaces_stale(monkeypatch, tmp_path):
-    # 端口上有进程但握手失败（旧 server）→ 杀之并重启
+def test_ensure_server_auth_fail_never_kills(monkeypatch, tmp_path):
+    # P0-2：token 失配 → 抛错，绝不强杀进程
+    killed = []
+    monkeypatch.setattr("offipy.client._probe", lambda: "auth_fail")
+    monkeypatch.setattr("offipy.client._find_server_pid", lambda: 987)
+    monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
+    monkeypatch.setattr("offipy.client.user_data_dir", lambda: tmp_path)
+    with pytest.raises(ServerStartError) as exc:
+        ensure_server()
+    assert "token 不匹配" in str(exc.value)
+    assert killed == []
+
+
+def test_ensure_server_mismatch_owned_kills_and_restarts(monkeypatch, tmp_path):
+    # 我们的旧版 server（pid 文件证明归属）→ 可强杀重启
     calls = {"n": 0}
 
-    def fake_ok():
+    def fake_probe():
         calls["n"] += 1
-        return calls["n"] > 1
+        return "mismatch" if calls["n"] == 1 else "ok"
 
     killed = []
 
@@ -62,9 +82,9 @@ def test_ensure_server_replaces_stale(monkeypatch, tmp_path):
         def __init__(self, *a, **k):
             self.pid = 42
 
-    monkeypatch.setattr("offipy.client._server_ok", fake_ok)
-    monkeypatch.setattr("offipy.client._ping", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", fake_probe)
     monkeypatch.setattr("offipy.client._find_server_pid", lambda: 987)
+    monkeypatch.setattr("offipy.client._pid_file_matches", lambda pid: True)
     monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
     monkeypatch.setattr("offipy.client.subprocess.Popen", FakePopen)
     monkeypatch.setattr("offipy.client.user_data_dir", lambda: tmp_path)
@@ -72,14 +92,82 @@ def test_ensure_server_replaces_stale(monkeypatch, tmp_path):
     assert killed == [987]
 
 
-def test_ensure_server_stale_but_unfindable_raises(monkeypatch, tmp_path):
-    monkeypatch.setattr("offipy.client._server_ok", lambda: False)
-    monkeypatch.setattr("offipy.client._ping", lambda: True)
+def test_ensure_server_mismatch_unknown_refuses(monkeypatch, tmp_path):
+    # P0-1：非 offipy 进程占端口且无法证明归属 → 拒绝强杀
+    killed = []
+    monkeypatch.setattr("offipy.client._probe", lambda: "mismatch")
+    monkeypatch.setattr("offipy.client._find_server_pid", lambda: 987)
+    monkeypatch.setattr("offipy.client._pid_file_matches", lambda pid: False)
+    monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
+    monkeypatch.setattr("offipy.client.user_data_dir", lambda: tmp_path)
+    with pytest.raises(ServerStartError) as exc:
+        ensure_server()
+    assert "拒绝强杀" in str(exc.value)
+    assert killed == []
+
+
+def test_ensure_server_mismatch_unfindable_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr("offipy.client._probe", lambda: "mismatch")
     monkeypatch.setattr("offipy.client._find_server_pid", lambda: None)
     monkeypatch.setattr("offipy.client.user_data_dir", lambda: tmp_path)
     with pytest.raises(ServerStartError) as exc:
         ensure_server()
     assert "offipy server stop" in str(exc.value)
+
+
+# --- _probe 四态 ---
+
+
+def test_probe_ok_on_matching_status(monkeypatch):
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return b'{"ok": true, "result": {"protocol": "offipy-http/v1"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("offipy.client._OPENER.open", lambda url, timeout=None: _Resp())
+    assert client._probe() == "ok"
+
+
+def test_probe_auth_fail_on_401(monkeypatch):
+    def raiser(url, timeout=None):
+        raise urllib.error.HTTPError(
+            "http://127.0.0.1:8890/status", 401, "Unauthorized", {}, io.BytesIO(b"")
+        )
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    assert client._probe() == "auth_fail"
+
+
+def test_probe_mismatch_on_wrong_protocol(monkeypatch):
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return b'{"ok": true, "result": {"protocol": "v0"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("offipy.client._OPENER.open", lambda url, timeout=None: _Resp())
+    assert client._probe() == "mismatch"
+
+
+def test_probe_down_on_urlerror(monkeypatch):
+    monkeypatch.setattr(
+        "offipy.client._OPENER.open",
+        lambda url, timeout=None: (_ for _ in ()).throw(urllib.error.URLError("refused")),
+    )
+    assert client._probe() == "down"
 
 
 def test_server_ok_true_on_matching_status(monkeypatch):
@@ -119,7 +207,7 @@ def test_request_wraps_http_error(monkeypatch):
         body = json.dumps({"ok": False, "error": "unauthorized"}).encode()
         raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(body))
 
-    monkeypatch.setattr("offipy.client._server_ok", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     monkeypatch.setattr("offipy.client._OPENER.open", raiser)
     with pytest.raises(RemoteCallError) as exc:
         request("ppt", "save")
@@ -130,7 +218,7 @@ def test_request_wraps_urlerror(monkeypatch):
     def raiser(req, timeout=None):
         raise urllib.error.URLError("connection refused")
 
-    monkeypatch.setattr("offipy.client._server_ok", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     monkeypatch.setattr("offipy.client._OPENER.open", raiser)
     with pytest.raises(RemoteCallError) as exc:
         request("ppt", "save")
@@ -150,7 +238,7 @@ def test_request_wraps_bad_json(monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr("offipy.client._server_ok", lambda: True)
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     monkeypatch.setattr("offipy.client._OPENER.open", lambda req, timeout=None: _Resp())
     with pytest.raises(RemoteCallError) as exc:
         request("ppt", "save")
@@ -180,14 +268,66 @@ def test_find_server_pid_netstat_fallback(monkeypatch, tmp_path):
     assert client._find_server_pid() == 4321
 
 
-def test_stop_server_kills(monkeypatch):
+def test_stop_server_ok_uses_shutdown(monkeypatch):
+    # 可鉴权 → 走 /shutdown 优雅停机，确认进程退出后返回
+    called = []
+    states = iter(["ok", "down"])
+    monkeypatch.setattr("offipy.client._probe", lambda: next(states))
+    monkeypatch.setattr(
+        "offipy.client._OPENER.open",
+        lambda req, timeout=None: called.append(req.full_url) or _Ctx(),
+    )
+    monkeypatch.setattr("offipy.client.time.sleep", lambda s: None)
+    assert client.stop_server() == "server 已停止"
+    assert called == ["http://127.0.0.1:8890/shutdown"]
+
+
+def test_stop_server_ok_old_server_fallback_kill(monkeypatch):
+    # 旧版 server 无 /shutdown：等待超时后按 pid 文件归属回退强杀
+    called = []
     killed = []
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")  # 永不 down
+    monkeypatch.setattr(
+        "offipy.client._OPENER.open",
+        lambda req, timeout=None: called.append(req.full_url) or _Ctx(),
+    )
+    monkeypatch.setattr("offipy.client.time.sleep", lambda s: None)
     monkeypatch.setattr("offipy.client._find_server_pid", lambda: 12345)
+    monkeypatch.setattr("offipy.client._pid_file_matches", lambda pid: True)
     monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
-    assert client.stop_server() is True
+    assert client.stop_server() == "server 已停止"
+    assert called == ["http://127.0.0.1:8890/shutdown"]
     assert killed == [12345]
 
 
-def test_stop_server_no_process(monkeypatch):
-    monkeypatch.setattr("offipy.client._find_server_pid", lambda: None)
-    assert client.stop_server() is False
+def test_stop_server_auth_fail_refuses(monkeypatch):
+    killed = []
+    monkeypatch.setattr("offipy.client._probe", lambda: "auth_fail")
+    monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
+    assert "token 不匹配" in client.stop_server()
+    assert killed == []
+
+
+def test_stop_server_mismatch_owned_kills(monkeypatch):
+    killed = []
+    monkeypatch.setattr("offipy.client._probe", lambda: "mismatch")
+    monkeypatch.setattr("offipy.client._find_server_pid", lambda: 12345)
+    monkeypatch.setattr("offipy.client._pid_file_matches", lambda pid: True)
+    monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
+    assert client.stop_server() == "server 已停止"
+    assert killed == [12345]
+
+
+def test_stop_server_mismatch_unknown_refuses(monkeypatch):
+    killed = []
+    monkeypatch.setattr("offipy.client._probe", lambda: "mismatch")
+    monkeypatch.setattr("offipy.client._find_server_pid", lambda: 12345)
+    monkeypatch.setattr("offipy.client._pid_file_matches", lambda pid: False)
+    monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
+    assert "拒绝强杀" in client.stop_server()
+    assert killed == []
+
+
+def test_stop_server_not_running(monkeypatch):
+    monkeypatch.setattr("offipy.client._probe", lambda: "down")
+    assert client.stop_server() == "server 未在运行"

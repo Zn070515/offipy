@@ -1,4 +1,4 @@
-from .api import Excel, Ppt, Word
+from .api import Excel, Ppt, Word, op
 from .core import (
     PROGIDS,
     connect,
@@ -8,11 +8,16 @@ from .core import (
     running,
 )
 from .exceptions import (
+    ComOperationError,
     ConversionError,
+    FileConflictError,
+    InvalidArgumentError,
     OfficeUnavailableError,
     OffipyError,
+    ProtocolError,
     RemoteCallError,
     ServerStartError,
+    TargetNotFoundError,
     UnsupportedPlatformError,
 )
 
@@ -22,6 +27,7 @@ __all__ = [
     "Excel",
     "Word",
     "Ppt",
+    "op",
     "connect",
     "ensure_app",
     "launch",
@@ -32,6 +38,11 @@ __all__ = [
     "OfficeUnavailableError",
     "ServerStartError",
     "RemoteCallError",
+    "TargetNotFoundError",
     "ConversionError",
     "UnsupportedPlatformError",
+    "InvalidArgumentError",
+    "FileConflictError",
+    "ComOperationError",
+    "ProtocolError",
 ]

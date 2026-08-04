@@ -21,6 +21,14 @@ if pythoncom is not None:
     pythoncom.CoInitialize()
 
 
+@pytest.fixture(autouse=True)
+def _tmp_oplog(tmp_path, monkeypatch):
+    """把操作日志（P2-3）重定向到临时目录，避免 server 测试污染真实 user data。"""
+    from offipy import oplog
+
+    monkeypatch.setattr(oplog, "_PATH", tmp_path / "oplog.jsonl")
+
+
 @pytest.fixture
 def live_ppt():
     """需要存活 PowerPoint 时使用；缺实例则跳过（session server 8890 持有）。"""

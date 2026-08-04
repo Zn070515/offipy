@@ -9,7 +9,7 @@
 
 > **预发布编号策略**：正式首发 1.0.0 前，TestPyPI 预发布用 `0.9.0a1` / `0.9.0rc1`
 > 编号；稳定发布时 `__version__`、git tag、CHANGELOG 顶层三者必须一致（对齐测试兜底）。
-> 0.9.0 从未发布，不重复 bump——round-2 修复后版本仍为 0.9.0。
+> 0.9.0 从未发布，不重复 bump——round-2 / round-3（ChatGPT_v3 审核）全量修复后版本仍为 0.9.0。
 
 ### Added
 - 高层 API facade：`offipy.Excel() / Word() / Ppt()` 上下文管理器，未显式定义的 op 代理到底层 app（`api.py`）
@@ -27,6 +27,21 @@
 - deck 覆盖保护：`render` / `make` 输出已存在且 `overwrite=False` 时抛 `FileExistsError`（fail-fast）
 - 依赖拆 `convert` extra（HTML→PPTX 转换器依赖）+ `tomli`（3.10 支持），核心依赖瘦身
 
+#### round-3（ChatGPT_v3 审核，2026-08-04）
+- 领域异常体系（策略 A）：`InvalidArgumentError / TargetNotFoundError / FileConflictError / ComOperationError / ProtocolError` 全部继承 `OffipyError` 且带 `code`；RPC `error_code` 与异常一一对应，Python/RPC/MCP 三入口同源
+- 目标身份原语：每 App `get_target()` 返回 active 文档身份（app/name/path）；`/status` 报告各 App 当前目标（只读缓存快照）
+- 只读不创建（P0-8）：无打开文档时 `active_*` 纯探测返回 None，读 op 抛 `TargetNotFoundError`——不再隐式 `Add()` 造空文档
+- destructive 目标绑定（P0-7）：破坏性 op 支持 `expected_target`（name/path）精确比对，绑定失败拒绝执行，防切焦点误改
+- operation schema 单一来源（P1-2）：新增 `schema.py` 声明式 op 表，server `_OPS` / CLI 参数类型 / MCP 工具注册全部由 schema 派生——新增 RPC 只改一处
+- 线程前端 + 单 COM worker 队列（P1-1）：慢 COM op 不阻塞 `/ping` / `/status` / `/shutdown`；COM 对象仅 worker 线程触碰（套间安全）
+- `OperationResult` 统一返回契约（P1-3）：`{ok, operation, resource_id, message, data}`（附 `result` 兼容别名），原始 COM 对象不外泄
+- 鉴权 `/shutdown` 优雅停机端点 + `server stop` 分状态处理：token 失配拒绝、端口被占且无法证明归属拒绝强杀
+- `server status` 只读（P0-3）：未运行不隐式拉起；公开 `server_ready()` 只读探测
+- extras 拆分（P1-5）：`office / deck / mcp / all`，核心 `import offipy` 零额外依赖；`py.typed` 随 wheel 分发（PEP 561）
+- deck 原子替换（P0-5）：渲染写同目录临时文件 + `os.replace`，失败不破坏既有 .pptx
+- CI 矩阵（P1-6）：pure-module（Linux + 覆盖率门槛）/ windows（3.10–3.13）/ wheel-smoke / office-real（自托管真机 COM + deck_render）
+- MCP in-memory 协议层测试（P1-7）：无子进程直连 MCPServer 验证工具注册 / 返回 / 错误映射
+
 ### Changed
 - 命令行更名：`office` → `offipy`（console script 只留 `offipy`）
 - `mcp` 依赖收窄为 `>=2.0,<3.0`
@@ -39,8 +54,21 @@
 - 客户端 HTTP 错误语义化：网络 / 超时 / 非 JSON 一律抛 `RemoteCallError`
 - CI 矩阵扩到 Python 3.10–3.13；deck 单测不真拉 chromium（浏览器前置检查 no-op）
 
+#### round-3（ChatGPT_v3 审核，2026-08-04）
+- server 改继承 `ThreadingHTTPServer`：每请求独立线程，COM 只由 worker 队列线程消费
+- DisplayAlerts 作用域化（P0-4）：构造器不再永久静音，op 内自存自还（修复嵌套 wrapper 互踩）
+- deck CLI 真布尔（P0-6）：`--html/--out/--no-open/--feedback/--theme/--layouts/--overwrite` 改专用 argparse 选项（`store_true`），根除 `bool("false")` 翻真 bug
+- extras 由 `convert` 收敛为 `office / deck / mcp / all`；`convert` 能力并入 `deck`
+- `offipy check` 依赖缺失提示按 extra 给出安装命令（office/deck/mcp）
+- 品牌统一（P1-9）：对外文案 / 文档 / 示例页脚统一 `offipy`
+- 非 Windows 收集修复（P1-6）：COM 测试模块改 fixture + skipif 短路，Linux 收集不炸
+
 ### Fixed
 - PPT DisplayAlerts 常量改正（`ppAlertsNone=1`，原 `=0` 实为 `ppAlertsAll`）
+
+#### round-3（ChatGPT_v3 审核，2026-08-04）
+- HTTP 边界（P0-10）：`do_POST` 非 `/call` / `/shutdown` 路径 404（此前任何路径都当 /call）；负 `Content-Length` 拒绝 400；响应体超上限回 500 不写大 payload
+- deck CLI `--overwrite false` 此前被 `bool("false")` 翻成 True 误覆盖目标文件
 
 ## [0.8.0] - 2026-08-04
 

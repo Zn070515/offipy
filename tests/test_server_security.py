@@ -33,15 +33,19 @@ def _post(
     token: str | None = None,
     ctype="application/json",
     content_length: int | None = None,
+    path="/call",
+    protocol="offipy-http/v1",
 ):
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": ctype}
+    if protocol is not None:
+        headers["X-Offipy-Protocol"] = protocol
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if content_length is not None:
         headers["Content-Length"] = str(content_length)
     conn = http.client.HTTPConnection("127.0.0.1", port)
-    conn.request("POST", "/call", body=data, headers=headers)
+    conn.request("POST", path, body=data, headers=headers)
     resp = conn.getresponse()
     payload = resp.read().decode("utf-8")
     conn.close()
@@ -79,10 +83,23 @@ def test_status_requires_auth(srv):
     status, body = _get(srv, "/status", token=TOKEN)
     assert status == 200
     result = body["result"]
-    for field in ("version", "protocol", "pid", "python", "started_at"):
+    for field in ("version", "protocol", "pid", "python", "started_at", "session_id"):
         assert field in result
     assert result["protocol"] == "offipy-http/v1"
     assert result["version"]
+    assert result["session_id"]  # P2-3：会话标识随 /status 暴露
+
+
+def test_status_targets_null_when_uninitialized(srv):
+    # P0-7/P0-8：/status 报各 App 目标身份；未初始化（未拉 Office）的 App 报
+    # null，绝不因 status 探测而拉起 Office 进程。
+    status, body = _get(srv, "/status", token=TOKEN)
+    assert status == 200
+    targets = body["result"]["targets"]
+    assert set(targets) == {"excel", "word", "ppt"}
+    assert targets["excel"] is None
+    assert targets["word"] is None
+    assert targets["ppt"] is None
 
 
 def test_call_requires_auth(srv):
@@ -90,6 +107,28 @@ def test_call_requires_auth(srv):
     assert status == 401
     status, _ = _post(srv, {"app": "ppt", "op": "quit"}, token="wrong-token")
     assert status == 401
+
+
+def test_call_requires_protocol_header(srv):
+    # P2-8：/call 不带 protocol 头 → 400 + ProtocolError
+    status, body = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, protocol=None)
+    assert status == 400
+    assert body["error_code"] == "protocol"
+
+
+def test_call_rejects_wrong_protocol(srv):
+    # P2-8：协议版本不匹配 → 400 + ProtocolError，不静默错位
+    status, body = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, protocol="offipy-http/v2")
+    assert status == 400
+    assert body["error_code"] == "protocol"
+    assert "offipy-http/v1" in body["error"]
+
+
+def test_shutdown_requires_protocol_header(srv):
+    # P2-8：/shutdown 同样要求 protocol 头
+    status, body = _post(srv, {}, token=TOKEN, path="/shutdown", protocol=None)
+    assert status == 400
+    assert body["error_code"] == "protocol"
 
 
 def test_content_type_must_be_json(srv):
@@ -130,6 +169,77 @@ def test_server_survives_bad_auth(srv):
     assert status == 200
 
 
+def test_post_non_call_path_404(srv):
+    # P0-10：POST 非 /call 路径 → 404，不进入 dispatch
+    status, body = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, path="/nope")
+    assert status == 404
+    assert "not found" in body["error"]
+
+
+def test_negative_content_length_rejected(srv):
+    # P0-10：负 Content-Length → 400（read(负值) 会吞掉整个连接缓冲）
+    status, _ = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, content_length=-5)
+    assert status == 400
+
+
+def test_shutdown_requires_auth(srv):
+    status, _ = _post(srv, {}, path="/shutdown")
+    assert status == 401
+    status, _ = _post(srv, {}, token="wrong-token", path="/shutdown")
+    assert status == 401
+
+
+def test_shutdown_ok(srv):
+    status, body = _post(srv, {}, token=TOKEN, path="/shutdown")
+    assert status == 200
+    assert body["ok"] is True
+
+
+def test_deprecated_op_gets_warning(monkeypatch):
+    # P2-9：schema 标 deprecated 的 op，成功/失败响应都带 warning 字段
+    from offipy import schema
+    from offipy.schema import OpSpec
+
+    orig = schema.spec
+
+    def fake_spec(app, op):
+        sp = orig(app, op)
+        if sp is not None and app == "word" and op == "new_doc":
+            return OpSpec(
+                description=sp.description,
+                readonly=sp.readonly,
+                destructive=sp.destructive,
+                deprecated=True,
+                returns=sp.returns,
+                params=sp.params,
+            )
+        return sp
+
+    monkeypatch.setattr(schema, "spec", fake_spec)
+    ok = server._success_result("word.new_doc", None)
+    assert "warning" in ok and "已弃用" in ok["warning"]
+    err = server._error_result("word.new_doc", ValueError("x"))
+    assert "warning" in err
+    plain = server._success_result("word.write_line", None)
+    assert "warning" not in plain
+
+
+def test_encode_reply_ok_normal():
+    status, data = server._encode_reply({"ok": True, "result": 3})
+    assert status == 200
+    assert json.loads(data) == {"ok": True, "result": 3}
+
+
+def test_encode_reply_caps_oversize(monkeypatch):
+    # P0-10：响应超上限 → 500 错误，不向客户端写大 payload
+    monkeypatch.setattr(server, "_MAX_RESPONSE", 100)
+    status, data = server._encode_reply({"ok": True, "result": "x" * 1000})
+    assert status == 500
+    payload = json.loads(data)
+    assert payload["ok"] is False
+    assert "上限" in payload["error"]
+
+
 # --- round-2：host 限制 / token 生命周期 / 显式白名单 / 惰性 COM ---
 
 
@@ -149,7 +259,7 @@ def test_validate_host_allows_loopback_and_explicit_remote():
 def test_load_token_env_first_no_file_write(monkeypatch, tmp_path):
     monkeypatch.setenv("OFFIPY_SERVER_TOKEN", "env-token-xyz")
     monkeypatch.setattr(server, "user_data_dir", lambda: tmp_path)
-    assert server._load_token() == "env-token-xyz"
+    assert server._load_token(server.DEFAULT_PORT) == "env-token-xyz"
     assert not (tmp_path / "token").exists()  # env 模式不落盘
 
 
@@ -160,7 +270,7 @@ def test_load_token_write_failure_raises(monkeypatch, tmp_path):
     blocker.write_text("x")  # 用文件挡住 user_data_dir，mkdir 必失败
     monkeypatch.setattr(server, "user_data_dir", lambda: blocker)
     with pytest.raises(server.ServerStartError):
-        server._load_token()
+        server._load_token(server.DEFAULT_PORT)
 
 
 def test_session_internal_ops_not_in_whitelist():

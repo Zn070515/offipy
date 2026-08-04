@@ -192,3 +192,109 @@ def test_make_passes_overwrite_to_render(tmp_path, monkeypatch):
 
     pptx = deck.make(str(html), open_live_flag=False, overwrite=True)
     assert pptx.endswith("deck.pptx")
+
+
+# --- P0-6 原子替换：失败不破坏已存在 .pptx，临时文件清理 ---
+
+
+def _hidden_pptx(tmp_path):
+    """render 留下的隐藏临时 .pptx（成功替换后应一个不剩）。"""
+    return [
+        p.name for p in tmp_path.iterdir() if p.name.startswith(".") and p.name.endswith(".pptx")
+    ]
+
+
+def _fake_run_with_audit(created):
+    """mock subprocess.run：按 --out 产出 tmp .pptx 之外，还建 <tmp>_audit 审计目录。"""
+
+    def fake_run(cmd, **kw):
+        created["cmd"] = cmd
+        out = cmd[cmd.index("--out") + 1]
+        Path(out).write_bytes(b"fake pptx")
+        audit = Path(out).with_name(Path(out).stem + "_audit")
+        (audit / "_cache").mkdir(parents=True, exist_ok=True)
+        (audit / "_cache" / "measurements.json").write_text("{}", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    return fake_run
+
+
+def test_render_atomic_success_replaces_and_cleans(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    (tmp_path / "deck.pptx").write_bytes(b"old content")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    pptx = deck.render(str(html), overwrite=True)
+    assert Path(pptx).read_bytes() == b"fake pptx"  # 新内容到位
+    assert _hidden_pptx(tmp_path) == []  # 临时 .pptx 已清理
+
+
+def test_render_atomic_cleans_orphan_audit_dir(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run_with_audit(created))
+
+    pptx = deck.render(str(html), overwrite=True)
+    # convert 的 <tmp>_audit 审计目录在 tmp 被替换后成为孤儿，render 应清理
+    orphans = [p for p in tmp_path.iterdir() if p.name.endswith("_audit")]
+    assert orphans == []
+    assert Path(pptx).read_bytes() == b"fake pptx"
+
+
+def test_render_atomic_failure_cleans_orphan_audit_dir(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    existing = tmp_path / "deck.pptx"
+    existing.write_bytes(b"precious")
+
+    def fail_run_with_audit(cmd, **kw):
+        out = cmd[cmd.index("--out") + 1]
+        audit = Path(out).with_name(Path(out).stem + "_audit")
+        audit.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(returncode=1, stdout="oops", stderr="boom")
+
+    monkeypatch.setattr(deck.subprocess, "run", fail_run_with_audit)
+    with pytest.raises(deck.ConversionError):
+        deck.render(str(html), overwrite=True)
+    assert existing.read_bytes() == b"precious"  # 已存在 .pptx 未被破坏
+    orphans = [p for p in tmp_path.iterdir() if p.name.endswith("_audit")]
+    assert orphans == []
+
+
+def test_render_atomic_convert_failure_preserves_existing(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    existing = tmp_path / "deck.pptx"
+    existing.write_bytes(b"precious")
+    created = {}
+
+    def fail_run(cmd, **kw):
+        created["cmd"] = cmd
+        return SimpleNamespace(returncode=1, stdout="oops", stderr="boom")
+
+    monkeypatch.setattr(deck.subprocess, "run", fail_run)
+    with pytest.raises(deck.ConversionError):
+        deck.render(str(html), overwrite=True)
+    assert existing.read_bytes() == b"precious"  # 已存在 .pptx 未被破坏
+    assert _hidden_pptx(tmp_path) == []
+
+
+def test_render_atomic_postprocess_failure_preserves_existing(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    existing = tmp_path / "deck.pptx"
+    existing.write_bytes(b"precious")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    def boom(html_path, pptx_path):
+        raise RuntimeError("图表后处理失败")
+
+    monkeypatch.setattr("offipy.charts.postprocess_charts", boom)
+    with pytest.raises(RuntimeError):
+        deck.render(str(html), overwrite=True)
+    assert existing.read_bytes() == b"precious"
+    assert _hidden_pptx(tmp_path) == []

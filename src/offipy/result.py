@@ -1,0 +1,35 @@
+"""OperationResult：server /call 的规范化返回契约（P1-3）。
+
+三入口（Python/RPC/MCP）统一：成功返回 {ok, operation, resource_id, message, data}；
+失败返回 {ok, operation, error, error_code, ...}。原始 COM 对象不外泄——server
+侧 _serialize 把 COM 置 None，resource_id 替代对象引用，让调用方能定位操作
+作用于哪个文档/工作簿/演示文稿。
+
+兼容：旧 client 读 result；新响应同时带 data 与 result 别名，渐进切换。
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+
+@dataclass
+class OperationResult:
+    """一次 /call 操作的结果载体（可序列化契约）。"""
+
+    ok: bool
+    operation: str  # "excel.set_cell"
+    resource_id: str | None  # "excel:book:Book1"
+    message: str
+    data: Any = None
+
+    def to_dict(self) -> dict:
+        d = {
+            "ok": self.ok,
+            "operation": self.operation,
+            "resource_id": self.resource_id,
+            "message": self.message,
+            "data": self.data,
+        }
+        if not self.ok:
+            d["error"] = self.message
+        return d

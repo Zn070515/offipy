@@ -4,7 +4,7 @@
 - Excel()/Word()/Ppt() 上下文管理器进出
 - 未显式定义的 op 经 __getattr__ 代理到底层 app
 - offipy 异常透传
-- active_doc 实时优先 / 缓存回退 / 死缓存穿透
+- active_doc 实时优先 / 缓存回退 / 死缓存穿透 / 无文档不隐式创建（P0-8）
 """
 
 import pytest
@@ -67,12 +67,14 @@ def test_active_doc_prefers_live(monkeypatch):
     from offipy import core
     from offipy.excel import ExcelApp
 
-    live, cached = object(), object()
+    live = object()
     app = ExcelApp.__new__(ExcelApp)
-    app._book = cached
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_book() is live
-    assert app._book is live  # 实时句柄同步回缓存
+    assert live in app._docs.values()  # 实时句柄并入文档表并设为活动
 
 
 def test_active_doc_falls_back_to_live_cache(monkeypatch):
@@ -81,7 +83,8 @@ def test_active_doc_falls_back_to_live_cache(monkeypatch):
 
     cached = object()
     app = ExcelApp.__new__(ExcelApp)
-    app._book = cached
+    app._docs = {"book1": cached}
+    app._active_id = "book1"
     monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
     monkeypatch.setattr(core, "doc_alive", lambda obj: True)
     assert app.active_book() is cached
@@ -94,27 +97,34 @@ def test_active_doc_dead_cache_falls_through(monkeypatch):
     live_book = object()
     fake_app = type("F", (), {"ActiveWorkbook": live_book})()
     app = ExcelApp.__new__(ExcelApp)
-    app._book = object()  # 死缓存
+    app._docs = {"book1": object()}  # 死缓存
+    app._active_id = "book1"
+    app._seq = 0
     app.app = fake_app
     monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
     monkeypatch.setattr(core, "doc_alive", lambda obj: False)
     assert app.active_book() is live_book
-    assert app._book is live_book
+    assert live_book in app._docs.values()  # 实时句柄并入文档表
 
 
-def test_active_doc_creates_when_none(monkeypatch):
+def test_active_doc_none_does_not_create(monkeypatch):
+    # P0-8：无活动工作簿时 active_book 纯探测返回 None，绝不隐式 Add()
     from offipy import core
     from offipy.excel import ExcelApp
 
-    new_book = object()
-    fake_workbooks = type("W", (), {"Add": lambda self: new_book})()
+    def _fail_add(*a, **k):
+        raise AssertionError("P0-8: active_book 不得隐式 Workbooks.Add()")
+
+    fake_workbooks = type("W", (), {"Add": _fail_add})()
     fake_app = type("F", (), {"ActiveWorkbook": None, "Workbooks": fake_workbooks})()
     app = ExcelApp.__new__(ExcelApp)
     app.app = fake_app
-    app._book = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
     monkeypatch.setattr(core, "doc_alive", lambda obj: False)
-    assert app.active_book() is new_book
+    assert app.active_book() is None
 
 
 def test_active_pres_prefers_live(monkeypatch):
@@ -123,6 +133,9 @@ def test_active_pres_prefers_live(monkeypatch):
 
     live = object()
     app = PptApp.__new__(PptApp)
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_pres() is live
 
@@ -133,5 +146,8 @@ def test_active_word_doc_prefers_live(monkeypatch):
 
     live = object()
     app = WordApp.__new__(WordApp)
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_doc() is live

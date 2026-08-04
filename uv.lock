@@ -927,13 +927,20 @@ wheels = [
 name = "offipy"
 source = { editable = "." }
 dependencies = [
-    { name = "mcp" },
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.optional-dependencies]
-convert = [
+all = [
+    { name = "fonttools" },
+    { name = "lxml" },
+    { name = "mcp" },
+    { name = "pillow" },
+    { name = "playwright" },
+    { name = "python-pptx" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+]
+deck = [
     { name = "fonttools" },
     { name = "lxml" },
     { name = "pillow" },
@@ -943,36 +950,53 @@ convert = [
 dev = [
     { name = "fonttools" },
     { name = "lxml" },
+    { name = "mcp" },
     { name = "mypy" },
     { name = "pillow" },
     { name = "playwright" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "python-pptx" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "ruff" },
+]
+mcp = [
+    { name = "mcp" },
+]
+office = [
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "fonttools", marker = "extra == 'convert'", specifier = ">=4.0" },
+    { name = "fonttools", marker = "extra == 'all'", specifier = ">=4.0" },
+    { name = "fonttools", marker = "extra == 'deck'", specifier = ">=4.0" },
     { name = "fonttools", marker = "extra == 'dev'", specifier = ">=4.0" },
-    { name = "lxml", marker = "extra == 'convert'", specifier = ">=5.0" },
+    { name = "lxml", marker = "extra == 'all'", specifier = ">=5.0" },
+    { name = "lxml", marker = "extra == 'deck'", specifier = ">=5.0" },
     { name = "lxml", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "mcp", specifier = ">=2.0,<3.0" },
+    { name = "mcp", marker = "extra == 'all'", specifier = ">=2.0,<3.0" },
+    { name = "mcp", marker = "extra == 'dev'", specifier = ">=2.0,<3.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0,<3.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "pillow", marker = "extra == 'convert'", specifier = ">=10.0" },
+    { name = "pillow", marker = "extra == 'all'", specifier = ">=10.0" },
+    { name = "pillow", marker = "extra == 'deck'", specifier = ">=10.0" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=10.0" },
-    { name = "playwright", marker = "extra == 'convert'", specifier = ">=1.40" },
+    { name = "playwright", marker = "extra == 'all'", specifier = ">=1.40" },
+    { name = "playwright", marker = "extra == 'deck'", specifier = ">=1.40" },
     { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.40" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
-    { name = "python-pptx", marker = "extra == 'convert'", specifier = ">=1.0.2" },
+    { name = "python-pptx", marker = "extra == 'all'", specifier = ">=1.0.2" },
+    { name = "python-pptx", marker = "extra == 'deck'", specifier = ">=1.0.2" },
     { name = "python-pptx", marker = "extra == 'dev'", specifier = ">=1.0.2" },
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "pywin32", marker = "sys_platform == 'win32' and extra == 'all'" },
+    { name = "pywin32", marker = "sys_platform == 'win32' and extra == 'dev'" },
+    { name = "pywin32", marker = "sys_platform == 'win32' and extra == 'office'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
 ]
-provides-extras = ["convert", "dev"]
+provides-extras = ["all", "deck", "dev", "mcp", "office"]
 
 [[package]]
 name = "opentelemetry-api"
