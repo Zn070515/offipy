@@ -57,8 +57,12 @@ def test_add_page_number_center():
 
 def test_page_setup_landscape_a4_margin():
     call("word", "new_doc")
-    call("word", "page_setup", orientation="landscape", paper="a4", top_margin=72, bottom_margin=72)
+    call(
+        "word", "page_setup",
+        orientation="landscape", paper="a4", top_margin=108, bottom_margin=144,
+    )
     ps = _word().ActiveDocument.PageSetup
     assert ps.Orientation == 1  # wdOrientLandscape
     assert ps.PaperSize == 7  # wdPaperA4
-    assert ps.TopMargin == 72
+    assert ps.TopMargin == 108  # 非默认边距，确保赋值真的生效
+    assert ps.BottomMargin == 144
