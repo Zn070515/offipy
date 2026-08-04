@@ -93,3 +93,15 @@ def test_deck_outline_missing_file_friendly_error(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline", "--input", str(missing)])
     assert "找不到文件" in str(exc.value)
+
+
+def test_deck_outline_bad_format_friendly_error(tmp_path, capsys):
+    # 回归：非法大纲（缺 # 主标题）时曾裸 ValueError traceback，
+    # 现在应 SystemExit 带友好提示。
+    from offipy import cli
+
+    bad = tmp_path / "bad.md"
+    bad.write_text("## 只有页面\n- 无标题\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "outline", "--input", str(bad)])
+    assert "大纲格式错误" in str(exc.value)
