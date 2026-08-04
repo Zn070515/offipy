@@ -36,6 +36,73 @@ def _rgb(hex_color: str) -> int:
     return r + (g << 8) + (b << 16)
 
 
+# ===== M4：常量表与解析辅助（Excel COM 值按 VBA 常量硬编码） =====
+# 边框位置 BorderIndex：7/8/9/10=左/上/下/右，11/12=内竖/内横
+_BORDER_INDEX = {
+    "left": 7,
+    "top": 8,
+    "bottom": 9,
+    "right": 10,
+    "inside-v": 11,
+    "inside-h": 12,
+}
+# 线型 xlLineStyle
+_LINE_STYLE = {
+    "continuous": 1,
+    "dash": -4115,
+    "dash-dot": 4,
+    "dash-dot-dot": 5,
+    "dot": -4118,
+    "double": -4119,
+    "none": -4142,
+    "slant-dash-dot": 13,
+}
+# 线宽 xlBorderWeight
+_BORDER_WEIGHT = {"hairline": 1, "thin": 2, "medium": -4138, "thick": 4}
+# 条件格式运算符 xlFormatConditionOperator
+_COND_OPERATOR = {
+    "between": 1,
+    "not_between": 2,
+    "equal": 3,
+    "not_equal": 4,
+    "greater": 5,
+    "less": 6,
+    "greater_equal": 7,
+    "less_equal": 8,
+}
+# 页面方向 xlPageOrientation
+_ORIENTATION = {"portrait": 1, "landscape": 2}
+# 纸张 xlPaperSize
+_PAPER_SIZE = {"letter": 1, "a3": 8, "a4": 9}
+
+
+def _resolve_sides(side: str | None) -> list[int]:
+    """把 all/outside/inside 或逗号分隔的具体边名解析成 BorderIndex 列表。"""
+    name = (side or "all").strip().lower()
+    if name == "all":
+        return [7, 8, 9, 10, 11, 12]
+    if name == "outside":
+        return [7, 8, 9, 10]
+    if name == "inside":
+        return [11, 12]
+    parts = [p.strip() for p in name.split(",") if p.strip()]
+    if not parts:
+        raise ValueError(f"无效边框侧: {side!r}")
+    result = []
+    for p in parts:
+        if p not in _BORDER_INDEX:
+            raise ValueError(f"未知边框侧: {p!r}（可选: {', '.join(_BORDER_INDEX)}）")
+        result.append(_BORDER_INDEX[p])
+    return result
+
+
+def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
+    key = (name or "").strip().lower()
+    if key not in table:
+        raise ValueError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
+    return table[key]
+
+
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
