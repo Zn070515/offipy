@@ -37,6 +37,8 @@ def get_app(name: str):
 def _serialize(v):
     if v is None or isinstance(v, (int, float, str, bool)):
         return v
+    if isinstance(v, (list, tuple)):
+        return [_serialize(x) for x in v]
     try:
         return v.isoformat()  # datetime 等
     except Exception:

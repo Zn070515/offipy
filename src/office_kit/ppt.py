@@ -47,6 +47,17 @@ class PptApp:
     def save_pdf(self, path: str):
         self.active_pres().SaveAs(os.path.abspath(path), PP_SAVE_PDF)
 
+    def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
+        """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""
+        pres = self.active_pres()
+        os.makedirs(out_dir, exist_ok=True)
+        paths = []
+        for i in range(1, pres.Slides.Count + 1):
+            out = os.path.join(out_dir, f"slide_{i:02d}.png")
+            pres.Slides(i).Export(out, "PNG", width, height)
+            paths.append(out)
+        return paths
+
     # --- 幻灯片 ---
     def add_slide(self, layout: int = PP_LAYOUT_TEXT):
         pres = self.active_pres()
