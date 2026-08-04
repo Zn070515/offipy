@@ -1,0 +1,37 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- 环境 / 工具链 ---
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- 运行产物 ---
+.office-kit.log
+_audit/
+*.audited.html
+out/
+
+# vendored 转换器本机偏好（跨机器不同，不入库）
+third_party/html-to-editable-pptx/.config.local.toml
+
+# 遗留的回归测试产物（正式测试目录已改用 tests/）
+/test/
+
+# --- OS / 编辑器 ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# --- 密钥 ---
+.env
+.env.*
+*.local

@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "office-kit"
+description = "Live Microsoft Office automation via COM (session-based) + HTML-first slide pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "OfficeForClaude" }]
+# pywin32 仅支持 Windows：平台标记保证在 Linux/macOS 上也能解析依赖树
+dependencies = ["pywin32; platform_system == 'Windows'"]
+dynamic = ["version"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+office = "office_kit.cli:main"
+
+# 版本单一来源：从 src/office_kit/__init__.py 的 __version__ 读取
+[tool.hatch.version]
+path = "src/office_kit/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/office_kit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "com: 需要存活 Office/COM server 的集成测试（无 Office 环境自动跳过）",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+# docs/ 里的 plan 文档含 python 代码块，ruff format 会递归处理 markdown，
+# 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录。
+exclude = ["docs/", "test/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/office_kit"]
+ignore_missing_imports = true
+show_error_codes = true
