@@ -104,6 +104,8 @@ def parse_outline(md: str) -> DeckOutline:
         m = _DIRECTIVE_RE.match(line)
         if m:
             key, val = m.group(1).lower(), m.group(2).strip()
+            if key not in ("layout", "kicker", "notes"):
+                raise ValueError(f"未知指令 @{key}（可选: @layout/@kicker/@notes）")
             if cur is not None:
                 if key == "layout":
                     cur.layout = val
@@ -112,10 +114,10 @@ def parse_outline(md: str) -> DeckOutline:
                 elif key == "notes":
                     cur.note = val
             else:
-                pending[key] = val  # 第一个 ## 前的指令归第一页
+                pending[key] = val
             continue
         if line.startswith("> "):
-            if cur is None and not subtitle and not slides:
+            if cur is None and not subtitle:
                 subtitle = line[2:].strip()
             elif cur is not None:
                 cur.body.append(line[2:].strip())
@@ -140,7 +142,6 @@ def parse_outline(md: str) -> DeckOutline:
                 kicker=pending.pop("kicker", ""),
                 note=pending.pop("notes", ""),
             )
-            pending.clear()
             continue
         if cur is None:
             continue

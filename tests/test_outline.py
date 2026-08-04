@@ -64,3 +64,26 @@ def test_markdown_roundtrip():
     o = parse_outline(SAMPLE)
     o2 = parse_outline(o.markdown())
     assert o.to_dict() == o2.to_dict()
+
+
+def test_unknown_directive_raises():
+    with pytest.raises(ValueError):
+        parse_outline("# T\n\n## 页\n@nots: 拼错了\n")
+
+
+def test_star_bullets_and_pending_directive():
+    o = parse_outline("# T\n@layout: cards-3\n\n## 页\n* 甲\n* 乙\n")
+    assert o.slides[0].layout == "cards-3"
+    assert o.slides[0].bullets == ["甲", "乙"]
+
+
+def test_quote_inside_slide_is_body():
+    o = parse_outline("# T\n\n## 页\n- 甲\n> 补充说明\n")
+    assert o.slides[0].bullets == ["甲"]
+    assert o.slides[0].body == ["补充说明"]
+
+
+def test_subtitle_only_before_first_slide():
+    o = parse_outline("# T\n> 副标题\n\n## 页一\n> 页内引用\n")
+    assert o.subtitle == "副标题"
+    assert o.slides[0].body == ["页内引用"]
