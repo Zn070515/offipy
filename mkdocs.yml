@@ -1,0 +1,28 @@
+site_name: offipy
+site_description: Live Microsoft Office automation via COM (session-based) + HTML-first slide pipeline
+repo_url: https://github.com/Zn070515/office-kit
+docs_dir: docs
+
+nav:
+  - 首页: index.md
+  - 快速上手: usage.md
+  - API 参考:
+      - 总览: api/index.md
+      - Excel: api/excel.md
+      - Word: api/word.md
+      - PowerPoint: api/ppt.md
+  - 异常契约: exceptions.md
+  - 协议: protocol.md
+  - 兼容矩阵: compatibility.md
+  - 弃用政策: deprecation.md
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - tables

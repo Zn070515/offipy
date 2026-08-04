@@ -12,6 +12,7 @@ dist/
 .mypy_cache/
 .coverage
 htmlcov/
+site/
 
 # --- 运行产物 ---
 .offipy.log
