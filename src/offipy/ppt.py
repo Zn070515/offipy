@@ -17,6 +17,7 @@ PP_LAYOUT_BLANK = 12
 class PptApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("ppt", visible=visible)
+        self.app.DisplayAlerts = 0  # ppAlertsNone：抑制保存/覆盖等模态提示
         self._pres = None
 
     # --- 演示文稿 ---

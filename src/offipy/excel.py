@@ -39,6 +39,8 @@ def _rgb(hex_color: str) -> int:
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
+        # 关闭所有提示（保存/覆盖/文件锁），避免模态对话框卡死单线程 server
+        self.app.DisplayAlerts = False
         self._book = None
 
     # --- 工作簿 ---
@@ -63,7 +65,8 @@ class ExcelApp:
     def close_book(self, save: bool = True):
         book = self.active_book()
         if book is not None:
-            book.Close(SaveChanges=save)
+            # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
+            book.Close(SaveChanges=-1 if save else 2)
         self._book = None
 
     def save(self, path: str | None = None):
