@@ -77,3 +77,33 @@ def test_insert_and_update_toc():
     assert doc.TablesOfContents.Count == 1
     call("word", "update_toc")  # 不抛错即通过
     assert doc.TablesOfContents.Count == 1
+
+
+def test_add_list_bullets():
+    call("word", "new_doc")
+    call("word", "add_list", lines=["甲", "乙", "丙"], style="bullet")
+    doc = _word().ActiveDocument
+    # 空文档首段（空段落）不被列表化；第 2-4 段是列表项。
+    # 注意不能取跨段的 Range——ListFormat.ListType 只反映首段，跨到首段会回 -1。
+    assert doc.Paragraphs(2).Range.ListFormat.ListType != -1  # -1 = wdListTypeNoList
+
+
+def test_merge_table_cells():
+    call("word", "new_doc")
+    call("word", "add_table", rows=2, cols=2)
+    call("word", "merge_table_cells", table_idx=1, start_row=1, start_col=1, end_row=1, end_col=2)
+    assert _word().ActiveDocument.Tables(1).Rows(1).Cells.Count == 1
+
+
+def test_table_border_col_width_row_height_autofit():
+    call("word", "new_doc")
+    call("word", "add_table", rows=3, cols=2)
+    call("word", "set_table_border", table_idx=1, style="single", color="#2251FF", sides="all")
+    call("word", "set_table_col_width", table_idx=1, col=1, width=120)
+    call("word", "set_table_row_height", table_idx=1, row=1, height=30)
+    t = _word().ActiveDocument.Tables(1)
+    assert t.Borders(1).LineStyle == 1  # wdLineStyleSingle
+    assert t.Columns(1).Width == 120
+    assert t.Rows(1).Height == 30
+    call("word", "autofit_table", table_idx=1, behavior="content")
+    assert _word().ActiveDocument.Tables(1).Rows.Count == 3

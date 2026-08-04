@@ -289,5 +289,57 @@ class WordApp:
         doc.TablesOfContents(1).Update()
         return doc.TablesOfContents.Count
 
+    # --- 列表 ---
+    def add_list(self, lines: list[str], style: str = "bullet"):
+        doc = self.active_doc()
+        start = doc.Paragraphs.Count + 1  # 第一个新段落的序号
+        for line in lines:
+            self.write_line(line)
+        end = doc.Paragraphs.Count
+        rng = doc.Range(doc.Paragraphs(start).Range.Start, doc.Paragraphs(end).Range.End)
+        if style == "numbered":
+            rng.ListFormat.ApplyNumberDefault()
+        else:
+            rng.ListFormat.ApplyBulletDefault()
+        return len(lines)
+
+    # --- 表格增强 ---
+    def merge_table_cells(
+        self, table_idx: int, start_row: int, start_col: int, end_row: int, end_col: int
+    ):
+        t = self.active_doc().Tables(table_idx)
+        t.Cell(start_row, start_col).Merge(t.Cell(end_row, end_col))
+
+    def set_table_border(
+        self,
+        table_idx: int,
+        style: str = "single",
+        weight: str | None = None,
+        color: str | None = None,
+        sides: str | None = None,
+    ):
+        t = self.active_doc().Tables(table_idx)
+        const = _resolve_style(style, _LINE_STYLE, "线型")
+        for idx in _resolve_table_sides(sides):
+            b = t.Borders(idx)
+            b.LineStyle = const
+            if weight is not None:
+                b.LineWidth = _resolve_style(weight, _TABLE_LINE_WIDTH, "线宽")
+            if color is not None:
+                b.Color = _rgb(color)
+
+    def set_table_col_width(self, table_idx: int, col: int, width: float):
+        self.active_doc().Tables(table_idx).Columns(col).Width = width
+
+    def set_table_row_height(self, table_idx: int, row: int, height: float, rule: str = "at_least"):
+        r = self.active_doc().Tables(table_idx).Rows(row)
+        r.Height = height
+        r.HeightRule = _resolve_style(rule, _ROW_HEIGHT_RULE, "行高规则")
+
+    def autofit_table(self, table_idx: int, behavior: str = "content"):
+        self.active_doc().Tables(table_idx).AutoFitBehavior(
+            _resolve_style(behavior, _AUTOFIT, "自动调整")
+        )
+
     def quit(self):
         core.quit_app("word")
