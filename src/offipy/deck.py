@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .client import call, ensure_server
 from .design import inject_theme
+from .layouts import inject_layouts
 
 # deck.py 位于 src/offipy/，项目根需上溯三级
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -50,28 +51,36 @@ def render(
     no_visual_audit: bool = False,
     timeout: int = 600,
     theme: str | None = None,
+    apply_layouts: bool = False,
 ) -> str:
     """跑完整转换管线，返回产出 .pptx 的绝对路径。
 
     theme 给定时把内置主题 CSS 注入 HTML 再转换（见 design.inject_theme）；
-    输出路径仍基于原 html 名。注入副本是临时文件，转换后删除。
+    apply_layouts 给定时把 HTML 里 data-layout 引用的布局 CSS 注入
+    （见 layouts.inject_layouts）。两者可叠加，输出路径仍基于原 html 名。
+    注入副本是临时文件，转换后删除。
     """
     html = os.path.abspath(html)
     if not os.path.exists(html):
         raise FileNotFoundError(html)
     target = html
     tmp_html = None
-    if theme:
+    if theme or apply_layouts:
         with open(html, encoding="utf-8") as f:
             content = f.read()
+        if apply_layouts:
+            content = inject_layouts(content)
+        if theme:
+            content = inject_theme(content, theme)
         # 以 .audited.html 结尾 → convert 跳过 work-copy 分支，不留 .audited 残留。
         # 输出名必须显式锁到原 html 的默认名，否则 convert 会用临时文件命名的 .pptx。
         out = out or _default_out(html)
         tmp_html = os.path.join(
-            os.path.dirname(html), f".{os.path.basename(html)}.{theme}.tmp.audited.html"
+            os.path.dirname(html),
+            f".{os.path.basename(html)}.{theme or 'layouts'}.tmp.audited.html",
         )
         with open(tmp_html, "w", encoding="utf-8") as f:
-            f.write(inject_theme(content, theme))
+            f.write(content)
         target = tmp_html
     try:
         cmd = _convert_cmd(target, out, only_slides, no_visual_audit)
@@ -120,12 +129,14 @@ def make(
     open_live_flag: bool = True,
     feedback_dir: str | None = None,
     theme: str | None = None,
+    apply_layouts: bool = False,
 ) -> str:
     """render → （可选）打开实况 → （可选）导出 PNG 反馈。返回 .pptx 绝对路径。
 
-    theme 给定时注入内置主题 CSS（见 design.py）后再转换。
+    theme 给定时注入内置主题 CSS（见 design.py）；apply_layouts 给定时注入
+    data-layout 布局 CSS（见 layouts.py），两者可叠加。
     """
-    pptx = render(html, out, theme=theme)
+    pptx = render(html, out, theme=theme, apply_layouts=apply_layouts)
     if feedback_dir:
         # 导出必须基于本次渲染的 deck：先确保打开它，再逐页导出
         open_live(pptx)

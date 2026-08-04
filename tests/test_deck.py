@@ -85,3 +85,53 @@ def test_make_passes_theme(tmp_path, monkeypatch):
 
     deck.make(str(html), open_live_flag=False, theme="dark-tech")
     assert "--accent: #38BDF8;" in created["injected_content"]  # dark-tech 强调色
+
+
+def test_render_apply_layouts_injects_layout_css(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><head></head><body><section class="slide" data-pptx-slide '
+        'data-layout="cards-3">x</section></body></html>',
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    pptx = deck.render(str(html), apply_layouts=True)
+    injected = created["cmd"][2]
+    assert injected.endswith(".audited.html")
+    assert not os.path.exists(injected), "注入副本应已清理"
+    assert ".cards-3 .cards" in created["injected_content"]
+    assert pptx.endswith("deck.pptx")
+
+
+def test_render_theme_and_layouts_together(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><head><style data-theme="mckinsey"></style></head><body>'
+        '<section class="slide" data-pptx-slide data-layout="cards-3">x</section></body></html>',
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    deck.render(str(html), theme="mckinsey", apply_layouts=True)
+    content = created["injected_content"]
+    assert "--accent: #2251FF;" in content  # 主题 token
+    assert ".cards-3 .cards" in content  # 布局 CSS
+    assert "data-layouts" in content
+
+
+def test_render_apply_layouts_false_unchanged(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><body><section class="slide" data-pptx-slide '
+        'data-layout="cards-3">x</section></body></html>',
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    deck.render(str(html))  # 默认不注入
+    assert created["cmd"][2] == str(html)
+    assert ".cards-3 .cards" not in created["injected_content"]  # 布局 CSS 未注入
