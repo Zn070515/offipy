@@ -28,9 +28,11 @@ import inspect
 import json
 import os
 import sys
+import types
+import typing
 
 from . import excel, ppt, word
-from .client import call, convert_value, ensure_server
+from .client import call, ensure_server, server_status, stop_server
 from .exceptions import OffipyError
 
 _APP_CLASSES = {
@@ -41,7 +43,12 @@ _APP_CLASSES = {
 
 
 def _parse_kwargs(tokens):
-    """--key value 解析：重复 key 聚合为 list；--payload/--json 以 JSON 透传。"""
+    """--key value 解析：token 值保留原始字符串，重复 key 聚合为 list。
+
+    类型转换不再在这里做（弃全局猜测）：值按目标方法签名注解由 _coerce_kwargs
+    统一转换，避免 "00123" 丢前导零、"true" 被误当 bool。--payload/--json 仍
+    JSON 透传（结构化值覆盖同名 kwargs）。
+    """
     kwargs = {}
     i = 0
     while i < len(tokens):
@@ -62,7 +69,7 @@ def _parse_kwargs(tokens):
         elif tok.startswith("--"):
             key = tok[2:]
             if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
-                value = convert_value(tokens[i + 1])
+                value = tokens[i + 1]
                 if key in kwargs:
                     existing = kwargs[key]
                     if isinstance(existing, list):
@@ -79,6 +86,86 @@ def _parse_kwargs(tokens):
             kwargs[tok] = True
             i += 1
     return kwargs
+
+
+_BOOL_TOKENS = {
+    "true": True,
+    "false": False,
+    "1": True,
+    "0": False,
+    "on": True,
+    "off": False,
+    "yes": True,
+    "no": False,
+}
+
+
+def _unwrap_optional(ann):
+    """Optional[X] / X | None → X；其余注解原样返回。"""
+    origin = typing.get_origin(ann)
+    if origin is not typing.Union and origin is not getattr(types, "UnionType", None):
+        return ann
+    rest = [a for a in typing.get_args(ann) if a is not type(None)]
+    if len(rest) == 1:
+        return rest[0]
+    return ann
+
+
+def _coerce_fail(key: str, expected: str, value) -> None:
+    print(f"offipy: error: --{key} 需要{expected}，收到: {value!r}", file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _coerce_value(key: str, ann, value):
+    """按单个参数注解转换；失败 stderr + exit 2（argparse 语义）。"""
+    base = _unwrap_optional(ann)
+    if base is str or base is inspect.Parameter.empty:
+        return value
+    if base is int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            _coerce_fail(key, "整数", value)
+    if base is float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            _coerce_fail(key, "数字", value)
+    if base is bool:
+        # bool("false") 是 True 的陷阱必须避开：只认显式布尔 token
+        if isinstance(value, bool):
+            return value
+        token = str(value).strip().lower()
+        if token in _BOOL_TOKENS:
+            return _BOOL_TOKENS[token]
+        _coerce_fail(key, "布尔值（true/false/1/0/on/off/yes/no）", value)
+    if typing.get_origin(base) is list:
+        return value if isinstance(value, list) else [value]
+    return value
+
+
+def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
+    """按目标方法签名注解转换参数类型（P1-3，取代全局 convert_value 猜测）。
+
+    无注解/str 保持字符串；int/float/bool/list 按注解转换；**kwargs 或未知
+    op 跳过（交给 server 侧处理）。
+    """
+    cls = _APP_CLASSES.get(app)
+    method = getattr(cls, op, None) if cls else None
+    if method is None:
+        return kwargs
+    try:
+        sig = inspect.signature(method)
+    except (TypeError, ValueError):
+        return kwargs
+    hints = {name: param.annotation for name, param in sig.parameters.items()}
+    coerced = dict(kwargs)
+    for key, value in kwargs.items():
+        ann = hints.get(key)
+        if ann is None:
+            continue
+        coerced[key] = _coerce_value(key, ann, value)
+    return coerced
 
 
 def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
@@ -128,6 +215,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("mcp", help="启动 MCP stdio server（Claude Desktop 等接入）")
     ck = sub.add_parser("check", help="检查环境就绪（Python/依赖/Office/浏览器/server）")
     ck.add_argument("--json", action="store_true", help="输出 JSON")
+    srv = sub.add_parser("server", help="管理常驻 server（status/stop/restart）")
+    srv.add_argument(
+        "action",
+        nargs="?",
+        default="status",
+        choices=["status", "stop", "restart"],
+    )
     return p
 
 
@@ -147,6 +241,17 @@ def _main(argv=None):
         call(args.target, "quit")
         print("quit ok")
         return
+    if args.app == "server":
+        if args.action == "status":
+            ensure_server()
+            print(json.dumps(server_status(), ensure_ascii=False))
+        elif args.action == "stop":
+            print("server 未在运行" if not stop_server() else "server 已停止")
+        else:  # restart
+            stop_server()
+            ensure_server()
+            print("server 已重启")
+        return
     if args.app == "deck":
         from .deck import make as deck_make
 
@@ -157,7 +262,7 @@ def _main(argv=None):
                 raise SystemExit(
                     "用法: offipy deck make --html <deck.html> "
                     "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
-                    "[--theme <name>] [--layouts]"
+                    "[--theme <name>] [--layouts] [--overwrite]"
                 )
             pptx = deck_make(
                 html,
@@ -166,6 +271,7 @@ def _main(argv=None):
                 feedback_dir=kw.pop("feedback", None),
                 theme=kw.pop("theme", None),
                 apply_layouts=bool(kw.pop("layouts", False) or kw.pop("apply-layouts", False)),
+                overwrite=bool(kw.pop("overwrite", False)),
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
         elif args.action == "outline":
@@ -195,6 +301,7 @@ def _main(argv=None):
         return
     kw = _parse_kwargs(args.kwargs)
     _validate_kwargs(args.app, args.op, kw)
+    kw = _coerce_kwargs(args.app, args.op, kw)
     result = call(args.app, args.op, **kw)
     if result is not None:
         print(json.dumps(result, ensure_ascii=False))

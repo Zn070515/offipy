@@ -8,7 +8,8 @@ import os
 from . import core
 from .paths import ensure_writable
 
-WD_FORMAT_PDF = 17
+WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
+WD_EXPORT_FORMAT_PDF = 17  # wdExportFormatPDF（ExportAsFixedFormat 的 ExportFormat）
 # wdStyleHeading1..3 的 COM 常量值（-2/-3/-4），避免依赖中文/英文样式名
 _HEADING_STYLES = {1: -2, 2: -3, 3: -4}
 
@@ -114,7 +115,8 @@ def _end_range(doc):
 class WordApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("word", visible=visible)
-        self.app.DisplayAlerts = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
+        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
+        self.app.DisplayAlerts = WD_ALERTS_NONE
         self._doc = None
 
     # --- 文档 ---
@@ -157,7 +159,7 @@ class WordApp:
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
-        self.active_doc().SaveAs2(dest, FileFormat=WD_FORMAT_PDF)
+        self.active_doc().ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
 
     # --- 内容 ---
     def write(self, text: str):
@@ -388,5 +390,12 @@ class WordApp:
     def insert_page_break(self):
         _end_range(self.active_doc()).InsertBreak(7)  # wdPageBreak
 
+    # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
+    def read_doc_text(self):
+        """读取当前文档全文文本（只读，不改任何状态）。"""
+        return self.active_doc().Content.Text
+
     def quit(self):
+        # 库改全局状态（DisplayAlerts），释放前还原原值
+        self.app.DisplayAlerts = self._saved_alerts
         core.quit_app("word")

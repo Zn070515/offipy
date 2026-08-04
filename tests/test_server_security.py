@@ -128,3 +128,67 @@ def test_server_survives_bad_auth(srv):
     assert status == 200
     status, _ = _get(srv, "/status", token=TOKEN)
     assert status == 200
+
+
+# --- round-2：host 限制 / token 生命周期 / 显式白名单 / 惰性 COM ---
+
+
+def test_validate_host_rejects_non_loopback():
+    with pytest.raises(server.ServerStartError):
+        server._validate_host("0.0.0.0", allow_remote=False)
+    with pytest.raises(server.ServerStartError):
+        server._validate_host("192.168.1.5", allow_remote=False)
+
+
+def test_validate_host_allows_loopback_and_explicit_remote():
+    for host in ("127.0.0.1", "localhost", "::1", ""):
+        server._validate_host(host, allow_remote=False)  # 不抛
+    server._validate_host("0.0.0.0", allow_remote=True)  # 显式放行不抛
+
+
+def test_load_token_env_first_no_file_write(monkeypatch, tmp_path):
+    monkeypatch.setenv("OFFIPY_SERVER_TOKEN", "env-token-xyz")
+    monkeypatch.setattr(server, "user_data_dir", lambda: tmp_path)
+    assert server._load_token() == "env-token-xyz"
+    assert not (tmp_path / "token").exists()  # env 模式不落盘
+
+
+def test_load_token_write_failure_raises(monkeypatch, tmp_path):
+    # token 文件写不了 → ServerStartError，杜绝「server 假活、client 必 401」
+    monkeypatch.delenv("OFFIPY_SERVER_TOKEN", raising=False)
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x")  # 用文件挡住 user_data_dir，mkdir 必失败
+    monkeypatch.setattr(server, "user_data_dir", lambda: blocker)
+    with pytest.raises(server.ServerStartError):
+        server._load_token()
+
+
+def test_session_internal_ops_not_in_whitelist():
+    # P1-1 显式注册表：active_pres/active_doc/active_book 一律不暴露
+    for app in ("ppt", "word", "excel"):
+        assert "active_pres" not in server._OPS.get(app, frozenset())
+        assert "active_doc" not in server._OPS.get(app, frozenset())
+        assert "active_book" not in server._OPS.get(app, frozenset())
+        assert "quit" in server._OPS[app]
+        assert "save" in server._OPS[app]
+
+
+def test_read_ops_in_whitelist():
+    # Agent 只读 op 已登记：word read_doc_text / ppt read_slide_texts / excel read_range
+    assert "read_doc_text" in server._OPS["word"]
+    assert "read_slide_texts" in server._OPS["ppt"]
+    assert "read_range" in server._OPS["excel"]
+
+
+def test_serialize_recurses_dict():
+    # read_slide_texts 返回 list[dict]，dict 必须递归序列化而非 str(dict)
+    assert server._serialize({"a": [1, 2], "b": {"c": "x"}}) == {"a": [1, 2], "b": {"c": "x"}}
+    assert server._serialize([{"index": 1, "title": "t"}]) == [{"index": 1, "title": "t"}]
+
+
+def test_server_module_lazy_com():
+    # 顶层不再裸 import COM：跨平台 `import offipy.server` 不炸
+    assert not hasattr(server, "pythoncom")
+    assert not hasattr(server, "pywintypes")
+    err = server._com_error()
+    assert isinstance(err, type) and issubclass(err, BaseException)

@@ -8,7 +8,8 @@ import os
 from . import core
 from .paths import ensure_writable
 
-PP_SAVE_PDF = 32  # ppSaveAsPDF
+PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
+PP_FIXED_FORMAT_TYPE_PDF = 2  # ppFixedFormatTypePDF（ExportAsFixedFormat 的 OutputType）
 PP_LAYOUT_TITLE = 1
 PP_LAYOUT_TEXT = 2
 PP_LAYOUT_TITLE_ONLY = 5
@@ -18,7 +19,8 @@ PP_LAYOUT_BLANK = 12
 class PptApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("ppt", visible=visible)
-        self.app.DisplayAlerts = 0  # ppAlertsNone：抑制保存/覆盖等模态提示
+        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
+        self.app.DisplayAlerts = PP_ALERTS_NONE
         self._pres = None
 
     # --- 演示文稿 ---
@@ -55,7 +57,9 @@ class PptApp:
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
-        self.active_pres().SaveAs(dest, PP_SAVE_PDF)
+        # ExportAsFixedFormat 第二位置参数是 Intent（打印=2），OutputType 才是
+        # 输出格式——必须显式指定 PDF，不能只传一个 2 了事。
+        self.active_pres().ExportAsFixedFormat(dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF)
 
     def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
         """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""
@@ -104,5 +108,32 @@ class PptApp:
         slide = self.active_pres().Slides(slide_idx)
         slide.Shapes.AddPicture(os.path.abspath(path), 0, 0, left, top, width, height)
 
+    def read_slide_texts(self):
+        """逐页读取幻灯片文本：标题/正文占位符/备注，缺字段用空串。返回 list[dict]。"""
+        pres = self.active_pres()
+        result = []
+        for i in range(1, pres.Slides.Count + 1):
+            slide = pres.Slides(i)
+            title = ""
+            if slide.Shapes.HasTitle:
+                try:
+                    title = slide.Shapes.Title.TextFrame.TextRange.Text
+                except Exception:
+                    title = ""
+            body = ""
+            try:
+                body = slide.Shapes.Placeholders(2).TextFrame.TextRange.Text
+            except Exception:
+                body = ""
+            notes = ""
+            try:
+                notes = slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text
+            except Exception:
+                notes = ""
+            result.append({"index": i, "title": title, "body": body, "notes": notes})
+        return result
+
     def quit(self):
+        # 库改全局状态（DisplayAlerts），释放前还原原值
+        self.app.DisplayAlerts = self._saved_alerts
         core.quit_app("ppt")

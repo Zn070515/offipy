@@ -20,19 +20,14 @@ classifiers = [
     "Topic :: Office/Business :: Office Suites",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-# pywin32 仅支持 Windows：平台标记保证在 Linux/macOS 上也能解析依赖树
-# python-pptx/lxml/fonttools/playwright/Pillow 是 HTML→可编辑 PPTX 管线的硬依赖
-# （vendored 转换器的 requirements，先前散装 pip install、未入 pyproject，
-# 导致 uv sync 把它们清掉）。pdf2image 仅在自检可选路径懒加载，不入依赖。
-# mcp 是 MCP server（offipy mcp / python -m offipy.mcp_server）的协议运行时。
+# 核心依赖只保留运行时必需：pywin32（COM，仅 Windows）、mcp（MCP server 协议）、
+# tomli（3.10 无标准库 tomllib）。HTML→可编辑 PPTX 管线的转换器依赖
+# （python-pptx/lxml/fonttools/playwright/Pillow）拆进 convert extra——纯 COM
+# 自动化用不到它们，核心依赖因此瘦身。pdf2image 仅在自检可选路径懒加载，不入依赖。
 dependencies = [
     "pywin32; platform_system == 'Windows'",
-    "python-pptx>=1.0.2",
-    "lxml>=5.0",
-    "fonttools>=4.0",
-    "playwright>=1.40",
-    "Pillow>=10.0",
     "mcp>=2.0,<3.0",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 dynamic = ["version"]
 
@@ -42,11 +37,20 @@ Changelog = "https://github.com/Zn070515/office-kit/blob/main/CHANGELOG.md"
 Source = "https://github.com/Zn070515/office-kit"
 
 [project.optional-dependencies]
+# HTML→可编辑 PPTX 管线（deck render / make）需要 convert extra
+convert = [
+    "python-pptx>=1.0.2",
+    "lxml>=5.0",
+    "fonttools>=4.0",
+    "playwright>=1.40",
+    "Pillow>=10.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
     "mypy>=1.10",
+    "offipy[convert]",
 ]
 
 [project.scripts]
@@ -92,9 +96,8 @@ target-version = "py310"
 src = ["src", "tests"]
 # docs/ 里的 plan 文档含 python 代码块，ruff format 会递归处理 markdown，
 # 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录；
-# src/offipy/_vendor/ 是 vendored 转换器（外协代码，不做 lint/format 约束）；
-# ChatGPT_v1.md 是第三方审核参考文档（未纳入仓库），不参与 format。
-exclude = ["docs/", "test/", "src/offipy/_vendor/", "ChatGPT_v1.md"]
+# src/offipy/_vendor/ 是 vendored 转换器（外协代码，不做 lint/format 约束）。
+exclude = ["docs/", "test/", "src/offipy/_vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

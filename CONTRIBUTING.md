@@ -26,6 +26,9 @@ offipy 是 Windows-only 的 Office COM 自动化库。欢迎提交修复与改�
 - 版本号单一来源 `src/offipy/__init__.py` 的 `__version__`；升版本单独成 commit
   （`chore: bump version to X.Y.Z`），不夹带功能改动。
 - 正式首发（1.0.0）前，一切版本首位为 0；破坏性变更升 MINOR，不升 MAJOR。
+- **预发布编号策略**：正式首发前，TestPyPI 用 `0.9.0a1` / `0.9.0rc1` 等预发布编号；稳定发布时
+  `__version__`、git tag、CHANGELOG 顶层三者必须一致（对齐测试兜底）。**未发布的版本号不重复
+  bump**——0.9.0 从未发布，修复后仍保持 0.9.0。
 
 ## 门禁（合并前必须全绿）
 
@@ -50,6 +53,14 @@ tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"   # 仍有残留 → taskkill //F /
 
 改了 server 依赖的模块（`ppt.py` / `server.py` / `mcp_server.py` 等）后，必须重启 8890 的
 server 进程，否则 server 加载旧代码。
+
+## server 测试注意事项
+
+- `tests/test_server_security.py` 会起真实 HTTPServer（临时端口）验证鉴权 / 请求限制 / op
+  白名单——不 dispatch 真实 op，因此**不需要 Office**。
+- 401 不杀 server：token 校验失败只拒绝请求，server 继续服务 `/ping` 与正确 token 的调用。
+- `offipy server status|stop|restart` 管理常驻进程（PID 文件 + netstat 探测）；改 server 代码后
+  用 `offipy server restart` 重启，验证时确认 `tasklist` 无 Office 残留。
 
 ## 资源型开发（资产库 / 图标库 / 素材）
 

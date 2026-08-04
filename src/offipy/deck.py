@@ -66,18 +66,25 @@ def render(
     timeout: int = 600,
     theme: str | None = None,
     apply_layouts: bool = False,
+    overwrite: bool = False,
 ) -> str:
     """跑完整转换管线，返回产出 .pptx 的绝对路径。
 
     theme 给定时把内置主题 CSS 注入 HTML 再转换（见 design.inject_theme）；
     apply_layouts 给定时把 HTML 里 data-layout 引用的布局 CSS 注入
     （见 layouts.inject_layouts）。两者可叠加，输出路径仍基于原 html 名。
-    注入副本是临时文件，转换后删除。
+    注入副本是临时文件，转换后删除。overwrite=False 时若输出 .pptx 已存在
+    抛 FileExistsError（fail-fast，不浪费一次渲染）。
     """
     html = os.path.abspath(html)
     if not os.path.exists(html):
         raise FileNotFoundError(html)
     _preflight_browser()
+    final_out = os.path.abspath(out) if out else _default_out(html)
+    if not overwrite and os.path.exists(final_out):
+        raise FileExistsError(
+            f"输出 .pptx 已存在（overwrite=False，可传 overwrite=True 覆盖）: {final_out}"
+        )
     target = html
     tmp_html = None
     if theme or apply_layouts:
@@ -146,7 +153,7 @@ def open_live(pptx: str) -> None:
 
 
 def export_slides(out_dir: str, width: int = 1920, height: int = 1080) -> list[str]:
-    """把当前实况演示文稿逐页导出 PNG，供 Claude 视觉迭代。"""
+    """把当前实况演示文稿逐页导出 PNG，供 Claude 视觉迭代（每次重新导出全部页，允许覆盖）。"""
     ensure_server()
     return call(
         "ppt", "export_slides", out_dir=os.path.abspath(out_dir), width=width, height=height
@@ -160,13 +167,14 @@ def make(
     feedback_dir: str | None = None,
     theme: str | None = None,
     apply_layouts: bool = False,
+    overwrite: bool = False,
 ) -> str:
     """render → （可选）打开实况 → （可选）导出 PNG 反馈。返回 .pptx 绝对路径。
 
     theme 给定时注入内置主题 CSS（见 design.py）；apply_layouts 给定时注入
-    data-layout 布局 CSS（见 layouts.py），两者可叠加。
+    data-layout 布局 CSS（见 layouts.py），两者可叠加。overwrite 透传给 render。
     """
-    pptx = render(html, out, theme=theme, apply_layouts=apply_layouts)
+    pptx = render(html, out, theme=theme, apply_layouts=apply_layouts, overwrite=overwrite)
     if feedback_dir:
         # 导出必须基于本次渲染的 deck：先确保打开它，再逐页导出
         open_live(pptx)

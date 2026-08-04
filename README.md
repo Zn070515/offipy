@@ -17,6 +17,9 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
 - **环境诊断**：`offipy check` 一键检查 Python / 依赖 / Office 三件套 / 浏览器 / server 是否就绪（`--json` 机器可读，失败退出码非 0）
+- **server 进程管理**：`offipy server status|stop|restart` 用 `/status` 真实握手 + PID 文件 / netstat 探测管理常驻进程
+- **Agent 只读回读**：`word read_doc_text` / `ppt read_slide_texts` / `excel read_range`
+  把文档文本层读回（供 Agent 迭代），经 CLI / RPC / MCP 三路暴露
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
 
 ## 环境要求
@@ -29,10 +32,13 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install -e .
+uv pip install -e ".[convert]"        # deck 管线（HTML→PPTX）需要 convert extra
+uv run playwright install chromium    # 转换器依赖 chromium 做 DOM 测量
 ```
 
-`pip install offipy` 后 deck 管线（HTML→PPTX）开箱即用——转换器已 vendored 进 wheel。
+纯 COM 自动化只需 `uv pip install -e .`——核心依赖只有 pywin32 / mcp，开箱即用。deck 管线
+（HTML→PPTX）需要 **convert extra**（python-pptx / lxml / fonttools / playwright / Pillow）
+外加 `playwright install chromium`；转换器本体已 vendored 进 wheel，装完即可用。
 
 ## 会话语义（读我）
 
@@ -89,6 +95,10 @@ offipy ppt add_slide --layout 2
 offipy ppt set_title --slide_idx 1 --text "标题"
 
 offipy check            # 环境就绪诊断：Python/依赖/Office/浏览器/server（--json 机器可读）
+offipy server status    # 常驻 server 状态（/status 握手）；stop / restart 同理
+offipy word read_doc_text            # Agent 只读：全文档文本
+offipy ppt read_slide_texts          # Agent 只读：逐页 title/body/notes
+offipy excel read_range --sheet 1 --range_addr A1:B2   # Agent 只读：区域二维值
 offipy quit excel
 ```
 

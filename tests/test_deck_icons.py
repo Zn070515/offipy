@@ -7,6 +7,12 @@ import pytest
 from offipy import charts, deck, icons
 
 
+@pytest.fixture(autouse=True)
+def _no_browser(monkeypatch):
+    # 单测不真启动 chromium：render 的浏览器前置检查换成 no-op
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+
+
 def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
     """render 依次调用 charts → icons 后处理（顺序 + 实参断言，不走真 convert/Playwright）。"""
     html = tmp_path / "d.html"
@@ -41,7 +47,7 @@ def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
         lambda *a, **k: _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
     )
 
-    out = deck.render(str(html), out=str(pptx))
+    out = deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert out == str(pptx)
     assert calls == ["charts", "icons"]
 
@@ -68,5 +74,5 @@ def test_render_charts_error_skips_icons(tmp_path, monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="charts failed"):
-        deck.render(str(html), out=str(pptx))
+        deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert calls == ["charts"]  # icons 不该被调用

@@ -63,6 +63,9 @@ def test_initialize_and_tool_names(module):
         "word_find_replace",
         "word_insert_image",
         "word_insert_page_break",
+        "word_read_document_text",
+        "ppt_read_slide_texts",
+        "excel_read_range",
     ):
         assert expected in tools
 
@@ -123,3 +126,60 @@ def test_tool_input_schema_requires_typed_args(module):
     lst = tools["word_add_list"].input_schema
     assert lst["required"] == ["lines"]
     assert lst["properties"]["lines"]["type"] == "array"
+
+
+@pytest.mark.parametrize("module", ["offipy.mcp_server", "offipy.cli"])
+def test_save_tools_schema_exposes_overwrite(module):
+    tools = _list_tools(module)
+    for name in (
+        "ppt_save",
+        "ppt_save_pdf",
+        "word_save",
+        "word_save_pdf",
+        "excel_save",
+        "excel_save_pdf",
+    ):
+        schema = tools[name].input_schema
+        assert schema["properties"]["overwrite"]["type"] == "boolean"
+        assert "overwrite" not in schema.get("required", [])
+
+
+# --- _invoke 统一返回封装（mock _call，不需要 Office） ---
+
+
+def test_invoke_void_op_returns_ok_string(monkeypatch):
+    from offipy import mcp_server
+
+    monkeypatch.setattr(mcp_server, "_call", lambda app, op, **kw: None)
+    assert mcp_server.ppt_new_presentation() == "ok (new_pres)"
+    assert mcp_server.word_insert_page_break() == "ok (insert_page_break)"
+    assert mcp_server.excel_new_workbook() == "ok (new_book)"
+
+
+def test_invoke_value_op_structural_passthrough(monkeypatch):
+    from offipy import mcp_server
+
+    monkeypatch.setattr(mcp_server, "_call", lambda app, op, **kw: [1, 2])
+    assert mcp_server.ppt_export_slides(out_dir="x") == [1, 2]
+
+    monkeypatch.setattr(mcp_server, "_call", lambda app, op, **kw: 5)
+    assert mcp_server.ppt_add_slide() == 5
+    assert mcp_server.word_add_table(rows=2, cols=3) == 5
+
+
+def test_save_tools_pass_overwrite_to_call(monkeypatch):
+    from offipy import mcp_server
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured[op] = kw
+        return None
+
+    monkeypatch.setattr(mcp_server, "_call", fake_call)
+    mcp_server.ppt_save(path="a.pptx", overwrite=True)
+    assert captured["save"] == {"path": "a.pptx", "overwrite": True}
+    mcp_server.word_save_pdf(path="b.pdf")
+    assert captured["save_pdf"] == {"path": "b.pdf", "overwrite": False}
+    mcp_server.excel_save()
+    assert captured["save"] == {"path": None, "overwrite": False}
