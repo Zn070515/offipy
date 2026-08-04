@@ -7,6 +7,6 @@ from .core import (
     running,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["connect", "ensure_app", "launch", "quit_app", "running", "PROGIDS"]

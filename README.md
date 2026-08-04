@@ -4,14 +4,14 @@ Live Microsoft Office automation via COM（会话式驱动）。目标：让 Cla
 
 > 库名 **offipy**（`pip install offipy`，`import offipy`）；CLI 命令 `office`。
 
-> 当前状态：COM 会话管线（Excel / Word / PPT）已打通；「HTML-first 可编辑 PPTX」管线推进中（背景见 [`docs/gap_analysis.md`](docs/gap_analysis.md)）。
+> 当前状态：COM 会话管线（Excel / Word / PPT）已打通；「HTML-first 可编辑 PPTX」管线 + 设计系统已落地（背景见 [`docs/gap_analysis.md`](docs/gap_analysis.md)）。
 
 ## 特性
 
 - **会话式常驻 server**：跨调用保持 Office 窗口存活、文档 / 工作簿 / 演示文稿状态不丢
 - **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
-- **HTML-first 管线（进行中）**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代
+- **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、10 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
 
 ## 环境要求
@@ -42,6 +42,32 @@ office ppt add_slide --layout 2
 office ppt set_title --slide_idx 1 --text "标题"
 
 office quit excel
+```
+
+## 设计系统（HTML deck）
+
+Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页打 `data-layout`，渲染时注入主题与布局，一份 HTML 换主题即换皮。示例见 [`examples/decks/design-system/deck.html`](examples/decks/design-system/deck.html)。
+
+```html
+<head>
+  <style data-theme="mckinsey"></style>   <!-- 主题占位：render(theme=) 替换 -->
+  <style data-layouts></style>            <!-- 布局占位：render(apply_layouts=) 替换 -->
+</head>
+<section class="slide hero" data-pptx-slide data-layout="hero-title">…</section>
+```
+
+- **内置主题**：`mckinsey`（咨询蓝）/ `academic`（学术极简）/ `dark-tech`（深色科技）—— 一套 token 覆盖，`design.theme_css()` / `design.inject_theme()`
+- **命名布局库**：`hero-title` / `split-2col` / `cards-3` / `big-number` / `quote-frame` / `timeline` / `comparison` / `chart-dominant` / `portrait-feature` / `closer` —— `layouts.inject_layouts()` 按引用注入
+- **审美审计**：转换产出的 measurement → 留白比例 / 字号层级数 / 每页色数 / 对比度 / 跨页一致性打分，`aesthetic.audit()` 输出带分报告供迭代
+- **自动选型**：`autopick.pick()` 从内容结构推荐主题 + 每页布局 + 理由（纯规则，可覆盖）
+- **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
+
+```python
+from offipy import deck, aesthetic
+
+pptx = deck.render("deck.html", theme="mckinsey", apply_layouts=True)  # 注入主题+布局
+report = aesthetic.audit("deck.html")   # 读 measurement 打分
+print(report.markdown())
 ```
 
 ## MCP server（Claude 接入）
@@ -90,6 +116,11 @@ src/offipy/
   excel.py / word.py / ppt.py   # 三套件原子操作
   client.py   # server 的 HTTP 客户端（HTML 管线复用）*
   deck.py     # HTML → 可编辑 PPTX 管线（render/open_live/export_slides）*
+  design.py   # 设计系统：token 模型 + 3 套内置主题 + .slide 基础样式 *
+  layouts.py  # 命名布局库：10 种布局组件 + data-layout 注入 *
+  aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
+  autopick.py   # 自动选型：内容结构 → 推荐主题 + 每页布局 + 理由 *
+  feedback.py   # 反馈学习：审计处置 → 维度权重（P2 验证版） *
 tests/        # pytest
 docs/         # 差距分析与实施计划
 third_party/  # vendored HTML→PPTX 转换器 *
