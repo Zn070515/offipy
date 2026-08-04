@@ -161,7 +161,10 @@ class WordApp:
         self.write_line(text)
         doc = self.active_doc()
         style = _HEADING_STYLES.get(level, -2)
-        doc.Paragraphs(doc.Paragraphs.Count).Style = style
+        # write_line = Content.InsertAfter(text + "\r\n")：文本落在末尾空段之前的 Count-1 段
+        # （Count 是空尾段，实机验证）。若给 Count 上样式，随后正文会继承标题样式，
+        # 目录（按标题样式收集）为空。
+        doc.Paragraphs(doc.Paragraphs.Count - 1).Style = style
 
     def add_table(self, rows: int, cols: int):
         doc = self.active_doc()

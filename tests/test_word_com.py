@@ -76,12 +76,17 @@ def test_page_setup_landscape_a4_margin():
 def test_insert_and_update_toc():
     call("word", "new_doc")
     call("word", "add_heading", text="第一章", level=1)
+    doc = _word().ActiveDocument
+    # add_heading 的标题样式须落在标题文本段（P1），而非 write_line 追加的空尾段（P2）；
+    # 否则后续正文继承标题样式、目录（按标题样式收集）为空。
+    assert doc.Paragraphs(1).Style.NameLocal in ("标题 1", "Heading 1")
     call("word", "write_line", text="正文内容")
     call("word", "insert_toc", levels=3)
-    doc = _word().ActiveDocument
     assert doc.TablesOfContents.Count == 1
-    call("word", "update_toc")  # 不抛错即通过
+    call("word", "update_toc")  # 触发目录域刷新
     assert doc.TablesOfContents.Count == 1
+    # 目录域实收标题（由标题样式驱动）；update_toc 后应能读到 "第一章"
+    assert "第一章" in doc.TablesOfContents(1).Range.Text
 
 
 def test_add_list_bullets():
