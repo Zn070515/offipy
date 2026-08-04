@@ -40,20 +40,27 @@ office = "offipy.cli:main"
 [tool.hatch.version]
 path = "src/offipy/__init__.py"
 
+# wheel-exclude 相对包根（src/offipy）：vendored 转换器主体进包，
+# 仅剔除其自检资产（assets 对比 PNG ~8MB）与自带测试套件——两者运行时不需要。
 [tool.hatch.build.targets.wheel]
 packages = ["src/offipy"]
+exclude = [
+  "_vendor/html_to_editable_pptx/assets",
+  "_vendor/html_to_editable_pptx/tests",
+]
 
 [tool.hatch.build.targets.sdist]
 # 只打包构建 wheel 所需：src + pyproject + README/LICENSE。
-# vendored 转换器（wheel 不含它）、文档、示例、测试、CI 一律不进源码包，
-# 否则 sdist 会被 third_party 的 PNG 对比图撑到 8MB+。
+# 文档、示例、测试、CI 一律不进源码包；vendored 转换器的自检资产/测试
+# 同样剔除，否则 sdist 被 PNG 对比图撑到 8MB+。
 exclude = [
   "/.github",
   "/docs",
   "/examples",
   "/logs",
   "/tests",
-  "/third_party",
+  "/src/offipy/_vendor/html_to_editable_pptx/assets",
+  "/src/offipy/_vendor/html_to_editable_pptx/tests",
 ]
 
 [tool.pytest.ini_options]
@@ -69,9 +76,9 @@ target-version = "py310"
 src = ["src", "tests"]
 # docs/ 里的 plan 文档含 python 代码块，ruff format 会递归处理 markdown，
 # 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录；
-# third_party/ 是 vendored 转换器（外协代码，不做 lint/format 约束）；
+# src/offipy/_vendor/ 是 vendored 转换器（外协代码，不做 lint/format 约束）；
 # ChatGPT_v1.md 是第三方审核参考文档（未纳入仓库），不参与 format。
-exclude = ["docs/", "test/", "third_party/", "ChatGPT_v1.md"]
+exclude = ["docs/", "test/", "src/offipy/_vendor/", "ChatGPT_v1.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -82,5 +89,7 @@ quote-style = "double"
 [tool.mypy]
 python_version = "3.10"
 files = ["src/offipy"]
+# vendored 转换器是外协代码，不进类型检查（与 ruff exclude 一致）
+exclude = ["src/offipy/_vendor/"]
 ignore_missing_imports = true
 show_error_codes = true

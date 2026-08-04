@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parent.parent
-CONVERT_PY = ROOT / "third_party" / "html-to-editable-pptx" / "convert.py"
-STARTER = ROOT / "examples" / "decks" / "starter" / "deck.html"
+from offipy.deck import CONVERT_PY
+
+STARTER = Path(__file__).resolve().parent.parent / "examples" / "decks" / "starter" / "deck.html"
 
 pytestmark = pytest.mark.skipif(
     not CONVERT_PY.exists(),
-    reason="third_party/html-to-editable-pptx 未 vendor",
+    reason="vendored 转换器缺失（src/offipy/_vendor/）",
 )
 
 
