@@ -13,6 +13,7 @@ Live Microsoft Office automation via COM（会话式驱动）。目标：让 Cla
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
 - **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
+- **环境诊断**：`office check` 一键检查 Python / 依赖 / Office 三件套 / 浏览器 / server 是否就绪（`--json` 机器可读，失败退出码非 0）
 
 ## 环境要求
 
@@ -61,6 +62,7 @@ office ppt new_pres
 office ppt add_slide --layout 2
 office ppt set_title --slide_idx 1 --text "标题"
 
+office check            # 环境就绪诊断：Python/依赖/Office/浏览器/server（--json 机器可读）
 office quit excel
 ```
 

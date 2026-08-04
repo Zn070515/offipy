@@ -105,3 +105,38 @@ def test_deck_outline_bad_format_friendly_error(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline", "--input", str(bad)])
     assert "大纲格式错误" in str(exc.value)
+
+
+def test_check_subcommand_parses():
+    args = build_parser().parse_args(["check"])
+    assert args.app == "check"
+    assert args.json is False
+
+
+def test_check_subcommand_parses_json():
+    args = build_parser().parse_args(["check", "--json"])
+    assert args.app == "check"
+    assert args.json is True
+
+
+def test_check_dispatch_passes_json(monkeypatch):
+    from offipy import cli
+
+    captured = {}
+
+    def fake_check_main(json_output=False):
+        captured["json_output"] = json_output
+        return 0
+
+    monkeypatch.setattr("offipy.envcheck.main", fake_check_main)
+    assert cli.main(["check"]) == 0
+    assert captured["json_output"] is False
+    assert cli.main(["check", "--json"]) == 0
+    assert captured["json_output"] is True
+
+
+def test_check_dispatch_propagates_exit_code(monkeypatch):
+    from offipy import cli
+
+    monkeypatch.setattr("offipy.envcheck.main", lambda json_output=False: 1)
+    assert cli.main(["check"]) == 1

@@ -10,6 +10,7 @@
     office deck make --html examples/decks/starter/deck.html --out out/deck.pptx
     office quit excel
     office mcp                      # 启动 MCP stdio server（Claude Desktop 接入）
+    office check [--json]           # 环境就绪诊断（Python/依赖/Office/浏览器/server）
 
 首次调用会自动在后台拉起常驻 server；之后所有操作都打到同一进程，
 窗口持续可见、会话状态跨调用保持。
@@ -57,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     q = sub.add_parser("quit")
     q.add_argument("target", choices=["excel", "word", "ppt"])
     sub.add_parser("mcp", help="启动 MCP stdio server（Claude Desktop 等接入）")
+    ck = sub.add_parser("check", help="检查环境就绪（Python/依赖/Office/浏览器/server）")
+    ck.add_argument("--json", action="store_true", help="输出 JSON")
     return p
 
 
@@ -67,6 +70,10 @@ def main(argv=None):
 
         mcp_main()
         return
+    if args.app == "check":
+        from .envcheck import main as check_main
+
+        return check_main(json_output=args.json)
     if args.app == "quit":
         ensure_server()
         call(args.target, "quit")
