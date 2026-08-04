@@ -138,7 +138,7 @@ class Server(HTTPServer):
 
 
 def serve(port: int = DEFAULT_PORT, host: str = "127.0.0.1"):
-    print(f"office-kit server listening on http://{host}:{port}", flush=True)
+    print(f"offipy server listening on http://{host}:{port}", flush=True)
     # 主线程初始化 COM 一次并保持整个服务生命周期
     pythoncom.CoInitialize()
     try:

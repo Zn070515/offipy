@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from office_kit import core
-from office_kit.client import call
+from offipy import core
+from offipy.client import call
 
 pytestmark = pytest.mark.skipif(
     not core.running("ppt"),

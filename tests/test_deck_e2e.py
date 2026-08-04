@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from office_kit.client import _ping
+from offipy.client import _ping
 
 ROOT = Path(__file__).resolve().parent.parent
 CONVERT_PY = ROOT / "third_party" / "html-to-editable-pptx" / "convert.py"
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_full_loop_render_open_export(tmp_path):
-    from office_kit.deck import make
+    from offipy.deck import make
 
     png_dir = str(tmp_path / "png")
     pptx = make(str(STARTER), out=str(tmp_path / "deck.pptx"), feedback_dir=png_dir)

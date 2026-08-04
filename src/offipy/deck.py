@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .client import call, ensure_server
 
-# deck.py 位于 src/office_kit/，项目根需上溯三级
+# deck.py 位于 src/offipy/，项目根需上溯三级
 ROOT = Path(__file__).resolve().parent.parent.parent
 CONVERT_PY = ROOT / "third_party" / "html-to-editable-pptx" / "convert.py"
 

@@ -14,7 +14,7 @@ dist/
 htmlcov/
 
 # --- 运行产物 ---
-.office-kit.log
+.offipy.log
 _audit/
 *.audited.html
 out/

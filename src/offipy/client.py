@@ -1,4 +1,4 @@
-"""office-kit 客户端：常驻 server 的 HTTP 调用封装。"""
+"""offipy 客户端：常驻 server 的 HTTP 调用封装。"""
 
 import json
 import os
@@ -9,7 +9,7 @@ import urllib.request
 
 HOST = "127.0.0.1"
 PORT = 8890
-SERVER_MOD = "office_kit.server"
+SERVER_MOD = "offipy.server"
 _URL = f"http://{HOST}:{PORT}"
 # 用户 VPN 在注册表写系统代理（ProxyServer=127.0.0.1:12334）且 ProxyOverride 为空，
 # 会把本地 127.0.0.1:8890 回环请求也劫持给代理（返回 502）。
@@ -29,7 +29,7 @@ def ensure_server():
     if _ping():
         return
     # 日志落盘：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
-    logpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".office-kit.log")
+    logpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".offipy.log")
     with open(logpath, "a", encoding="utf-8") as logfile:
         subprocess.Popen(
             [sys.executable, "-m", SERVER_MOD, "--port", str(PORT)],
@@ -41,7 +41,7 @@ def ensure_server():
         if _ping():
             return
         time.sleep(0.1)
-    raise SystemExit("无法启动 office-kit server，请查看 .office-kit.log")
+    raise SystemExit("无法启动 offipy server，请查看 .offipy.log")
 
 
 def call(app: str, op: str, **args):

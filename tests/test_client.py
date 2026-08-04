@@ -1,4 +1,4 @@
-from office_kit.client import convert_value
+from offipy.client import convert_value
 
 
 def test_convert_value_bool():

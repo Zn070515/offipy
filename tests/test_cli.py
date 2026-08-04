@@ -1,6 +1,6 @@
 """CLI 参数解析测试（不依赖 Office）。"""
 
-from office_kit.cli import build_parser
+from offipy.cli import build_parser
 
 
 def test_quit_target_does_not_shadow_app():
@@ -18,7 +18,7 @@ def test_office_subcommand_has_kwargs():
 
 
 def test_parse_kwargs_flag_without_value():
-    from office_kit.cli import _parse_kwargs
+    from offipy.cli import _parse_kwargs
 
     assert _parse_kwargs(["--no-open"]) == {"no-open": True}
     assert _parse_kwargs(["--no-open", "--out", "x.pptx"]) == {

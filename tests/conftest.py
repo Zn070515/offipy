@@ -8,7 +8,7 @@ COM 集成测试（操作真实 Office）要求本线程先 CoInitialize。这�
 import pytest
 import pythoncom
 
-from office_kit import core
+from offipy import core
 
 pythoncom.CoInitialize()
 

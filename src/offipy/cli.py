@@ -1,4 +1,4 @@
-"""office-kit CLI：把每个 Office 原子操作映射为一条子命令。
+"""offipy CLI：把每个 Office 原子操作映射为一条子命令。
 
 用法：
     office excel new_book
@@ -40,7 +40,7 @@ def _parse_kwargs(tokens):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="office", description="office-kit CLI")
+    p = argparse.ArgumentParser(prog="office", description="offipy CLI")
     sub = p.add_subparsers(dest="app")
     for app in ("excel", "word", "ppt"):
         sp = sub.add_parser(app)
