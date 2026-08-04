@@ -17,7 +17,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 CONVERT_PY = ROOT / "third_party" / "html-to-editable-pptx" / "convert.py"
 
 
-def _convert_cmd(html: str, out: str | None, only_slides, no_visual_audit: bool) -> list[str]:
+def _convert_cmd(
+    html: str, out: str | None, only_slides: list[int] | None, no_visual_audit: bool
+) -> list[str]:
     cmd = [sys.executable, str(CONVERT_PY), str(html)]
     if out:
         cmd += ["--out", str(out)]
@@ -31,7 +33,7 @@ def _convert_cmd(html: str, out: str | None, only_slides, no_visual_audit: bool)
 def render(
     html: str,
     out: str | None = None,
-    only_slides=None,
+    only_slides: list[int] | None = None,
     no_visual_audit: bool = False,
     timeout: int = 600,
 ) -> str:
@@ -40,9 +42,15 @@ def render(
     if not os.path.exists(html):
         raise FileNotFoundError(html)
     cmd = _convert_cmd(html, out, only_slides, no_visual_audit)
-    r = subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout
-    )
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout
+        )
+    except subprocess.TimeoutExpired as e:
+        so, se = e.stdout, e.stderr
+        out = so.decode("utf-8", errors="replace") if isinstance(so, bytes) else (so or "")
+        err = se.decode("utf-8", errors="replace") if isinstance(se, bytes) else (se or "")
+        raise RuntimeError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
     if r.returncode != 0:
         raise RuntimeError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
     pptx = os.path.abspath(out) if out else str(Path(html).with_suffix(".pptx"))
@@ -70,8 +78,10 @@ def make(
 ) -> str:
     """render → （可选）打开实况 → （可选）导出 PNG 反馈。返回 .pptx 绝对路径。"""
     pptx = render(html, out)
-    if open_live_flag:
-        open_live(pptx)
     if feedback_dir:
+        # 导出必须基于本次渲染的 deck：先确保打开它，再逐页导出
+        open_live(pptx)
         export_slides(feedback_dir)
+    elif open_live_flag:
+        open_live(pptx)
     return pptx
