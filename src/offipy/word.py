@@ -12,6 +12,104 @@ WD_FORMAT_PDF = 17
 _HEADING_STYLES = {1: -2, 2: -3, 3: -4}
 
 
+# ===== M5：常量表与解析辅助（Word COM 值按 VBA 常量硬编码，gen_py 实探） =====
+# 段落对齐 wdParagraphAlignment
+_ALIGN = {"left": 0, "center": 1, "right": 2, "justify": 3}
+# 下划线 wdUnderline
+_UNDERLINE = {"none": 0, "single": 1, "words": 2, "double": 3, "dotted": 4, "wavy": 11}
+# 高亮 wdColorIndex（HighlightColorIndex）
+_HIGHLIGHT = {
+    "none": 0,
+    "yellow": 7,
+    "green": 11,
+    "pink": 5,
+    "red": 6,
+    "blue": 2,
+    "bright_green": 4,
+    "turquoise": 3,
+}
+# 行距规则 wdLineSpacing
+_LINE_SPACING = {
+    "single": 0,
+    "1.5": 1,
+    "double": 2,
+    "at_least": 3,
+    "exactly": 4,
+    "multiple": 5,
+}
+# 页面方向 wdOrientation
+_ORIENTATION = {"portrait": 0, "landscape": 1}
+# 纸张 wdPaperSize
+_PAPER = {"letter": 2, "legal": 4, "a3": 6, "a4": 7, "a5": 9}
+# 页码对齐 wdPageNumberAlignment
+_PAGE_NUMBER_ALIGN = {"left": 0, "center": 1, "right": 2}
+# 查找替换 wdReplace
+_REPLACE = {"one": 1, "all": 2}
+# 表格线型 wdLineStyle
+_LINE_STYLE = {"none": 0, "single": 1, "dot": 2, "double": 7}
+# 表格边位置 wdBorderType：1-4 外框，5-6 内框
+_TABLE_SIDES = {"left": 1, "top": 2, "bottom": 3, "right": 4, "inside-h": 5, "inside-v": 6}
+# 行高规则 wdRowHeightRule
+_ROW_HEIGHT_RULE = {"auto": 0, "at_least": 1, "exactly": 2}
+# 自动调整行为 wdAutoFitBehavior
+_AUTOFIT = {"fixed": 0, "content": 1, "window": 2}
+# 表格线宽 wdLineWidth（VBA 标准枚举）
+_TABLE_LINE_WIDTH = {
+    "0.25pt": 2,
+    "0.5pt": 4,
+    "0.75pt": 6,
+    "1pt": 8,
+    "1.5pt": 12,
+    "2.25pt": 18,
+    "3pt": 24,
+    "4.5pt": 36,
+    "6pt": 48,
+}
+
+
+def _rgb(hex_color: str) -> int:
+    """把 '#RRGGBB' 转成 COM Long 颜色（Word 与 Excel 同用 COLORREF 公式）。"""
+    h = hex_color.lstrip("#")
+    r = int(h[0:2], 16)
+    g = int(h[2:4], 16)
+    b = int(h[4:6], 16)
+    return r + (g << 8) + (b << 16)
+
+
+def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
+    key = (name or "").strip().lower()
+    if key not in table:
+        raise ValueError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
+    return table[key]
+
+
+def _resolve_table_sides(sides: str | None) -> list[int]:
+    """把 all/outside/inside 或逗号分隔的边名解析成 wdBorderType 列表。"""
+    name = (sides or "all").strip().lower()
+    if name == "all":
+        return [1, 2, 3, 4, 5, 6]
+    if name == "outside":
+        return [1, 2, 3, 4]
+    if name == "inside":
+        return [5, 6]
+    parts = [p.strip() for p in name.split(",") if p.strip()]
+    if not parts:
+        raise ValueError(f"无效表格边: {sides!r}")
+    result = []
+    for p in parts:
+        if p not in _TABLE_SIDES:
+            raise ValueError(f"未知表格边: {p!r}（可选: {', '.join(_TABLE_SIDES)}）")
+        result.append(_TABLE_SIDES[p])
+    return result
+
+
+def _end_range(doc):
+    """返回折叠到文档末尾的 Range（用于文末插入）。"""
+    rng = doc.Content
+    rng.Collapse(0)  # wdCollapseEnd
+    return rng
+
+
 class WordApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("word", visible=visible)
