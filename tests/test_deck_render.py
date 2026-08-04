@@ -22,6 +22,7 @@ def test_render_produces_pptx(tmp_path):
 
 
 def test_starter_deck_slide_count(tmp_path):
+    pytest.importorskip("pptx")
     from office_kit.deck import render
 
     out = tmp_path / "deck.pptx"

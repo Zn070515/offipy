@@ -92,7 +92,7 @@ class PptApp:
         self, slide_idx: int, path: str, left: float, top: float, width: float, height: float
     ):
         slide = self.active_pres().Slides(slide_idx)
-        slide.Shapes.AddPicture(path, 0, 0, left, top, width, height)
+        slide.Shapes.AddPicture(os.path.abspath(path), 0, 0, left, top, width, height)
 
     def quit(self):
         core.quit_app("ppt")

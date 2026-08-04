@@ -28,6 +28,9 @@
     padding: var(--pad);
   }
   .slide.light { background: #f8fafc; color: #0f172a; }
+  .slide.light .kicker { color: #0284c7; }
+  .slide.light .subtitle,
+  .slide.light .footer { color: #475569; }
   .kicker {
     font-size: var(--kicker); letter-spacing: 4px; color: var(--accent);
     text-transform: uppercase; margin-bottom: 24px;
@@ -51,7 +54,7 @@
   ul.bullets { margin-top: 48px; font-size: var(--body); line-height: 1.8; list-style: none; }
   ul.bullets li { margin-bottom: 20px; padding-left: 36px; position: relative; }
   ul.bullets li::before { content: ""; position: absolute; left: 0; top: 18px;
-    width: 14px; height: 14px; border-radius: 4px; background: var(--accent); }
+    width: 14px; height: 14px; border-radius: 4px; border: 7px solid var(--accent); }
 </style>
 </head>
 <body>
