@@ -948,7 +948,7 @@ dev = [
 requires-dist = [
     { name = "fonttools", specifier = ">=4.0" },
     { name = "lxml", specifier = ">=5.0" },
-    { name = "mcp", specifier = ">=1.0" },
+    { name = "mcp", specifier = ">=2.0,<3.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "pillow", specifier = ">=10.0" },
     { name = "playwright", specifier = ">=1.40" },
