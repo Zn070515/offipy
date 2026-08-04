@@ -25,6 +25,9 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev
 
+      - name: Install Playwright browser (deck 管线 DOM 测量)
+        run: uv run playwright install chromium
+
       - name: Lint (ruff check)
         run: uv run ruff check .
 
