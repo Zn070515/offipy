@@ -53,3 +53,55 @@ def test_deck_make_passes_theme_and_layouts(monkeypatch, capsys):
     assert captured["kw"]["theme"] == "mckinsey"
     assert captured["kw"]["apply_layouts"] is True
     assert "deck.pptx" in capsys.readouterr().out
+
+
+def test_deck_outline_writes_html(tmp_path):
+    from offipy import cli
+
+    md = tmp_path / "outline.md"
+    md.write_text("# T\n> S\n\n## 页一 @layout: big-number\n- 甲\n", encoding="utf-8")
+    out = tmp_path / "deck.html"
+    cli.main(["deck", "outline", "--input", str(md), "--theme", "mckinsey", "--out", str(out)])
+    html = out.read_text(encoding="utf-8")
+    assert "data-pptx-slide" in html
+    assert 'data-layout="big-number"' in html
+    assert '<style data-theme="mckinsey">' in html
+
+
+def test_deck_outline_prints_json_without_out(tmp_path, capsys):
+    from offipy import cli
+
+    md = tmp_path / "outline.md"
+    md.write_text("# T\n\n## 页\n- 甲\n", encoding="utf-8")
+    cli.main(["deck", "outline", "--input", str(md)])
+    assert '"title": "T"' in capsys.readouterr().out
+
+
+def test_deck_outline_missing_input_raises():
+    from offipy import cli
+
+    with pytest.raises(SystemExit):
+        cli.main(["deck", "outline"])
+
+
+def test_deck_outline_missing_file_friendly_error(tmp_path, capsys):
+    # 回归：--input 指向不存在的文件时曾裸 FileNotFoundError traceback，
+    # 现在应 SystemExit 带友好提示。
+    from offipy import cli
+
+    missing = tmp_path / "nope.md"
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "outline", "--input", str(missing)])
+    assert "找不到文件" in str(exc.value)
+
+
+def test_deck_outline_bad_format_friendly_error(tmp_path, capsys):
+    # 回归：非法大纲（缺 # 主标题）时曾裸 ValueError traceback，
+    # 现在应 SystemExit 带友好提示。
+    from offipy import cli
+
+    bad = tmp_path / "bad.md"
+    bad.write_text("## 只有页面\n- 无标题\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "outline", "--input", str(bad)])
+    assert "大纲格式错误" in str(exc.value)
