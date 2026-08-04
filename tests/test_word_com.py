@@ -24,7 +24,7 @@ def test_format_text_bold_size_color():
     call("word", "write_line", text="重点内容")
     call("word", "format_text", paragraph=1, bold=True, size=18, color="#2251FF")
     font = _word().ActiveDocument.Paragraphs(1).Range.Font
-    assert font.Bold is True
+    assert font.Bold in (True, -1)  # 早绑定下 VBA True 读回为 -1（int）
     assert font.Size == 18
     assert font.Color == _rgb("#2251FF")
 
@@ -83,9 +83,10 @@ def test_add_list_bullets():
     call("word", "new_doc")
     call("word", "add_list", lines=["甲", "乙", "丙"], style="bullet")
     doc = _word().ActiveDocument
-    # 空文档首段（空段落）不被列表化；第 2-4 段是列表项。
-    # 注意不能取跨段的 Range——ListFormat.ListType 只反映首段，跨到首段会回 -1。
-    assert doc.Paragraphs(2).Range.ListFormat.ListType != -1  # -1 = wdListTypeNoList
+    # 空文档首段被复用来承接第一项；第 1-3 段都应是列表项。
+    # 只查单段（ListType 只反映 range 首段），不能跨段取 range。
+    assert doc.Paragraphs(1).Range.ListFormat.ListType != -1  # -1 = wdListTypeNoList
+    assert doc.Paragraphs(2).Range.ListFormat.ListType != -1
 
 
 def test_merge_table_cells():

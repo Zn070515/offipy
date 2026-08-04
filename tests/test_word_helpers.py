@@ -35,7 +35,7 @@ def test_constants_tables():
     assert _REPLACE["all"] == 2
     # 表格
     assert _LINE_STYLE["single"] == 1 and _LINE_STYLE["none"] == 0
-    assert _TABLE_SIDES["left"] == 1 and _TABLE_SIDES["inside-v"] == 6
+    assert _TABLE_SIDES["top"] == 1 and _TABLE_SIDES["left"] == 2 and _TABLE_SIDES["inside-v"] == 6
     assert _ROW_HEIGHT_RULE["at_least"] == 1
     assert _AUTOFIT["content"] == 1
     assert _TABLE_LINE_WIDTH["1pt"] == 8 and _TABLE_LINE_WIDTH["6pt"] == 48
@@ -64,7 +64,7 @@ def test_resolve_table_sides_variants():
     assert _resolve_table_sides(None) == [1, 2, 3, 4, 5, 6]
     assert _resolve_table_sides("outside") == [1, 2, 3, 4]
     assert _resolve_table_sides("inside") == [5, 6]
-    assert _resolve_table_sides("left,top") == [1, 2]
+    assert _resolve_table_sides("left,top") == [2, 1]
 
 
 def test_resolve_table_sides_unknown_raises():

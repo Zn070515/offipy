@@ -47,8 +47,8 @@ _PAGE_NUMBER_ALIGN = {"left": 0, "center": 1, "right": 2}
 _REPLACE = {"one": 1, "all": 2}
 # 表格线型 wdLineStyle
 _LINE_STYLE = {"none": 0, "single": 1, "dot": 2, "double": 7}
-# 表格边位置 wdBorderType：1-4 外框，5-6 内框
-_TABLE_SIDES = {"left": 1, "top": 2, "bottom": 3, "right": 4, "inside-h": 5, "inside-v": 6}
+# 表格边位置 wdBorderType：1-6 = 上/左/下/右/内横/内竖（Word 枚举为负值，Borders 吃绝对值）
+_TABLE_SIDES = {"top": 1, "left": 2, "bottom": 3, "right": 4, "inside-h": 5, "inside-v": 6}
 # 行高规则 wdRowHeightRule
 _ROW_HEIGHT_RULE = {"auto": 0, "at_least": 1, "exactly": 2}
 # 自动调整行为 wdAutoFitBehavior
@@ -241,14 +241,16 @@ class WordApp:
     ):
         hf = self.active_doc().Sections(1).Footers(1)
         hf.Range.Text = ""  # 清空页脚，避免与既有文本叠加
-        pn = hf.PageNumbers.Add(
+        # PageNumber 对象没有 Range 属性（gen_py 实测 AttributeError），
+        # 样式与文本都落在页脚 Range 上（页码域在其中）。
+        hf.PageNumbers.Add(
             PageNumberAlignment=_resolve_style(alignment, _PAGE_NUMBER_ALIGN, "页码对齐")
         )
         if color is not None:
-            pn.Range.Font.Color = _rgb(color)
+            hf.Range.Font.Color = _rgb(color)
         if size is not None:
-            pn.Range.Font.Size = size
-        return pn.Range.Text
+            hf.Range.Font.Size = size
+        return hf.Range.Text
 
     def page_setup(
         self,
@@ -296,7 +298,9 @@ class WordApp:
         for line in lines:
             self.write_line(line)
         end = doc.Paragraphs.Count
-        rng = doc.Range(doc.Paragraphs(start).Range.Start, doc.Paragraphs(end).Range.End)
+        # Range 起点前移一个字符，落在上一段段末标记上，
+        # 避免 ApplyBulletDefault 跳过 range 首段（Word 段落边界行为）
+        rng = doc.Range(doc.Paragraphs(start).Range.Start - 1, doc.Paragraphs(end).Range.End)
         if style == "numbered":
             rng.ListFormat.ApplyNumberDefault()
         else:
