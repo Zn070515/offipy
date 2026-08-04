@@ -106,6 +106,11 @@ def render(
         pptx = os.path.abspath(out) if out else _default_out(html)
         if not os.path.exists(pptx):
             raise FileNotFoundError(f"转换未产出 .pptx: {pptx}\n{r.stdout}\n{r.stderr}")
+        # 图表后处理：HTML 声明了 data-chart → 读 measurements 替换成原生图表。
+        # 惰性 import：charts.py 内部 import python-pptx，不拖慢无图表的路径。
+        from .charts import postprocess_charts
+
+        postprocess_charts(html, pptx)
         return pptx
     finally:
         if tmp_html and os.path.exists(tmp_html):

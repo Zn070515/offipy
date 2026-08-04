@@ -10,3 +10,7 @@
 - 采购流程优化
 - 供应商集中
 @notes: Q3 展望：维持双位数增长
+
+## 营收趋势
+@chart: line
+@chart-data: {"categories":["Q1","Q2","Q3","Q4"],"series":[{"name":"营收","values":[40,55,70,92]}]}

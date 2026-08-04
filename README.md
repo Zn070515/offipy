@@ -70,6 +70,18 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   office deck outline --input examples/outline/quarterly-review.md --out out/quarterly.html
   office deck make --html out/quarterly.html --theme mckinsey --layouts --out out/quarterly.pptx
   ```
+- **原生图表**：图表区打 `data-chart="<类型>"`（`bar` / `line` / `pie`），数据放容器
+  `data-chart-data` JSON 属性或页内 `<script type="application/json" data-chart-target="<选择器>">` 块，
+  `deck make --layouts` 后自动替换成 PowerPoint 原生可编辑图表（双击即可改数据），不再是贴图。
+  **前提**：图表所在页须引用 chart-dominant 布局（`data-layout="chart-dominant"`），容器才有可测的
+  surface 矩形。示例见 [`examples/decks/charts/chart-demo.html`](examples/decks/charts/chart-demo.html)。
+
+  ```html
+  <div class="chart" data-chart="bar"
+       data-chart-data='{"categories":["Q1","Q2"],"series":[{"name":"营收","values":[40,70]}]}'></div>
+  ```
+
+  大纲里用 `@chart: <类型>` + `@chart-data: <JSON>` 声明图表页，骨架自动落 chart-dominant 布局。
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 
 ```python

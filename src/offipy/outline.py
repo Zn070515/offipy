@@ -29,10 +29,11 @@ from html import escape
 from .autopick import pick_layouts
 from .design import inject_theme
 
-_DIRECTIVE_RE = re.compile(r"^\s*@(\w+)\s*:\s*(.*)$")
+_DIRECTIVE_RE = re.compile(r"^\s*@([\w-]+)\s*:\s*(.*)$")
 _LAYOUT_INLINE_RE = re.compile(r"\s*@layout:\s*([a-z0-9-]+)\s*$")
 # 布局名白名单：拼进 class/data-layout 属性，必须防注入（引号/空格逃逸）
 _LAYOUT_NAME_RE = re.compile(r"[a-z0-9-]+")
+_CHART_TYPES = ("bar", "line", "pie")  # 本地常量，避免 import charts（内部惰性 import python-pptx）
 
 
 @dataclass
@@ -44,6 +45,8 @@ class SlideContent:
     kicker: str = ""
     note: str = ""
     layout: str = ""
+    chart_type: str = ""
+    chart_data: str = ""  # raw JSON 字符串（未转义原样存储）
 
     def to_dict(self) -> dict:
         d: dict = {"index": self.index, "title": self.title}
@@ -51,6 +54,10 @@ class SlideContent:
             d["kicker"] = self.kicker
         if self.layout:
             d["layout"] = self.layout
+        if self.chart_type:
+            d["chart_type"] = self.chart_type
+        if self.chart_data:
+            d["chart_data"] = self.chart_data
         if self.body:
             d["body"] = self.body
         if self.bullets:
@@ -91,6 +98,11 @@ class DeckOutline:
                 lines.append(b)
             for b in s.bullets:
                 lines.append(f"- {b}")
+            if s.chart_type or s.chart_data:
+                if s.chart_type:
+                    lines.append(f"@chart: {s.chart_type}")
+                if s.chart_data:
+                    lines.append(f"@chart-data: {s.chart_data}")
             if s.note:
                 lines.append(f"@notes: {s.note}")
         return "\n".join(lines) + "\n"
@@ -110,12 +122,16 @@ def parse_outline(md: str) -> DeckOutline:
         m = _DIRECTIVE_RE.match(line)
         if m:
             key, val = m.group(1).lower(), m.group(2).strip()
-            if key not in ("layout", "kicker", "notes"):
-                raise ValueError(f"未知指令 @{key}（可选: @layout/@kicker/@notes）")
+            if key not in ("layout", "kicker", "notes", "chart", "chart-data"):
+                raise ValueError(
+                    f"未知指令 @{key}（可选: @layout/@kicker/@notes/@chart/@chart-data）"
+                )
             if key == "layout" and not _LAYOUT_NAME_RE.fullmatch(val):
                 raise ValueError(
                     f"非法布局名 @layout: {val!r}（限小写字母/数字/连字符，如 big-number）"
                 )
+            if key == "chart" and val not in _CHART_TYPES:
+                raise ValueError(f"非法图表类型 @chart: {val!r}（可选: bar/line/pie）")
             if cur is not None:
                 if key == "layout":
                     cur.layout = val
@@ -123,6 +139,12 @@ def parse_outline(md: str) -> DeckOutline:
                     cur.kicker = val
                 elif key == "notes":
                     cur.note = val
+                elif key == "chart":
+                    cur.chart_type = val
+                    if not cur.layout:
+                        cur.layout = "chart-dominant"
+                elif key == "chart-data":
+                    cur.chart_data = val
             else:
                 pending[key] = val
             continue
@@ -145,12 +167,15 @@ def parse_outline(md: str) -> DeckOutline:
                 text = text[: minline.start()].rstrip()
             else:
                 layout = ""
+            chart_type = pending.pop("chart", "")
             cur = SlideContent(
                 index=len(slides) + 1,
                 title=text,
-                layout=layout or pending.pop("layout", ""),
+                layout=layout or pending.pop("layout", "") or (chart_type and "chart-dominant"),
                 kicker=pending.pop("kicker", ""),
                 note=pending.pop("notes", ""),
+                chart_type=chart_type,
+                chart_data=pending.pop("chart-data", ""),
             )
             continue
         if cur is None:
@@ -178,13 +203,17 @@ def _slide_section(s: SlideContent) -> str:
     if s.kicker:
         parts.append(f'  <div class="kicker">{_esc(s.kicker)}</div>')
     parts.append(f'  <h2 class="title">{_esc(s.title)}</h2>')
-    for b in s.body:
-        parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
-    if s.bullets:
-        cards = "\n".join(
-            f'    <div class="card"><div class="txt">{_esc(b)}</div></div>' for b in s.bullets
-        )
-        parts.append(f'  <div class="cards">\n{cards}\n  </div>')
+    if s.chart_type:
+        data_attr = f' data-chart-data="{_esc(s.chart_data)}"' if s.chart_data else ""
+        parts.append(f'  <div class="chart" data-chart="{_esc(s.chart_type)}"{data_attr}></div>')
+    else:
+        for b in s.body:
+            parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
+        if s.bullets:
+            cards = "\n".join(
+                f'    <div class="card"><div class="txt">{_esc(b)}</div></div>' for b in s.bullets
+            )
+            parts.append(f'  <div class="cards">\n{cards}\n  </div>')
     parts.append("</section>")
     return "\n".join(parts)
 
