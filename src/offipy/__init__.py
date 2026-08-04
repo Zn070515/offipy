@@ -8,11 +8,16 @@ from .core import (
     running,
 )
 from .exceptions import (
+    ComOperationError,
     ConversionError,
+    FileConflictError,
+    InvalidArgumentError,
     OfficeUnavailableError,
     OffipyError,
+    ProtocolError,
     RemoteCallError,
     ServerStartError,
+    TargetNotFoundError,
     UnsupportedPlatformError,
 )
 
@@ -32,6 +37,11 @@ __all__ = [
     "OfficeUnavailableError",
     "ServerStartError",
     "RemoteCallError",
+    "TargetNotFoundError",
     "ConversionError",
     "UnsupportedPlatformError",
+    "InvalidArgumentError",
+    "FileConflictError",
+    "ComOperationError",
+    "ProtocolError",
 ]

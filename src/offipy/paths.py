@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+from .exceptions import FileConflictError
+
 _APP_DIRNAME = "offipy"
 _CONVERTER_DATA_ENV = "OFFIPY_CONVERTER_DATA_DIR"
 
@@ -45,12 +47,14 @@ def converter_data_dir() -> Path:
 
 
 def ensure_writable(path: str, overwrite: bool = False) -> str:
-    """写入覆盖保护（P1 资源）：目标已存在且不显式 overwrite → FileExistsError。
+    """写入覆盖保护（P1 资源）：目标已存在且不显式 overwrite → FileConflictError。
 
     返回绝对路径（server 侧按调用方 CWD 无关）；save/save_pdf 的默认防线，
-    防止 agent 或脚本无意间覆盖已有文件。
+    防止 agent 或脚本无意间覆盖已有文件。FileConflictError 是 OffipyError
+    子类，CLI/MCP 能统一处理；同时继承 FileExistsError，`except FileExistsError`
+    的既有调用方不受影响。
     """
     abs_path = os.path.abspath(path)
     if not overwrite and os.path.exists(abs_path):
-        raise FileExistsError(f"目标文件已存在: {abs_path}（如确要覆盖请传 overwrite=True）")
+        raise FileConflictError(f"目标文件已存在: {abs_path}（如确要覆盖请传 overwrite=True）")
     return abs_path

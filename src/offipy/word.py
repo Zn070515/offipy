@@ -7,7 +7,8 @@ import os
 from contextlib import contextmanager
 
 from . import core
-from .exceptions import TargetNotFoundError
+from ._comguard import guard_com
+from .exceptions import InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
@@ -74,16 +75,19 @@ _TABLE_LINE_WIDTH = {
 def _rgb(hex_color: str) -> int:
     """把 '#RRGGBB' 转成 COM Long 颜色（Word 与 Excel 同用 COLORREF 公式）。"""
     h = hex_color.lstrip("#")
-    r = int(h[0:2], 16)
-    g = int(h[2:4], 16)
-    b = int(h[4:6], 16)
+    if len(h) != 6:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）")
+    try:
+        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）") from None
     return r + (g << 8) + (b << 16)
 
 
 def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
     key = (name or "").strip().lower()
     if key not in table:
-        raise ValueError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
+        raise InvalidArgumentError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
     return table[key]
 
 
@@ -98,11 +102,11 @@ def _resolve_table_sides(sides: str | None) -> list[int]:
         return [5, 6]
     parts = [p.strip() for p in name.split(",") if p.strip()]
     if not parts:
-        raise ValueError(f"无效表格边: {sides!r}")
+        raise InvalidArgumentError(f"无效表格边: {sides!r}")
     result = []
     for p in parts:
         if p not in _TABLE_SIDES:
-            raise ValueError(f"未知表格边: {p!r}（可选: {', '.join(_TABLE_SIDES)}）")
+            raise InvalidArgumentError(f"未知表格边: {p!r}（可选: {', '.join(_TABLE_SIDES)}）")
         result.append(_TABLE_SIDES[p])
     return result
 
@@ -114,6 +118,7 @@ def _end_range(doc):
     return rng
 
 
+@guard_com
 class WordApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("word", visible=visible)

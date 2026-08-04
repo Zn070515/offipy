@@ -7,7 +7,8 @@ ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那�
 from contextlib import contextmanager
 
 from . import core
-from .exceptions import TargetNotFoundError
+from ._comguard import guard_com
+from .exceptions import InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 # ExportAsFixedFormat 的类型常量
@@ -15,14 +16,11 @@ XL_TYPE_PDF = 0
 
 
 def _parse_cell(cell: str):
-    """把 'A1' 解析成 (row, col)，行列为 1 基。"""
-    col_part = ""
-    row_part = ""
-    for ch in cell:
-        if ch.isalpha():
-            col_part += ch.upper()
-        else:
-            row_part += ch
+    """把 'A1' 解析成 (row, col)，行列为 1 基；非法格式抛 InvalidArgumentError。"""
+    col_part = "".join(ch for ch in cell if ch.isalpha()).upper()
+    row_part = "".join(ch for ch in cell if not ch.isalpha())
+    if not col_part or not row_part.isdigit() or int(row_part) < 1:
+        raise InvalidArgumentError(f"非法单元格: {cell!r}（期望如 'A1'）")
     col = 0
     for ch in col_part:
         col = col * 26 + (ord(ch) - ord("A") + 1)
@@ -30,11 +28,14 @@ def _parse_cell(cell: str):
 
 
 def _rgb(hex_color: str) -> int:
-    """把 '#RRGGBB' 转成 Excel 的 BGR 整数颜色。"""
+    """把 '#RRGGBB' 转成 Excel 的 BGR 整数颜色；非法颜色抛 InvalidArgumentError。"""
     h = hex_color.lstrip("#")
-    r = int(h[0:2], 16)
-    g = int(h[2:4], 16)
-    b = int(h[4:6], 16)
+    if len(h) != 6:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）")
+    try:
+        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        raise InvalidArgumentError(f"非法颜色: {hex_color!r}（期望 '#RRGGBB'）") from None
     return r + (g << 8) + (b << 16)
 
 
@@ -106,11 +107,11 @@ def _resolve_sides(side: str | None) -> list[int]:
         return [11, 12]
     parts = [p.strip() for p in name.split(",") if p.strip()]
     if not parts:
-        raise ValueError(f"无效边框侧: {side!r}")
+        raise InvalidArgumentError(f"无效边框侧: {side!r}")
     result = []
     for p in parts:
         if p not in _BORDER_INDEX:
-            raise ValueError(f"未知边框侧: {p!r}（可选: {', '.join(_BORDER_INDEX)}）")
+            raise InvalidArgumentError(f"未知边框侧: {p!r}（可选: {', '.join(_BORDER_INDEX)}）")
         result.append(_BORDER_INDEX[p])
     return result
 
@@ -118,10 +119,11 @@ def _resolve_sides(side: str | None) -> list[int]:
 def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
     key = (name or "").strip().lower()
     if key not in table:
-        raise ValueError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
+        raise InvalidArgumentError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
     return table[key]
 
 
+@guard_com
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
@@ -294,7 +296,7 @@ class ExcelApp:
     # --- 冻结窗格 ---
     def freeze_panes(self, sheet, rows: int = 0, cols: int = 0):
         if rows < 0 or cols < 0:
-            raise ValueError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
+            raise InvalidArgumentError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
         ws = self._ws(sheet)
         ws.Activate()
         if rows == 0 and cols == 0:
@@ -366,10 +368,10 @@ class ExcelApp:
         rng = ws.Range(range_addr)
         if rule == "cell":
             if operator is None or value is None:
-                raise ValueError("cell 规则必须给 operator 和 value")
+                raise InvalidArgumentError("cell 规则必须给 operator 和 value")
             op = _resolve_style(operator, _COND_OPERATOR, "条件格式运算符")
             if op in (1, 2) and value2 is None:  # between/not_between 需要 Formula2
-                raise ValueError("between/not_between 必须给 value2")
+                raise InvalidArgumentError("between/not_between 必须给 value2")
             fc = rng.FormatConditions.Add(1, op, value, value2)  # xlCellValue
             if bg is not None:
                 fc.Interior.Color = _rgb(bg)
@@ -381,7 +383,7 @@ class ExcelApp:
                 fc.BarColor.Color = _rgb(bg)  # Databar 实心填充色走 BarColor
         elif rule == "colorscale":
             if min_color is None or max_color is None:
-                raise ValueError("colorscale 必须给 min_color 和 max_color")
+                raise InvalidArgumentError("colorscale 必须给 min_color 和 max_color")
             n = 3 if mid_color else 2
             cs = rng.FormatConditions.AddColorScale(n)
             cs.ColorScaleCriteria(1).FormatColor.Color = _rgb(min_color)
@@ -389,7 +391,9 @@ class ExcelApp:
                 cs.ColorScaleCriteria(2).FormatColor.Color = _rgb(mid_color)
             cs.ColorScaleCriteria(n).FormatColor.Color = _rgb(max_color)
         else:
-            raise ValueError(f"未知条件格式规则: {rule!r}（可选: cell/databar/colorscale）")
+            raise InvalidArgumentError(
+                f"未知条件格式规则: {rule!r}（可选: cell/databar/colorscale）"
+            )
 
     # --- 基础三件套 ---
     def set_row_height(self, sheet, row, height: float):

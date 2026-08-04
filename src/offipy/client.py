@@ -9,8 +9,33 @@ import time
 import urllib.error
 import urllib.request
 
-from .exceptions import RemoteCallError, ServerStartError
+from .exceptions import (
+    ComOperationError,
+    ConversionError,
+    FileConflictError,
+    InvalidArgumentError,
+    OfficeUnavailableError,
+    ProtocolError,
+    RemoteCallError,
+    ServerStartError,
+    TargetNotFoundError,
+    UnsupportedPlatformError,
+)
 from .paths import user_data_dir
+
+# error_code（server 失败响应携带）→ 领域异常：RPC 错误与库异常一一对应（P1-4）
+_ERROR_CODE_TO_EXC = {
+    "invalid_argument": InvalidArgumentError,
+    "target_not_found": TargetNotFoundError,
+    "file_conflict": FileConflictError,
+    "com_operation": ComOperationError,
+    "protocol": ProtocolError,
+    "server_start": ServerStartError,
+    "conversion": ConversionError,
+    "office_unavailable": OfficeUnavailableError,
+    "remote_call": RemoteCallError,
+    "unsupported_platform": UnsupportedPlatformError,
+}
 
 HOST = "127.0.0.1"
 PORT = 8890
@@ -271,9 +296,15 @@ def request(app: str, op: str, **args) -> dict:
         try:
             body = json.loads(e.read().decode("utf-8"))
             detail = body.get("error") or e.reason
+            code = body.get("error_code")
         except (ValueError, OSError):
             detail = f"HTTP {e.code}: {e.reason}"
-        raise RemoteCallError(f"[{app}::{op}] 失败: {detail}") from e
+            code = None
+        exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None
+        msg = f"[{app}::{op}] 失败: {detail}"
+        if exc_cls is not None:
+            raise exc_cls(msg) from e
+        raise RemoteCallError(msg) from e
     except urllib.error.URLError as e:
         raise RemoteCallError(f"[{app}::{op}] 连接失败: {e.reason}") from e
     except TimeoutError as e:
@@ -285,8 +316,13 @@ def request(app: str, op: str, **args) -> dict:
 def call(app: str, op: str, **args):
     resp = request(app, op, **args)
     if not resp.get("ok"):
+        code = resp.get("error_code")
+        exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None
         msg = f"[{app}::{op}] 失败: {resp.get('error')}"
         if resp.get("trace"):
             msg += "\n" + "\n".join("  " + line for line in resp["trace"])
+        if exc_cls is not None:
+            raise exc_cls(msg)
         raise RemoteCallError(msg)
-    return resp.get("result")
+    # OperationResult 契约：优先 data，旧 server 无 data 时回退 result
+    return resp["data"] if "data" in resp else resp.get("result")

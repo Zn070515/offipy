@@ -14,28 +14,35 @@
   dispatch 的 `_` 前缀 guard 保留为纵深防御。
 """
 
+import contextlib
 import json
 import os
 import platform
+import queue
 import secrets
 import threading
 import time
 import traceback
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from . import __version__
 from .excel import ExcelApp
-from .exceptions import ServerStartError, TargetNotFoundError
+from .exceptions import ComOperationError, ServerStartError, TargetNotFoundError
 from .paths import user_data_dir
 from .ppt import PptApp
+from .result import OperationResult
 from .word import WordApp
 
 DEFAULT_PORT = 8890
 _MAX_BODY = 16 * 1024 * 1024  # 请求体上限 16MB
 _MAX_RESPONSE = 64 * 1024 * 1024  # 响应上限 64MB（超限降级 500，不写大 payload）
+_CALL_TIMEOUT = 600  # /call 入队后等 worker 结果的超时（安全兜底，op 本身由 client 超时）
 _TOKEN_FILENAME = "token"
 _STARTED_AT = time.time()
+
+# 目标身份资源类型（resource_id 的中间段）
+_KINDS = {"excel": "book", "word": "doc", "ppt": "pres"}
 
 _APPS: dict[str, Any] = {}
 _APPS_CLASSES = {
@@ -198,6 +205,17 @@ _DESTRUCTIVE_OPS = {
     ),
 }
 
+# 单 COM worker（P1-1）：COM 对象只允许在创建它的线程里访问，所有 App
+# 实例都绑定 worker 线程；HTTP handler 线程只入队/取回结果，慢 op 不阻塞
+# /ping /status /shutdown。队列与 worker 均为模块级（与 _APPS 同级共享）。
+_COM_QUEUE: "queue.Queue[tuple | None]" = queue.Queue()
+_WORKER: threading.Thread | None = None
+_WORKER_LOCK = threading.Lock()
+
+# /status 的目标身份缓存：worker 每次 op 后刷新（worker 线程持有 COM，探测
+# 安全）；handler 线程只读快照，绝不因 status 探测拉起 Office 或触碰 COM。
+_LAST_TARGETS: dict[str, dict | None] = {name: None for name in _APPS_CLASSES}
+
 # 运行时鉴权 token；serve() 启动时装载，Handler 在请求时读取
 _TOKEN = ""
 
@@ -311,6 +329,114 @@ def _current_targets() -> dict[str, dict | None]:
     return targets
 
 
+def _refresh_targets() -> None:
+    """worker 线程内刷新 status 目标缓存（一次快照赋值，handler 读引用安全）。"""
+    global _LAST_TARGETS
+    with contextlib.suppress(Exception):
+        _LAST_TARGETS = _current_targets()
+
+
+def _resource_id(app_name: str) -> str | None:
+    """当前目标身份 → "app:kind:name"；无目标/探测失败返回 None。"""
+    app = _APPS.get(app_name)
+    if app is None:
+        return None
+    try:
+        target = app.get_target()
+    except Exception:
+        return None
+    if not target or not target.get("name"):
+        return None
+    return f"{app_name}:{_KINDS.get(app_name, 'doc')}:{target['name']}"
+
+
+def _success_result(op_name: str, result) -> dict:
+    """OperationResult 归一化成功响应；data 已 _serialize，另附 result 兼容别名。"""
+    data = _serialize(result)
+    app_name, _, _ = op_name.partition(".")
+    res = OperationResult(
+        ok=True,
+        operation=op_name,
+        resource_id=_resource_id(app_name),
+        message="ok",
+        data=data,
+    ).to_dict()
+    res["result"] = data
+    return res
+
+
+def _error_result(op_name: str, e: Exception) -> dict:
+    """失败响应：带 error_code（异常 code），client 据此映射回领域异常。"""
+    tb = traceback.format_exc().strip().splitlines()
+    res = {
+        "ok": False,
+        "operation": op_name,
+        "resource_id": None,
+        "error": f"{type(e).__name__}: {e}",
+        "error_code": getattr(e, "code", "internal"),
+        "trace": tb[-3:],
+    }
+    if isinstance(e, ComOperationError) and e.hresult is not None:
+        res["hresult"] = hex(e.hresult)
+    return res
+
+
+def _ensure_worker() -> None:
+    """懒启动单 COM worker（幂等）。COM 初始化移到 worker 线程（P1-1）。"""
+    global _WORKER
+    with _WORKER_LOCK:
+        if _WORKER is not None and _WORKER.is_alive():
+            return
+        _WORKER = threading.Thread(target=_worker_loop, name="offipy-com-worker", daemon=True)
+        _WORKER.start()
+
+
+def _stop_worker() -> None:
+    """停 worker：哨兵唤醒退出循环，join 有限等待（daemon 兜底不阻塞进程）。"""
+    global _WORKER
+    with _WORKER_LOCK:
+        w = _WORKER
+        _WORKER = None
+    if w is not None and w.is_alive():
+        _COM_QUEUE.put(None)
+        w.join(timeout=5)
+
+
+def _worker_loop() -> None:
+    """COM worker 主循环：CoInitialize 绑定本线程套间，串行消费 op。
+
+    任务元组 (app_name, op, args, resp_q)；None 哨兵退出。op 只在此线程
+    执行，App 对象不会跨套间访问。
+    """
+    try:
+        import pythoncom  # 惰性：保 import offipy.server 跨平台可跑
+
+        pythoncom.CoInitialize()
+        com_ready = True
+    except Exception:
+        # 非 Windows / 无 pywin32：worker 仍可消费队列（假 op/纯逻辑测试），
+        # 真 COM op 会由各 App 自行报错，不因初始化失败拖垮整个队列。
+        com_ready = False
+    try:
+        while True:
+            item = _COM_QUEUE.get()
+            if item is None:
+                break
+            app_name, op, args, resp_q = item
+            op_name = f"{app_name}.{op}"
+            try:
+                app = get_app(app_name)
+                result = dispatch(app, op, args, app_name)
+                resp_q.put(("ok", _success_result(op_name, result)))
+            except Exception as e:
+                resp_q.put(("error", _error_result(op_name, e)))
+            finally:
+                _refresh_targets()
+    finally:
+        if com_ready:
+            pythoncom.CoUninitialize()
+
+
 def dispatch(app, op: str, args: dict, app_name: str):
     if op.startswith("_"):
         raise PermissionError(f"不允许调用私有操作: {op}")
@@ -334,7 +460,9 @@ def dispatch(app, op: str, args: dict, app_name: str):
         raise AttributeError(f"未知操作: {op}")
     try:
         return method(**args)
-    except _com_error() as e:
+    except ComOperationError as e:
+        # App 方法已由 guard_com 把 pywintypes.com_error 包成 ComOperationError；
+        # 断连 HRESULT 才重建重试，其余 COM 失败原样上抛（error_code=com_operation）。
         if getattr(e, "hresult", None) not in _DISCONNECTED_HRS:
             raise
         if op == "quit":
@@ -376,7 +504,8 @@ class Handler(BaseHTTPRequestHandler):
                         "pid": os.getpid(),
                         "python": platform.python_version(),
                         "started_at": _STARTED_AT,
-                        "targets": _current_targets(),
+                        # 只读缓存快照：worker 线程持有 COM 探测，handler 不触碰
+                        "targets": _LAST_TARGETS,
                     },
                 }
             )
@@ -420,26 +549,36 @@ class Handler(BaseHTTPRequestHandler):
         op = body.get("op")
         allowed = _OPS.get(app_name)
         if allowed is None:
-            return self._reply({"ok": False, "error": f"未知应用: {app_name}"}, status=400)
+            return self._reply(
+                {"ok": False, "error": f"未知应用: {app_name}", "error_code": "invalid_argument"},
+                status=400,
+            )
         if op not in allowed:
-            return self._reply({"ok": False, "error": f"未知操作: {app_name}::{op}"}, status=400)
-        # 单线程 HTTPServer 下 handler 在主线程执行；COM 在 serve() 里
-        # 初始化一次并常驻，这里不再 CoInit/CoUninit（反复拆建套间会
-        # 使跨请求的 COM 对象失效，报“对象没有连接到服务器”）
-        try:
-            app = get_app(app_name)
-            result = dispatch(app, op, body.get("args", {}), app_name)
-            self._reply({"ok": True, "result": _serialize(result)})
-        except Exception as e:
-            tb = traceback.format_exc().strip().splitlines()
-            self._reply(
+            return self._reply(
                 {
                     "ok": False,
-                    "error": f"{type(e).__name__}: {e}",
-                    "trace": tb[-3:],
+                    "error": f"未知操作: {app_name}::{op}",
+                    "error_code": "invalid_argument",
                 },
-                status=500,
+                status=400,
             )
+        # 校验（鉴权/路径/Content-Type/体积/白名单）留在 handler 线程 fail-fast；
+        # COM op 入队给单 worker 串行执行，worker 结果经 per-request 队列取回。
+        _ensure_worker()
+        resp_q: queue.Queue[tuple] = queue.Queue(maxsize=1)
+        _COM_QUEUE.put((app_name, op, body.get("args", {}), resp_q))
+        try:
+            kind, payload = resp_q.get(timeout=_CALL_TIMEOUT)
+        except queue.Empty:
+            return self._reply(
+                {
+                    "ok": False,
+                    "error": f"操作超时（worker 忙或卡住，>{_CALL_TIMEOUT}s）",
+                    "error_code": "internal",
+                },
+                status=504,
+            )
+        self._reply(payload, status=200 if kind == "ok" else 500)
 
     def _reply(self, obj, status=200):
         status, data = _encode_reply(obj, status)
@@ -453,9 +592,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-class Server(HTTPServer):
-    # 单线程：COM 对象绑定创建线程的套间，多线程跨套间访问会出错。
-    # 自用场景一次一个操作，单线程足够且最稳。
+class Server(ThreadingHTTPServer):
+    # 线程前端（P1-1）：每个 HTTP 请求独立线程，/ping /status /shutdown 不碰
+    # COM、直处理；慢 COM op 在单 worker 里串行排队，不阻塞健康检查与停机。
     # 禁止端口复用：防止多个 server 实例抢绑同一端口导致请求漂移。
     allow_reuse_address = False
 
@@ -480,14 +619,13 @@ def serve(
     _validate_host(host, allow_remote)
     _TOKEN = _load_token()
     print(f"offipy server listening on http://{host}:{port}", flush=True)
-    # 主线程初始化 COM 一次并保持整个服务生命周期
-    import pythoncom  # 惰性：保 import offipy.server 跨平台可跑
-
-    pythoncom.CoInitialize()
+    # COM 初始化移到 worker 线程（P1-1）：HTTP 线程只入队，App 对象只被
+    # worker 触碰，套间安全；/ping /status /shutdown 不碰 COM，不被排队。
+    _ensure_worker()
     try:
         Server((host, port), Handler).serve_forever()
     finally:
-        pythoncom.CoUninitialize()
+        _stop_worker()
 
 
 if __name__ == "__main__":

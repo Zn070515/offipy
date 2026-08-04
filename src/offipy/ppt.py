@@ -7,6 +7,7 @@ import os
 from contextlib import contextmanager
 
 from . import core
+from ._comguard import guard_com
 from .exceptions import TargetNotFoundError
 from .paths import ensure_writable
 
@@ -18,6 +19,7 @@ PP_LAYOUT_TITLE_ONLY = 5
 PP_LAYOUT_BLANK = 12
 
 
+@guard_com
 class PptApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("ppt", visible=visible)

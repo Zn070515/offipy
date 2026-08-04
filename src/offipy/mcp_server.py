@@ -24,7 +24,8 @@ def _call(app: str, op: str, **kwargs):
         raise RuntimeError(str(e)) from None
     if not resp.get("ok"):
         raise RuntimeError(resp.get("error", "未知错误"))
-    return resp.get("result")
+    # OperationResult 契约：优先 data，旧 server 无 data 时回退 result
+    return resp["data"] if "data" in resp else resp.get("result")
 
 
 def _invoke(app: str, op: str, **kwargs):

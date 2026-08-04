@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .client import call, ensure_server
 from .design import inject_theme
-from .exceptions import ConversionError
+from .exceptions import ConversionError, FileConflictError
 from .layouts import inject_layouts
 from .paths import converter_data_dir
 
@@ -87,7 +87,7 @@ def render(
     _preflight_browser()
     final_out = os.path.abspath(out) if out else _default_out(html)
     if not overwrite and os.path.exists(final_out):
-        raise FileExistsError(
+        raise FileConflictError(
             f"输出 .pptx 已存在（overwrite=False，可传 overwrite=True 覆盖）: {final_out}"
         )
     target = html
