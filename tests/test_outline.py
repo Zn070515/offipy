@@ -114,3 +114,9 @@ def test_to_deck_html_escapes_text():
     o = parse_outline("# T\n\n## 页\n- a & b <c>\n")
     html = to_deck_html(o)
     assert "a &amp; b &lt;c&gt;" in html
+
+
+def test_invalid_layout_directive_raises():
+    # @layout 值拼进 class/data-layout 属性，必须拒绝注入尝试（引号/空格逃逸）
+    with pytest.raises(ValueError):
+        parse_outline('# T\n\n## 页\n@layout: cards-3" onmouseover="evil\n')

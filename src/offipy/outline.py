@@ -31,6 +31,8 @@ from .design import inject_theme
 
 _DIRECTIVE_RE = re.compile(r"^\s*@(\w+)\s*:\s*(.*)$")
 _LAYOUT_INLINE_RE = re.compile(r"\s*@layout:\s*([a-z0-9-]+)\s*$")
+# 布局名白名单：拼进 class/data-layout 属性，必须防注入（引号/空格逃逸）
+_LAYOUT_NAME_RE = re.compile(r"[a-z0-9-]+")
 
 
 @dataclass
@@ -110,6 +112,10 @@ def parse_outline(md: str) -> DeckOutline:
             key, val = m.group(1).lower(), m.group(2).strip()
             if key not in ("layout", "kicker", "notes"):
                 raise ValueError(f"未知指令 @{key}（可选: @layout/@kicker/@notes）")
+            if key == "layout" and not _LAYOUT_NAME_RE.fullmatch(val):
+                raise ValueError(
+                    f"非法布局名 @layout: {val!r}（限小写字母/数字/连字符，如 big-number）"
+                )
             if cur is not None:
                 if key == "layout":
                     cur.layout = val
@@ -195,7 +201,8 @@ def to_deck_html(outline: DeckOutline, theme: str | None = None) -> str:
     )
     picks = {p.index: p.layout for p in pick_layouts(skeleton)}
     for i, (s, block) in enumerate(zip(outline.slides, blocks, strict=True)):
-        layout = s.layout or picks.get(s.index, "hero-title")
+        # 按位置序数（i+1）关联 autopick 结果，不依赖 SlideContent.index 不变式
+        layout = s.layout or picks.get(i + 1, "hero-title")
         blocks[i] = re.sub(
             r'<section class="([^"]*)" data-pptx-slide',
             rf'<section class="\1 {layout}" data-pptx-slide data-layout="{layout}"',
