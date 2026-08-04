@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-04（未发布）
+
+> **预发布编号策略**：正式首发 1.0.0 前，TestPyPI 预发布用 `0.9.0a1` / `0.9.0rc1`
+> 编号；稳定发布时 `__version__`、git tag、CHANGELOG 顶层三者必须一致（对齐测试兜底）。
+> 0.9.0 从未发布，不重复 bump——round-2 修复后版本仍为 0.9.0。
+
 ### Added
 - 高层 API facade：`offipy.Excel() / Word() / Ppt()` 上下文管理器，未显式定义的 op 代理到底层 app（`api.py`）
 - 会话语义（P1.2）：三件套 op 优先解析实时 `ActiveDocument / ActiveWorkbook / ActivePresentation`，仅失败时回退缓存句柄 + liveness probe
@@ -15,6 +21,11 @@
 - converter vendored 进 wheel（`src/offipy/_vendor/`）+ chromium 预检（渲染前检查浏览器，缺失给安装提示）
 - CLI 复杂参数系统：重复 `--key` 聚合为 list、`--payload/--json` JSON 透传、未知参数报错退出码 2
 - 治理文档：CHANGELOG / SECURITY / CONTRIBUTING / THIRD_PARTY_NOTICES；README 重写（品牌 offipy、安全模型、会话语义、审核修复清单）
+- server 安全加固（round-2）：非回环 host 默认拒绝（`--unsafe-allow-remote` 显式放行）、token 写失败即启动失败（杜绝假活）、显式 RPC 白名单（会话内部方法不暴露）、惰性 COM import
+- `offipy server status|stop|restart` 子命令：`/status` 真实握手 + 进程管理（PID 文件 / netstat 探测）
+- Agent 只读 op：`word read_doc_text` / `ppt read_slide_texts` / `excel read_range` 读回文本层
+- deck 覆盖保护：`render` / `make` 输出已存在且 `overwrite=False` 时抛 `FileExistsError`（fail-fast）
+- 依赖拆 `convert` extra（HTML→PPTX 转换器依赖）+ `tomli`（3.10 支持），核心依赖瘦身
 
 ### Changed
 - 命令行更名：`office` → `offipy`（console script 只留 `offipy`）
@@ -22,6 +33,14 @@
 - `pyproject.toml` 补 `project.urls` / `keywords` / `classifiers`
 - `.github/workflows/release.yml` 补全发布门禁（ruff → format → mypy → pytest → tag 版本校验 → build → twine → 安装冒烟 → `--verify-tag`）
 - 库层不再抛 `SystemExit`（CLI 层捕获 offipy 异常并以退出码 1 报告）
+- CLI 参数按目标签名类型转换（`_coerce_kwargs`），弃全局值猜测
+- MCP 工具结构化返回（void op → `ok (op)`，有值 op 原样透传）；`save` / `save_pdf` 透出 `overwrite`
+- Word / PPT 导出 PDF 改走官方 `ExportAsFixedFormat`；三件套 DisplayAlerts 全局副作用退出时还原
+- 客户端 HTTP 错误语义化：网络 / 超时 / 非 JSON 一律抛 `RemoteCallError`
+- CI 矩阵扩到 Python 3.10–3.13；deck 单测不真拉 chromium（浏览器前置检查 no-op）
+
+### Fixed
+- PPT DisplayAlerts 常量改正（`ppAlertsNone=1`，原 `=0` 实为 `ppAlertsAll`）
 
 ## [0.8.0] - 2026-08-04
 
