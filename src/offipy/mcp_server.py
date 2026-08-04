@@ -171,6 +171,16 @@ def ppt_add_picture(
     )
 
 
+@server.tool(
+    title="逐页读取幻灯片文本",
+    description=(
+        "逐页读取当前演示文稿的标题/正文/备注文本（只读），返回 [{index, title, body, notes}]。"
+    ),
+)
+def ppt_read_slide_texts() -> list:
+    return _invoke("ppt", "read_slide_texts")
+
+
 # -------------------------------------------------------------------- Word
 
 
@@ -518,6 +528,14 @@ def word_insert_page_break() -> str:
     return _invoke("word", "insert_page_break")
 
 
+@server.tool(
+    title="读取文档全文",
+    description="读取当前 Word 文档全文文本（只读，不修改状态）。",
+)
+def word_read_document_text() -> str:
+    return _invoke("word", "read_doc_text")
+
+
 # ------------------------------------------------------------------- Excel
 
 
@@ -801,6 +819,14 @@ def excel_autofit(
         columns=columns,
         rows=rows,
     )
+
+
+@server.tool(
+    title="读取区域值",
+    description="读取工作表 range_addr（如 'A1:C3'）的值，返回二维列表（行→列）。",
+)
+def excel_read_range(sheet: int | str, range_addr: str) -> list:
+    return _invoke("excel", "read_range", sheet=sheet, range_addr=range_addr)
 
 
 def main():

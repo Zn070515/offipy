@@ -108,6 +108,31 @@ class PptApp:
         slide = self.active_pres().Slides(slide_idx)
         slide.Shapes.AddPicture(os.path.abspath(path), 0, 0, left, top, width, height)
 
+    def read_slide_texts(self):
+        """逐页读取幻灯片文本：标题/正文占位符/备注，缺字段用空串。返回 list[dict]。"""
+        pres = self.active_pres()
+        result = []
+        for i in range(1, pres.Slides.Count + 1):
+            slide = pres.Slides(i)
+            title = ""
+            if slide.Shapes.HasTitle:
+                try:
+                    title = slide.Shapes.Title.TextFrame.TextRange.Text
+                except Exception:
+                    title = ""
+            body = ""
+            try:
+                body = slide.Shapes.Placeholders(2).TextFrame.TextRange.Text
+            except Exception:
+                body = ""
+            notes = ""
+            try:
+                notes = slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text
+            except Exception:
+                notes = ""
+            result.append({"index": i, "title": title, "body": body, "notes": notes})
+        return result
+
     def quit(self):
         # 库改全局状态（DisplayAlerts），释放前还原原值
         self.app.DisplayAlerts = self._saved_alerts

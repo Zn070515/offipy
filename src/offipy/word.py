@@ -390,6 +390,11 @@ class WordApp:
     def insert_page_break(self):
         _end_range(self.active_doc()).InsertBreak(7)  # wdPageBreak
 
+    # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
+    def read_doc_text(self):
+        """读取当前文档全文文本（只读，不改任何状态）。"""
+        return self.active_doc().Content.Text
+
     def quit(self):
         # 库改全局状态（DisplayAlerts），释放前还原原值
         self.app.DisplayAlerts = self._saved_alerts

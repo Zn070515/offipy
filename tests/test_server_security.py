@@ -173,6 +173,19 @@ def test_session_internal_ops_not_in_whitelist():
         assert "save" in server._OPS[app]
 
 
+def test_read_ops_in_whitelist():
+    # Agent 只读 op 已登记：word read_doc_text / ppt read_slide_texts / excel read_range
+    assert "read_doc_text" in server._OPS["word"]
+    assert "read_slide_texts" in server._OPS["ppt"]
+    assert "read_range" in server._OPS["excel"]
+
+
+def test_serialize_recurses_dict():
+    # read_slide_texts 返回 list[dict]，dict 必须递归序列化而非 str(dict)
+    assert server._serialize({"a": [1, 2], "b": {"c": "x"}}) == {"a": [1, 2], "b": {"c": "x"}}
+    assert server._serialize([{"index": 1, "title": "t"}]) == [{"index": 1, "title": "t"}]
+
+
 def test_server_module_lazy_com():
     # 顶层不再裸 import COM：跨平台 `import offipy.server` 不炸
     assert not hasattr(server, "pythoncom")

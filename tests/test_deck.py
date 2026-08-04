@@ -135,3 +135,54 @@ def test_render_apply_layouts_false_unchanged(tmp_path, monkeypatch):
     deck.render(str(html))  # 默认不注入
     assert created["cmd"][2] == str(html)
     assert ".cards-3 .cards" not in created["injected_content"]  # 布局 CSS 未注入
+
+
+# --- overwrite 覆盖保护（P1-5）：不静默覆盖已有 .pptx ---
+
+
+def test_render_existing_out_refuses_without_overwrite(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    (tmp_path / "deck.pptx").write_bytes(b"existing")
+    created = {}
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    with pytest.raises(FileExistsError):
+        deck.render(str(html))
+    # fail-fast：未跑转换
+    assert "cmd" not in created
+
+
+def test_render_overwrite_true_allows(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    (tmp_path / "deck.pptx").write_bytes(b"existing")
+    created = {}
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    pptx = deck.render(str(html), overwrite=True)
+    assert pptx.endswith("deck.pptx")
+
+
+def test_make_existing_out_refuses_without_overwrite(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    (tmp_path / "deck.pptx").write_bytes(b"existing")
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+
+    with pytest.raises(FileExistsError):
+        deck.make(str(html), open_live_flag=False)
+
+
+def test_make_passes_overwrite_to_render(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    (tmp_path / "deck.pptx").write_bytes(b"existing")
+    created = {}
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    pptx = deck.make(str(html), open_live_flag=False, overwrite=True)
+    assert pptx.endswith("deck.pptx")

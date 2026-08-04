@@ -65,6 +65,7 @@ _OPS = {
             "set_row_height",
             "set_number_format",
             "autofit",
+            "read_range",
             "quit",
         }
     ),
@@ -97,6 +98,7 @@ _OPS = {
             "find_replace",
             "insert_image",
             "insert_page_break",
+            "read_doc_text",
             "quit",
         }
     ),
@@ -113,6 +115,7 @@ _OPS = {
             "set_notes",
             "add_textbox",
             "add_picture",
+            "read_slide_texts",
             "quit",
         }
     ),
@@ -160,6 +163,8 @@ def _serialize(v):
         return v
     if isinstance(v, (list, tuple)):
         return [_serialize(x) for x in v]
+    if isinstance(v, dict):
+        return {str(k): _serialize(x) for k, x in v.items()}
     try:
         return v.isoformat()  # datetime 等
     except Exception:

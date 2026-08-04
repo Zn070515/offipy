@@ -63,6 +63,9 @@ def test_initialize_and_tool_names(module):
         "word_find_replace",
         "word_insert_image",
         "word_insert_page_break",
+        "word_read_document_text",
+        "ppt_read_slide_texts",
+        "excel_read_range",
     ):
         assert expected in tools
 

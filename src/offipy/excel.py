@@ -35,6 +35,23 @@ def _rgb(hex_color: str) -> int:
     return r + (g << 8) + (b << 16)
 
 
+def _normalize_range(values):
+    """把 COM Range.Value 归一成二维 list：单格→[[v]]，空→[]。
+
+    COM 按行外层/列内层返回：A1:B2 → ((r1c1,r1c2),(r2c1,r2c2))；单格返回
+    标量本身（部分版本返回 1x1 元组）；空区域返回 None。
+    """
+    if values is None:
+        return []
+    if isinstance(values, (list, tuple)):
+        if not values:
+            return []
+        if isinstance(values[0], (list, tuple)):
+            return [list(row) for row in values]
+        return [list(values)]
+    return [[values]]
+
+
 # ===== M4：常量表与解析辅助（Excel COM 值按 VBA 常量硬编码） =====
 # 边框位置 BorderIndex：7/8/9/10=左/上/下/右，11/12=内竖/内横
 _BORDER_INDEX = {
@@ -184,6 +201,10 @@ class ExcelApp:
 
     def set_col_width(self, sheet, col, width):
         self._ws(sheet).Columns(col).ColumnWidth = width
+
+    def read_range(self, sheet, range_addr):
+        """读取区域值，返回二维 list（行→列）。只读，不改状态。"""
+        return _normalize_range(self._ws(sheet).Range(range_addr).Value)
 
     # --- 格式化 ---
     def format_cell(

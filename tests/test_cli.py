@@ -55,6 +55,22 @@ def test_deck_make_passes_theme_and_layouts(monkeypatch, capsys):
     assert "deck.pptx" in capsys.readouterr().out
 
 
+def test_deck_make_passes_overwrite(monkeypatch, capsys):
+    from offipy import cli
+
+    captured = {}
+
+    def fake_make(html, **kw):
+        captured["kw"] = kw
+        return r"C:\out\deck.pptx"
+
+    monkeypatch.setattr("offipy.deck.make", fake_make)
+    cli.main(["deck", "make", "--html", "x.html", "--overwrite"])
+    assert captured["kw"]["overwrite"] is True
+    cli.main(["deck", "make", "--html", "x.html"])
+    assert captured["kw"]["overwrite"] is False
+
+
 def test_deck_outline_writes_html(tmp_path):
     from offipy import cli
 

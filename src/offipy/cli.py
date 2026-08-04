@@ -262,7 +262,7 @@ def _main(argv=None):
                 raise SystemExit(
                     "用法: offipy deck make --html <deck.html> "
                     "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
-                    "[--theme <name>] [--layouts]"
+                    "[--theme <name>] [--layouts] [--overwrite]"
                 )
             pptx = deck_make(
                 html,
@@ -271,6 +271,7 @@ def _main(argv=None):
                 feedback_dir=kw.pop("feedback", None),
                 theme=kw.pop("theme", None),
                 apply_layouts=bool(kw.pop("layouts", False) or kw.pop("apply-layouts", False)),
+                overwrite=bool(kw.pop("overwrite", False)),
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
         elif args.action == "outline":

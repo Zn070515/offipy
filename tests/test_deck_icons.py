@@ -41,7 +41,7 @@ def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
         lambda *a, **k: _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
     )
 
-    out = deck.render(str(html), out=str(pptx))
+    out = deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert out == str(pptx)
     assert calls == ["charts", "icons"]
 
@@ -68,5 +68,5 @@ def test_render_charts_error_skips_icons(tmp_path, monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="charts failed"):
-        deck.render(str(html), out=str(pptx))
+        deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert calls == ["charts"]  # icons 不该被调用
