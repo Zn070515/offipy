@@ -12,6 +12,7 @@ Live Microsoft Office automation via COM（会话式驱动）。目标：让 Cla
 - **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
 - **HTML-first 管线（进行中）**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代
+- **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
 
 ## 环境要求
 
@@ -43,6 +44,31 @@ office ppt set_title --slide_idx 1 --text "标题"
 office quit excel
 ```
 
+## MCP server（Claude 接入）
+
+`office mcp` 启动 MCP stdio server，把 Word / Excel / PowerPoint 全部操作暴露为 MCP 工具
+（`ppt_set_title`、`word_write_line`、`excel_set_cell` 等）。工具调用与 `office` 命令等价，
+作用在用户当前激活的文档 / 工作簿 / 演示文稿上，窗口实时可见。
+
+在 Claude Desktop 的 `claude_desktop_config.json` 添加：
+
+```json
+{
+  "mcpServers": {
+    "offipy": {
+      "command": "C:\\Users\\16275\\Desktop\\OfficeForClaude\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "offipy.mcp_server"]
+    }
+  }
+}
+```
+
+手动验证（无需 Office，仅握手）：
+
+```bash
+office mcp        # 阻塞运行，等待 stdio 客户端接入
+```
+
 ## 开发
 
 ```bash
@@ -60,6 +86,7 @@ src/offipy/
   core.py     # COM 应用生命周期与会话管理
   server.py   # 常驻会话 HTTP server（持有 COM 引用）
   cli.py      # `office` 命令入口
+  mcp_server.py  # MCP stdio server（三套件操作 → MCP 工具）
   excel.py / word.py / ppt.py   # 三套件原子操作
   client.py   # server 的 HTTP 客户端（HTML 管线复用）*
   deck.py     # HTML → 可编辑 PPTX 管线（render/open_live/export_slides）*

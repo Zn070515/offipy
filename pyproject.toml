@@ -13,6 +13,7 @@ authors = [{ name = "OfficeForClaude" }]
 # python-pptx/lxml/fonttools/playwright/Pillow 是 HTML→可编辑 PPTX 管线的硬依赖
 # （vendored 转换器的 requirements，先前散装 pip install、未入 pyproject，
 # 导致 uv sync 把它们清掉）。pdf2image 仅在自检可选路径懒加载，不入依赖。
+# mcp 是 MCP server（offipy mcp / python -m offipy.mcp_server）的协议运行时。
 dependencies = [
     "pywin32; platform_system == 'Windows'",
     "python-pptx>=1.0.2",
@@ -20,6 +21,7 @@ dependencies = [
     "fonttools>=4.0",
     "playwright>=1.40",
     "Pillow>=10.0",
+    "mcp>=1.0",
 ]
 dynamic = ["version"]
 

@@ -9,6 +9,7 @@
     office ppt add_slide --layout 2
     office deck make --html examples/decks/starter/deck.html --out out/deck.pptx
     office quit excel
+    office mcp                      # 启动 MCP stdio server（Claude Desktop 接入）
 
 首次调用会自动在后台拉起常驻 server；之后所有操作都打到同一进程，
 窗口持续可见、会话状态跨调用保持。
@@ -54,11 +55,17 @@ def build_parser() -> argparse.ArgumentParser:
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
     q = sub.add_parser("quit")
     q.add_argument("target", choices=["excel", "word", "ppt"])
+    sub.add_parser("mcp", help="启动 MCP stdio server（Claude Desktop 等接入）")
     return p
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.app == "mcp":
+        from .mcp_server import main as mcp_main
+
+        mcp_main()
+        return
     if args.app == "quit":
         ensure_server()
         call(args.target, "quit")

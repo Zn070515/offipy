@@ -141,6 +141,7 @@ AI 生成器（Anionex/banana-slides 等）   —— 上层封装，多数底层
 
 ### P0（低成本、高差异化）
 - **MCP server 化**：把 8890 的 HTTP server 包成 MCP，让 Claude/其他 agent 通过标准协议驱动真实 PowerPoint。对齐生态最热形态，复用现有会话基础设施。
+  - ✅ **已实现**（2026-08-04）：`office mcp` / `python -m offipy.mcp_server`，Word/Excel/PPT 全部操作暴露为 MCP 工具，见 [`../src/offipy/mcp_server.py`](../src/offipy/mcp_server.py)。
 - **模板/母版 API**：`add_slide` 支持指定母版 + 自定义版式，把"设计系统"沉淀成可复用的 .potx。
 - **逐页备注导出**（演讲者模式）配套：`export_slides` 时一并导出每页备注成 Markdown/PDF 讲稿。
 

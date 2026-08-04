@@ -44,14 +44,22 @@ def ensure_server():
     raise SystemExit("无法启动 offipy server，请查看 .offipy.log")
 
 
-def call(app: str, op: str, **args):
+def request(app: str, op: str, **args) -> dict:
+    """发一次调用，返回完整响应 dict（{ok, result, error, trace}），不做失败处理。
+
+    供 MCP server 等调用方自行决定如何处理失败；CLI 仍走 call()。
+    """
     ensure_server()
     data = json.dumps({"app": app, "op": op, "args": args}).encode("utf-8")
     req = urllib.request.Request(
         _URL + "/call", data=data, headers={"Content-Type": "application/json"}
     )
     with _OPENER.open(req, timeout=120) as r:
-        resp = json.loads(r.read().decode("utf-8"))
+        return json.loads(r.read().decode("utf-8"))
+
+
+def call(app: str, op: str, **args):
+    resp = request(app, op, **args)
     if not resp.get("ok"):
         print(f"[{app}::{op}] 失败: {resp.get('error')}", file=sys.stderr)
         if resp.get("trace"):
