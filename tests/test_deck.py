@@ -9,6 +9,12 @@ import pytest
 from offipy import deck
 
 
+@pytest.fixture(autouse=True)
+def _no_browser(monkeypatch):
+    # 单测不真启动 chromium：render 的浏览器前置检查换成 no-op
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+
+
 def _fake_run(created: dict):
     """拦截 convert 子进程：记录 cmd，按 convert 命名规则产出一个假 pptx。"""
 

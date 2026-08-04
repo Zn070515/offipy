@@ -7,6 +7,12 @@ import pytest
 from offipy import charts, deck, icons
 
 
+@pytest.fixture(autouse=True)
+def _no_browser(monkeypatch):
+    # 单测不真启动 chromium：render 的浏览器前置检查换成 no-op
+    monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
+
+
 def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
     """render 依次调用 charts → icons 后处理（顺序 + 实参断言，不走真 convert/Playwright）。"""
     html = tmp_path / "d.html"

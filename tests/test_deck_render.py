@@ -3,12 +3,13 @@ from pathlib import Path
 import pytest
 
 from offipy.deck import CONVERT_PY
+from offipy.envcheck import _check_browser
 
 STARTER = Path(__file__).resolve().parent.parent / "examples" / "decks" / "starter" / "deck.html"
 
 pytestmark = pytest.mark.skipif(
-    not CONVERT_PY.exists(),
-    reason="vendored 转换器缺失（src/offipy/_vendor/）",
+    not CONVERT_PY.exists() or not _check_browser().ok,
+    reason="vendored 转换器缺失或 chromium 不可用",
 )
 
 

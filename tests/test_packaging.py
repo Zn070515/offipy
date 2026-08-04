@@ -21,3 +21,10 @@ def test_convert_scripts_present():
     template = CONVERT_PY.parent / "references" / "lessons-learned.md.example"
     assert scripts.exists()
     assert template.exists()
+
+
+def test_py_typed_present():
+    # PEP 561 类型标注：py.typed 必须随 wheel 分发，否则编辑器拿不到类型
+    py_typed = CONVERT_PY.parents[2] / "py.typed"
+    assert py_typed.exists()
+    assert py_typed.is_file()
