@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Design System Deck · 设计系统示例</title>
+<!-- 主题占位：render(theme="mckinsey") 时替换为 token 集 + .slide 基础样式 -->
+<style data-theme="mckinsey"></style>
+<!-- 布局占位：render(apply_layouts=True) 时注入 data-layout 引用的布局 CSS -->
+<style data-layouts></style>
+</head>
+<body>
+
+<section class="slide hero" data-pptx-slide data-layout="hero-title">
+  <div class="kicker">Design System · Demo</div>
+  <h1 class="title">主题 + 布局注入管线</h1>
+  <p class="subtitle">同一份 HTML：theme= 换皮、data-layout 换组件，视觉与内容解耦。</p>
+</section>
+
+<section class="slide big-number" data-pptx-slide data-layout="big-number">
+  <div class="kicker">KPI</div>
+  <div class="big">+18%</div>
+  <h2 class="title">活跃用户增速创新高</h2>
+  <p class="rule">连续三个季度加速，本季度达历史峰值。</p>
+</section>
+
+<section class="slide closer" data-pptx-slide data-layout="closer">
+  <div class="kicker">Thank You</div>
+  <h1 class="title">欢迎提问与反馈</h1>
+  <div class="contacts">office@example.com · github.com/OfficeForClaude</div>
+</section>
+
+</body>
+</html>
