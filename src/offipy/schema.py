@@ -7,6 +7,9 @@ server 白名单（_OPS/_DESTRUCTIVE_OPS）、CLI 参数校验/类型转换、MC
 
 参数签名以 App 方法为唯一权威（默认值/必填/类型都来自它）；schema 只声明
 元数据与描述。一致性测试保证 schema 声明的 op 集合与参数名和 App 方法不漂移。
+
+多文档（P2-2）：内容 op 统一带可选 doc_id（缺省走当前活动文档）；activate 切换
+活动目标；list_docs 列出文档表。new_*/open_* 返回 doc_id（字符串）。
 """
 
 from dataclasses import dataclass, field
@@ -56,50 +59,61 @@ def readonly_ops(app: str) -> frozenset[str]:
 
 OPS: dict[str, dict[str, OpSpec]] = {
     "excel": {
-        "new_book": OpSpec(description="新建空白工作簿，之后的操作都作用在它上面。"),
+        "new_book": OpSpec(
+            description="新建空白工作簿，设为活动，返回 doc_id。",
+            returns="str",
+        ),
         "open_book": OpSpec(
-            description="打开现有 .xlsx/.xls，并把它设为当前工作簿。", params={"path": str}
+            description="打开现有 .xlsx/.xls，设为活动，返回 doc_id。",
+            returns="str",
+            params={"path": str},
         ),
         "close_book": OpSpec(
-            description="关闭当前工作簿，save=True 则保存。",
+            description="关闭工作簿（doc_id 缺省为活动），save=True 则保存。",
             destructive=True,
-            params={"save": bool},
+            params={"save": bool, "doc_id": str},
         ),
         "save": OpSpec(
             description=(
-                "保存当前工作簿。给 path 则另存到该路径；overwrite=True 允许覆盖已存在文件。"
+                "保存工作簿（doc_id 缺省为活动）。给 path 则另存到该路径；"
+                "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
-            params={"path": str, "overwrite": bool},
+            params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "save_pdf": OpSpec(
-            description="把当前工作簿导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。",
+            description=(
+                "把工作簿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
+                "overwrite=True 允许覆盖已存在文件。"
+            ),
             destructive=True,
-            params={"path": str, "overwrite": bool},
+            params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "add_sheet": OpSpec(
-            description="在活动工作簿中新建工作表并命名。", destructive=True, params={"name": str}
+            description="在工作簿（doc_id 缺省为活动）中新建工作表并命名。",
+            destructive=True,
+            params={"name": str, "doc_id": str},
         ),
         "set_cell": OpSpec(
             description="写入单元格值；sheet 传表名或序号，cell 如 'A1'。",
             destructive=True,
-            params={"sheet": Any, "cell": str, "value": Any},
+            params={"sheet": Any, "cell": str, "value": Any, "doc_id": str},
         ),
         "get_cell": OpSpec(
             description="读取单元格的值；sheet 传表名或序号，cell 如 'A1'。",
             readonly=True,
             returns="any",
-            params={"sheet": Any, "cell": str},
+            params={"sheet": Any, "cell": str, "doc_id": str},
         ),
         "set_range": OpSpec(
             description="把二维值列表一次性写入 range_addr（如 'A1:C3'）。",
             destructive=True,
-            params={"sheet": Any, "range_addr": str, "values": Any},
+            params={"sheet": Any, "range_addr": str, "values": Any, "doc_id": str},
         ),
         "set_col_width": OpSpec(
             description="设置列宽；col 传列号（1 基）或列字母。",
             destructive=True,
-            params={"sheet": Any, "col": Any, "width": float},
+            params={"sheet": Any, "col": Any, "width": float, "doc_id": str},
         ),
         "format_cell": OpSpec(
             description=(
@@ -116,17 +130,18 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "bg": str,
                 "fg": str,
                 "align": int,
+                "doc_id": str,
             },
         ),
         "merge_cells": OpSpec(
             description="把 range_addr（如 'A1:B2'）合并为一个单元格，值保留在左上角。",
             destructive=True,
-            params={"sheet": Any, "range_addr": str},
+            params={"sheet": Any, "range_addr": str, "doc_id": str},
         ),
         "unmerge_cells": OpSpec(
             description="取消 range_addr 的合并。",
             destructive=True,
-            params={"sheet": Any, "range_addr": str},
+            params={"sheet": Any, "range_addr": str, "doc_id": str},
         ),
         "set_border": OpSpec(
             description=(
@@ -143,12 +158,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "style": str,
                 "weight": str,
                 "color": str,
+                "doc_id": str,
             },
         ),
         "freeze_panes": OpSpec(
             description="冻结 rows 行上方 + cols 列左侧；rows=0 且 cols=0 取消冻结。",
             destructive=True,
-            params={"sheet": Any, "rows": int, "cols": int},
+            params={"sheet": Any, "rows": int, "cols": int, "doc_id": str},
         ),
         "page_setup": OpSpec(
             description=(
@@ -170,6 +186,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "center_vertically": bool,
                 "print_titles_rows": str,
                 "print_titles_cols": str,
+                "doc_id": str,
             },
         ),
         "add_conditional_format": OpSpec(
@@ -190,17 +207,18 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "min_color": str,
                 "max_color": str,
                 "mid_color": str,
+                "doc_id": str,
             },
         ),
         "set_row_height": OpSpec(
             description="设置某一行的高度（单位磅）。",
             destructive=True,
-            params={"sheet": Any, "row": int, "height": float},
+            params={"sheet": Any, "row": int, "height": float, "doc_id": str},
         ),
         "set_number_format": OpSpec(
             description="给 range_addr 设置数字格式，如 '#,##0.00' / '0.0%' / 'yyyy-mm-dd'。",
             destructive=True,
-            params={"sheet": Any, "range_addr": str, "fmt": str},
+            params={"sheet": Any, "range_addr": str, "fmt": str, "doc_id": str},
         ),
         "autofit": OpSpec(
             description=(
@@ -208,13 +226,22 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "columns/rows 为布尔开关。"
             ),
             destructive=True,
-            params={"sheet": Any, "range_addr": str, "columns": bool, "rows": bool},
+            params={"sheet": Any, "range_addr": str, "columns": bool, "rows": bool, "doc_id": str},
         ),
         "read_range": OpSpec(
             description="读取工作表 range_addr（如 'A1:C3'）的值，返回二维列表（行→列）。",
             readonly=True,
             returns="list",
-            params={"sheet": Any, "range_addr": str},
+            params={"sheet": Any, "range_addr": str, "doc_id": str},
+        ),
+        "activate": OpSpec(
+            description="把指定 doc_id 设为活动目标，后续缺省 doc_id 的操作作用在它上面。",
+            params={"doc_id": str},
+        ),
+        "list_docs": OpSpec(
+            description="列出当前打开的文档表：{doc_id: {name, path}}。",
+            readonly=True,
+            returns="dict",
         ),
         "get_target": OpSpec(
             description="当前活动工作簿身份（app/name/path）；无则返回 null。",
@@ -225,50 +252,61 @@ OPS: dict[str, dict[str, OpSpec]] = {
     },
     # ================================================================== Word
     "word": {
-        "new_doc": OpSpec(description="新建空白文档，之后的操作都作用在它上面。"),
+        "new_doc": OpSpec(
+            description="新建空白文档，设为活动，返回 doc_id。",
+            returns="str",
+        ),
         "open_doc": OpSpec(
-            description="打开现有 .docx/.doc，并把它设为当前文档。", params={"path": str}
+            description="打开现有 .docx/.doc，设为活动，返回 doc_id。",
+            returns="str",
+            params={"path": str},
         ),
         "close_doc": OpSpec(
-            description="关闭当前 Word 文档，save=True 则保存。",
+            description="关闭文档（doc_id 缺省为活动），save=True 则保存。",
             destructive=True,
-            params={"save": bool},
+            params={"save": bool, "doc_id": str},
         ),
         "save": OpSpec(
-            description="保存当前文档。给 path 则另存到该路径；overwrite=True 允许覆盖已存在文件。",
+            description=(
+                "保存文档（doc_id 缺省为活动）。给 path 则另存到该路径；"
+                "overwrite=True 允许覆盖已存在文件。"
+            ),
             destructive=True,
-            params={"path": str, "overwrite": bool},
+            params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "save_pdf": OpSpec(
             description=(
-                "把当前 Word 文档导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。"
+                "把文档（doc_id 缺省为活动）导出为 PDF 到指定路径；"
+                "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
-            params={"path": str, "overwrite": bool},
+            params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "write": OpSpec(
-            description="在文档末尾追加文本（不换行）。", destructive=True, params={"text": str}
+            description="在文档末尾追加文本（不换行）。",
+            destructive=True,
+            params={"text": str, "doc_id": str},
         ),
         "write_line": OpSpec(
             description="在文档末尾追加一行文本（自动换行）。",
             destructive=True,
-            params={"text": str},
+            params={"text": str, "doc_id": str},
         ),
         "add_heading": OpSpec(
             description="在文档末尾添加标题行并应用 Heading 样式（level 1-3）。",
             destructive=True,
-            params={"text": str, "level": int},
+            params={"text": str, "level": int, "doc_id": str},
         ),
         "add_table": OpSpec(
             description="在文档末尾添加 rows x cols 表格，返回当前表格数。",
             destructive=True,
             returns="int",
-            params={"rows": int, "cols": int},
+            params={"rows": int, "cols": int, "doc_id": str},
         ),
         "set_table_cell": OpSpec(
             description="设置第 table_idx 个表格的 (row, col) 单元格文本（行列 1 基）。",
             destructive=True,
-            params={"table_idx": int, "row": int, "col": int, "text": str},
+            params={"table_idx": int, "row": int, "col": int, "text": str, "doc_id": str},
         ),
         "format_text": OpSpec(
             description=(
@@ -287,6 +325,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "color": str,
                 "underline": str,
                 "highlight": str,
+                "doc_id": str,
             },
         ),
         "format_paragraph": OpSpec(
@@ -305,17 +344,18 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "space_after": float,
                 "left_indent": float,
                 "first_line_indent": float,
+                "doc_id": str,
             },
         ),
         "set_header_text": OpSpec(
             description="设置第 section 节的页眉文本。",
             destructive=True,
-            params={"text": str, "section": int},
+            params={"text": str, "section": int, "doc_id": str},
         ),
         "set_footer_text": OpSpec(
             description="设置第 section 节的页脚文本。",
             destructive=True,
-            params={"text": str, "section": int},
+            params={"text": str, "section": int, "doc_id": str},
         ),
         "add_page_number": OpSpec(
             description=(
@@ -323,7 +363,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "可带 color '#RRGGBB' 和 size 字号（会清空既有页脚文本）。"
             ),
             destructive=True,
-            params={"alignment": str, "color": str, "size": float},
+            params={"alignment": str, "color": str, "size": float, "doc_id": str},
         ),
         "page_setup": OpSpec(
             description=(
@@ -340,22 +380,25 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "top_margin": float,
                 "bottom_margin": float,
                 "gutter": float,
+                "doc_id": str,
             },
         ),
         "insert_toc": OpSpec(
             description="在文档开头插入目录（基于标题样式，levels 控制最深标题级别）。",
             destructive=True,
-            params={"levels": int},
+            params={"levels": int, "doc_id": str},
         ),
         "update_toc": OpSpec(
-            description="更新文档中的目录域（新增/删除标题后刷新页码）。", destructive=True
+            description="更新文档中的目录域（新增/删除标题后刷新页码）。",
+            destructive=True,
+            params={"doc_id": str},
         ),
         "add_list": OpSpec(
             description=(
                 "在文档末尾追加 lines 列表；style 取 bullet（项目符号）/ numbered（编号）。"
             ),
             destructive=True,
-            params={"lines": list, "style": str},
+            params={"lines": list, "style": str, "doc_id": str},
         ),
         "merge_table_cells": OpSpec(
             description=(
@@ -369,6 +412,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "start_col": int,
                 "end_row": int,
                 "end_col": int,
+                "doc_id": str,
             },
         ),
         "set_table_border": OpSpec(
@@ -379,24 +423,31 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "left/top/bottom/right/inside-h/inside-v。"
             ),
             destructive=True,
-            params={"table_idx": int, "style": str, "weight": str, "color": str, "sides": str},
+            params={
+                "table_idx": int,
+                "style": str,
+                "weight": str,
+                "color": str,
+                "sides": str,
+                "doc_id": str,
+            },
         ),
         "set_table_col_width": OpSpec(
             description="设置第 table_idx 个表格第 col 列的宽度（单位磅）。",
             destructive=True,
-            params={"table_idx": int, "col": int, "width": float},
+            params={"table_idx": int, "col": int, "width": float, "doc_id": str},
         ),
         "set_table_row_height": OpSpec(
             description=(
                 "设置第 table_idx 个表格第 row 行的高度（单位磅）。rule 取 auto/at_least/exactly。"
             ),
             destructive=True,
-            params={"table_idx": int, "row": int, "height": float, "rule": str},
+            params={"table_idx": int, "row": int, "height": float, "rule": str, "doc_id": str},
         ),
         "autofit_table": OpSpec(
             description="自动调整第 table_idx 个表格。behavior 取 content/window/fixed。",
             destructive=True,
-            params={"table_idx": int, "behavior": str},
+            params={"table_idx": int, "behavior": str, "doc_id": str},
         ),
         "find_replace": OpSpec(
             description=(
@@ -410,18 +461,33 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "match_case": bool,
                 "whole_word": bool,
                 "replace_all": bool,
+                "doc_id": str,
             },
         ),
         "insert_image": OpSpec(
             description="在文档末尾插入图片。width/height 单位磅（省略则保持原尺寸）。",
             destructive=True,
-            params={"path": str, "width": float, "height": float},
+            params={"path": str, "width": float, "height": float, "doc_id": str},
         ),
-        "insert_page_break": OpSpec(description="在文档末尾插入分页符。", destructive=True),
+        "insert_page_break": OpSpec(
+            description="在文档末尾插入分页符。",
+            destructive=True,
+            params={"doc_id": str},
+        ),
         "read_doc_text": OpSpec(
-            description="读取当前 Word 文档全文文本（只读，不修改状态）。",
+            description="读取文档全文文本（只读，不修改状态）。",
             readonly=True,
             returns="str",
+            params={"doc_id": str},
+        ),
+        "activate": OpSpec(
+            description="把指定 doc_id 设为活动目标，后续缺省 doc_id 的操作作用在它上面。",
+            params={"doc_id": str},
+        ),
+        "list_docs": OpSpec(
+            description="列出当前打开的文档表：{doc_id: {name, path}}。",
+            readonly=True,
+            returns="dict",
         ),
         "get_target": OpSpec(
             description="当前活动文档身份（app/name/path）；无则返回 null。",
@@ -432,31 +498,39 @@ OPS: dict[str, dict[str, OpSpec]] = {
     },
     # ==================================================================== PPT
     "ppt": {
-        "new_pres": OpSpec(description="新建空白演示文稿，之后的操作都作用在它上面。"),
+        "new_pres": OpSpec(
+            description="新建空白演示文稿，设为活动，返回 doc_id。",
+            returns="str",
+        ),
         "open_pres": OpSpec(
-            description="打开现有 .pptx，并把它设为当前文稿。", params={"path": str}
+            description="打开现有 .pptx，设为活动，返回 doc_id。",
+            returns="str",
+            params={"path": str},
         ),
         "save": OpSpec(
             description=(
-                "保存当前演示文稿。给 path 则另存到该路径（.pptx）；"
+                "保存演示文稿（doc_id 缺省为活动）。给 path 则另存到该路径（.pptx）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
-            params={"path": str, "overwrite": bool},
+            params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "save_pdf": OpSpec(
-            description="把当前演示文稿导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。",
+            description=(
+                "把演示文稿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
+                "overwrite=True 允许覆盖已存在文件。"
+            ),
             destructive=True,
-            params={"path": str, "overwrite": bool},
+            params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "export_slides": OpSpec(
             description=(
-                "把当前演示文稿每一页导出为 PNG 到 out_dir（slide_01.png…），"
-                "供视觉检查/迭代。默认 1920x1080。返回文件路径列表。"
+                "把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir"
+                "（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。"
             ),
             destructive=True,
             returns="list",
-            params={"out_dir": str, "width": int, "height": int},
+            params={"out_dir": str, "width": int, "height": int, "doc_id": str},
         ),
         "add_slide": OpSpec(
             description=(
@@ -465,22 +539,22 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             destructive=True,
             returns="int",
-            params={"layout": int},
+            params={"layout": int, "doc_id": str},
         ),
         "set_title": OpSpec(
             description="设置第 slide_idx 张幻灯片的标题文本。",
             destructive=True,
-            params={"slide_idx": int, "text": str},
+            params={"slide_idx": int, "text": str, "doc_id": str},
         ),
         "set_body": OpSpec(
             description="设置第 slide_idx 张幻灯片的正文占位符文本；lines 为逐行字符串列表。",
             destructive=True,
-            params={"slide_idx": int, "lines": Any},
+            params={"slide_idx": int, "lines": Any, "doc_id": str},
         ),
         "set_notes": OpSpec(
             description="写入第 slide_idx 张幻灯片的演讲者备注。",
             destructive=True,
-            params={"slide_idx": int, "text": str},
+            params={"slide_idx": int, "text": str, "doc_id": str},
         ),
         "add_textbox": OpSpec(
             description="在 slide_idx 页添加自由文本框（坐标单位为磅）。",
@@ -492,6 +566,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "width": float,
                 "height": float,
                 "text": str,
+                "doc_id": str,
             },
         ),
         "add_picture": OpSpec(
@@ -504,15 +579,26 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "top": float,
                 "width": float,
                 "height": float,
+                "doc_id": str,
             },
         ),
         "read_slide_texts": OpSpec(
             description=(
-                "逐页读取当前演示文稿的标题/正文/备注文本（只读），"
+                "逐页读取演示文稿（doc_id 缺省为活动）的标题/正文/备注文本（只读），"
                 "返回 [{index, title, body, notes}]。"
             ),
             readonly=True,
             returns="list",
+            params={"doc_id": str},
+        ),
+        "activate": OpSpec(
+            description="把指定 doc_id 设为活动目标，后续缺省 doc_id 的操作作用在它上面。",
+            params={"doc_id": str},
+        ),
+        "list_docs": OpSpec(
+            description="列出当前打开的文档表：{doc_id: {name, path}}。",
+            readonly=True,
+            returns="dict",
         ),
         "get_target": OpSpec(
             description="当前活动演示文稿身份（app/name/path）；无则返回 null。",

@@ -12,7 +12,7 @@ from offipy import excel, ppt, word
 def test_word_read_doc_text_returns_full_text():
     doc = SimpleNamespace(Content=SimpleNamespace(Text="第一段\r\n第二段"))
     w = word.WordApp.__new__(word.WordApp)
-    w.active_doc = lambda: doc
+    w.active_doc = lambda doc_id=None: doc
     assert w.read_doc_text() == "第一段\r\n第二段"
 
 
@@ -61,7 +61,7 @@ def test_ppt_read_slide_texts_structure():
         Slides=_Slides([_slide("标题A", "正文A", "备注A"), _slide("标题B", "正文B", "备注B")])
     )
     p = ppt.PptApp.__new__(ppt.PptApp)
-    p.active_pres = lambda: pres
+    p.active_pres = lambda doc_id=None: pres
     result = p.read_slide_texts()
     assert result == [
         {"index": 1, "title": "标题A", "body": "正文A", "notes": "备注A"},
@@ -74,7 +74,7 @@ def test_ppt_read_slide_texts_missing_fields_empty():
     slides = _Slides([_slide("", "", "备注", has_title=False)])
     pres = SimpleNamespace(Slides=slides)
     p = ppt.PptApp.__new__(ppt.PptApp)
-    p.active_pres = lambda: pres
+    p.active_pres = lambda doc_id=None: pres
     result = p.read_slide_texts()
     assert result[0]["title"] == ""
     assert result[0]["body"] == ""
@@ -84,7 +84,7 @@ def test_ppt_read_slide_texts_missing_fields_empty():
 def test_excel_read_range_returns_2d_list():
     ws = SimpleNamespace(Range=lambda addr: SimpleNamespace(Value=((1, 2), (3, 4))))
     b = excel.ExcelApp.__new__(excel.ExcelApp)
-    b._ws = lambda sheet: ws
+    b._ws = lambda sheet, doc_id=None: ws
     assert b.read_range("Sheet1", "A1:B2") == [[1, 2], [3, 4]]
 
 

@@ -178,11 +178,11 @@ def test_save_tools_pass_overwrite_to_call(monkeypatch):
 
     monkeypatch.setattr(mcp_server, "_call", fake_call)
     mcp_server.ppt_save(path="a.pptx", overwrite=True)
-    assert captured["save"] == {"path": "a.pptx", "overwrite": True}
+    assert captured["save"] == {"path": "a.pptx", "overwrite": True, "doc_id": None}
     mcp_server.word_save_pdf(path="b.pdf")
-    assert captured["save_pdf"] == {"path": "b.pdf", "overwrite": False}
+    assert captured["save_pdf"] == {"path": "b.pdf", "overwrite": False, "doc_id": None}
     mcp_server.excel_save()
-    assert captured["save"] == {"path": None, "overwrite": False}
+    assert captured["save"] == {"path": None, "overwrite": False, "doc_id": None}
 
 
 # --- in-memory ClientSession（不起子进程，直连 MCPServer 协议层，P1-7） ---
@@ -256,7 +256,7 @@ def test_inmemory_int_and_void_and_args(monkeypatch):
         assert r_void.content[0].text == "ok (new_pres)"
         r_args = await session.call_tool("ppt_set_title", {"slide_idx": 2, "text": "x"})
         assert r_args.content[0].text == "ok (set_title)"
-        assert calls["set_title"] == {"slide_idx": 2, "text": "x"}
+        assert calls["set_title"] == {"slide_idx": 2, "text": "x", "doc_id": None}
 
     _run_inmemory(check)
 

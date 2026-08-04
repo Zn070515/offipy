@@ -52,7 +52,7 @@ def test_ppt_save_overwrite_proceeds(tmp_path):
     p = ppt.PptApp.__new__(ppt.PptApp)
     p.app = types.SimpleNamespace(DisplayAlerts=0)  # _alerts_scope 读写 DisplayAlerts
     fake = _FakePres()
-    p.active_pres = lambda: fake
+    p.active_pres = lambda doc_id=None: fake
     p.save(str(target), overwrite=True)
     assert fake.saved == os.path.abspath(str(target))
 
@@ -178,7 +178,7 @@ def test_ppt_save_pdf_uses_export_as_fixed_format(tmp_path):
     p = ppt.PptApp.__new__(ppt.PptApp)
     p.app = types.SimpleNamespace(DisplayAlerts=0)
     fake = _FakePresExport()
-    p.active_pres = lambda: fake
+    p.active_pres = lambda doc_id=None: fake
     p.save_pdf(str(target))
     path, args, kwargs = fake.calls[0]
     assert path == os.path.abspath(str(target))
@@ -191,7 +191,7 @@ def test_word_save_pdf_uses_export_as_fixed_format(tmp_path):
     d = word.WordApp.__new__(word.WordApp)
     d.app = types.SimpleNamespace(DisplayAlerts=0)
     fake = _FakeDocExport()
-    d.active_doc = lambda: fake
+    d.active_doc = lambda doc_id=None: fake
     d.save_pdf(str(target))
     path, args, kwargs = fake.calls[0]
     assert path == os.path.abspath(str(target))

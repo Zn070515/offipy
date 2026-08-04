@@ -50,7 +50,9 @@ def _no_doc_env(monkeypatch):
 def test_active_book_none_without_doc(monkeypatch):
     no_add = _NoAdd()
     app = excel.ExcelApp.__new__(excel.ExcelApp)
-    app._book = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_book() is None
@@ -60,7 +62,9 @@ def test_active_book_none_without_doc(monkeypatch):
 def test_active_doc_none_without_doc(monkeypatch):
     no_add = _NoAdd()
     app = word.WordApp.__new__(word.WordApp)
-    app._doc = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_doc() is None
@@ -72,7 +76,9 @@ def test_active_pres_none_without_doc(monkeypatch):
 
     no_add = _NoAdd()
     app = ppt.PptApp.__new__(ppt.PptApp)
-    app._pres = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_pres() is None
@@ -83,7 +89,9 @@ def test_active_book_falls_back_to_real_active(monkeypatch):
     no_add = _NoAdd()
     book = _Book("Book1", r"C:\x\Book1.xlsx")
     app = excel.ExcelApp.__new__(excel.ExcelApp)
-    app._book = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(book, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_book() is book  # 落到 self.app.ActiveWorkbook，仍不 Add
@@ -95,7 +103,9 @@ def test_active_book_falls_back_to_real_active(monkeypatch):
 
 def test_get_target_excel(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
-    app._book = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(_Book("Book1", r"C:\x\Book1.xlsx"), _NoAdd())
     _no_doc_env(monkeypatch)
     assert app.get_target() == {"app": "excel", "name": "Book1", "path": r"C:\x\Book1.xlsx"}
@@ -103,7 +113,9 @@ def test_get_target_excel(monkeypatch):
 
 def test_get_target_none_without_doc(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
-    app._book = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     assert app.get_target() is None
@@ -114,7 +126,9 @@ def test_get_target_none_without_doc(monkeypatch):
 
 def test_read_range_no_doc_raises(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
-    app._book = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
@@ -125,7 +139,9 @@ def test_read_range_no_doc_raises(monkeypatch):
 
 def test_word_read_doc_text_no_doc_raises(monkeypatch):
     app = word.WordApp.__new__(word.WordApp)
-    app._doc = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
@@ -136,7 +152,9 @@ def test_ppt_read_slide_texts_no_doc_raises(monkeypatch):
     from offipy import ppt
 
     app = ppt.PptApp.__new__(ppt.PptApp)
-    app._pres = None
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
