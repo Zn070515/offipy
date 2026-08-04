@@ -11,7 +11,7 @@ Live Microsoft Office automation via COM（会话式驱动）。目标：让 Cla
 - **会话式常驻 server**：跨调用保持 Office 窗口存活、文档 / 工作簿 / 演示文稿状态不丢
 - **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
-- **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、10 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
+- **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
 
 ## 环境要求
@@ -57,7 +57,7 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
 ```
 
 - **内置主题**：`mckinsey`（咨询蓝）/ `academic`（学术极简）/ `dark-tech`（深色科技）—— 一套 token 覆盖，`design.theme_css()` / `design.inject_theme()`
-- **命名布局库**：`hero-title` / `split-2col` / `cards-3` / `big-number` / `quote-frame` / `timeline` / `comparison` / `chart-dominant` / `portrait-feature` / `closer` —— `layouts.inject_layouts()` 按引用注入
+- **命名布局库**：`hero-title` / `split-2col` / `cards-3` / `big-number` / `quote-frame` / `timeline` / `comparison` / `chart-dominant` / `icons-row` / `portrait-feature` / `closer` —— `layouts.inject_layouts()` 按引用注入
 - **审美审计**：转换产出的 measurement → 留白比例 / 字号层级数 / 每页色数 / 对比度 / 跨页一致性打分，`aesthetic.audit()` 输出带分报告供迭代
 - **自动选型**：`autopick.pick()` 从内容结构推荐主题 + 每页布局 + 理由（纯规则，可覆盖）
 - **内容工作流**：把「言之有物」的骨架标准化——写一份 markdown 大纲
@@ -82,13 +82,26 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   ```
 
   大纲里用 `@chart: <类型>` + `@chart-data: <JSON>` 声明图表页，骨架自动落 chart-dominant 布局。
+- **原生图标**：图标容器打空 `<svg data-icon="<集>:<名字>" viewBox=... width=.. height=..>`，
+  `deck make --layouts` 后替换成 PowerPoint 原生 freeform 矢量图标（双击显示可编辑
+  锚点，非图片）。内置 Phosphor（`ph:`，256 viewBox，填充）+ Lucide（`lu:`，24 viewBox，
+  线形）双集（vendored 于 `src/offipy/assets/icons/`，更新见 `scripts/fetch_icons.py`）；
+  图标颜色继承容器的 `color`（HTML 里 `color: var(--accent)` 即上主题色）。示例见
+  [`examples/decks/icons/icons-demo.html`](examples/decks/icons/icons-demo.html)。
+
+  ```html
+  <svg class="icon" data-icon="ph:check-circle" viewBox="0 0 256 256" width="72" height="72"></svg>
+  ```
+
+  大纲里用 `@icons: <名字>[:标签]; ...` 声明图标行（默认 `ph:` 前缀），骨架自动落
+  `icons-row` 布局。示例见 [`examples/outline/icons-demo.md`](examples/outline/icons-demo.md)。
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 
 ```python
 from offipy import deck, aesthetic
 
 pptx = deck.render("deck.html", theme="mckinsey", apply_layouts=True)  # 注入主题+布局
-report = aesthetic.audit("deck.html")   # 读 measurement 打分
+report = aesthetic.audit("deck.html")  # 读 measurement 打分
 print(report.markdown())
 ```
 
@@ -139,7 +152,9 @@ src/offipy/
   client.py   # server 的 HTTP 客户端（HTML 管线复用）*
   deck.py     # HTML → 可编辑 PPTX 管线（render/open_live/export_slides）*
   design.py   # 设计系统：token 模型 + 3 套内置主题 + .slide 基础样式 *
-  layouts.py  # 命名布局库：10 种布局组件 + data-layout 注入 *
+  layouts.py  # 命名布局库：11 种布局组件 + data-layout 注入 *
+  icons.py    # 原生图标：SVG 路径压平 + freeform 矢量图标注入（ph/lu 双集）*
+  assets/icons/  # vendored 图标资产（Phosphor fill + Lucide）+ manifest + LICENSE *
   aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
   autopick.py   # 自动选型：内容结构 → 推荐主题 + 每页布局 + 理由 *
   feedback.py   # 反馈学习：审计处置 → 维度权重（P2 验证版） *
