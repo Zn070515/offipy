@@ -49,6 +49,7 @@ class PptApp:
 
     def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
         """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""
+        out_dir = os.path.abspath(out_dir)
         pres = self.active_pres()
         os.makedirs(out_dir, exist_ok=True)
         paths = []
