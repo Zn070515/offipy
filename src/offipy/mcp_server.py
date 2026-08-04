@@ -245,6 +245,283 @@ def word_close_document(save: bool = True) -> str:
     return str(_call("word", "close_doc", save=save))
 
 
+@server.tool(
+    title="设置文字格式",
+    description=(
+        "设置第 paragraph 段（1 基）的文字格式。bold/italic 传布尔；size 字号；"
+        "name 字体名；color 传 '#RRGGBB'；underline 取 none/single/words/double/dotted/wavy；"
+        "highlight 取 none/yellow/green/pink/red/blue/bright_green/turquoise。"
+    ),
+)
+def word_format_text(
+    paragraph: int,
+    bold: bool | None = None,
+    italic: bool | None = None,
+    size: float | None = None,
+    name: str | None = None,
+    color: str | None = None,
+    underline: str | None = None,
+    highlight: str | None = None,
+) -> str:
+    return str(
+        _call(
+            "word",
+            "format_text",
+            paragraph=paragraph,
+            bold=bold,
+            italic=italic,
+            size=size,
+            name=name,
+            color=color,
+            underline=underline,
+            highlight=highlight,
+        )
+    )
+
+
+@server.tool(
+    title="设置段落格式",
+    description=(
+        "设置第 paragraph 段（1 基）的段落格式。alignment 取 left/center/right/justify；"
+        "line_spacing 取 single/1.5/double/at_least/exactly/multiple；"
+        "space_before/space_after/left_indent/first_line_indent 单位磅。"
+    ),
+)
+def word_format_paragraph(
+    paragraph: int,
+    alignment: str | None = None,
+    line_spacing: str | None = None,
+    space_before: float | None = None,
+    space_after: float | None = None,
+    left_indent: float | None = None,
+    first_line_indent: float | None = None,
+) -> str:
+    return str(
+        _call(
+            "word",
+            "format_paragraph",
+            paragraph=paragraph,
+            alignment=alignment,
+            line_spacing=line_spacing,
+            space_before=space_before,
+            space_after=space_after,
+            left_indent=left_indent,
+            first_line_indent=first_line_indent,
+        )
+    )
+
+
+@server.tool(
+    title="设置页眉",
+    description="设置第 section 节的页眉文本。",
+)
+def word_set_header_text(text: str, section: int = 1) -> str:
+    return str(_call("word", "set_header_text", text=text, section=section))
+
+
+@server.tool(
+    title="设置页脚",
+    description="设置第 section 节的页脚文本。",
+)
+def word_set_footer_text(text: str, section: int = 1) -> str:
+    return str(_call("word", "set_footer_text", text=text, section=section))
+
+
+@server.tool(
+    title="插入页码",
+    description=(
+        "在页脚插入页码。alignment 取 left/center/right；可带 color '#RRGGBB' 和 size 字号。"
+    ),
+)
+def word_add_page_number(
+    alignment: str = "right", color: str | None = None, size: float | None = None
+) -> str:
+    return str(_call("word", "add_page_number", alignment=alignment, color=color, size=size))
+
+
+@server.tool(
+    title="页面设置",
+    description=(
+        "页面设置。orientation 取 portrait/landscape；paper 取 letter/legal/a3/a4/a5；"
+        "left/right/top/bottom_margin 与 gutter 单位磅。"
+    ),
+)
+def word_page_setup(
+    orientation: str | None = None,
+    paper: str | None = None,
+    left_margin: float | None = None,
+    right_margin: float | None = None,
+    top_margin: float | None = None,
+    bottom_margin: float | None = None,
+    gutter: float | None = None,
+) -> str:
+    return str(
+        _call(
+            "word",
+            "page_setup",
+            orientation=orientation,
+            paper=paper,
+            left_margin=left_margin,
+            right_margin=right_margin,
+            top_margin=top_margin,
+            bottom_margin=bottom_margin,
+            gutter=gutter,
+        )
+    )
+
+
+@server.tool(
+    title="插入目录",
+    description="在文档开头插入目录（基于标题样式，levels 控制最深标题级别）。",
+)
+def word_insert_toc(levels: int = 3) -> str:
+    return str(_call("word", "insert_toc", levels=levels))
+
+
+@server.tool(
+    title="更新目录",
+    description="更新文档中的目录域（新增/删除标题后刷新页码）。",
+)
+def word_update_toc() -> str:
+    return str(_call("word", "update_toc"))
+
+
+@server.tool(
+    title="添加列表",
+    description="在文档末尾追加 lines 列表；style 取 bullet（项目符号）/ numbered（编号）。",
+)
+def word_add_list(lines: list[str], style: str = "bullet") -> str:
+    return str(_call("word", "add_list", lines=lines, style=style))
+
+
+@server.tool(
+    title="合并表格单元格",
+    description=(
+        "把第 table_idx 个表格的 (start_row,start_col) 到 (end_row,end_col) 合并为一个单元格。"
+    ),
+)
+def word_merge_table_cells(
+    table_idx: int, start_row: int, start_col: int, end_row: int, end_col: int
+) -> str:
+    return str(
+        _call(
+            "word",
+            "merge_table_cells",
+            table_idx=table_idx,
+            start_row=start_row,
+            start_col=start_col,
+            end_row=end_row,
+            end_col=end_col,
+        )
+    )
+
+
+@server.tool(
+    title="设置表格边框",
+    description=(
+        "给第 table_idx 个表格设置边框。style 取 none/single/dot/double；weight 取 "
+        "0.25pt/0.5pt/0.75pt/1pt/1.5pt/2.25pt/3pt/4.5pt/6pt；color 传 '#RRGGBB'；"
+        "sides 取 all/outside/inside 或 left/top/bottom/right/inside-h/inside-v（逗号分隔）。"
+    ),
+)
+def word_set_table_border(
+    table_idx: int,
+    style: str = "single",
+    weight: str | None = None,
+    color: str | None = None,
+    sides: str | None = None,
+) -> str:
+    return str(
+        _call(
+            "word",
+            "set_table_border",
+            table_idx=table_idx,
+            style=style,
+            weight=weight,
+            color=color,
+            sides=sides,
+        )
+    )
+
+
+@server.tool(
+    title="设置表格列宽",
+    description="设置第 table_idx 个表格第 col 列的宽度（单位磅）。",
+)
+def word_set_table_col_width(table_idx: int, col: int, width: float) -> str:
+    return str(_call("word", "set_table_col_width", table_idx=table_idx, col=col, width=width))
+
+
+@server.tool(
+    title="设置表格行高",
+    description=(
+        "设置第 table_idx 个表格第 row 行的高度（单位磅）。rule 取 auto/at_least/exactly。"
+    ),
+)
+def word_set_table_row_height(
+    table_idx: int, row: int, height: float, rule: str = "at_least"
+) -> str:
+    return str(
+        _call(
+            "word", "set_table_row_height", table_idx=table_idx, row=row, height=height, rule=rule
+        )
+    )
+
+
+@server.tool(
+    title="自动调整表格",
+    description=(
+        "自动调整第 table_idx 个表格。behavior 取 content（适配内容）/ "
+        "window（适配窗口）/ fixed（固定布局）。"
+    ),
+)
+def word_autofit_table(table_idx: int, behavior: str = "content") -> str:
+    return str(_call("word", "autofit_table", table_idx=table_idx, behavior=behavior))
+
+
+@server.tool(
+    title="查找替换",
+    description=(
+        "在全文执行查找替换。replace_all 为真则替换全部，否则只替换第一处；"
+        "match_case/whole_word 可选。"
+    ),
+)
+def word_find_replace(
+    find: str,
+    replace: str,
+    match_case: bool = False,
+    whole_word: bool = False,
+    replace_all: bool = True,
+) -> str:
+    return str(
+        _call(
+            "word",
+            "find_replace",
+            find=find,
+            replace=replace,
+            match_case=match_case,
+            whole_word=whole_word,
+            replace_all=replace_all,
+        )
+    )
+
+
+@server.tool(
+    title="插入图片",
+    description="在文档末尾插入图片。width/height 单位磅（省略则保持原尺寸）。",
+)
+def word_insert_image(path: str, width: float | None = None, height: float | None = None) -> str:
+    return str(_call("word", "insert_image", path=path, width=width, height=height))
+
+
+@server.tool(
+    title="插入分页符",
+    description="在文档末尾插入分页符。",
+)
+def word_insert_page_break() -> str:
+    return str(_call("word", "insert_page_break"))
+
+
 # ------------------------------------------------------------------- Excel
 
 
