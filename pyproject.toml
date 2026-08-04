@@ -34,7 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-office = "offipy.cli:main"
+offipy = "offipy.cli:main"
 
 # 版本单一来源：从 src/offipy/__init__.py 的 __version__ 读取
 [tool.hatch.version]
