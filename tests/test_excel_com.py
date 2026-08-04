@@ -74,3 +74,49 @@ def test_page_setup_orientation_and_area():
     assert ps.FitToPagesWide == 1
     assert ps.CenterHorizontally is True
     assert ps.PrintArea == "$A$1:$C$10"
+
+
+def test_conditional_format_cell_rule():
+    call("excel", "new_book")
+    call("excel", "set_cell", sheet=1, cell="A1", value=10)
+    call(
+        "excel",
+        "add_conditional_format",
+        sheet=1,
+        range_addr="A1:A5",
+        rule="cell",
+        operator="greater",
+        value=5,
+        bg="#FFC7CE",
+        fg="#9C0006",
+    )
+    fc = _excel().ActiveWorkbook.Sheets(1).Range("A1:A5").FormatConditions(1)
+    assert fc.Type == 1  # xlCellValue
+    assert fc.Operator == 5  # xlGreater
+    assert fc.Formula1 == "5"
+
+
+def test_conditional_format_databar():
+    call("excel", "new_book")
+    call(
+        "excel", "add_conditional_format", sheet=1, range_addr="B2:B5", rule="databar", bg="#2251FF"
+    )
+    fc = _excel().ActiveWorkbook.Sheets(1).Range("B2:B5").FormatConditions(1)
+    assert fc.Type == 4  # xlDatabar
+
+
+def test_conditional_format_colorscale_three():
+    call("excel", "new_book")
+    call(
+        "excel",
+        "add_conditional_format",
+        sheet=1,
+        range_addr="C2:C5",
+        rule="colorscale",
+        min_color="#F8696B",
+        max_color="#63BE7B",
+        mid_color="#FFEB84",
+    )
+    fc = _excel().ActiveWorkbook.Sheets(1).Range("C2:C5").FormatConditions(1)
+    assert fc.Type == 3  # xlColorScale
+    assert fc.ColorScaleCriteria.Count == 3

@@ -279,6 +279,48 @@ class ExcelApp:
         if print_titles_cols is not None:
             ps.PrintTitleColumns = print_titles_cols
 
+    # --- 条件格式 ---
+    def add_conditional_format(
+        self,
+        sheet,
+        range_addr: str,
+        rule: str,
+        operator: str | None = None,
+        value=None,
+        value2=None,
+        bg: str | None = None,
+        fg: str | None = None,
+        min_color: str | None = None,
+        max_color: str | None = None,
+        mid_color: str | None = None,
+    ):
+        ws = self._ws(sheet)
+        rng = ws.Range(range_addr)
+        if rule == "cell":
+            if operator is None or value is None:
+                raise ValueError("cell 规则必须给 operator 和 value")
+            op = _resolve_style(operator, _COND_OPERATOR, "条件格式运算符")
+            fc = rng.FormatConditions.Add(1, op, value, value2)  # xlCellValue
+            if bg is not None:
+                fc.Interior.Color = _rgb(bg)
+            if fg is not None:
+                fc.Font.Color = _rgb(fg)
+        elif rule == "databar":
+            fc = rng.FormatConditions.Add(4)  # xlDatabar
+            if bg is not None:
+                fc.Databar.FillColor.Color = _rgb(bg)
+        elif rule == "colorscale":
+            if min_color is None or max_color is None:
+                raise ValueError("colorscale 必须给 min_color 和 max_color")
+            n = 3 if mid_color else 2
+            cs = rng.FormatConditions.AddColorScale(n)
+            cs.ColorScaleCriteria(1).FormatColor.Color = _rgb(min_color)
+            if mid_color:
+                cs.ColorScaleCriteria(2).FormatColor.Color = _rgb(mid_color)
+            cs.ColorScaleCriteria(n).FormatColor.Color = _rgb(max_color)
+        else:
+            raise ValueError(f"未知条件格式规则: {rule!r}（可选: cell/databar/colorscale）")
+
     # --- 生命周期 ---
     def quit(self):
         core.quit_app("excel")
