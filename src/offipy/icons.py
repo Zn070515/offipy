@@ -42,6 +42,7 @@ _NUM_RE = re.compile(r"-?\d*\.?\d+(?:[eE][-+]?\d+)?")
 class _SubPath:
     points: list[tuple[float, float]]
     close: bool
+    filled: bool = False  # 元素级 fill="currentColor"（Lucide 混 fill 图标的内实心区域）
 
 
 @dataclass
@@ -343,14 +344,17 @@ def _svg_to_subpaths(svg_text: str) -> tuple[list[_SubPath], float]:
     subpaths: list[_SubPath] = []
     for el in root.iter():
         tag = el.tag.split("}")[-1].lower()
+        filled = el.get("fill") == "currentColor"
         if tag == "path":
             d = el.get("d")
             if d:
-                subpaths.extend(_parse_path(d))
+                for sp in _parse_path(d):
+                    sp.filled = filled
+                    subpaths.append(sp)
         elif tag in ("line", "polyline", "polygon", "rect", "circle", "ellipse"):
             pts, close = _geom_points(tag, el.attrib)
             if pts:
-                subpaths.append(_SubPath(pts, close))
+                subpaths.append(_SubPath(pts, close, filled))
     return subpaths, stroke_width
 
 
@@ -375,8 +379,11 @@ class _IconHTMLParser(HTMLParser):
             self.cur = []
             return
         if tag == "svg" and "data-icon" in d:
-            # HTMLParser 会把属性名小写化：viewBox → viewbox，两种都兜底
-            vb = d.get("viewbox") or d.get("viewBox") or "0 0 256 256"
+            # HTMLParser 会把属性名小写化：viewBox → viewbox，两种都兜底。
+            # 缺省 viewBox 按集区分：ph 是 256 坐标系，lu 是 24 坐标系，给错会静默缩小。
+            set_ = d["data-icon"].split(":", 1)[0] if ":" in d["data-icon"] else "ph"
+            default_vb = "0 0 24 24" if set_ == "lu" else "0 0 256 256"
+            vb = d.get("viewbox") or d.get("viewBox") or default_vb
             parts = vb.split()
             if len(parts) != 4:
                 raise ValueError(
@@ -474,20 +481,23 @@ def _parse_color(color: str | None):
     return None
 
 
-def _style_shape(shape, mode: str, color: str | None, line_width_emu: int) -> None:
+def _style_shape(
+    shape, mode: str, color: str | None, line_width_emu: int, filled: bool = False
+) -> None:
     rgb = _parse_color(color)
     if rgb is None:
         from pptx.dml.color import RGBColor
 
         rgb = RGBColor(0x22, 0x51, 0xFF)  # 缺省主蓝（对齐 mckinsey --accent）
-    if mode == "fill":
+    fill_mode = (mode == "fill") or filled
+    if fill_mode:
         shape.fill.solid()
         shape.fill.fore_color.rgb = rgb
         shape.line.fill.background()
     else:
-        # stroke 模式：不设任何填充元素（fill.type 为 None）。闭合子路径的显式
-        # noFill 由调用方 _build_icon_shapes 处理（background() 会令 fill.type 变
-        # 成 BACKGROUND，与测试断言的 None 相冲突）。
+        # 纯 stroke 子路径：显式 noFill（background()），否则 PowerPoint 会用
+        # 主题 fillRef（accent1）按隐式闭合把开放路径涂成实心蓝块。
+        shape.fill.background()
         shape.line.color.rgb = rgb
         shape.line.width = line_width_emu
 
@@ -520,10 +530,7 @@ def _build_icon_shapes(
         if rest:
             fb.add_line_segments(rest, close=sp.close)
         shape = fb.convert_to_shape()
-        _style_shape(shape, mode, color, line_width_emu)
-        # 闭合 stroke 子路径：显式 noFill，避免继承主题填充把图标涂满
-        if mode == "stroke" and sp.close:
-            shape.fill.background()
+        _style_shape(shape, mode, color, line_width_emu, sp.filled)
 
 
 def _remove_placeholder(slide, rect: dict) -> None:

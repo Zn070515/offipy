@@ -282,6 +282,15 @@ def test_parse_icon_bad_viewbox_raises():
         )
 
 
+def test_parse_icon_missing_viewbox_lu():
+    # lu 缺省 viewBox 是 24 坐标系；按 256 兜底会静默缩小到约 1/10
+    decls = parse_icon_declarations(
+        '<section data-pptx-slide><svg class="icon" data-icon="lu:zap"></svg></section>'
+    )
+    assert len(decls) == 1
+    assert decls[0].view_box == (0.0, 0.0, 24.0, 24.0)
+
+
 def _blank_pptx(tmp_path):
     from pptx.util import Emu
 
@@ -394,6 +403,7 @@ def test_inject_icon_ph(tmp_path, fake_assets):
 
 
 def test_inject_icon_lu(tmp_path, fake_assets):
+    from pptx.enum.dml import MSO_FILL_TYPE
     from pptx.enum.shapes import MSO_SHAPE_TYPE
     from pptx.util import Emu
 
@@ -426,8 +436,8 @@ def test_inject_icon_lu(tmp_path, fake_assets):
     slide2 = prs2.slides[0]
     freeforms = [s for s in slide2.shapes if s.shape_type == MSO_SHAPE_TYPE.FREEFORM]
     assert len(freeforms) >= 2  # line + polyline 各一个
-    # stroke 模式：无填充
-    assert freeforms[0].fill.type is None  # background() → 无填充
+    # stroke 模式：显式 noFill（否则 PowerPoint 会按隐式闭合用主题蓝涂实心）
+    assert freeforms[0].fill.type == MSO_FILL_TYPE.BACKGROUND
     assert freeforms[0].line.width > 0
 
 
@@ -479,6 +489,57 @@ def test_inject_icons_multiple_on_page(tmp_path, fake_assets):
     assert len(freeforms) >= 3  # ph:check(1) + lu:zap(line+polyline 2)
     # 两个占位 picture 都被移除
     assert not any(s.shape_type == MSO_SHAPE_TYPE.PICTURE for s in slide2.shapes)
+
+
+def test_inject_icon_lu_mixed_fill(tmp_path, fake_assets):
+    from pptx.enum.dml import MSO_FILL_TYPE
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.util import Emu
+
+    from offipy.icons import inject_icons
+
+    # Lucide 混 fill 图标：一个 fill="currentColor" 闭合路径（该画实心）+ 一个纯 stroke 路径
+    (fake_assets / "lucide" / "fill.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" '
+        'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M12 2 L22 22 L2 22 Z" fill="currentColor"/>'
+        '<path d="M4 4 L8 4 L8 8 L4 8 Z"/>'
+        "</svg>",
+        encoding="utf-8",
+    )
+
+    prs = _blank_pptx(tmp_path)
+    slide = prs.slides[0]
+    slide.shapes.add_picture(
+        io.BytesIO(_png_bytes()), Emu(96 * 6350), Emu(225 * 6350), Emu(48 * 6350), Emu(48 * 6350)
+    )
+    out = tmp_path / "out.pptx"
+    prs.save(str(out))
+
+    decl = IconDecl(slide_index=1, data_icon="lu:fill", view_box=(0.0, 0.0, 24.0, 24.0))
+    matched = {
+        1: [
+            (
+                decl,
+                {
+                    "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                    "color": "rgb(51, 65, 85)",
+                    "outerHTML": '<svg data-icon="lu:fill"></svg>',
+                },
+            )
+        ]
+    }
+    inject_icons(str(out), matched)
+
+    prs2 = Presentation(str(out))
+    slide2 = prs2.slides[0]
+    freeforms = [s for s in slide2.shapes if s.shape_type == MSO_SHAPE_TYPE.FREEFORM]
+    assert len(freeforms) == 2
+    solid = [s for s in freeforms if s.fill.type == MSO_FILL_TYPE.SOLID]
+    bg = [s for s in freeforms if s.fill.type == MSO_FILL_TYPE.BACKGROUND]
+    assert len(solid) == 1  # fill="currentColor" 闭合路径 → 实心填充
+    assert len(bg) == 1  # 纯 stroke 路径 → noFill + 描边
 
 
 def test_postprocess_skips_without_icons(tmp_path, monkeypatch):
