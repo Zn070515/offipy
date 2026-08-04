@@ -50,6 +50,8 @@ class _Container:
 
 def _parse_data(json_text: str) -> ChartData:
     raw = json.loads(json_text)
+    if not isinstance(raw, dict):
+        raise ValueError("图表数据必须是对象 {categories, series}")
     categories = raw.get("categories")
     series_raw = raw.get("series")
     if (
@@ -168,6 +170,11 @@ def parse_chart_declarations(html_text: str) -> list[ChartDecl]:
                 f"第 {container.slide_index} 页图表类型非法: "
                 f"{container.chart_type!r}（可选: bar/line/pie）"
             )
+        if container.slide_index <= 0:
+            raise ValueError(
+                f"第 {container.slide_index} 页图表出现在 slide 之外——图表容器必须在 "
+                "data-pptx-slide 的 <section> 内"
+            )
         if container.slide_index in seen:
             raise ValueError(f"第 {container.slide_index} 页有多个图表容器——v1 每页仅支持一个图表")
         seen.add(container.slide_index)
@@ -176,3 +183,102 @@ def parse_chart_declarations(html_text: str) -> list[ChartDecl]:
             ChartDecl(slide_index=container.slide_index, chart_type=container.chart_type, data=data)
         )
     return decls
+
+
+def load_chart_boxes(measurements_path: str) -> dict[int, dict]:
+    """读 measurements.json → {slide_index(1-based): {"x","y","w","h"}}（px，图表容器 bbox）。
+
+    匹配规则：记录 className 分词后恰含 "chart"（chart-note 不算）。每页取第一个匹配
+    （v1 契约：每页最多一个图表容器，与 parse_chart_declarations 一致）。
+    """
+    import json as _json
+
+    with open(measurements_path, encoding="utf-8") as f:
+        data = _json.load(f)
+    boxes: dict[int, dict] = {}
+    for i, slide in enumerate(data.get("slides", []), start=1):
+        for rec in slide.get("records", []):
+            cls = (rec.get("className") or "").split()
+            if "chart" in cls:
+                boxes[i] = dict(rec["rect"])
+                break
+    return boxes
+
+
+def _measurements_path(pptx_path: str) -> str:
+    from pathlib import Path
+
+    p = Path(pptx_path)
+    return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
+
+
+def inject_native_charts(pptx_path: str, decls: list[ChartDecl], boxes: dict[int, dict]) -> None:
+    """把图表区占位形状替换成原生图表。boxes 缺某页 → 该页跳过（调用方保证完整）。"""
+    from pptx import Presentation
+    from pptx.enum.chart import XL_CHART_TYPE
+
+    XL_TYPE = {
+        "bar": XL_CHART_TYPE.COLUMN_CLUSTERED,
+        "line": XL_CHART_TYPE.LINE_MARKERS,
+        "pie": XL_CHART_TYPE.PIE,
+    }
+    prs = Presentation(pptx_path)
+    for decl in decls:
+        box = boxes.get(decl.slide_index)
+        if box is None:
+            continue
+        slide = prs.slides[decl.slide_index - 1]
+        _replace_with_chart(slide, decl, box, XL_TYPE)
+    prs.save(pptx_path)
+
+
+def _palette() -> list:
+    """惰性构造配色（RGBColor 需 import python-pptx，顶层 import 会拖慢无图表路径）。"""
+    from pptx.dml.color import RGBColor
+
+    return [
+        RGBColor(0x22, 0x51, 0xFF),  # 主蓝（对齐 mckinsey --accent）
+        RGBColor(0x0E, 0x93, 0x87),  # 青
+        RGBColor(0xF5, 0x9E, 0x0B),  # 琥珀
+        RGBColor(0xE0, 0x5D, 0x5D),  # 珊瑚
+        RGBColor(0x7C, 0x3A, 0xED),  # 紫
+        RGBColor(0x66, 0x70, 0x85),  # 灰（对齐 --muted）
+    ]
+
+
+def _replace_with_chart(slide, decl: ChartDecl, box: dict, xl_type) -> None:
+    from pptx.chart.data import CategoryChartData
+
+    x = int(box["x"] * PX_TO_EMU)
+    y = int(box["y"] * PX_TO_EMU)
+    cx = int(box["w"] * PX_TO_EMU)
+    cy = int(box["h"] * PX_TO_EMU)
+    cxm, cym = x + cx // 2, y + cy // 2
+    # 移除中心落在图表 bbox 内的占位形状（容器 surface 矩形 + bar 矩形）
+    for shape in list(slide.shapes):
+        if (
+            shape.left <= cxm <= shape.left + shape.width
+            and shape.top <= cym <= shape.top + shape.height
+        ):
+            slide.shapes._spTree.remove(shape._element)
+    cd = CategoryChartData()
+    cd.categories = decl.data.categories
+    for s in decl.data.series:
+        cd.add_series(s.name, s.values)
+    gframe = slide.shapes.add_chart(xl_type[decl.chart_type], x, y, cx, cy, cd)
+    chart = gframe.chart
+    chart.has_title = False
+    chart.has_legend = len(decl.data.series) > 1
+    colors = _palette()
+    if decl.chart_type == "bar":
+        for i, series in enumerate(chart.plots[0].series):
+            series.format.fill.solid()
+            series.format.fill.fore_color.rgb = colors[i % len(colors)]
+    elif decl.chart_type == "line":
+        for i, series in enumerate(chart.plots[0].series):
+            series.format.line.color.rgb = colors[i % len(colors)]
+    elif decl.chart_type == "pie":
+        plot = chart.plots[0]
+        for i, point in enumerate(plot.series[0].points):
+            point.format.fill.solid()
+            point.format.fill.fore_color.rgb = colors[i % len(colors)]

@@ -1,9 +1,19 @@
 # tests/test_charts.py
 """原生图表声明解析测试（纯 Python，不依赖 Office）。"""
 
-import pytest
+import json
 
-from offipy.charts import parse_chart_declarations
+import pytest
+from pptx import Presentation
+
+from offipy.charts import (
+    ChartData,
+    ChartDecl,
+    ChartSeries,
+    inject_native_charts,
+    load_chart_boxes,
+    parse_chart_declarations,
+)
 
 ATTR_HTML = (
     "<!DOCTYPE html>\n"
@@ -94,4 +104,140 @@ def test_parse_chart_without_data_raises():
     with pytest.raises(ValueError):
         parse_chart_declarations(
             '<section data-pptx-slide><div class="chart" data-chart="line"></div></section>'
+        )
+
+
+def _blank_pptx(tmp_path):
+    from pptx.util import Emu
+
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    prs.slides.add_slide(prs.slide_layouts[6])
+    return prs
+
+
+def test_load_chart_boxes(tmp_path):
+    meas = tmp_path / "measurements.json"
+    meas.write_text(
+        json.dumps(
+            {
+                "slides": [
+                    {
+                        "slide": {"theme": "mckinsey"},
+                        "records": [
+                            {
+                                "id": 1,
+                                "kind": "text",
+                                "tag": "h2",
+                                "className": "title",
+                                "rect": {"x": 96, "y": 96, "w": 800, "h": 80},
+                                "text": "营收",
+                            },
+                            {
+                                "id": 2,
+                                "kind": "shape",
+                                "tag": "div",
+                                "className": "chart",
+                                "rect": {"x": 96, "y": 260, "w": 900, "h": 500},
+                                "text": "",
+                            },
+                            {
+                                "id": 3,
+                                "kind": "text",
+                                "tag": "div",
+                                "className": "chart-note",
+                                "rect": {"x": 1020, "y": 260, "w": 360, "h": 500},
+                                "text": "来源",
+                            },
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    boxes = load_chart_boxes(str(meas))
+    assert boxes[1] == {"x": 96, "y": 260, "w": 900, "h": 500}
+    assert 2 not in boxes  # 只认 className 恰为 "chart" 的容器，chart-note 不匹配
+
+
+def test_inject_native_chart_bar(tmp_path):
+    prs = _blank_pptx(tmp_path)
+    slide = prs.slides[0]
+    from pptx.util import Emu
+
+    # 放一个占位矩形（模拟 convert 渲染的图表区），再放一个右上角说明（不该被删）
+    slide.shapes.add_shape(1, Emu(96 * 6350), Emu(260 * 6350), Emu(900 * 6350), Emu(500 * 6350))
+    note = slide.shapes.add_textbox(
+        Emu(1020 * 6350), Emu(260 * 6350), Emu(360 * 6350), Emu(500 * 6350)
+    )
+    note.text = "来源"
+    out = tmp_path / "out.pptx"
+    prs.save(str(out))
+
+    decls = [
+        ChartDecl(
+            slide_index=1,
+            chart_type="bar",
+            data=ChartData(
+                categories=["Q1", "Q2"],
+                series=[ChartSeries(name="营收", values=[40, 70])],
+            ),
+        )
+    ]
+    boxes = {1: {"x": 96, "y": 260, "w": 900, "h": 500}}
+    inject_native_charts(str(out), decls, boxes)
+
+    prs2 = Presentation(str(out))
+    slide2 = prs2.slides[0]
+    charts = [s for s in slide2.shapes if s.has_chart]
+    assert len(charts) == 1
+    ch = charts[0].chart
+    assert ch.chart_type is not None
+    assert ch.has_title is False
+    # 占位矩形被移除，说明文本保留
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    rects = [s for s in slide2.shapes if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
+    assert len(rects) == 0
+    texts = [s.text for s in slide2.shapes if s.has_text_frame]
+    assert "来源" in texts
+
+
+def test_inject_native_chart_pie(tmp_path):
+    prs = _blank_pptx(tmp_path)
+    out = tmp_path / "pie.pptx"
+    prs.save(str(out))
+    decls = [
+        ChartDecl(
+            slide_index=1,
+            chart_type="pie",
+            data=ChartData(
+                categories=["A", "B"],
+                series=[ChartSeries(name="份额", values=[45, 55])],
+            ),
+        )
+    ]
+    inject_native_charts(str(out), decls, {1: {"x": 100, "y": 200, "w": 800, "h": 500}})
+    prs2 = Presentation(str(out))
+    charts = [s for s in prs2.slides[0].shapes if s.has_chart]
+    assert len(charts) == 1
+
+
+def test_parse_top_level_non_dict_raises():
+    with pytest.raises(ValueError):
+        parse_chart_declarations(
+            '<section data-pptx-slide><div class="chart" data-chart="bar" '
+            'data-chart-data="[1,2,3]"></div></section>'
+        )
+
+
+def test_parse_chart_outside_slide_raises():
+    # 图表容器出现在第一个 <section data-pptx-slide> 之前 → slide_index=0 → 报错而非静默
+    with pytest.raises(ValueError):
+        parse_chart_declarations(
+            '<div class="chart" data-chart="bar" '
+            'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]]}\'></div>'
+            "<section data-pptx-slide><h2>x</h2></section>"
         )
