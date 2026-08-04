@@ -265,6 +265,7 @@ class ExcelApp:
             if fit_to_pages_tall is not None:
                 ps.FitToPagesTall = int(fit_to_pages_tall)
         if margins:
+            # 边距单位磅（points），仅 left/right/top/bottom 四个方向可设
             for key in ("left", "right", "top", "bottom"):
                 if key in margins:
                     setattr(ps, f"{key.capitalize()}Margin", margins[key])
@@ -309,9 +310,9 @@ class ExcelApp:
             if fg is not None:
                 fc.Font.Color = _rgb(fg)
         elif rule == "databar":
-            fc = rng.FormatConditions.Add(4)  # xlDatabar
+            fc = rng.FormatConditions.Add(4)  # xlDatabar → 返回 Databar 对象
             if bg is not None:
-                fc.Databar.FillColor.Color = _rgb(bg)
+                fc.BarColor.Color = _rgb(bg)  # Databar 实心填充色走 BarColor
         elif rule == "colorscale":
             if min_color is None or max_color is None:
                 raise ValueError("colorscale 必须给 min_color 和 max_color")

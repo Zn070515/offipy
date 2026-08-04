@@ -382,8 +382,8 @@ def excel_unmerge_cells(sheet: int | str, range_addr: str) -> str:
     description=(
         "给 range_addr 设置边框。side 取 all/outside/inside 或 "
         "left/top/bottom/right/inside-h/inside-v（逗号分隔）；style 取 "
-        "continuous/dash/dot/double/none；weight 取 hairline/thin/medium/thick；"
-        "color 传 '#RRGGBB'。"
+        "continuous/dash/dash-dot/dash-dot-dot/dot/double/none/slant-dash-dot；"
+        "weight 取 hairline/thin/medium/thick；color 传 '#RRGGBB'。"
     ),
 )
 def excel_set_border(
@@ -473,7 +473,7 @@ def excel_page_setup(
     paper: str | None = None,
     fit_to_pages_wide: int | None = None,
     fit_to_pages_tall: int | None = None,
-    margins: dict | None = None,
+    margins: dict[str, float] | None = None,
     print_area: str | None = None,
     center_horizontally: bool | None = None,
     center_vertically: bool | None = None,
@@ -517,7 +517,10 @@ def excel_set_number_format(sheet: int | str, range_addr: str, fmt: str) -> str:
 
 @server.tool(
     title="自动调整列宽行高",
-    description="自动调整 range_addr 的列宽/行高；不传 range_addr 则调整已用区域（UsedRange）。",
+    description=(
+        "自动调整 range_addr 的列宽/行高；不传 range_addr 则调整已用区域（UsedRange）。"
+        "columns/rows 为布尔开关，默认都调整，可只调列宽（rows=False）或只调行高（columns=False）。"
+    ),
 )
 def excel_autofit(
     sheet: int | str,

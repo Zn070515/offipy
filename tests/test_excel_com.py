@@ -94,7 +94,7 @@ def test_conditional_format_cell_rule():
     fc = _excel().ActiveWorkbook.Sheets(1).Range("A1:A5").FormatConditions(1)
     assert fc.Type == 1  # xlCellValue
     assert fc.Operator == 5  # xlGreater
-    assert fc.Formula1 == "5"
+    assert fc.Formula1 == "=5"  # Excel 回读 Formula1 会补 '=' 前缀
 
 
 def test_conditional_format_databar():
@@ -159,3 +159,11 @@ def test_autofit_widens_long_text_column():
     call("excel", "set_cell", sheet=1, cell="A1", value="这是一段比较长的文本用于测试自动列宽")
     call("excel", "autofit", sheet=1, columns=True, rows=False)
     assert _excel().ActiveWorkbook.Sheets(1).Columns(1).ColumnWidth > 10
+
+
+def test_page_setup_margins():
+    call("excel", "new_book")
+    call("excel", "page_setup", sheet=1, margins={"left": 40, "top": 60})
+    ps = _excel().ActiveWorkbook.Sheets(1).PageSetup
+    assert ps.LeftMargin == 40
+    assert ps.TopMargin == 60
