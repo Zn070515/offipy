@@ -73,7 +73,8 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
 - **原生图表**：图表区打 `data-chart="<类型>"`（`bar` / `line` / `pie`），数据放容器
   `data-chart-data` JSON 属性或页内 `<script type="application/json" data-chart-target="<选择器>">` 块，
   `deck make --layouts` 后自动替换成 PowerPoint 原生可编辑图表（双击即可改数据），不再是贴图。
-  示例见 [`examples/decks/charts/chart-demo.html`](examples/decks/charts/chart-demo.html)。
+  **前提**：图表所在页须引用 chart-dominant 布局（`data-layout="chart-dominant"`），容器才有可测的
+  surface 矩形。示例见 [`examples/decks/charts/chart-demo.html`](examples/decks/charts/chart-demo.html)。
 
   ```html
   <div class="chart" data-chart="bar"
