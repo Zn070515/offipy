@@ -62,13 +62,13 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
 - **自动选型**：`autopick.pick()` 从内容结构推荐主题 + 每页布局 + 理由（纯规则，可覆盖）
 - **内容工作流**：把「言之有物」的骨架标准化——写一份 markdown 大纲
   （`# 标题` + 每个 `## 段` = 一页，`- ` 要点、正文、`@layout:` 指令），
-  `office deck outline --input outline.md --theme mckinsey --out deck.html`
-  一键得到 HTML 骨架，布局自动推断、主题已注入，直接 `office deck make`。
+  `office deck outline --input outline.md --out deck.html` 一键得到 HTML 骨架，
+  布局自动推断，再 `office deck make --theme <主题> --layouts` 注入主题与布局成稿。
   示例见 [`examples/outline/quarterly-review.md`](examples/outline/quarterly-review.md)。
 
   ```bash
   office deck outline --input examples/outline/quarterly-review.md --out out/quarterly.html
-  office deck make --html out/quarterly.html --theme mckinsey --out out/quarterly.pptx
+  office deck make --html out/quarterly.html --theme mckinsey --layouts --out out/quarterly.pptx
   ```
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 

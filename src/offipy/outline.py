@@ -171,16 +171,20 @@ def _esc(text: str) -> str:
 
 
 def _slide_section(s: SlideContent) -> str:
-    """单页 HTML 骨架。bullets 渲染成 .card（触发 autopick 的 cards 信号），
-    正文渲染成 .col（split 信号），保持与 autopick._inspect_signals 对齐。"""
+    """单页 HTML 骨架。bullets 渲染成 .cards>.card（触发 autopick 的 cards 信号，
+    且 DOM 与 cards-3 布局模板对齐），正文渲染成 .col（split 信号），
+    保持与 autopick._inspect_signals 对齐。"""
     parts = ['<section class="slide" data-pptx-slide>']
     if s.kicker:
         parts.append(f'  <div class="kicker">{_esc(s.kicker)}</div>')
     parts.append(f'  <h2 class="title">{_esc(s.title)}</h2>')
     for b in s.body:
         parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
-    for b in s.bullets:
-        parts.append(f'  <div class="card"><div class="txt">{_esc(b)}</div></div>')
+    if s.bullets:
+        cards = "\n".join(
+            f'    <div class="card"><div class="txt">{_esc(b)}</div></div>' for b in s.bullets
+        )
+        parts.append(f'  <div class="cards">\n{cards}\n  </div>')
     parts.append("</section>")
     return "\n".join(parts)
 

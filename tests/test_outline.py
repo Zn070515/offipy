@@ -96,6 +96,7 @@ def test_to_deck_html_skeleton_structure():
     assert "季度业绩回顾" not in html  # deck 标题不进页面 HTML
     assert "营收增长" in html
     assert "<!DOCTYPE html>" in html
+    assert '<div class="cards">' in html  # bullets 包 .cards 容器，与 cards-3 模板 DOM 对齐
 
 
 def test_to_deck_html_autopick_default_layout():
