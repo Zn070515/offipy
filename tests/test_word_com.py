@@ -108,3 +108,26 @@ def test_table_border_col_width_row_height_autofit():
     assert t.Rows(1).Height == 30
     call("word", "autofit_table", table_idx=1, behavior="content")
     assert _word().ActiveDocument.Tables(1).Rows.Count == 3
+
+
+def test_find_replace_all():
+    call("word", "new_doc")
+    call("word", "write_line", text="hello world hello")
+    call("word", "find_replace", find="hello", replace="hi", replace_all=True)
+    text = _word().ActiveDocument.Content.Text
+    assert "hello" not in text
+    assert text.count("hi") == 2
+
+
+def test_insert_image_and_page_break(tmp_path):
+    from PIL import Image
+
+    img_path = tmp_path / "pixel.png"
+    Image.new("RGB", (20, 20), "#2251FF").save(img_path)
+    call("word", "new_doc")
+    call("word", "insert_image", path=str(img_path), width=60, height=60)
+    call("word", "insert_page_break")
+    doc = _word().ActiveDocument
+    assert doc.InlineShapes.Count == 1
+    assert doc.InlineShapes(1).Width == 60
+    assert "\x0c" in doc.Content.Text  # 分页符字符

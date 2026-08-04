@@ -345,5 +345,36 @@ class WordApp:
             _resolve_style(behavior, _AUTOFIT, "自动调整")
         )
 
+    # --- 文档辅助 ---
+    def find_replace(
+        self,
+        find: str,
+        replace: str,
+        match_case: bool = False,
+        whole_word: bool = False,
+        replace_all: bool = True,
+    ):
+        f = self.active_doc().Content.Find
+        f.Execute(
+            FindText=find,
+            ReplaceWith=replace,
+            Replace=_REPLACE["all" if replace_all else "one"],
+            Forward=True,
+            MatchCase=match_case,
+            MatchWholeWord=whole_word,
+        )
+
+    def insert_image(self, path: str, width: float | None = None, height: float | None = None):
+        doc = self.active_doc()
+        shape = doc.InlineShapes.AddPicture(os.path.abspath(path), Range=_end_range(doc))
+        if width is not None:
+            shape.Width = width
+        if height is not None:
+            shape.Height = height
+        return doc.InlineShapes.Count
+
+    def insert_page_break(self):
+        _end_range(self.active_doc()).InsertBreak(7)  # wdPageBreak
+
     def quit(self):
         core.quit_app("word")
