@@ -1,6 +1,8 @@
 # tests/test_icons.py
 """图标声明解析 / SVG path 解析 / 注入测试（纯 Python，不依赖 Office）。"""
 
+import math
+
 import pytest
 
 from offipy.icons import (
@@ -184,3 +186,37 @@ def test_svg_to_subpaths_lucide(fake_assets):
     assert len(subpaths) == 2  # line + polyline
     assert subpaths[0].close is False
     assert sw == 2.0
+
+
+# ---------- 健壮性（M3-T2 审查补测） ----------
+
+
+def test_parse_path_truncated_raises():
+    with pytest.raises(ValueError):
+        _parse_path("M10 10 C0 5 5")
+
+
+def test_parse_path_degenerate_arc_lineto():
+    # 零半径弧按 SVG F.6.2 应 lineto 到终点，不丢终点
+    sp = _parse_path("M0 0 A0 0 0 0 1 10 0")
+    assert sp[0].points[-1] == (10.0, 0.0)
+
+
+def test_parse_path_first_not_m_raises():
+    with pytest.raises(ValueError):
+        _parse_path("L10 10")
+
+
+def test_geom_ellipse():
+    from offipy.icons import _CIRCLE_SAMPLES
+
+    pts, close = _geom_points("ellipse", {"cx": "0", "cy": "0", "rx": "4", "ry": "2"})
+    assert close is True
+    assert len(pts) == _CIRCLE_SAMPLES
+    # 长半轴 4，所有点到中心距离 ∈ [2, 4]
+    assert all(2.0 - 1e-9 <= math.hypot(x, y) <= 4.0 + 1e-9 for x, y in pts)
+
+
+def test_load_icon_svg_invalid_name_raises(fake_assets):
+    with pytest.raises(ValueError):
+        load_icon_svg("ph:../x")

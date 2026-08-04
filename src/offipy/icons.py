@@ -81,8 +81,10 @@ def _arc_points(p0, radii, rot, large, sweep, p1, n: int) -> list[tuple[float, f
     rx, ry = abs(radii[0]), abs(radii[1])
     x0, y0 = p0
     x1, y1 = p1
-    if (x0, y0) == (x1, y1) or rx == 0 or ry == 0:
+    if (x0, y0) == (x1, y1):
         return [p0]
+    if rx == 0 or ry == 0:
+        return [p0, p1]  # 退化弧按 SVG F.6.2 等价于 lineto 到终点
     phi = math.radians(rot)
     cos_p, sin_p = math.cos(phi), math.sin(phi)
     dx, dy = (x0 - x1) / 2, (y0 - y1) / 2
@@ -138,9 +140,12 @@ def _parse_path(d: str) -> list[_SubPath]:
     prev_quad: tuple[float, float] | None = None
     i = 0
     n = len(toks)
+    first_cmd = True  # SVG path 首个命令必须是 moveto
 
     def read_num() -> float:
         nonlocal i
+        if i >= n:
+            raise ValueError(f"SVG path 参数不完整: {d!r}")
         v = float(toks[i])
         i += 1
         return v
@@ -165,6 +170,10 @@ def _parse_path(d: str) -> list[_SubPath]:
             raise ValueError(f"SVG path 无命令: {d!r}")
         c = cmd.upper()
         rel = cmd.islower()
+        if first_cmd:
+            if c != "M":
+                raise ValueError(f"SVG path 首命令必须是 M/m: {d!r}")
+            first_cmd = False
         if c == "M":
             if pts:
                 subpaths.append(_SubPath(pts, close))
@@ -238,6 +247,7 @@ def _parse_path(d: str) -> list[_SubPath]:
         elif c == "Z":
             close = True
             subpaths.append(_SubPath(pts, close))
+            close = False
             pts = []
             cx, cy = start
             cmd = None
@@ -253,7 +263,10 @@ def _parse_path(d: str) -> list[_SubPath]:
 
 def _parse_points_list(s: str) -> list[tuple[float, float]]:
     nums = [float(v) for v in re.findall(_NUM_RE, s)]
-    return list(zip(nums[0::2], nums[1::2], strict=True))
+    try:
+        return list(zip(nums[0::2], nums[1::2], strict=True))
+    except ValueError as exc:
+        raise ValueError(f"points 坐标数必须为偶数（got {len(nums)}）: {s!r}") from exc
 
 
 def _geom_points(tag: str, attrs: dict) -> tuple[list[tuple[float, float]], bool]:
@@ -269,6 +282,7 @@ def _geom_points(tag: str, attrs: dict) -> tuple[list[tuple[float, float]], bool
     if tag == "polygon":
         return _parse_points_list(attrs.get("points", "")), True
     if tag == "rect":
+        # rx/ry 圆角忽略（MVP 直角矩形）
         x = float(attrs.get("x", 0))
         y = float(attrs.get("y", 0))
         w = float(attrs.get("width", 0))
@@ -320,6 +334,7 @@ def load_icon_svg(data_icon: str) -> str:
 
 def _svg_to_subpaths(svg_text: str) -> tuple[list[_SubPath], float]:
     """资产 SVG 源码 → (子路径列表, stroke-width)。子路径已压平。"""
+    # vendored 图标无 transform/<g> 覆盖，忽略
     import xml.etree.ElementTree as ET
 
     root = ET.fromstring(svg_text)
