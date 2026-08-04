@@ -14,4 +14,15 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 
 - **每次测试/验证通过后，主动关掉拉起的 Office 窗口**：`uv run office quit ppt`（/excel/word）。注意 `quit` 只是 `obj.Quit()`，PowerPoint 进程可能残留（加载项/关闭对话框卡住）——quit 后**确认进程已退**：`tasklist | grep -i POWERPNT`，仍在则 `taskkill //F //PID <pid>`。不留窗口占用。
 - 改了 server 依赖的模块（如 `ppt.py`、`server.py`）后，必须重启 8890 的 server 进程（`taskkill` 该 PID 后 CLI 自动重建），否则 server 加载旧代码。
-- git 提交按小步：指定具体文件、清晰 message。当前开发分支 `feature/deck-pipeline`。
+- git 提交按小步：指定具体文件、清晰 message。当前主干 `main`。
+
+## 版本号更新规则
+
+- **单一来源**：版本号只写在 `src/offipy/__init__.py` 的 `__version__`；`pyproject.toml` 经 `[tool.hatch.version]` 自动读取，**别处不重复写**。
+- **语义化版本（SemVer）** `MAJOR.MINOR.PATCH`：
+  - `MAJOR`：不兼容的 API 变更（改包名、改调用签名、删既有操作）
+  - `MINOR`：向后兼容的新功能（新增原子操作 / CLI 子命令 / 管线特性）
+  - `PATCH`：bug 修复、内部重构、不改变对外行为的小调整
+- **0.x 开发期约定**：破坏性变更升 `MINOR` 即可，不升 `MAJOR`（尚未对外承诺稳定性）。
+- **每次升版本**：单独成一个 commit（message 形如 `chore: bump version to 0.2.0`）；若已发布 PyPI，同步打 tag `v0.2.0` 并推送。功能 commit 不带版本号，升版本也不夹带功能改动。
+- **验证**：改完跑 `uv run python -c "import offipy; print(offipy.__version__)"` 确认生效。
