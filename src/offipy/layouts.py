@@ -1,4 +1,4 @@
-"""命名布局库：10 种可复用页面组件 + 按引用注入。
+"""命名布局库：11 种可复用页面组件 + 按引用注入。
 
 Claude 写 deck 时给 slide 打 `data-layout="<name>"` 引用布局（如
 `<section class="slide hero" data-pptx-slide data-layout="hero-title">`）。
@@ -266,6 +266,40 @@ _register(
       <div class="bar muted" style="height: 40%;"></div>
     </div>
     <div class="chart-note"><!-- 数据说明与来源 --></div>
+  </div>
+</section>""",
+    )
+)
+
+_register(
+    Layout(
+        name="icons-row",
+        title="图标行",
+        description="眉标 + 标题 + 一排图标（各带标签），用于能力/价值/要点罗列。",
+        css="""
+.icons-row .icon-row {
+  display: flex; gap: var(--gap); margin-top: 48px;
+}
+.icons-row .icon-item { flex: 1; text-align: center; }
+.icons-row .icon-item .icon { width: 72px; height: 72px; color: var(--accent); }
+.icons-row .icon-item .label {
+  font-size: var(--body); color: var(--ink); margin-top: 16px; font-weight: 600;
+}
+""",
+        html="""<section class="slide icons-row" data-pptx-slide data-layout="icons-row">
+  <div class="kicker"><!-- 眉标 --></div>
+  <h2 class="title"><!-- 标题 --></h2>
+  <div class="icon-row">
+    <div class="icon-item">
+      <svg class="icon" data-icon="ph:check-circle" viewBox="0 0 256 256"
+        width="72" height="72"></svg>
+      <div class="label"><!-- 标签 --></div>
+    </div>
+    <div class="icon-item">
+      <svg class="icon" data-icon="ph:trend-up" viewBox="0 0 256 256"
+        width="72" height="72"></svg>
+      <div class="label"><!-- 标签 --></div>
+    </div>
   </div>
 </section>""",
     )

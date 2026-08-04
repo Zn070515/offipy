@@ -9,7 +9,7 @@ from offipy.layouts import LAYOUTS, inject_layouts, layout_css, layout_html, ref
 
 
 def test_registered_layout_count():
-    assert len(LAYOUTS) == 10
+    assert len(LAYOUTS) == 11
 
 
 def test_layouts_metadata():
@@ -32,6 +32,7 @@ def test_expected_layout_names():
         "chart-dominant",
         "portrait-feature",
         "closer",
+        "icons-row",
     }
     assert set(LAYOUTS) == expected
 
@@ -130,3 +131,40 @@ def test_inject_no_head_puts_block_at_top():
     html = '<section class="slide" data-pptx-slide data-layout="closer">x</section>'
     out = inject_layouts(html)
     assert out.startswith("<style data-layouts>")
+
+
+# ---------------------------------------------------------------- icons-row（M3）
+
+
+def test_icons_row_layout_registered():
+    assert "icons-row" in LAYOUTS
+
+
+def test_icons_row_css_uses_tokens_only():
+    css = LAYOUTS["icons-row"].css
+    assert "var(--" in css
+    assert "#" not in css  # 禁止硬编码色值
+    assert "font-size: var(--body)" in css
+
+
+def test_inject_icons_row_layout():
+    html = (
+        "<html><head><style data-layouts></style></head><body>"
+        '<section class="slide icons-row" data-pptx-slide data-layout="icons-row">'
+        '<div class="icon-row"><div class="icon-item">'
+        '<svg class="icon" data-icon="ph:check" viewBox="0 0 256 256"></svg>'
+        '<div class="label">已核</div></div></div>'
+        "</section></body></html>"
+    )
+    out = inject_layouts(html)
+    assert ".icons-row .icon-row" in out
+    assert "data-layouts" in out
+
+
+def test_icons_row_css_not_injected_when_unreferenced():
+    html = (
+        "<html><head><style data-layouts></style></head><body>"
+        '<section class="slide" data-pptx-slide></section></body></html>'
+    )
+    out = inject_layouts(html)
+    assert ".icons-row" not in out

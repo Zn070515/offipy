@@ -172,3 +172,64 @@ def test_chart_data_without_chart_roundtrips():
     )
     o2 = parse_outline(o.markdown())
     assert o2.to_dict() == o.to_dict()
+
+
+def test_parse_icons_directive():
+    o = parse_outline("# 标题\n\n## 页\n@icons: ph:check:已完成; star; lu:zap\n")
+    s = o.slides[0]
+    assert s.icons == [("ph:check", "已完成"), ("ph:star", ""), ("lu:zap", "")]
+    assert s.layout == "icons-row"  # @icons 隐式 icons-row 布局
+
+
+def test_icons_explicit_layout_wins():
+    o = parse_outline("# 标题\n\n## 页 @layout: cards-3\n@icons: check\n")
+    assert o.slides[0].layout == "cards-3"  # 显式布局优先，不强制 icons-row
+
+
+def test_icons_invalid_set_raises():
+    # 3-part 才能触发集合校验：'xx:foo:bar' 的 set='xx' 不在白名单
+    # （2-part 'xx:foo' 语义为 name:label，缺省 ph 前缀，是合法输入）
+    with pytest.raises(ValueError, match="xx"):
+        parse_outline("# 标题\n\n## 页\n@icons: xx:foo:bar\n")
+
+
+def test_icons_invalid_name_raises():
+    # 图标名拼进 data-icon 属性，必须防注入
+    with pytest.raises(ValueError):
+        parse_outline('# 标题\n\n## 页\n@icons: ph:x" onmouseover="evil\n')
+
+
+def test_icons_empty_raises():
+    # cur 路径：## 之后空 @icons → 报错
+    with pytest.raises(ValueError, match="不能为空"):
+        parse_outline("# 标题\n\n## 页\n@icons:\n")
+    # pending 路径：第一个 ## 之前空 @icons → 构造页时同样报错
+    with pytest.raises(ValueError, match="不能为空"):
+        parse_outline("# 标题\n\n@icons:\n## 页\n")
+
+
+def test_icons_section_html():
+    o = parse_outline("# 标题\n\n## 页\n@icons: ph:check:已完成; star\n")
+    html = to_deck_html(o)
+    assert 'data-layout="icons-row"' in html
+    assert 'data-icon="ph:check"' in html
+    assert 'viewBox="0 0 256 256"' in html
+    assert '<div class="label">已完成</div>' in html
+    assert "icon-row" in html
+    assert 'data-icon="ph:star"' in html
+
+
+def test_icons_markdown_roundtrip():
+    o = parse_outline("# 标题\n\n## 页\n@icons: ph:check:已完成; star; lu:zap\n")
+    md = o.markdown()
+    o2 = parse_outline(md)
+    assert o2.slides[0].icons == o.slides[0].icons
+    assert o2.to_dict() == o.to_dict()
+
+
+def test_icons_json_roundtrip():
+    o = parse_outline("# 标题\n\n## 页\n@icons: ph:check:已完成\n")
+    d = o.to_dict()
+    assert d["slides"][0]["icons"] == [["ph:check", "已完成"]]
+    o2 = parse_outline(o.markdown())
+    assert o2.slides[0].icons == o.slides[0].icons
