@@ -166,6 +166,16 @@ def test_consistency_ok_for_same_style_pages():
     assert report.deck_findings == []
 
 
+def test_consistency_ignores_decorative_big_number():
+    # big-number 页的 200px 装饰数字不参与标题字号漂移判定（无漂移误报）
+    p1 = _clean_page()
+    p2 = _clean_page()
+    p3 = _clean_page()
+    p2["records"] = [_text({"x": 96, "y": 96, "w": 800, "h": 300}, 200, "rgb(34, 81, 255)", "200")]
+    report = audit_measurement(_measurement([p1, p2, p3]))
+    assert report.deck_findings == []
+
+
 # ---------------------------------------------------------------- 入口与输出
 
 

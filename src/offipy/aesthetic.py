@@ -322,7 +322,8 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
         return []
     findings = []
 
-    # 1) 标题字号漂移：取每页最大字号，跨页极差 > 6px 且页数 ≥ 3 才报（2 页布局本就不同）
+    # 1) 标题字号漂移：取每页最大字号，跨页极差 > 6px 且页数 ≥ 3 才报（2 页布局本就不同）。
+    #    装饰性大数字（>120px，如 big-number 布局的 200px）不算标题，排除以免误报
     max_sizes: list[tuple[int, float]] = []
     for i, s in enumerate(slides, start=1):
         sizes = [
@@ -330,7 +331,7 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
             for rec in s.get("records") or []
             if rec.get("kind") == "text"
             for r in rec.get("runs") or []
-            if r.get("fontSize")
+            if r.get("fontSize") and float(r.get("fontSize")) <= 120
         ]
         if sizes:
             max_sizes.append((i, max(sizes)))
