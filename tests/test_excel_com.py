@@ -48,3 +48,29 @@ def test_set_border_thick_top():
     assert b.LineStyle == 1  # xlContinuous
     assert b.Weight == 4  # xlThick
     assert b.Color == 255  # #FF0000 纯红 → BGR Long = 255
+
+
+def test_freeze_panes_freeze_and_clear():
+    call("excel", "new_book")
+    call("excel", "freeze_panes", sheet=1, rows=1, cols=1)
+    assert _excel().ActiveWindow.FreezePanes is True
+    call("excel", "freeze_panes", sheet=1, rows=0, cols=0)
+    assert _excel().ActiveWindow.FreezePanes is False
+
+
+def test_page_setup_orientation_and_area():
+    call("excel", "new_book")
+    call(
+        "excel",
+        "page_setup",
+        sheet=1,
+        orientation="landscape",
+        fit_to_pages_wide=1,
+        center_horizontally=True,
+        print_area="A1:C10",
+    )
+    ps = _excel().ActiveWorkbook.Sheets(1).PageSetup
+    assert ps.Orientation == 2  # xlLandscape
+    assert ps.FitToPagesWide == 1
+    assert ps.CenterHorizontally is True
+    assert ps.PrintArea == "$A$1:$C$10"

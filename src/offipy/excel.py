@@ -225,6 +225,60 @@ class ExcelApp:
             if color is not None:
                 b.Color = _rgb(color)
 
+    # --- 冻结窗格 ---
+    def freeze_panes(self, sheet, rows: int = 0, cols: int = 0):
+        if rows < 0 or cols < 0:
+            raise ValueError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
+        ws = self._ws(sheet)
+        ws.Activate()
+        if rows == 0 and cols == 0:
+            self.app.ActiveWindow.FreezePanes = False
+        else:
+            # 冻结 cell 左上方区域：选中 (rows+1, cols+1) 再开 FreezePanes
+            ws.Cells(rows + 1, cols + 1).Select()
+            self.app.ActiveWindow.FreezePanes = True
+
+    # --- 打印设置 ---
+    def page_setup(
+        self,
+        sheet,
+        orientation: str | None = None,
+        paper: str | None = None,
+        fit_to_pages_wide: int | None = None,
+        fit_to_pages_tall: int | None = None,
+        margins: dict[str, float] | None = None,
+        print_area: str | None = None,
+        center_horizontally: bool | None = None,
+        center_vertically: bool | None = None,
+        print_titles_rows: str | None = None,
+        print_titles_cols: str | None = None,
+    ):
+        ps = self._ws(sheet).PageSetup
+        if orientation is not None:
+            ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
+        if paper is not None:
+            ps.PaperSize = _resolve_style(paper, _PAPER_SIZE, "纸张")
+        if fit_to_pages_wide is not None or fit_to_pages_tall is not None:
+            ps.Zoom = False  # FitToPages 与 Zoom 互斥：设 FitToPages 前必须关 Zoom
+            if fit_to_pages_wide is not None:
+                ps.FitToPagesWide = int(fit_to_pages_wide)
+            if fit_to_pages_tall is not None:
+                ps.FitToPagesTall = int(fit_to_pages_tall)
+        if margins:
+            for key in ("left", "right", "top", "bottom"):
+                if key in margins:
+                    setattr(ps, f"{key.capitalize()}Margin", margins[key])
+        if print_area is not None:
+            ps.PrintArea = print_area  # 空串清除打印区域
+        if center_horizontally is not None:
+            ps.CenterHorizontally = center_horizontally
+        if center_vertically is not None:
+            ps.CenterVertically = center_vertically
+        if print_titles_rows is not None:
+            ps.PrintTitleRows = print_titles_rows
+        if print_titles_cols is not None:
+            ps.PrintTitleColumns = print_titles_cols
+
     # --- 生命周期 ---
     def quit(self):
         core.quit_app("excel")
