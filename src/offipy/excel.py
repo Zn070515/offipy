@@ -5,6 +5,7 @@ ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那�
 """
 
 from . import core
+from .exceptions import TargetNotFoundError
 from .paths import ensure_writable
 
 # ExportAsFixedFormat 的类型常量
@@ -139,6 +140,7 @@ class ExcelApp:
     def active_book(self):
         # 会话语义（P1.2）：优先解析实时 ActiveWorkbook（用户当前激活的
         # 工作簿），仅当无活动工作簿时回退缓存句柄 + liveness probe。
+        # P0-8：无活动工作簿时返回 None（纯探测），绝不隐式 Workbooks.Add()。
         book = core.active_doc("excel", "ActiveWorkbook")
         if book is not None:
             self._book = book
@@ -147,13 +149,34 @@ class ExcelApp:
             return self._book
         book = self.app.ActiveWorkbook
         if book is None:
-            # 全新启动的 Excel 没有活动工作簿，自动新建一个保证可操作
-            book = self.app.Workbooks.Add()
+            return None
         self._book = book
         return book
 
-    def close_book(self, save: bool = True):
+    def _require_book(self):
+        """操作前置：无活动工作簿则抛 TargetNotFoundError，不隐式创建。"""
         book = self.active_book()
+        if book is None:
+            raise TargetNotFoundError("没有打开的工作簿，请先 new_book/open_book")
+        return book
+
+    def get_target(self):
+        """当前活动工作簿身份（app/name/path）；无则返回 None。只读探测。"""
+        book = self.active_book()
+        if book is None:
+            return None
+        try:
+            name = book.Name
+        except Exception:
+            name = None
+        try:
+            path = book.FullName
+        except Exception:
+            path = None
+        return {"app": "excel", "name": name, "path": path}
+
+    def close_book(self, save: bool = True):
+        book = self._require_book()
         if book is not None:
             # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
             book.Close(SaveChanges=-1 if save else 2)
@@ -161,7 +184,7 @@ class ExcelApp:
 
     def save(self, path: str | None = None, overwrite: bool = False):
         dest = ensure_writable(path, overwrite) if path else None
-        book = self.active_book()
+        book = self._require_book()
         if dest:
             # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
             book.SaveAs(dest)
@@ -170,11 +193,11 @@ class ExcelApp:
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
-        self.active_book().ExportAsFixedFormat(XL_TYPE_PDF, dest)
+        self._require_book().ExportAsFixedFormat(XL_TYPE_PDF, dest)
 
     # --- 工作表 ---
     def _ws(self, sheet):
-        book = self.active_book()
+        book = self._require_book()
         if isinstance(sheet, str):
             try:
                 return book.Worksheets(sheet)
@@ -183,6 +206,7 @@ class ExcelApp:
         return book.Worksheets(sheet)
 
     def add_sheet(self, name: str):
+        self._require_book()  # Worksheets.Add 绑定活动工作簿
         ws = self.app.Worksheets.Add()
         ws.Name = name
         return ws

@@ -21,6 +21,10 @@ class RemoteCallError(OffipyError):
     """对常驻 server 的远端调用失败（op 抛错/超时/网络异常）。"""
 
 
+class TargetNotFoundError(OffipyError):
+    """目标不存在：没有打开的工作簿/文档/演示文稿，或 expected_target 绑定不匹配。"""
+
+
 class ConversionError(OffipyError):
     """HTML→PPTX 转换/渲染失败（含 chromium 缺失等前置条件不满足）。"""
 

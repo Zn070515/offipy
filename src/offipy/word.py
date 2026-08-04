@@ -6,6 +6,7 @@
 import os
 
 from . import core
+from .exceptions import TargetNotFoundError
 from .paths import ensure_writable
 
 WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
@@ -131,6 +132,7 @@ class WordApp:
     def active_doc(self):
         # 会话语义（P1.2）：优先解析实时 ActiveDocument（用户当前激活的
         # 文档），仅当无活动文档时回退缓存句柄 + liveness probe。
+        # P0-8：无活动文档时返回 None（纯探测），绝不隐式 Documents.Add()。
         doc = core.active_doc("word", "ActiveDocument")
         if doc is not None:
             self._doc = doc
@@ -139,19 +141,41 @@ class WordApp:
             return self._doc
         doc = self.app.ActiveDocument
         if doc is None:
-            doc = self.app.Documents.Add()
+            return None
         self._doc = doc
         return doc
 
-    def close_doc(self, save: bool = True):
+    def _require_doc(self):
+        """操作前置：无活动文档则抛 TargetNotFoundError，不隐式创建。"""
         doc = self.active_doc()
+        if doc is None:
+            raise TargetNotFoundError("没有打开的 Word 文档，请先 new_doc/open_doc")
+        return doc
+
+    def get_target(self):
+        """当前活动文档身份（app/name/path）；无则返回 None。只读探测。"""
+        doc = self.active_doc()
+        if doc is None:
+            return None
+        try:
+            name = doc.Name
+        except Exception:
+            name = None
+        try:
+            path = doc.FullName
+        except Exception:
+            path = None
+        return {"app": "word", "name": name, "path": path}
+
+    def close_doc(self, save: bool = True):
+        doc = self._require_doc()
         if doc is not None:
             doc.Close(SaveChanges=save)
         self._doc = None
 
     def save(self, path: str | None = None, overwrite: bool = False):
         dest = ensure_writable(path, overwrite) if path else None
-        doc = self.active_doc()
+        doc = self._require_doc()
         if dest:
             doc.SaveAs2(dest)
         else:
@@ -159,18 +183,18 @@ class WordApp:
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
-        self.active_doc().ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
+        self._require_doc().ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
 
     # --- 内容 ---
     def write(self, text: str):
-        self.active_doc().Content.InsertAfter(text)
+        self._require_doc().Content.InsertAfter(text)
 
     def write_line(self, text: str):
-        self.active_doc().Content.InsertAfter(text + "\r\n")
+        self._require_doc().Content.InsertAfter(text + "\r\n")
 
     def add_heading(self, text: str, level: int = 1):
         self.write_line(text)
-        doc = self.active_doc()
+        doc = self._require_doc()
         style = _HEADING_STYLES.get(level, -2)
         # write_line = Content.InsertAfter(text + "\r\n")：文本落在末尾空段之前的 Count-1 段
         # （Count 是空尾段，实机验证）。若给 Count 上样式，随后正文会继承标题样式，
@@ -178,14 +202,14 @@ class WordApp:
         doc.Paragraphs(doc.Paragraphs.Count - 1).Style = style
 
     def add_table(self, rows: int, cols: int):
-        doc = self.active_doc()
+        doc = self._require_doc()
         rng = doc.Content
         rng.Collapse(0)  # wdCollapseEnd：折叠到文末
         doc.Tables.Add(rng, rows, cols)
         return doc.Tables.Count
 
     def set_table_cell(self, table_idx: int, row: int, col: int, text: str):
-        self.active_doc().Tables(table_idx).Cell(row, col).Range.Text = text
+        self._require_doc().Tables(table_idx).Cell(row, col).Range.Text = text
 
     # --- 样式系统：文字格式 ---
     def format_text(
@@ -199,7 +223,7 @@ class WordApp:
         underline: str | None = None,
         highlight: str | None = None,
     ):
-        font = self.active_doc().Paragraphs(paragraph).Range.Font
+        font = self._require_doc().Paragraphs(paragraph).Range.Font
         if bold is not None:
             font.Bold = bold
         if italic is not None:
@@ -226,7 +250,7 @@ class WordApp:
         left_indent: float | None = None,
         first_line_indent: float | None = None,
     ):
-        fmt = self.active_doc().Paragraphs(paragraph).Format
+        fmt = self._require_doc().Paragraphs(paragraph).Format
         if alignment is not None:
             fmt.Alignment = _resolve_style(alignment, _ALIGN, "对齐")
         if line_spacing is not None:
@@ -242,10 +266,10 @@ class WordApp:
 
     # --- 页面结构：页眉页脚 / 页码 / 页面设置 ---
     def set_header_text(self, text: str, section: int = 1):
-        self.active_doc().Sections(section).Headers(1).Range.Text = text
+        self._require_doc().Sections(section).Headers(1).Range.Text = text
 
     def set_footer_text(self, text: str, section: int = 1):
-        self.active_doc().Sections(section).Footers(1).Range.Text = text
+        self._require_doc().Sections(section).Footers(1).Range.Text = text
 
     def add_page_number(
         self,
@@ -253,7 +277,7 @@ class WordApp:
         color: str | None = None,
         size: float | None = None,
     ):
-        hf = self.active_doc().Sections(1).Footers(1)
+        hf = self._require_doc().Sections(1).Footers(1)
         hf.Range.Text = ""  # 清空页脚，避免与既有文本叠加
         # PageNumber 对象没有 Range 属性（gen_py 实测 AttributeError），
         # 样式与文本都落在页脚 Range 上（页码域在其中）。
@@ -276,7 +300,7 @@ class WordApp:
         bottom_margin: float | None = None,
         gutter: float | None = None,
     ):
-        ps = self.active_doc().PageSetup
+        ps = self._require_doc().PageSetup
         if orientation is not None:
             ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
         if paper is not None:
@@ -294,20 +318,20 @@ class WordApp:
 
     # --- 页面结构：目录 ---
     def insert_toc(self, levels: int = 3):
-        doc = self.active_doc()
+        doc = self._require_doc()
         doc.TablesOfContents.Add(
             doc.Range(0, 0), UseHeadingStyles=True, UpperHeadingLevel=1, LowerHeadingLevel=levels
         )
         return doc.TablesOfContents.Count
 
     def update_toc(self):
-        doc = self.active_doc()
+        doc = self._require_doc()
         doc.TablesOfContents(1).Update()
         return doc.TablesOfContents.Count
 
     # --- 列表 ---
     def add_list(self, lines: list[str], style: str = "bullet"):
-        doc = self.active_doc()
+        doc = self._require_doc()
         start = doc.Paragraphs.Count + 1  # 第一个新段落的序号
         for line in lines:
             self.write_line(line)
@@ -325,7 +349,7 @@ class WordApp:
     def merge_table_cells(
         self, table_idx: int, start_row: int, start_col: int, end_row: int, end_col: int
     ):
-        t = self.active_doc().Tables(table_idx)
+        t = self._require_doc().Tables(table_idx)
         t.Cell(start_row, start_col).Merge(t.Cell(end_row, end_col))
 
     def set_table_border(
@@ -336,7 +360,7 @@ class WordApp:
         color: str | None = None,
         sides: str | None = None,
     ):
-        t = self.active_doc().Tables(table_idx)
+        t = self._require_doc().Tables(table_idx)
         const = _resolve_style(style, _LINE_STYLE, "线型")
         for idx in _resolve_table_sides(sides):
             b = t.Borders(idx)
@@ -347,15 +371,15 @@ class WordApp:
                 b.Color = _rgb(color)
 
     def set_table_col_width(self, table_idx: int, col: int, width: float):
-        self.active_doc().Tables(table_idx).Columns(col).Width = width
+        self._require_doc().Tables(table_idx).Columns(col).Width = width
 
     def set_table_row_height(self, table_idx: int, row: int, height: float, rule: str = "at_least"):
-        r = self.active_doc().Tables(table_idx).Rows(row)
+        r = self._require_doc().Tables(table_idx).Rows(row)
         r.Height = height
         r.HeightRule = _resolve_style(rule, _ROW_HEIGHT_RULE, "行高规则")
 
     def autofit_table(self, table_idx: int, behavior: str = "content"):
-        self.active_doc().Tables(table_idx).AutoFitBehavior(
+        self._require_doc().Tables(table_idx).AutoFitBehavior(
             _resolve_style(behavior, _AUTOFIT, "自动调整")
         )
 
@@ -368,7 +392,7 @@ class WordApp:
         whole_word: bool = False,
         replace_all: bool = True,
     ):
-        f = self.active_doc().Content.Find
+        f = self._require_doc().Content.Find
         f.Execute(
             FindText=find,
             ReplaceWith=replace,
@@ -379,7 +403,7 @@ class WordApp:
         )
 
     def insert_image(self, path: str, width: float | None = None, height: float | None = None):
-        doc = self.active_doc()
+        doc = self._require_doc()
         shape = doc.InlineShapes.AddPicture(os.path.abspath(path), Range=_end_range(doc))
         if width is not None:
             shape.Width = width
@@ -388,12 +412,12 @@ class WordApp:
         return doc.InlineShapes.Count
 
     def insert_page_break(self):
-        _end_range(self.active_doc()).InsertBreak(7)  # wdPageBreak
+        _end_range(self._require_doc()).InsertBreak(7)  # wdPageBreak
 
     # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
     def read_doc_text(self):
         """读取当前文档全文文本（只读，不改任何状态）。"""
-        return self.active_doc().Content.Text
+        return self._require_doc().Content.Text
 
     def quit(self):
         # 库改全局状态（DisplayAlerts），释放前还原原值

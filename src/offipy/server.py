@@ -22,10 +22,11 @@ import threading
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 from . import __version__
 from .excel import ExcelApp
-from .exceptions import ServerStartError
+from .exceptions import ServerStartError, TargetNotFoundError
 from .paths import user_data_dir
 from .ppt import PptApp
 from .word import WordApp
@@ -36,7 +37,7 @@ _MAX_RESPONSE = 64 * 1024 * 1024  # 响应上限 64MB（超限降级 500，不�
 _TOKEN_FILENAME = "token"
 _STARTED_AT = time.time()
 
-_APPS: dict[str, object] = {}
+_APPS: dict[str, Any] = {}
 _APPS_CLASSES = {
     "excel": ExcelApp,
     "word": WordApp,
@@ -68,6 +69,7 @@ _OPS = {
             "set_number_format",
             "autofit",
             "read_range",
+            "get_target",
             "quit",
         }
     ),
@@ -101,6 +103,7 @@ _OPS = {
             "insert_image",
             "insert_page_break",
             "read_doc_text",
+            "get_target",
             "quit",
         }
     ),
@@ -118,6 +121,78 @@ _OPS = {
             "add_textbox",
             "add_picture",
             "read_slide_texts",
+            "get_target",
+            "quit",
+        }
+    ),
+}
+
+# 破坏性 op 集合（会改动文档内容/状态）：expected_target 绑定只对这类 op 生效，
+# 防止用户焦点漂移后误改到非预期的文档。Batch 5 schema 落地后由 schema 派生。
+_DESTRUCTIVE_OPS = {
+    "excel": frozenset(
+        {
+            "close_book",
+            "save",
+            "save_pdf",
+            "add_sheet",
+            "set_cell",
+            "set_range",
+            "set_col_width",
+            "format_cell",
+            "merge_cells",
+            "unmerge_cells",
+            "set_border",
+            "freeze_panes",
+            "page_setup",
+            "add_conditional_format",
+            "set_row_height",
+            "set_number_format",
+            "autofit",
+            "quit",
+        }
+    ),
+    "word": frozenset(
+        {
+            "close_doc",
+            "save",
+            "save_pdf",
+            "write",
+            "write_line",
+            "add_heading",
+            "add_table",
+            "set_table_cell",
+            "format_text",
+            "format_paragraph",
+            "set_header_text",
+            "set_footer_text",
+            "add_page_number",
+            "page_setup",
+            "insert_toc",
+            "update_toc",
+            "add_list",
+            "merge_table_cells",
+            "set_table_border",
+            "set_table_col_width",
+            "set_table_row_height",
+            "autofit_table",
+            "find_replace",
+            "insert_image",
+            "insert_page_break",
+            "quit",
+        }
+    ),
+    "ppt": frozenset(
+        {
+            "save",
+            "save_pdf",
+            "export_slides",
+            "add_slide",
+            "set_title",
+            "set_body",
+            "set_notes",
+            "add_textbox",
+            "add_picture",
             "quit",
         }
     ),
@@ -214,13 +289,46 @@ def _rebuild(app):
     return get_app(name)
 
 
-def dispatch(app, op: str, args: dict):
+def _target_matches(target: dict, expected) -> bool:
+    """expected_target 绑定：name/path 逐键精确比对，全部提供则全部须匹配。"""
+    if not isinstance(expected, dict):
+        return False
+    return all(target.get(key) == expected[key] for key in ("name", "path") if key in expected)
+
+
+def _current_targets() -> dict[str, dict | None]:
+    """当前会话各 App 的目标身份；未初始化的 App 不拉起，报 null。只读。"""
+    targets: dict[str, dict | None] = {}
+    for name in _APPS_CLASSES:
+        app = _APPS.get(name)
+        if app is None:
+            targets[name] = None
+            continue
+        try:
+            targets[name] = app.get_target()
+        except Exception:
+            targets[name] = None
+    return targets
+
+
+def dispatch(app, op: str, args: dict, app_name: str):
     if op.startswith("_"):
         raise PermissionError(f"不允许调用私有操作: {op}")
     if op != "quit" and not _alive(app):
         # 调用前主动保活检测：COM 引用已失效（用户关窗/Office 退出）则重建。
         # quit 例外：目标就是退出，app 已死时应直接成功，不反拉起新实例。
         app = _rebuild(app)
+    expected = args.pop("expected_target", None)
+    if expected is not None and op in _DESTRUCTIVE_OPS.get(app_name, frozenset()):
+        # P0-7：破坏性 op 绑定目标——不跟随用户焦点。绑定失败直接拒绝，
+        # 避免用户切到别的文档后被误改。
+        target = app.get_target()
+        if target is None:
+            raise TargetNotFoundError("没有可绑定的目标文档")
+        if not _target_matches(target, expected):
+            raise TargetNotFoundError(
+                f"目标绑定失败: 期望 {expected}，当前目标 {target.get('name')!r}"
+            )
     method = getattr(app, op, None)
     if method is None:
         raise AttributeError(f"未知操作: {op}")
@@ -268,6 +376,7 @@ class Handler(BaseHTTPRequestHandler):
                         "pid": os.getpid(),
                         "python": platform.python_version(),
                         "started_at": _STARTED_AT,
+                        "targets": _current_targets(),
                     },
                 }
             )
@@ -319,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
         # 使跨请求的 COM 对象失效，报“对象没有连接到服务器”）
         try:
             app = get_app(app_name)
-            result = dispatch(app, op, body.get("args", {}))
+            result = dispatch(app, op, body.get("args", {}), app_name)
             self._reply({"ok": True, "result": _serialize(result)})
         except Exception as e:
             tb = traceback.format_exc().strip().splitlines()

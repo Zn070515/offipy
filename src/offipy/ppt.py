@@ -6,6 +6,7 @@
 import os
 
 from . import core
+from .exceptions import TargetNotFoundError
 from .paths import ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -35,6 +36,7 @@ class PptApp:
     def active_pres(self):
         # 会话语义（P1.2）：优先解析实时 ActivePresentation（用户当前激活的
         # 文稿），仅当无活动文稿时回退缓存句柄 + liveness probe。
+        # P0-8：无活动文稿时返回 None（纯探测），绝不隐式 Presentations.Add()。
         pres = core.active_doc("ppt", "ActivePresentation")
         if pres is not None:
             self._pres = pres
@@ -43,13 +45,35 @@ class PptApp:
             return self._pres
         pres = self.app.ActivePresentation
         if pres is None:
-            pres = self.app.Presentations.Add()
+            return None
         self._pres = pres
         return pres
 
+    def _require_pres(self):
+        """操作前置：无活动演示文稿则抛 TargetNotFoundError，不隐式创建。"""
+        pres = self.active_pres()
+        if pres is None:
+            raise TargetNotFoundError("没有打开的演示文稿，请先 new_pres/open_pres")
+        return pres
+
+    def get_target(self):
+        """当前活动演示文稿身份（app/name/path）；无则返回 None。只读探测。"""
+        pres = self.active_pres()
+        if pres is None:
+            return None
+        try:
+            name = pres.Name
+        except Exception:
+            name = None
+        try:
+            path = pres.FullName
+        except Exception:
+            path = None
+        return {"app": "ppt", "name": name, "path": path}
+
     def save(self, path: str | None = None, overwrite: bool = False):
         dest = ensure_writable(path, overwrite) if path else None
-        pres = self.active_pres()
+        pres = self._require_pres()
         if dest:
             pres.SaveAs(dest)
         else:
@@ -59,12 +83,14 @@ class PptApp:
         dest = ensure_writable(path, overwrite)
         # ExportAsFixedFormat 第二位置参数是 Intent（打印=2），OutputType 才是
         # 输出格式——必须显式指定 PDF，不能只传一个 2 了事。
-        self.active_pres().ExportAsFixedFormat(dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF)
+        self._require_pres().ExportAsFixedFormat(
+            dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF
+        )
 
     def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
         """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""
         out_dir = os.path.abspath(out_dir)
-        pres = self.active_pres()
+        pres = self._require_pres()
         os.makedirs(out_dir, exist_ok=True)
         paths = []
         for i in range(1, pres.Slides.Count + 1):
@@ -75,42 +101,42 @@ class PptApp:
 
     # --- 幻灯片 ---
     def add_slide(self, layout: int = PP_LAYOUT_TEXT):
-        pres = self.active_pres()
+        pres = self._require_pres()
         pres.Slides.Add(pres.Slides.Count + 1, layout)
         return pres.Slides.Count
 
     def set_title(self, slide_idx: int, text: str):
-        slide = self.active_pres().Slides(slide_idx)
+        slide = self._require_pres().Slides(slide_idx)
         if slide.Shapes.HasTitle:
             slide.Shapes.Title.TextFrame.TextRange.Text = text
 
     def set_body(self, slide_idx: int, lines):
-        slide = self.active_pres().Slides(slide_idx)
+        slide = self._require_pres().Slides(slide_idx)
         if isinstance(lines, str):
             lines = [lines]
         ph = slide.Shapes.Placeholders(2)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
 
     def set_notes(self, slide_idx: int, text: str):
-        slide = self.active_pres().Slides(slide_idx)
+        slide = self._require_pres().Slides(slide_idx)
         slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text = text
 
     def add_textbox(
         self, slide_idx: int, left: float, top: float, width: float, height: float, text: str
     ):
-        slide = self.active_pres().Slides(slide_idx)
+        slide = self._require_pres().Slides(slide_idx)
         tb = slide.Shapes.AddTextbox(1, left, top, width, height)
         tb.TextFrame.TextRange.Text = text
 
     def add_picture(
         self, slide_idx: int, path: str, left: float, top: float, width: float, height: float
     ):
-        slide = self.active_pres().Slides(slide_idx)
+        slide = self._require_pres().Slides(slide_idx)
         slide.Shapes.AddPicture(os.path.abspath(path), 0, 0, left, top, width, height)
 
     def read_slide_texts(self):
         """逐页读取幻灯片文本：标题/正文占位符/备注，缺字段用空串。返回 list[dict]。"""
-        pres = self.active_pres()
+        pres = self._require_pres()
         result = []
         for i in range(1, pres.Slides.Count + 1):
             slide = pres.Slides(i)

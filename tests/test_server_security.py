@@ -86,6 +86,18 @@ def test_status_requires_auth(srv):
     assert result["version"]
 
 
+def test_status_targets_null_when_uninitialized(srv):
+    # P0-7/P0-8：/status 报各 App 目标身份；未初始化（未拉 Office）的 App 报
+    # null，绝不因 status 探测而拉起 Office 进程。
+    status, body = _get(srv, "/status", token=TOKEN)
+    assert status == 200
+    targets = body["result"]["targets"]
+    assert set(targets) == {"excel", "word", "ppt"}
+    assert targets["excel"] is None
+    assert targets["word"] is None
+    assert targets["ppt"] is None
+
+
 def test_call_requires_auth(srv):
     status, _ = _post(srv, {"app": "ppt", "op": "quit"})
     assert status == 401
