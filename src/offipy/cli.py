@@ -32,7 +32,7 @@ import types
 import typing
 
 from . import excel, ppt, schema, word
-from .client import call, ensure_server, server_status, stop_server
+from .client import call, ensure_server, server_status, set_port, stop_server
 from .exceptions import OffipyError
 
 _APP_CLASSES = {
@@ -239,6 +239,8 @@ def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="offipy", description="offipy CLI")
+    # P2-2 多实例：--port 指向指定端口的 server（env OFFIPY_SERVER_PORT 亦可）
+    p.add_argument("--port", type=int, help="连指定端口的 server 实例（默认 8890）")
     sub = p.add_subparsers(dest="app", required=True)
     for app in ("excel", "word", "ppt"):
         sp = sub.add_parser(app)
@@ -272,13 +274,17 @@ def build_parser() -> argparse.ArgumentParser:
         default="status",
         choices=["status", "stop", "restart"],
     )
+    srv.add_argument("--port", type=int, help="目标 server 端口（默认 8890）")
     lg = sub.add_parser("log", help="读取操作日志（oplog.jsonl，P2-3）")
     lg.add_argument("--tail", type=int, help="只显示末尾 N 条")
+    lg.add_argument("--port", type=int, help="目标 server 端口（默认 8890）")
     return p
 
 
 def _main(argv=None):
     args = build_parser().parse_args(argv)
+    if getattr(args, "port", None):
+        set_port(args.port)  # P2-2 多实例：后续调用指向该端口
     if args.app == "mcp":
         from .mcp_server import main as mcp_main
 
@@ -311,6 +317,7 @@ def _main(argv=None):
     if args.app == "log":
         from . import oplog
 
+        oplog.configure(getattr(args, "port", None) or 8890)
         entries = oplog.read(tail=args.tail)
         if not entries:
             print("（暂无操作日志）")

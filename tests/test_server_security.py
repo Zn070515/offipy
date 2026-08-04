@@ -259,7 +259,7 @@ def test_validate_host_allows_loopback_and_explicit_remote():
 def test_load_token_env_first_no_file_write(monkeypatch, tmp_path):
     monkeypatch.setenv("OFFIPY_SERVER_TOKEN", "env-token-xyz")
     monkeypatch.setattr(server, "user_data_dir", lambda: tmp_path)
-    assert server._load_token() == "env-token-xyz"
+    assert server._load_token(server.DEFAULT_PORT) == "env-token-xyz"
     assert not (tmp_path / "token").exists()  # env 模式不落盘
 
 
@@ -270,7 +270,7 @@ def test_load_token_write_failure_raises(monkeypatch, tmp_path):
     blocker.write_text("x")  # 用文件挡住 user_data_dir，mkdir 必失败
     monkeypatch.setattr(server, "user_data_dir", lambda: blocker)
     with pytest.raises(server.ServerStartError):
-        server._load_token()
+        server._load_token(server.DEFAULT_PORT)
 
 
 def test_session_internal_ops_not_in_whitelist():

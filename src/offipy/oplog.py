@@ -22,6 +22,13 @@ _PATH: Path = user_data_dir() / "oplog.jsonl"
 _THREAD_LOCK = threading.Lock()
 
 
+def configure(port: int) -> None:
+    """P2-2 多实例：操作日志按端口隔离（默认端口沿用 oplog.jsonl）。"""
+    global _PATH
+    name = "oplog.jsonl" if port == 8890 else f"oplog-{port}.jsonl"
+    _PATH = user_data_dir() / name
+
+
 def log_path() -> Path:
     """当前日志文件路径（测试可 monkeypatch _PATH 重定向）。"""
     return _PATH

@@ -38,19 +38,50 @@ _ERROR_CODE_TO_EXC = {
 }
 
 HOST = "127.0.0.1"
-PORT = 8890
+PORT = 8890  # 默认端口；多实例时用 set_port()/OFFIPY_SERVER_PORT 指向其他实例
 PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8），server 校验不匹配回 ProtocolError
 SERVER_MOD = "offipy.server"
 _TOKEN_FILENAME = "token"
-_URL = f"http://{HOST}:{PORT}"
 # 部分机器会把系统代理写进注册表且 ProxyOverride 为空，连 127.0.0.1 回环请求
 # 也会被劫持给代理（返回 502）。本地回环必须强制直连；真正出站的请求才该走代理。
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+_PORT = PORT
+
+
+def port() -> int:
+    """当前目标端口：OFFIPY_SERVER_PORT env 优先，其次 set_port() 设定。"""
+    raw = os.environ.get("OFFIPY_SERVER_PORT")
+    if raw and raw.strip().isdigit():
+        return int(raw.strip())
+    return _PORT
+
+
+def set_port(p: int) -> None:
+    """把后续调用指向指定端口的 server 实例（P2-2 多实例）。"""
+    global _PORT
+    _PORT = int(p)
+
+
+def _base_url() -> str:
+    return f"http://{HOST}:{port()}"
+
+
+def _token_path():
+    # 默认端口沿用旧文件名（token），非默认端口按端口隔离（token-{port}）
+    name = _TOKEN_FILENAME if port() == PORT else f"{_TOKEN_FILENAME}-{port()}"
+    return user_data_dir() / name
+
+
+def _pid_path():
+    # 默认端口沿用旧文件名（server.pid），非默认端口按端口隔离（server-{port}.pid）
+    name = "server.pid" if port() == PORT else f"server-{port()}.pid"
+    return user_data_dir() / name
+
 
 def _ping() -> bool:
     try:
-        with _OPENER.open(f"{_URL}/ping", timeout=1):
+        with _OPENER.open(f"{_base_url()}/ping", timeout=1):
             return True
     except Exception:
         return False
@@ -73,7 +104,7 @@ def _probe() -> str:
     - down：连接失败/超时——无进程
     """
     try:
-        req = urllib.request.Request(f"{_URL}/status", headers=_auth_headers())
+        req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers())
         with _OPENER.open(req, timeout=2) as r:
             if r.status != 200:
                 return "auth_fail" if r.status == 401 else "mismatch"
@@ -118,12 +149,12 @@ def _find_server_pid() -> int | None:
             continue
         parts = line.split()
         # 本地地址形如 127.0.0.1:8890 或 [::]:8890，精确 endswith 防 :88900 误配
-        if any(p.endswith(f":{PORT}") for p in parts[:2]):
+        if any(p.endswith(f":{port()}") for p in parts[:2]):
             pid = parts[-1]
             if pid.isdigit():
                 return int(pid)
     try:
-        raw = (user_data_dir() / "server.pid").read_text(encoding="utf-8").strip()
+        raw = _pid_path().read_text(encoding="utf-8").strip()
         if raw.isdigit():
             return int(raw)
     except OSError:
@@ -144,7 +175,7 @@ def server_status() -> dict | None:
     if _probe() != "ok":
         return None
     try:
-        req = urllib.request.Request(f"{_URL}/status", headers=_auth_headers())
+        req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers())
         with _OPENER.open(req, timeout=5) as r:
             data = json.loads(r.read().decode("utf-8"))
             if not data.get("ok"):
@@ -159,7 +190,7 @@ def server_status() -> dict | None:
 def _pid_file_matches(pid: int) -> bool:
     """pid 文件记录的进程号与端口持有者一致，才认定是『我们的』server。"""
     try:
-        raw = (user_data_dir() / "server.pid").read_text(encoding="utf-8").strip()
+        raw = _pid_path().read_text(encoding="utf-8").strip()
     except OSError:
         return False
     return raw.isdigit() and int(raw) == pid
@@ -175,7 +206,9 @@ def stop_server() -> str:
     if state == "ok":
         # 身份由 token 证明，走鉴权 /shutdown 优雅停机（不依赖 pid 强杀）
         try:
-            req = urllib.request.Request(f"{_URL}/shutdown", data=b"{}", headers=_auth_headers())
+            req = urllib.request.Request(
+                f"{_base_url()}/shutdown", data=b"{}", headers=_auth_headers()
+            )
             with _OPENER.open(req, timeout=5):
                 pass
         except Exception:
@@ -213,7 +246,7 @@ def _token() -> str | None:
     if env and env.strip():
         return env.strip()
     try:
-        token = (user_data_dir() / _TOKEN_FILENAME).read_text(encoding="utf-8").strip()
+        token = _token_path().read_text(encoding="utf-8").strip()
     except OSError:
         return None
     return token or None
@@ -234,8 +267,8 @@ def ensure_server():
     if state == "auth_fail":
         # P0-2：token 不匹配绝不杀 server——旧 client 连新 server 只报错，不误伤进程
         raise ServerStartError(
-            "8890 端口的 offipy server token 不匹配（拒绝强杀）。"
-            f"请设置正确的 OFFIPY_SERVER_TOKEN，或删除 {user_data_dir() / _TOKEN_FILENAME} "
+            f"{port()} 端口的 offipy server token 不匹配（拒绝强杀）。"
+            f"请设置正确的 OFFIPY_SERVER_TOKEN，或删除 {_token_path()} "
             "后运行 `offipy server restart`"
         )
     if state == "mismatch":
@@ -248,16 +281,16 @@ def ensure_server():
             )
         _kill_pid(pid)
     # 日志落盘用户数据目录：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
-    logpath = user_data_dir() / ".offipy.log"
+    logpath = user_data_dir() / f".offipy-{port()}.log"
     logpath.parent.mkdir(parents=True, exist_ok=True)
-    pid_file = user_data_dir() / "server.pid"
+    pid_file = _pid_path()
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     popen_kwargs = {}
     if hasattr(subprocess, "CREATE_NO_WINDOW"):
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     with open(logpath, "a", encoding="utf-8") as logfile:
         proc = subprocess.Popen(
-            [sys.executable, "-m", SERVER_MOD, "--port", str(PORT)],
+            [sys.executable, "-m", SERVER_MOD, "--port", str(port())],
             stdout=logfile,
             stderr=logfile,
             **popen_kwargs,
@@ -289,7 +322,7 @@ def request(app: str, op: str, **args) -> dict:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
     data = json.dumps({"app": app, "op": op, "args": args}).encode("utf-8")
-    req = urllib.request.Request(_URL + "/call", data=data, headers=_auth_headers())
+    req = urllib.request.Request(_base_url() + "/call", data=data, headers=_auth_headers())
     try:
         with _OPENER.open(req, timeout=120) as r:
             return json.loads(r.read().decode("utf-8"))

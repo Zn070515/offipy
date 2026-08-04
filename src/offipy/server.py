@@ -79,7 +79,13 @@ _LAST_TARGETS: dict[str, dict | None] = {name: None for name in _APPS_CLASSES}
 _TOKEN = ""
 
 
-def _load_token() -> str:
+def _token_path(port: int):
+    # 默认端口沿用旧文件名（token），非默认端口按端口隔离（token-{port}）
+    name = _TOKEN_FILENAME if port == DEFAULT_PORT else f"{_TOKEN_FILENAME}-{port}"
+    return user_data_dir() / name
+
+
+def _load_token(port: int) -> str:
     """env 优先，其次持久文件。
 
     env token 存在则直接返回（无需落盘）；否则必须落盘供 client 读取，
@@ -90,7 +96,7 @@ def _load_token() -> str:
     token = (env or "").strip()
     if token:
         return token
-    token_file = user_data_dir() / _TOKEN_FILENAME
+    token_file = _token_path(port)
     if token_file.exists():
         token = token_file.read_text(encoding="utf-8").strip()
     if not token:
@@ -524,7 +530,8 @@ def serve(
 ):
     global _TOKEN
     _validate_host(host, allow_remote)
-    _TOKEN = _load_token()
+    oplog.configure(port)  # P2-2 多实例：日志按端口隔离
+    _TOKEN = _load_token(port)
     print(f"offipy server listening on http://{host}:{port}", flush=True)
     # COM 初始化移到 worker 线程（P1-1）：HTTP 线程只入队，App 对象只被
     # worker 触碰，套间安全；/ping /status /shutdown 不碰 COM，不被排队。
