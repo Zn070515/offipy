@@ -15,6 +15,7 @@ nav:
   - 协议: protocol.md
   - 兼容矩阵: compatibility.md
   - 弃用政策: deprecation.md
+  - 性能基准: benchmarks.md
 
 theme:
   name: material
