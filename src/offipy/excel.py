@@ -197,6 +197,34 @@ class ExcelApp:
         if align is not None:
             cell_obj.HorizontalAlignment = align
 
+    # --- 合并单元格 ---
+    def merge_cells(self, sheet, range_addr: str):
+        self._ws(sheet).Range(range_addr).Merge()
+
+    def unmerge_cells(self, sheet, range_addr: str):
+        self._ws(sheet).Range(range_addr).UnMerge()
+
+    # --- 边框 ---
+    def set_border(
+        self,
+        sheet,
+        range_addr: str,
+        side: str = "all",
+        style: str = "continuous",
+        weight: str = "thin",
+        color: str | None = None,
+    ):
+        ws = self._ws(sheet)
+        rng = ws.Range(range_addr)
+        style_const = _resolve_style(style, _LINE_STYLE, "线型")
+        weight_const = _resolve_style(weight, _BORDER_WEIGHT, "线宽")
+        for idx in _resolve_sides(side):
+            b = rng.Borders(idx)
+            b.LineStyle = style_const
+            b.Weight = weight_const
+            if color is not None:
+                b.Color = _rgb(color)
+
     # --- 生命周期 ---
     def quit(self):
         core.quit_app("excel")
