@@ -125,6 +125,31 @@ def running(app: str) -> bool:
     return connect(app) is not None
 
 
+def active_doc(app: str, attr: str):
+    """会话语义（P1.2）：GetActiveObject 取实时活动文档。
+
+    attr 为 ActivePresentation / ActiveWorkbook / ActiveDocument 之一。
+    无运行实例、或该应用当前没有活动文档时返回 None（异常收拢为 None，
+    交由调用方决定回退到缓存句柄）。
+    """
+    com = _com()
+    try:
+        obj = com.win32com.GetActiveObject(_progid(app))
+        return getattr(obj, attr)
+    except com.pywintypes.com_error:
+        return None
+
+
+def doc_alive(obj) -> bool:
+    """缓存文档句柄的 liveness probe：仍连着存活实例才可用。"""
+    com = _com()
+    try:
+        _ = obj.Application.Visible
+        return True
+    except (AttributeError, com.pywintypes.com_error):
+        return False
+
+
 def _set_visible(obj, visible: bool) -> None:
     # 个别应用/版本不允许在启动早期设 Visible，静默忽略，
     # 窗口是否可见由 Office 自身决定。

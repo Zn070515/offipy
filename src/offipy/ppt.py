@@ -31,12 +31,18 @@ class PptApp:
         return self._pres
 
     def active_pres(self):
-        if self._pres is not None:
+        # 会话语义（P1.2）：优先解析实时 ActivePresentation（用户当前激活的
+        # 文稿），仅当无活动文稿时回退缓存句柄 + liveness probe。
+        pres = core.active_doc("ppt", "ActivePresentation")
+        if pres is not None:
+            self._pres = pres
+            return pres
+        if self._pres is not None and core.doc_alive(self._pres):
             return self._pres
         pres = self.app.ActivePresentation
         if pres is None:
             pres = self.app.Presentations.Add()
-            self._pres = pres
+        self._pres = pres
         return pres
 
     def save(self, path: str | None = None, overwrite: bool = False):

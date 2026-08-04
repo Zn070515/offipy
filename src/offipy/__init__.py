@@ -1,3 +1,4 @@
+from .api import Excel, Ppt, Word
 from .core import (
     PROGIDS,
     connect,
@@ -18,6 +19,9 @@ from .exceptions import (
 __version__ = "0.8.0"
 
 __all__ = [
+    "Excel",
+    "Word",
+    "Ppt",
     "connect",
     "ensure_app",
     "launch",

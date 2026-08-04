@@ -119,13 +119,19 @@ class ExcelApp:
         return self._book
 
     def active_book(self):
-        if self._book is not None:
+        # 会话语义（P1.2）：优先解析实时 ActiveWorkbook（用户当前激活的
+        # 工作簿），仅当无活动工作簿时回退缓存句柄 + liveness probe。
+        book = core.active_doc("excel", "ActiveWorkbook")
+        if book is not None:
+            self._book = book
+            return book
+        if self._book is not None and core.doc_alive(self._book):
             return self._book
         book = self.app.ActiveWorkbook
         if book is None:
             # 全新启动的 Excel 没有活动工作簿，自动新建一个保证可操作
             book = self.app.Workbooks.Add()
-            self._book = book
+        self._book = book
         return book
 
     def close_book(self, save: bool = True):

@@ -127,12 +127,18 @@ class WordApp:
         return self._doc
 
     def active_doc(self):
-        if self._doc is not None:
+        # 会话语义（P1.2）：优先解析实时 ActiveDocument（用户当前激活的
+        # 文档），仅当无活动文档时回退缓存句柄 + liveness probe。
+        doc = core.active_doc("word", "ActiveDocument")
+        if doc is not None:
+            self._doc = doc
+            return doc
+        if self._doc is not None and core.doc_alive(self._doc):
             return self._doc
         doc = self.app.ActiveDocument
         if doc is None:
             doc = self.app.Documents.Add()
-            self._doc = doc
+        self._doc = doc
         return doc
 
     def close_doc(self, save: bool = True):

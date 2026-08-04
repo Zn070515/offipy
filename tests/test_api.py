@@ -1,0 +1,137 @@
+"""高层 API facade 与会话语义（P1.2）测试：全 mock，不触 COM。
+
+覆盖：
+- Excel()/Word()/Ppt() 上下文管理器进出
+- 未显式定义的 op 经 __getattr__ 代理到底层 app
+- offipy 异常透传
+- active_doc 实时优先 / 缓存回退 / 死缓存穿透
+"""
+
+import pytest
+
+from offipy import api, exceptions
+
+
+def test_facade_context_manager_proxies_op(monkeypatch):
+    captured = {}
+
+    class FakeApp:
+        def new_book(self):
+            captured["called"] = True
+            return "book"
+
+    monkeypatch.setattr("offipy.api.ExcelApp", lambda visible=True: FakeApp())
+    with api.Excel() as x:
+        assert x.new_book() == "book"
+    assert captured["called"]
+
+
+def test_facade_quit_proxies(monkeypatch):
+    captured = {}
+
+    class FakeApp:
+        def quit(self):
+            captured["quit"] = True
+
+    monkeypatch.setattr("offipy.api.WordApp", lambda visible=True: FakeApp())
+    api.Word().quit()
+    assert captured["quit"]
+
+
+def test_facade_enter_exit_no_com(monkeypatch):
+    monkeypatch.setattr("offipy.api.PptApp", lambda visible=True: object())
+    with api.Ppt() as p:
+        assert p._app is not None
+
+
+def test_facade_propagates_offipy_exception(monkeypatch):
+    class Boom:
+        def add_slide(self):
+            raise exceptions.ConversionError("boom")
+
+    monkeypatch.setattr("offipy.api.PptApp", lambda visible=True: Boom())
+    with pytest.raises(exceptions.ConversionError, match="boom"), api.Ppt() as p:
+        p.add_slide()
+
+
+def test_facade_missing_op_raises_attribute_error(monkeypatch):
+    class FakeApp:
+        pass
+
+    monkeypatch.setattr("offipy.api.ExcelApp", lambda visible=True: FakeApp())
+    with pytest.raises(AttributeError):
+        api.Excel().no_such_op()
+
+
+def test_active_doc_prefers_live(monkeypatch):
+    from offipy import core
+    from offipy.excel import ExcelApp
+
+    live, cached = object(), object()
+    app = ExcelApp.__new__(ExcelApp)
+    app._book = cached
+    monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
+    assert app.active_book() is live
+    assert app._book is live  # 实时句柄同步回缓存
+
+
+def test_active_doc_falls_back_to_live_cache(monkeypatch):
+    from offipy import core
+    from offipy.excel import ExcelApp
+
+    cached = object()
+    app = ExcelApp.__new__(ExcelApp)
+    app._book = cached
+    monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
+    monkeypatch.setattr(core, "doc_alive", lambda obj: True)
+    assert app.active_book() is cached
+
+
+def test_active_doc_dead_cache_falls_through(monkeypatch):
+    from offipy import core
+    from offipy.excel import ExcelApp
+
+    live_book = object()
+    fake_app = type("F", (), {"ActiveWorkbook": live_book})()
+    app = ExcelApp.__new__(ExcelApp)
+    app._book = object()  # 死缓存
+    app.app = fake_app
+    monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
+    monkeypatch.setattr(core, "doc_alive", lambda obj: False)
+    assert app.active_book() is live_book
+    assert app._book is live_book
+
+
+def test_active_doc_creates_when_none(monkeypatch):
+    from offipy import core
+    from offipy.excel import ExcelApp
+
+    new_book = object()
+    fake_workbooks = type("W", (), {"Add": lambda self: new_book})()
+    fake_app = type("F", (), {"ActiveWorkbook": None, "Workbooks": fake_workbooks})()
+    app = ExcelApp.__new__(ExcelApp)
+    app.app = fake_app
+    app._book = None
+    monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
+    monkeypatch.setattr(core, "doc_alive", lambda obj: False)
+    assert app.active_book() is new_book
+
+
+def test_active_pres_prefers_live(monkeypatch):
+    from offipy import core
+    from offipy.ppt import PptApp
+
+    live = object()
+    app = PptApp.__new__(PptApp)
+    monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
+    assert app.active_pres() is live
+
+
+def test_active_word_doc_prefers_live(monkeypatch):
+    from offipy import core
+    from offipy.word import WordApp
+
+    live = object()
+    app = WordApp.__new__(WordApp)
+    monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
+    assert app.active_doc() is live
