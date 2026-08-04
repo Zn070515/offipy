@@ -26,7 +26,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from . import __version__
+from . import __version__, schema
 from .excel import ExcelApp
 from .exceptions import ComOperationError, ServerStartError, TargetNotFoundError
 from .paths import user_data_dir
@@ -50,160 +50,14 @@ _APPS_CLASSES = {
     "word": WordApp,
     "ppt": PptApp,
 }
-# 操作白名单：显式注册表，新增 RPC 必须手动登记（勿用 dir() 反射——
-# 会把 active_doc/active_book/active_pres 等会话内部方法暴露成远程可调）。
-_OPS = {
-    "excel": frozenset(
-        {
-            "new_book",
-            "open_book",
-            "close_book",
-            "save",
-            "save_pdf",
-            "add_sheet",
-            "set_cell",
-            "get_cell",
-            "set_range",
-            "set_col_width",
-            "format_cell",
-            "merge_cells",
-            "unmerge_cells",
-            "set_border",
-            "freeze_panes",
-            "page_setup",
-            "add_conditional_format",
-            "set_row_height",
-            "set_number_format",
-            "autofit",
-            "read_range",
-            "get_target",
-            "quit",
-        }
-    ),
-    "word": frozenset(
-        {
-            "new_doc",
-            "open_doc",
-            "close_doc",
-            "save",
-            "save_pdf",
-            "write",
-            "write_line",
-            "add_heading",
-            "add_table",
-            "set_table_cell",
-            "format_text",
-            "format_paragraph",
-            "set_header_text",
-            "set_footer_text",
-            "add_page_number",
-            "page_setup",
-            "insert_toc",
-            "update_toc",
-            "add_list",
-            "merge_table_cells",
-            "set_table_border",
-            "set_table_col_width",
-            "set_table_row_height",
-            "autofit_table",
-            "find_replace",
-            "insert_image",
-            "insert_page_break",
-            "read_doc_text",
-            "get_target",
-            "quit",
-        }
-    ),
-    "ppt": frozenset(
-        {
-            "new_pres",
-            "open_pres",
-            "save",
-            "save_pdf",
-            "export_slides",
-            "add_slide",
-            "set_title",
-            "set_body",
-            "set_notes",
-            "add_textbox",
-            "add_picture",
-            "read_slide_texts",
-            "get_target",
-            "quit",
-        }
-    ),
-}
+# 操作白名单：由 schema 单一来源派生（P1-2）。新增 RPC 只需在 schema.py
+# 登记一条 OpSpec + 在 App 类实现方法，server 不再手工维护集合；
+# `_` 前缀 guard 在 dispatch 保留为纵深防御（防 dir() 反射类内部方法）。
+_OPS = {app: frozenset(schema.ops(app)) for app in schema.apps()}
 
-# 破坏性 op 集合（会改动文档内容/状态）：expected_target 绑定只对这类 op 生效，
-# 防止用户焦点漂移后误改到非预期的文档。Batch 5 schema 落地后由 schema 派生。
-_DESTRUCTIVE_OPS = {
-    "excel": frozenset(
-        {
-            "close_book",
-            "save",
-            "save_pdf",
-            "add_sheet",
-            "set_cell",
-            "set_range",
-            "set_col_width",
-            "format_cell",
-            "merge_cells",
-            "unmerge_cells",
-            "set_border",
-            "freeze_panes",
-            "page_setup",
-            "add_conditional_format",
-            "set_row_height",
-            "set_number_format",
-            "autofit",
-            "quit",
-        }
-    ),
-    "word": frozenset(
-        {
-            "close_doc",
-            "save",
-            "save_pdf",
-            "write",
-            "write_line",
-            "add_heading",
-            "add_table",
-            "set_table_cell",
-            "format_text",
-            "format_paragraph",
-            "set_header_text",
-            "set_footer_text",
-            "add_page_number",
-            "page_setup",
-            "insert_toc",
-            "update_toc",
-            "add_list",
-            "merge_table_cells",
-            "set_table_border",
-            "set_table_col_width",
-            "set_table_row_height",
-            "autofit_table",
-            "find_replace",
-            "insert_image",
-            "insert_page_break",
-            "quit",
-        }
-    ),
-    "ppt": frozenset(
-        {
-            "save",
-            "save_pdf",
-            "export_slides",
-            "add_slide",
-            "set_title",
-            "set_body",
-            "set_notes",
-            "add_textbox",
-            "add_picture",
-            "quit",
-        }
-    ),
-}
+# 破坏性 op 集合（会改动文档内容/状态）：由 schema 的 destructive 标志派生。
+# expected_target 绑定只对这类 op 生效，防止用户焦点漂移后误改到非预期的文档。
+_DESTRUCTIVE_OPS = {app: frozenset(schema.destructive_ops(app)) for app in schema.apps()}
 
 # 单 COM worker（P1-1）：COM 对象只允许在创建它的线程里访问，所有 App
 # 实例都绑定 worker 线程；HTTP handler 线程只入队/取回结果，慢 op 不阻塞

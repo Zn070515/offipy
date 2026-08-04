@@ -52,3 +52,20 @@ class Ppt(_Facade):
 
     def __init__(self, visible: bool = True):
         super().__init__(PptApp(visible))
+
+
+_APP_FACTORIES = {"excel": Excel, "word": Word, "ppt": Ppt}
+
+
+def op(app: str, op_name: str, **kw):
+    """统一分发：按应用名构造 facade 并调用原子操作（与 CLI/server 同源）。
+
+    例：op("excel", "set_cell", sheet=1, cell="A1", value=42)。
+    会话式语义：每次调用复用同一 Office 实例（core.ensure_app 会话管理），
+    操作作用在当前激活文档上。返回底层 app 方法的结果。
+    """
+    factory = _APP_FACTORIES.get(app)
+    if factory is None:
+        raise ValueError(f"未知应用: {app}，可选 {list(_APP_FACTORIES)}")
+    with factory() as f:
+        return getattr(f, op_name)(**kw)

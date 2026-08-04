@@ -31,7 +31,7 @@ import sys
 import types
 import typing
 
-from . import excel, ppt, word
+from . import excel, ppt, schema, word
 from .client import call, ensure_server, server_status, stop_server
 from .exceptions import OffipyError
 
@@ -45,7 +45,7 @@ _APP_CLASSES = {
 def _parse_kwargs(tokens):
     """--key value 解析：token 值保留原始字符串，重复 key 聚合为 list。
 
-    类型转换不再在这里做（弃全局猜测）：值按目标方法签名注解由 _coerce_kwargs
+    类型转换不再在这里做（弃全局猜测）：值按 schema 声明类型由 _coerce_kwargs
     统一转换，避免 "00123" 丢前导零、"true" 被误当 bool。--payload/--json 仍
     JSON 透传（结构化值覆盖同名 kwargs）。
     """
@@ -163,26 +163,38 @@ def _coerce_value(key: str, ann, value):
         if token in _BOOL_TOKENS:
             return _BOOL_TOKENS[token]
         _coerce_fail(key, "布尔值（true/false/1/0/on/off/yes/no）", value)
-    if typing.get_origin(base) is list:
+    if base is list or typing.get_origin(base) is list:
+        # 裸 list 与 list[T] 都按列表处理：标量包一层，列表原样
         return value if isinstance(value, list) else [value]
     return value
 
 
-def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
-    """按目标方法签名注解转换参数类型（P1-3，取代全局 convert_value 猜测）。
+def _param_hints(app: str, op: str) -> dict[str, object]:
+    """参数名→类型：优先 schema 声明（P1-2 单一来源），缺失时回退方法签名。
 
-    无注解/str 保持字符串；int/float/bool/list 按注解转换；**kwargs 或未知
-    op 跳过（交给 server 侧处理）。
+    未知 op / 无法检视签名 → 空表（参数原样透传，交 server 侧校验）。
     """
+    sp = schema.spec(app, op)
+    if sp is not None and sp.params:
+        return dict(sp.params)
     cls = _APP_CLASSES.get(app)
     method = getattr(cls, op, None) if cls else None
     if method is None:
-        return kwargs
+        return {}
     try:
         sig = inspect.signature(method)
     except (TypeError, ValueError):
-        return kwargs
-    hints = {name: param.annotation for name, param in sig.parameters.items()}
+        return {}
+    return {name: param.annotation for name, param in sig.parameters.items() if name != "self"}
+
+
+def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
+    """按 schema 声明类型转换参数（P1-2，取代逐方法签名猜测）。
+
+    无注解/Any/str 保持字符串；int/float/bool/list 按声明类型转换；未知
+    op 跳过（交给 server 侧处理）。
+    """
+    hints = _param_hints(app, op)
     coerced = dict(kwargs)
     for key, value in kwargs.items():
         ann = hints.get(key)
@@ -193,28 +205,32 @@ def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
 
 
 def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
-    """未知 --key（不在该 op 签名内）→ stderr 报错并 exit 2（argparse 语义）。"""
-    cls = _APP_CLASSES.get(app)
-    method = getattr(cls, op, None) if cls else None
-    if method is None:
-        return  # 未知 op 交由 server 侧报错
-    try:
-        params = inspect.signature(method).parameters.values()
-    except (TypeError, ValueError):
-        return
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
-        return
-    known = {
-        p.name
-        for p in params
-        if p.name != "self"
-        and p.kind
-        in (
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-            inspect.Parameter.POSITIONAL_ONLY,
-        )
-    }
+    """未知 --key（不在 schema/方法参数内）→ stderr 报错并 exit 2（argparse 语义）。"""
+    sp = schema.spec(app, op)
+    if sp is not None and sp.params:
+        known = set(sp.params)
+    else:
+        cls = _APP_CLASSES.get(app)
+        method = getattr(cls, op, None) if cls else None
+        if method is None:
+            return  # 未知 op 交由 server 侧报错
+        try:
+            params = inspect.signature(method).parameters.values()
+        except (TypeError, ValueError):
+            return
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params):
+            return
+        known = {
+            p.name
+            for p in params
+            if p.name != "self"
+            and p.kind
+            in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+                inspect.Parameter.POSITIONAL_ONLY,
+            )
+        }
     for key in kwargs:
         if key not in known:
             print(f"offipy: error: {app} {op}: unrecognized arguments: --{key}", file=sys.stderr)

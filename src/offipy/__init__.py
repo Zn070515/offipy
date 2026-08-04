@@ -1,4 +1,4 @@
-from .api import Excel, Ppt, Word
+from .api import Excel, Ppt, Word, op
 from .core import (
     PROGIDS,
     connect,
@@ -27,6 +27,7 @@ __all__ = [
     "Excel",
     "Word",
     "Ppt",
+    "op",
     "connect",
     "ensure_app",
     "launch",
