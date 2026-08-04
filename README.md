@@ -60,6 +60,16 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
 - **命名布局库**：`hero-title` / `split-2col` / `cards-3` / `big-number` / `quote-frame` / `timeline` / `comparison` / `chart-dominant` / `portrait-feature` / `closer` —— `layouts.inject_layouts()` 按引用注入
 - **审美审计**：转换产出的 measurement → 留白比例 / 字号层级数 / 每页色数 / 对比度 / 跨页一致性打分，`aesthetic.audit()` 输出带分报告供迭代
 - **自动选型**：`autopick.pick()` 从内容结构推荐主题 + 每页布局 + 理由（纯规则，可覆盖）
+- **内容工作流**：把「言之有物」的骨架标准化——写一份 markdown 大纲
+  （`# 标题` + 每个 `## 段` = 一页，`- ` 要点、正文、`@layout:` 指令），
+  `office deck outline --input outline.md --theme mckinsey --out deck.html`
+  一键得到 HTML 骨架，布局自动推断、主题已注入，直接 `office deck make`。
+  示例见 [`examples/outline/quarterly-review.md`](examples/outline/quarterly-review.md)。
+
+  ```bash
+  office deck outline --input examples/outline/quarterly-review.md --out out/quarterly.html
+  office deck make --html out/quarterly.html --theme mckinsey --out out/quarterly.pptx
+  ```
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 
 ```python
@@ -121,12 +131,14 @@ src/offipy/
   aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
   autopick.py   # 自动选型：内容结构 → 推荐主题 + 每页布局 + 理由 *
   feedback.py   # 反馈学习：审计处置 → 维度权重（P2 验证版） *
+  outline.py    # 内容工作流：markdown 大纲 → 逐页结构化内容 → HTML 骨架 *
+  examples/outline/  # 内容工作流示例大纲 *
 tests/        # pytest
 docs/         # 差距分析与实施计划
 third_party/  # vendored HTML→PPTX 转换器 *
 ```
 
-\* 由「HTML-first 可编辑 PPTX 管线」计划新增，见 [`docs/superpowers/plans/`](docs/superpowers/plans/)。
+\* 由「HTML-first 可编辑 PPTX 管线」与「M1 内容工作流」计划新增，见 [`docs/superpowers/plans/`](docs/superpowers/plans/)。
 
 ## License
 
