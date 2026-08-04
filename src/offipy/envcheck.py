@@ -121,7 +121,9 @@ def _check_browser() -> Check:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        return Check("浏览器", "Chromium", False, "playwright 包未安装", hint="uv pip install playwright")
+        return Check(
+            "浏览器", "Chromium", False, "playwright 包未安装", hint="uv pip install playwright"
+        )
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)

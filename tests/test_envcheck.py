@@ -12,7 +12,6 @@ from collections import namedtuple
 
 from offipy import envcheck
 
-
 # --- 运行时 ---
 
 
