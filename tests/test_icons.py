@@ -368,14 +368,16 @@ def test_inject_icon_ph(tmp_path, fake_assets):
 
     decl = IconDecl(slide_index=1, data_icon="ph:check", view_box=(0.0, 0.0, 256.0, 256.0))
     matched = {
-        1: (
-            decl,
-            {
-                "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
-                "color": "rgb(34, 81, 255)",
-                "outerHTML": '<svg data-icon="ph:check"></svg>',
-            },
-        )
+        1: [
+            (
+                decl,
+                {
+                    "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                    "color": "rgb(34, 81, 255)",
+                    "outerHTML": '<svg data-icon="ph:check"></svg>',
+                },
+            )
+        ]
     }
     inject_icons(str(out), matched)
 
@@ -407,14 +409,16 @@ def test_inject_icon_lu(tmp_path, fake_assets):
 
     decl = IconDecl(slide_index=1, data_icon="lu:zap", view_box=(0.0, 0.0, 24.0, 24.0))
     matched = {
-        1: (
-            decl,
-            {
-                "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
-                "color": "rgb(51, 65, 85)",
-                "outerHTML": '<svg data-icon="lu:zap"></svg>',
-            },
-        )
+        1: [
+            (
+                decl,
+                {
+                    "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                    "color": "rgb(51, 65, 85)",
+                    "outerHTML": '<svg data-icon="lu:zap"></svg>',
+                },
+            )
+        ]
     }
     inject_icons(str(out), matched)
 
@@ -425,6 +429,56 @@ def test_inject_icon_lu(tmp_path, fake_assets):
     # stroke 模式：无填充
     assert freeforms[0].fill.type is None  # background() → 无填充
     assert freeforms[0].line.width > 0
+
+
+def test_inject_icons_multiple_on_page(tmp_path, fake_assets):
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.util import Emu
+
+    from offipy.icons import inject_icons
+
+    prs = _blank_pptx(tmp_path)
+    slide = prs.slides[0]
+    # 一行两个图标占位（ph:check + lu:zap）
+    slide.shapes.add_picture(
+        io.BytesIO(_png_bytes()), Emu(96 * 6350), Emu(225 * 6350), Emu(48 * 6350), Emu(48 * 6350)
+    )
+    slide.shapes.add_picture(
+        io.BytesIO(_png_bytes()), Emu(160 * 6350), Emu(225 * 6350), Emu(48 * 6350), Emu(48 * 6350)
+    )
+    out = tmp_path / "out.pptx"
+    prs.save(str(out))
+
+    decl_ph = IconDecl(slide_index=1, data_icon="ph:check", view_box=(0.0, 0.0, 256.0, 256.0))
+    decl_lu = IconDecl(slide_index=1, data_icon="lu:zap", view_box=(0.0, 0.0, 24.0, 24.0))
+    matched = {
+        1: [
+            (
+                decl_ph,
+                {
+                    "rect": {"x": 96, "y": 225, "w": 48, "h": 48},
+                    "color": "rgb(34, 81, 255)",
+                    "outerHTML": '<svg data-icon="ph:check"></svg>',
+                },
+            ),
+            (
+                decl_lu,
+                {
+                    "rect": {"x": 160, "y": 225, "w": 48, "h": 48},
+                    "color": "rgb(51, 65, 85)",
+                    "outerHTML": '<svg data-icon="lu:zap"></svg>',
+                },
+            ),
+        ]
+    }
+    inject_icons(str(out), matched)
+
+    prs2 = Presentation(str(out))
+    slide2 = prs2.slides[0]
+    freeforms = [s for s in slide2.shapes if s.shape_type == MSO_SHAPE_TYPE.FREEFORM]
+    assert len(freeforms) >= 3  # ph:check(1) + lu:zap(line+polyline 2)
+    # 两个占位 picture 都被移除
+    assert not any(s.shape_type == MSO_SHAPE_TYPE.PICTURE for s in slide2.shapes)
 
 
 def test_postprocess_skips_without_icons(tmp_path, monkeypatch):

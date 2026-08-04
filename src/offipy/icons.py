@@ -540,19 +540,20 @@ def _remove_placeholder(slide, rect: dict) -> None:
             slide.shapes._spTree.remove(shape._element)
 
 
-def inject_icons(pptx_path: str, matched: dict[int, tuple[IconDecl, dict]]) -> None:
-    """把图标占位替换成 freeform 矢量图标。matched: {slide_index: (decl, svg_record)}。"""
+def inject_icons(pptx_path: str, matched: dict[int, list[tuple[IconDecl, dict]]]) -> None:
+    """把图标占位替换成 freeform 矢量图标。matched: {slide_index: [(decl, svg_record), ...]}。"""
     from pptx import Presentation
 
     prs = Presentation(pptx_path)
-    for slide_index, (decl, svg) in matched.items():
+    for slide_index, pairs in matched.items():
         slide = prs.slides[slide_index - 1]
-        _remove_placeholder(slide, svg["rect"])
-        mode = SET_MODE[decl.data_icon.split(":", 1)[0]]
-        subpaths, stroke_width = _svg_to_subpaths(load_icon_svg(decl.data_icon))
-        _build_icon_shapes(
-            slide, mode, subpaths, stroke_width, decl.view_box, svg["rect"], svg["color"]
-        )
+        for decl, svg in pairs:
+            _remove_placeholder(slide, svg["rect"])
+            mode = SET_MODE[decl.data_icon.split(":", 1)[0]]
+            subpaths, stroke_width = _svg_to_subpaths(load_icon_svg(decl.data_icon))
+            _build_icon_shapes(
+                slide, mode, subpaths, stroke_width, decl.view_box, svg["rect"], svg["color"]
+            )
     prs.save(pptx_path)
 
 
@@ -578,7 +579,7 @@ def postprocess_icons(html_path: str, pptx_path: str) -> None:
             "请勿用 --no-visual-audit"
         )
     boxes = load_icon_boxes(meas_path)
-    matched: dict[int, tuple[IconDecl, dict]] = {}
+    matched: dict[int, list[tuple[IconDecl, dict]]] = {}
     for decl in decls:
         svgs = boxes.get(decl.slide_index, [])
         svg = _match_svg(decl, svgs)
@@ -587,6 +588,6 @@ def postprocess_icons(html_path: str, pptx_path: str) -> None:
                 f"第 {decl.slide_index} 页图标 {decl.data_icon} 没测到 <svg> 占位——"
                 "请确认图标容器是空 <svg data-icon=...>（不是 <i>/伪元素），且尺寸非 0"
             )
-        svgs.remove(svg)
-        matched[decl.slide_index] = (decl, svg)
+        svgs.remove(svg)  # 防同页重复匹配同一条 svg record
+        matched.setdefault(decl.slide_index, []).append((decl, svg))
     inject_icons(pptx_path, matched)
