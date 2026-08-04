@@ -22,12 +22,20 @@ from .client import call, convert_value, ensure_server
 
 def _parse_kwargs(tokens):
     kwargs = {}
-    it = iter(tokens)
-    for tok in it:
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
         if tok.startswith("--"):
-            kwargs[tok[2:]] = convert_value(next(it))
+            key = tok[2:]
+            if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                kwargs[key] = convert_value(tokens[i + 1])
+                i += 2
+            else:
+                kwargs[key] = True
+                i += 1
         else:
             kwargs[tok] = True
+            i += 1
     return kwargs
 
 
