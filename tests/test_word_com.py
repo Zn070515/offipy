@@ -3,6 +3,7 @@
 有 Word 时，测试进程用 core.connect("word")（单实例应用 GetActiveObject）
 直连读回断言；读不到就跑不起来 → pytestmark 兜底跳过。
 """
+
 import pytest
 
 from offipy import core
@@ -58,8 +59,12 @@ def test_add_page_number_center():
 def test_page_setup_landscape_a4_margin():
     call("word", "new_doc")
     call(
-        "word", "page_setup",
-        orientation="landscape", paper="a4", top_margin=108, bottom_margin=144,
+        "word",
+        "page_setup",
+        orientation="landscape",
+        paper="a4",
+        top_margin=108,
+        bottom_margin=144,
     )
     ps = _word().ActiveDocument.PageSetup
     assert ps.Orientation == 1  # wdOrientLandscape
