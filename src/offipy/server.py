@@ -9,7 +9,8 @@
   user_data_dir()/token），/call 与 /status 须带 Authorization: Bearer <token>；
   校验失败仅 401，不杀 server——旧 client 连新 server 只报错，不误伤进程。
 - 请求体限 16MB（超限 413）；Content-Type 必须 application/json（否则 415）。
-- 操作白名单 _OPS：只放行各 App 的公开方法，白名单外一律 400；
+- 操作白名单 _OPS：显式注册表，只放行逐条登记的方法（active_doc/active_book/
+  active_pres 等会话内部方法一律不在其内），白名单外一律 400；
   dispatch 的 `_` 前缀 guard 保留为纵深防御。
 """
 
@@ -21,11 +22,9 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-import pythoncom
-import pywintypes
-
 from . import __version__
 from .excel import ExcelApp
+from .exceptions import ServerStartError
 from .paths import user_data_dir
 from .ppt import PptApp
 from .word import WordApp
@@ -41,10 +40,82 @@ _APPS_CLASSES = {
     "word": WordApp,
     "ppt": PptApp,
 }
-# 操作白名单：各 App 的公开方法集合（dunder/私有一律不在其内）
+# 操作白名单：显式注册表，新增 RPC 必须手动登记（勿用 dir() 反射——
+# 会把 active_doc/active_book/active_pres 等会话内部方法暴露成远程可调）。
 _OPS = {
-    name: frozenset(m for m in dir(cls) if not m.startswith("_"))
-    for name, cls in _APPS_CLASSES.items()
+    "excel": frozenset(
+        {
+            "new_book",
+            "open_book",
+            "close_book",
+            "save",
+            "save_pdf",
+            "add_sheet",
+            "set_cell",
+            "get_cell",
+            "set_range",
+            "set_col_width",
+            "format_cell",
+            "merge_cells",
+            "unmerge_cells",
+            "set_border",
+            "freeze_panes",
+            "page_setup",
+            "add_conditional_format",
+            "set_row_height",
+            "set_number_format",
+            "autofit",
+            "quit",
+        }
+    ),
+    "word": frozenset(
+        {
+            "new_doc",
+            "open_doc",
+            "close_doc",
+            "save",
+            "save_pdf",
+            "write",
+            "write_line",
+            "add_heading",
+            "add_table",
+            "set_table_cell",
+            "format_text",
+            "format_paragraph",
+            "set_header_text",
+            "set_footer_text",
+            "add_page_number",
+            "page_setup",
+            "insert_toc",
+            "update_toc",
+            "add_list",
+            "merge_table_cells",
+            "set_table_border",
+            "set_table_col_width",
+            "set_table_row_height",
+            "autofit_table",
+            "find_replace",
+            "insert_image",
+            "insert_page_break",
+            "quit",
+        }
+    ),
+    "ppt": frozenset(
+        {
+            "new_pres",
+            "open_pres",
+            "save",
+            "save_pdf",
+            "export_slides",
+            "add_slide",
+            "set_title",
+            "set_body",
+            "set_notes",
+            "add_textbox",
+            "add_picture",
+            "quit",
+        }
+    ),
 }
 
 # 运行时鉴权 token；serve() 启动时装载，Handler 在请求时读取
@@ -52,19 +123,26 @@ _TOKEN = ""
 
 
 def _load_token() -> str:
-    """env 优先，其次持久文件；生效 token 一律回写持久文件供 client 读取。"""
+    """env 优先，其次持久文件。
+
+    env token 存在则直接返回（无需落盘）；否则必须落盘供 client 读取，
+    写失败抛 ServerStartError——server 不应以 client 读不到 token 的
+    假活状态启动。
+    """
     env = os.environ.get("OFFIPY_SERVER_TOKEN")
     token = (env or "").strip()
+    if token:
+        return token
     token_file = user_data_dir() / _TOKEN_FILENAME
-    if not token and token_file.exists():
+    if token_file.exists():
         token = token_file.read_text(encoding="utf-8").strip()
     if not token:
         token = secrets.token_urlsafe(32)
     try:
         token_file.parent.mkdir(parents=True, exist_ok=True)
         token_file.write_text(token, encoding="utf-8")
-    except OSError:
-        pass  # 用户目录不可写时降级为仅 env token（罕见），server 照常存活
+    except OSError as e:
+        raise ServerStartError(f"无法写入 token 文件 {token_file}: {e}") from e
     return token
 
 
@@ -101,12 +179,22 @@ _DISCONNECTED_HRS = {
 }
 
 
+def _com_error():
+    """惰性取 pywintypes.com_error；非 Windows 降级为 Exception，保 import 不炸。"""
+    try:
+        import pywintypes
+
+        return pywintypes.com_error
+    except ImportError:
+        return Exception
+
+
 def _alive(app) -> bool:
     """探测 app 持有的 COM 对象是否仍与 Office 进程保持连接。"""
     try:
         _ = app.app.Visible
         return True
-    except (pywintypes.com_error, AttributeError):
+    except (_com_error(), AttributeError):
         return False
 
 
@@ -131,7 +219,7 @@ def dispatch(app, op: str, args: dict):
         raise AttributeError(f"未知操作: {op}")
     try:
         return method(**args)
-    except pywintypes.com_error as e:
+    except _com_error() as e:
         if getattr(e, "hresult", None) not in _DISCONNECTED_HRS:
             raise
         if op == "quit":
@@ -141,7 +229,8 @@ def dispatch(app, op: str, args: dict):
 
 
 def _check_auth(handler) -> bool:
-    return handler.headers.get("Authorization", "") == f"Bearer {_TOKEN}"
+    # 恒定时间比较，避免按长度早期短路泄露 token 信息
+    return secrets.compare_digest(handler.headers.get("Authorization", ""), f"Bearer {_TOKEN}")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -233,11 +322,29 @@ class Server(HTTPServer):
     allow_reuse_address = False
 
 
-def serve(port: int = DEFAULT_PORT, host: str = "127.0.0.1"):
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+
+
+def _validate_host(host: str, allow_remote: bool) -> None:
+    """拒绝绑定非回环地址：token 挡不了端口扫描，回环是默认安全边界。"""
+    if not allow_remote and host not in _LOOPBACK_HOSTS:
+        raise ServerStartError(
+            f"拒绝绑定非回环地址 {host!r}；如需远程访问请显式传 allow_remote=True"
+        )
+
+
+def serve(
+    port: int = DEFAULT_PORT,
+    host: str = "127.0.0.1",
+    allow_remote: bool = False,
+):
     global _TOKEN
+    _validate_host(host, allow_remote)
     _TOKEN = _load_token()
     print(f"offipy server listening on http://{host}:{port}", flush=True)
     # 主线程初始化 COM 一次并保持整个服务生命周期
+    import pythoncom  # 惰性：保 import offipy.server 跨平台可跑
+
     pythoncom.CoInitialize()
     try:
         Server((host, port), Handler).serve_forever()
@@ -251,5 +358,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument(
+        "--unsafe-allow-remote",
+        action="store_true",
+        help="显式允许绑定非回环地址（有安全风险，仅测试/内网用）",
+    )
     a = ap.parse_args()
-    serve(a.port, a.host)
+    serve(a.port, a.host, allow_remote=a.unsafe_allow_remote)
