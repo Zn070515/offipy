@@ -9,12 +9,18 @@ offipy 通过本机 HTTP server 驱动真实的 Microsoft Office 应用。本文
 
 - **scope**：server 只监听 `127.0.0.1`（回环地址），不对外网开放。它持有 Office 的 COM 引用，
   因此**任何能访问该端口的进程都能驱动你当前的 Office 文档**。
-- **Bearer token 鉴权**：启动时生成随机 token，优先读环境变量 `OFFIPY_SERVER_TOKEN`，
+- **Bearer token 鉴权**：启动时生成随机 token，优先读环境变量 `OFFIPY_SERVER_TOKEN`（**不落盘**），
   否则从用户数据目录 `user_data_dir()/token` 读取/生成并持久化。所有请求必须携带
-  `Authorization: Bearer <token>` 头，否则返回 401。
-- **白名单**：只暴露各 app 类的公开方法（`dir(cls)` 中非下划线开头的成员），白名单外一律 4xx。
+  `Authorization: Bearer <token>` 头，否则返回 401。**token 写失败即启动失败**——杜绝
+  「server 假活、client 必 401」。
+- **白名单**：显式注册表（`server._OPS` 手写清单），只暴露各 app 的公开 RPC；会话内部方法
+  （`active_pres` / `active_doc` / `active_book`）与私有方法一律不暴露。新增 RPC 必须手动登记。
 - **防滥用**：请求体上限 16MB（超限 413）、`Content-Type` 必须为 `application/json`（否则 415）。
 - **健康端点**：`/ping` 免鉴权（仅握手用），`/status` 需鉴权，返回 `{version, protocol, pid, python, started_at}`。
+- **回环绑定**：默认只允许 `127.0.0.1` / `localhost` / `::1`；`--host 0.0.0.0` 需显式
+  `--unsafe-allow-remote`，否则启动拒绝（`ServerStartError`）。
+- **进程管理**：`offipy server status|stop|restart` 用 PID 文件 + netstat 探测管理常驻进程。
+  token 校验失败（401）只拒绝请求，**不杀 server**——旧 client 连新 server 只报错，不自杀进程。
 
 ### 会话语义
 
