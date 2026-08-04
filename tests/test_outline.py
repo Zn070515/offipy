@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from offipy.outline import parse_outline
+from offipy.outline import parse_outline, to_deck_html
 
 SAMPLE = """# 季度业绩回顾
 > 2026 Q2 财务摘要
@@ -87,3 +87,30 @@ def test_subtitle_only_before_first_slide():
     o = parse_outline("# T\n> 副标题\n\n## 页一\n> 页内引用\n")
     assert o.subtitle == "副标题"
     assert o.slides[0].body == ["页内引用"]
+
+
+def test_to_deck_html_skeleton_structure():
+    html = to_deck_html(parse_outline(SAMPLE))
+    assert html.count("data-pptx-slide") == 2
+    assert 'data-layout="big-number"' in html
+    assert "季度业绩回顾" not in html  # deck 标题不进页面 HTML
+    assert "营收增长" in html
+    assert "<!DOCTYPE html>" in html
+
+
+def test_to_deck_html_autopick_default_layout():
+    md = "# T\n\n## 开篇\n一句话。\n\n## 要点页\n- 甲\n- 乙\n- 丙"
+    html = to_deck_html(parse_outline(md))
+    assert 'data-layout="cards-3"' in html
+
+
+def test_to_deck_html_injects_theme():
+    html = to_deck_html(parse_outline(SAMPLE), theme="mckinsey")
+    assert '<style data-theme="mckinsey">' in html
+    assert "--bg: #FFFFFF" in html
+
+
+def test_to_deck_html_escapes_text():
+    o = parse_outline("# T\n\n## 页\n- a & b <c>\n")
+    html = to_deck_html(o)
+    assert "a &amp; b &lt;c&gt;" in html

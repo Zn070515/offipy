@@ -24,6 +24,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from html import escape
+
+from .autopick import pick_layouts
+from .design import inject_theme
 
 _DIRECTIVE_RE = re.compile(r"^\s*@(\w+)\s*:\s*(.*)$")
 _LAYOUT_INLINE_RE = re.compile(r"\s*@layout:\s*([a-z0-9-]+)\s*$")
@@ -154,3 +158,55 @@ def parse_outline(md: str) -> DeckOutline:
     if not title:
         raise ValueError("大纲缺少 # 主标题")
     return DeckOutline(title=title, subtitle=subtitle, slides=slides)
+
+
+def _esc(text: str) -> str:
+    return escape(text, quote=True)
+
+
+def _slide_section(s: SlideContent) -> str:
+    """单页 HTML 骨架。bullets 渲染成 .card（触发 autopick 的 cards 信号），
+    正文渲染成 .col（split 信号），保持与 autopick._inspect_signals 对齐。"""
+    parts = ['<section class="slide" data-pptx-slide>']
+    if s.kicker:
+        parts.append(f'  <div class="kicker">{_esc(s.kicker)}</div>')
+    parts.append(f'  <h2 class="title">{_esc(s.title)}</h2>')
+    for b in s.body:
+        parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
+    for b in s.bullets:
+        parts.append(f'  <div class="card"><div class="txt">{_esc(b)}</div></div>')
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def to_deck_html(outline: DeckOutline, theme: str | None = None) -> str:
+    """outline → 完整 HTML deck 骨架。
+
+    布局：显式 @layout 优先；否则按生成骨架的内容信号交给
+    autopick.pick_layouts 推断（首页→hero-title、要点→cards-3、
+    正文→split-2col、含%→big-number…）。theme 给定则注入内置主题
+    （design.inject_theme），否则留待后续 deck.make --theme 注入。
+    """
+    blocks = [_slide_section(s) for s in outline.slides]
+    skeleton = (
+        "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n"
+        + "\n".join(blocks)
+        + "\n</body>\n</html>"
+    )
+    picks = {p.index: p.layout for p in pick_layouts(skeleton)}
+    for i, (s, block) in enumerate(zip(outline.slides, blocks, strict=True)):
+        layout = s.layout or picks.get(s.index, "hero-title")
+        blocks[i] = re.sub(
+            r'<section class="([^"]*)" data-pptx-slide',
+            rf'<section class="\1 {layout}" data-pptx-slide data-layout="{layout}"',
+            block,
+            count=1,
+        )
+    html = (
+        "<!DOCTYPE html>\n<html>\n<head>\n</head>\n<body>\n"
+        + "\n".join(blocks)
+        + "\n</body>\n</html>"
+    )
+    if theme:
+        html = inject_theme(html, theme)
+    return html
