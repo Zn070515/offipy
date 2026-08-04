@@ -30,3 +30,10 @@ def test_starter_deck_slide_count(tmp_path):
     from pptx import Presentation
 
     assert len(Presentation(str(out)).slides) == 5
+
+
+def test_default_out_name(tmp_path):
+    from office_kit.deck import _default_out
+
+    assert _default_out(str(tmp_path / "deck.html")) == str(tmp_path / "deck.pptx")
+    assert _default_out(str(tmp_path / "deck.audited.html")) == str(tmp_path / "deck.pptx")

@@ -30,6 +30,14 @@ def _convert_cmd(
     return cmd
 
 
+def _default_out(html: str) -> str:
+    """对齐 convert.py 的默认命名：foo.audited.html → foo.pptx，否则 foo.pptx。"""
+    p = Path(html)
+    if p.name.endswith(".audited.html"):
+        return str(p.with_name(p.name[: -len(".audited.html")] + ".pptx"))
+    return str(p.with_suffix(".pptx"))
+
+
 def render(
     html: str,
     out: str | None = None,
@@ -53,7 +61,7 @@ def render(
         raise RuntimeError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
     if r.returncode != 0:
         raise RuntimeError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
-    pptx = os.path.abspath(out) if out else str(Path(html).with_suffix(".pptx"))
+    pptx = os.path.abspath(out) if out else _default_out(html)
     if not os.path.exists(pptx):
         raise FileNotFoundError(f"转换未产出 .pptx: {pptx}\n{r.stdout}\n{r.stderr}")
     return pptx
