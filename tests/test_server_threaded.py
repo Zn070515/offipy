@@ -32,7 +32,7 @@ def _get(port: int, path: str, token: str | None = None):
 
 def _post(port: int, body: dict, token: str | None = None):
     data = json.dumps(body).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "X-Offipy-Protocol": "offipy-http/v1"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     conn = http.client.HTTPConnection("127.0.0.1", port)
@@ -173,3 +173,43 @@ def test_call_error_500_with_domain_code(srv):
     assert body["ok"] is False
     assert body["error_code"] == "invalid_argument"  # 领域异常 code 往返
     assert body["resource_id"] is None
+
+
+# --- 操作日志（P2-3）：每次 op 后落一条 ---
+
+
+def test_oplog_written_on_success(srv):
+    from offipy import oplog
+
+    status, _ = _post(srv, {"app": "ppt", "op": "get_target"}, token=TOKEN)
+    assert status == 200
+    entries = oplog.read()
+    assert any(e["app"] == "ppt" and e["op"] == "get_target" and e["ok"] is True for e in entries)
+    assert all(e["session_id"] for e in entries)
+
+
+def test_oplog_written_on_error(srv):
+    from offipy import oplog
+
+    status, body = _post(srv, {"app": "ppt", "op": "boom"}, token=TOKEN)
+    assert status == 500
+    entries = oplog.read()
+    assert any(
+        e["app"] == "ppt"
+        and e["op"] == "boom"
+        and e["ok"] is False
+        and e["error_code"] == "internal"
+        for e in entries
+    )
+
+
+def test_oplog_session_id_matches_status(srv):
+    from offipy import oplog
+
+    status, body = _get(srv, "/status", token=TOKEN)
+    sid = body["result"]["session_id"]
+    assert sid
+    _post(srv, {"app": "ppt", "op": "order"}, token=TOKEN)
+    _post(srv, {"app": "ppt", "op": "boom"}, token=TOKEN)
+    assert oplog.read()  # 有记录
+    assert all(e["session_id"] == sid for e in oplog.read())

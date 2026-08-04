@@ -272,6 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="status",
         choices=["status", "stop", "restart"],
     )
+    lg = sub.add_parser("log", help="读取操作日志（oplog.jsonl，P2-3）")
+    lg.add_argument("--tail", type=int, help="只显示末尾 N 条")
     return p
 
 
@@ -305,6 +307,16 @@ def _main(argv=None):
             print(stop_server())
             ensure_server()
             print("server 已重启")
+        return
+    if args.app == "log":
+        from . import oplog
+
+        entries = oplog.read(tail=args.tail)
+        if not entries:
+            print("（暂无操作日志）")
+            return
+        for e in entries:
+            print(json.dumps(e, ensure_ascii=False))
         return
     if args.app == "deck":
         if args.action == "make":

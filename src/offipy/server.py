@@ -23,10 +23,11 @@ import secrets
 import threading
 import time
 import traceback
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from . import __version__, schema
+from . import __version__, oplog, schema
 from .excel import ExcelApp
 from .exceptions import ComOperationError, ServerStartError, TargetNotFoundError
 from .paths import user_data_dir
@@ -35,11 +36,15 @@ from .result import OperationResult
 from .word import WordApp
 
 DEFAULT_PORT = 8890
+_PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8）
 _MAX_BODY = 16 * 1024 * 1024  # 请求体上限 16MB
 _MAX_RESPONSE = 64 * 1024 * 1024  # 响应上限 64MB（超限降级 500，不写大 payload）
 _CALL_TIMEOUT = 600  # /call 入队后等 worker 结果的超时（安全兜底，op 本身由 client 超时）
 _TOKEN_FILENAME = "token"
 _STARTED_AT = time.time()
+# 本次 server 会话标识（P2-3）：随 /status 暴露并写入每条 oplog，供跨实例
+# 区分/追查；多实例（P2-2）时天然扩展。
+_SESSION_ID = str(uuid.uuid4())
 
 # 目标身份资源类型（resource_id 的中间段）
 _KINDS = {"excel": "book", "word": "doc", "ppt": "pres"}
@@ -204,6 +209,15 @@ def _resource_id(app_name: str) -> str | None:
     return f"{app_name}:{_KINDS.get(app_name, 'doc')}:{target['name']}"
 
 
+def _deprecation_warning(op_name: str) -> str | None:
+    """已弃用 op 的 warning 文案（P2-9）；未弃用返回 None。"""
+    app_name, _, op = op_name.partition(".")
+    sp = schema.spec(app_name, op)
+    if sp is not None and sp.deprecated:
+        return f"{op_name} 已弃用（deprecated），将在未来版本移除"
+    return None
+
+
 def _success_result(op_name: str, result) -> dict:
     """OperationResult 归一化成功响应；data 已 _serialize，另附 result 兼容别名。"""
     data = _serialize(result)
@@ -216,6 +230,9 @@ def _success_result(op_name: str, result) -> dict:
         data=data,
     ).to_dict()
     res["result"] = data
+    w = _deprecation_warning(op_name)
+    if w:
+        res["warning"] = w
     return res
 
 
@@ -232,7 +249,24 @@ def _error_result(op_name: str, e: Exception) -> dict:
     }
     if isinstance(e, ComOperationError) and e.hresult is not None:
         res["hresult"] = hex(e.hresult)
+    w = _deprecation_warning(op_name)
+    if w:
+        res["warning"] = w
     return res
+
+
+def _append_oplog(app_name: str, op: str, kind: str, payload: dict, duration_ms: int) -> None:
+    """每次 op 后落一条操作日志（P2-3）；失败静默，不拖垮请求。"""
+    with contextlib.suppress(Exception):
+        oplog.append(
+            _SESSION_ID,
+            app_name,
+            op,
+            ok=(kind == "ok"),
+            error_code=payload.get("error_code") if kind == "error" else None,
+            duration_ms=duration_ms,
+            resource_id=payload.get("resource_id"),
+        )
 
 
 def _ensure_worker() -> None:
@@ -278,14 +312,19 @@ def _worker_loop() -> None:
                 break
             app_name, op, args, resp_q = item
             op_name = f"{app_name}.{op}"
+            t0 = time.monotonic()
             try:
                 app = get_app(app_name)
                 result = dispatch(app, op, args, app_name)
-                resp_q.put(("ok", _success_result(op_name, result)))
+                kind, payload = "ok", _success_result(op_name, result)
             except Exception as e:
-                resp_q.put(("error", _error_result(op_name, e)))
+                kind, payload = "error", _error_result(op_name, e)
             finally:
                 _refresh_targets()
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            # 先落日志再回包：响应到达时记录已持久化，调用方 read 无竞态
+            _append_oplog(app_name, op, kind, payload, duration_ms)
+            resp_q.put((kind, payload))
     finally:
         if com_ready:
             pythoncom.CoUninitialize()
@@ -354,7 +393,8 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "result": {
                         "version": __version__,
-                        "protocol": "offipy-http/v1",
+                        "protocol": _PROTOCOL,
+                        "session_id": _SESSION_ID,
                         "pid": os.getpid(),
                         "python": platform.python_version(),
                         "started_at": _STARTED_AT,
@@ -369,6 +409,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not _check_auth(self):
             return self._reply({"ok": False, "error": "unauthorized"}, status=401)
+        if self.path in ("/call", "/shutdown") and (
+            (self.headers.get("X-Offipy-Protocol") or "") != _PROTOCOL
+        ):
+            # P2-8 请求侧握手：/call /shutdown 必须带 protocol 头，不匹配回
+            # ProtocolError——旧 client 连新 server 时协议协商失败，不静默错位。
+            return self._reply(
+                {
+                    "ok": False,
+                    "error": f"协议不匹配: 期望 {_PROTOCOL}",
+                    "error_code": "protocol",
+                },
+                status=400,
+            )
         if self.path == "/shutdown":
             # 鉴权过的优雅停机：回包后由独立线程触发 shutdown()——不能在 handler
             # 线程内直调（serve_forever 要等当前请求完成，会死锁）。

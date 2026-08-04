@@ -64,6 +64,16 @@ def test_schema_flags_internally_consistent():
                 assert op not in schema.destructive_ops(app), f"{app}.{op} 只读但被标破坏性"
 
 
+def test_overwrite_ops_are_destructive():
+    # P2-4 destructive 确认系统化：任何带 overwrite 参数（会覆盖目标文件）的
+    # op 必须标 destructive——确保没有文件写入 op 逃过破坏性标记（覆盖保护
+    # 由 paths.ensure_writable 统一施加，破坏性标记是它被调用的前提）。
+    for app in schema.apps():
+        for op, sp in schema.OPS[app].items():
+            if "overwrite" in sp.params:
+                assert sp.destructive, f"{app}.{op} 带 overwrite 参数但未标 destructive"
+
+
 # --- schema ↔ MCP 工具 ---
 
 

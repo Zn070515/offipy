@@ -305,7 +305,7 @@ src/offipy/
   outline.py    # 内容工作流：markdown 大纲 → 逐页结构化内容 → HTML 骨架 *
   _vendor/html_to_editable_pptx/  # vendored HTML→PPTX 转换器（外协代码，MIT）*
 tests/        # pytest
-docs/         # 调研与差距分析
+docs/         # 协议（protocol.md）/ 弃用政策（deprecation.md）/ 兼容矩阵（compatibility.md）与调研
 examples/     # 可运行示例（decks / outline / excel / word）
 ```
 

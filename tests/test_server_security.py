@@ -34,9 +34,12 @@ def _post(
     ctype="application/json",
     content_length: int | None = None,
     path="/call",
+    protocol="offipy-http/v1",
 ):
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": ctype}
+    if protocol is not None:
+        headers["X-Offipy-Protocol"] = protocol
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if content_length is not None:
@@ -80,10 +83,11 @@ def test_status_requires_auth(srv):
     status, body = _get(srv, "/status", token=TOKEN)
     assert status == 200
     result = body["result"]
-    for field in ("version", "protocol", "pid", "python", "started_at"):
+    for field in ("version", "protocol", "pid", "python", "started_at", "session_id"):
         assert field in result
     assert result["protocol"] == "offipy-http/v1"
     assert result["version"]
+    assert result["session_id"]  # P2-3：会话标识随 /status 暴露
 
 
 def test_status_targets_null_when_uninitialized(srv):
@@ -103,6 +107,28 @@ def test_call_requires_auth(srv):
     assert status == 401
     status, _ = _post(srv, {"app": "ppt", "op": "quit"}, token="wrong-token")
     assert status == 401
+
+
+def test_call_requires_protocol_header(srv):
+    # P2-8：/call 不带 protocol 头 → 400 + ProtocolError
+    status, body = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, protocol=None)
+    assert status == 400
+    assert body["error_code"] == "protocol"
+
+
+def test_call_rejects_wrong_protocol(srv):
+    # P2-8：协议版本不匹配 → 400 + ProtocolError，不静默错位
+    status, body = _post(srv, {"app": "ppt", "op": "quit"}, token=TOKEN, protocol="offipy-http/v2")
+    assert status == 400
+    assert body["error_code"] == "protocol"
+    assert "offipy-http/v1" in body["error"]
+
+
+def test_shutdown_requires_protocol_header(srv):
+    # P2-8：/shutdown 同样要求 protocol 头
+    status, body = _post(srv, {}, token=TOKEN, path="/shutdown", protocol=None)
+    assert status == 400
+    assert body["error_code"] == "protocol"
 
 
 def test_content_type_must_be_json(srv):
@@ -167,6 +193,35 @@ def test_shutdown_ok(srv):
     status, body = _post(srv, {}, token=TOKEN, path="/shutdown")
     assert status == 200
     assert body["ok"] is True
+
+
+def test_deprecated_op_gets_warning(monkeypatch):
+    # P2-9：schema 标 deprecated 的 op，成功/失败响应都带 warning 字段
+    from offipy import schema
+    from offipy.schema import OpSpec
+
+    orig = schema.spec
+
+    def fake_spec(app, op):
+        sp = orig(app, op)
+        if sp is not None and app == "word" and op == "new_doc":
+            return OpSpec(
+                description=sp.description,
+                readonly=sp.readonly,
+                destructive=sp.destructive,
+                deprecated=True,
+                returns=sp.returns,
+                params=sp.params,
+            )
+        return sp
+
+    monkeypatch.setattr(schema, "spec", fake_spec)
+    ok = server._success_result("word.new_doc", None)
+    assert "warning" in ok and "已弃用" in ok["warning"]
+    err = server._error_result("word.new_doc", ValueError("x"))
+    assert "warning" in err
+    plain = server._success_result("word.write_line", None)
+    assert "warning" not in plain
 
 
 def test_encode_reply_ok_normal():

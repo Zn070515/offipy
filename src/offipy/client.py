@@ -39,6 +39,7 @@ _ERROR_CODE_TO_EXC = {
 
 HOST = "127.0.0.1"
 PORT = 8890
+PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8），server 校验不匹配回 ProtocolError
 SERVER_MOD = "offipy.server"
 _TOKEN_FILENAME = "token"
 _URL = f"http://{HOST}:{PORT}"
@@ -56,7 +57,7 @@ def _ping() -> bool:
 
 
 def _auth_headers() -> dict:
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "X-Offipy-Protocol": PROTOCOL}
     token = _token()
     if token:
         headers["Authorization"] = f"Bearer {token}"
