@@ -226,5 +226,55 @@ class WordApp:
         if first_line_indent is not None:
             fmt.FirstLineIndent = first_line_indent
 
+    # --- 页面结构：页眉页脚 / 页码 / 页面设置 ---
+    def set_header_text(self, text: str, section: int = 1):
+        self.active_doc().Sections(section).Headers(1).Range.Text = text
+
+    def set_footer_text(self, text: str, section: int = 1):
+        self.active_doc().Sections(section).Footers(1).Range.Text = text
+
+    def add_page_number(
+        self,
+        alignment: str = "right",
+        color: str | None = None,
+        size: float | None = None,
+    ):
+        hf = self.active_doc().Sections(1).Footers(1)
+        hf.Range.Text = ""  # 清空页脚，避免与既有文本叠加
+        pn = hf.PageNumbers.Add(
+            PageNumberAlignment=_resolve_style(alignment, _PAGE_NUMBER_ALIGN, "页码对齐")
+        )
+        if color is not None:
+            pn.Range.Font.Color = _rgb(color)
+        if size is not None:
+            pn.Range.Font.Size = size
+        return pn.Range.Text
+
+    def page_setup(
+        self,
+        orientation: str | None = None,
+        paper: str | None = None,
+        left_margin: float | None = None,
+        right_margin: float | None = None,
+        top_margin: float | None = None,
+        bottom_margin: float | None = None,
+        gutter: float | None = None,
+    ):
+        ps = self.active_doc().PageSetup
+        if orientation is not None:
+            ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
+        if paper is not None:
+            ps.PaperSize = _resolve_style(paper, _PAPER, "纸张")
+        if left_margin is not None:
+            ps.LeftMargin = left_margin
+        if right_margin is not None:
+            ps.RightMargin = right_margin
+        if top_margin is not None:
+            ps.TopMargin = top_margin
+        if bottom_margin is not None:
+            ps.BottomMargin = bottom_margin
+        if gutter is not None:
+            ps.Gutter = gutter
+
     def quit(self):
         core.quit_app("word")
