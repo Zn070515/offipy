@@ -32,13 +32,18 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install -e ".[convert]"        # deck 管线（HTML→PPTX）需要 convert extra
+uv pip install -e ".[all]"            # 全部能力（office COM + deck 管线 + MCP）
 uv run playwright install chromium    # 转换器依赖 chromium 做 DOM 测量
 ```
 
-纯 COM 自动化只需 `uv pip install -e .`——核心依赖只有 pywin32 / mcp，开箱即用。deck 管线
-（HTML→PPTX）需要 **convert extra**（python-pptx / lxml / fonttools / playwright / Pillow）
-外加 `playwright install chromium`；转换器本体已 vendored 进 wheel，装完即可用。
+核心 `import offipy` 零额外依赖；按用途增量安装 extra：
+
+- `.[office]`：Windows COM 自动化（Word/Excel/PowerPoint）
+- `.[deck]`：HTML→可编辑 PPTX deck 管线（python-pptx / lxml / fonttools / playwright / Pillow）
+- `.[mcp]`：MCP server（`offipy mcp`，Claude Desktop 等接入）
+- `.[all]`：以上全部
+
+转换器本体已 vendored 进 wheel，装完即可用；deck 管线需额外跑 `playwright install chromium`。
 
 ## 会话语义（读我）
 
