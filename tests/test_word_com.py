@@ -66,3 +66,14 @@ def test_page_setup_landscape_a4_margin():
     assert ps.PaperSize == 7  # wdPaperA4
     assert ps.TopMargin == 108  # 非默认边距，确保赋值真的生效
     assert ps.BottomMargin == 144
+
+
+def test_insert_and_update_toc():
+    call("word", "new_doc")
+    call("word", "add_heading", text="第一章", level=1)
+    call("word", "write_line", text="正文内容")
+    call("word", "insert_toc", levels=3)
+    doc = _word().ActiveDocument
+    assert doc.TablesOfContents.Count == 1
+    call("word", "update_toc")  # 不抛错即通过
+    assert doc.TablesOfContents.Count == 1

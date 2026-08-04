@@ -276,5 +276,18 @@ class WordApp:
         if gutter is not None:
             ps.Gutter = gutter
 
+    # --- 页面结构：目录 ---
+    def insert_toc(self, levels: int = 3):
+        doc = self.active_doc()
+        doc.TablesOfContents.Add(
+            doc.Range(0, 0), UseHeadingStyles=True, UpperHeadingLevel=1, LowerHeadingLevel=levels
+        )
+        return doc.TablesOfContents.Count
+
+    def update_toc(self):
+        doc = self.active_doc()
+        doc.TablesOfContents(1).Update()
+        return doc.TablesOfContents.Count
+
     def quit(self):
         core.quit_app("word")
