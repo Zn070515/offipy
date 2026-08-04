@@ -4,9 +4,8 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
-import os
-
 from . import core
+from .paths import ensure_writable
 
 # ExportAsFixedFormat 的类型常量
 XL_TYPE_PDF = 0
@@ -136,16 +135,18 @@ class ExcelApp:
             book.Close(SaveChanges=-1 if save else 2)
         self._book = None
 
-    def save(self, path: str | None = None):
+    def save(self, path: str | None = None, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite) if path else None
         book = self.active_book()
-        if path:
+        if dest:
             # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
-            book.SaveAs(os.path.abspath(path))
+            book.SaveAs(dest)
         else:
             book.Save()
 
-    def save_pdf(self, path: str):
-        self.active_book().ExportAsFixedFormat(XL_TYPE_PDF, os.path.abspath(path))
+    def save_pdf(self, path: str, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite)
+        self.active_book().ExportAsFixedFormat(XL_TYPE_PDF, dest)
 
     # --- 工作表 ---
     def _ws(self, sheet):

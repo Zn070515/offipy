@@ -6,6 +6,7 @@
 import os
 
 from . import core
+from .paths import ensure_writable
 
 WD_FORMAT_PDF = 17
 # wdStyleHeading1..3 的 COM 常量值（-2/-3/-4），避免依赖中文/英文样式名
@@ -140,15 +141,17 @@ class WordApp:
             doc.Close(SaveChanges=save)
         self._doc = None
 
-    def save(self, path: str | None = None):
+    def save(self, path: str | None = None, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite) if path else None
         doc = self.active_doc()
-        if path:
-            doc.SaveAs2(os.path.abspath(path))
+        if dest:
+            doc.SaveAs2(dest)
         else:
             doc.Save()
 
-    def save_pdf(self, path: str):
-        self.active_doc().SaveAs2(os.path.abspath(path), FileFormat=WD_FORMAT_PDF)
+    def save_pdf(self, path: str, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite)
+        self.active_doc().SaveAs2(dest, FileFormat=WD_FORMAT_PDF)
 
     # --- 内容 ---
     def write(self, text: str):

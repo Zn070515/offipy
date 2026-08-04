@@ -6,6 +6,7 @@
 import os
 
 from . import core
+from .paths import ensure_writable
 
 PP_SAVE_PDF = 32  # ppSaveAsPDF
 PP_LAYOUT_TITLE = 1
@@ -38,15 +39,17 @@ class PptApp:
             self._pres = pres
         return pres
 
-    def save(self, path: str | None = None):
+    def save(self, path: str | None = None, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite) if path else None
         pres = self.active_pres()
-        if path:
-            pres.SaveAs(os.path.abspath(path))
+        if dest:
+            pres.SaveAs(dest)
         else:
             pres.Save()
 
-    def save_pdf(self, path: str):
-        self.active_pres().SaveAs(os.path.abspath(path), PP_SAVE_PDF)
+    def save_pdf(self, path: str, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite)
+        self.active_pres().SaveAs(dest, PP_SAVE_PDF)
 
     def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
         """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""

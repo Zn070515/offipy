@@ -13,6 +13,7 @@ from .paths import user_data_dir
 HOST = "127.0.0.1"
 PORT = 8890
 SERVER_MOD = "offipy.server"
+_TOKEN_FILENAME = "token"
 _URL = f"http://{HOST}:{PORT}"
 # 用户 VPN 在注册表写系统代理（ProxyServer=127.0.0.1:12334）且 ProxyOverride 为空，
 # 会把本地 127.0.0.1:8890 回环请求也劫持给代理（返回 502）。
@@ -26,6 +27,15 @@ def _ping() -> bool:
             return True
     except Exception:
         return False
+
+
+def _token() -> str | None:
+    """读取 server 落盘的鉴权 token；不存在/不可读（旧 server）返回 None。"""
+    try:
+        token = (user_data_dir() / _TOKEN_FILENAME).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return token or None
 
 
 def ensure_server():
@@ -66,9 +76,11 @@ def request(app: str, op: str, **args) -> dict:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
     data = json.dumps({"app": app, "op": op, "args": args}).encode("utf-8")
-    req = urllib.request.Request(
-        _URL + "/call", data=data, headers={"Content-Type": "application/json"}
-    )
+    headers = {"Content-Type": "application/json"}
+    token = _token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(_URL + "/call", data=data, headers=headers)
     with _OPENER.open(req, timeout=120) as r:
         return json.loads(r.read().decode("utf-8"))
 
