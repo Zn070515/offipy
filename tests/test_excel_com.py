@@ -23,6 +23,7 @@ def test_merge_cells_keeps_topleft_value():
     call("excel", "new_book")
     call("excel", "set_cell", sheet=1, cell="A1", value="merged")
     call("excel", "merge_cells", sheet=1, range_addr="A1:B2")
+    assert _excel().ActiveWorkbook.Sheets(1).Range("A1:B2").MergeCells is True
     assert call("excel", "get_cell", sheet=1, cell="A1") == "merged"
     call("excel", "unmerge_cells", sheet=1, range_addr="A1:B2")
     # 取消合并后 B2 可写可读
@@ -46,3 +47,4 @@ def test_set_border_thick_top():
     b = ws.Range("A1:C3").Borders(8)  # xlEdgeTop
     assert b.LineStyle == 1  # xlContinuous
     assert b.Weight == 4  # xlThick
+    assert b.Color == 255  # #FF0000 纯红 → BGR Long = 255
