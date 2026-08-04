@@ -42,6 +42,32 @@ uv run pytest tests -q
 
 `src/offipy/_vendor/` 是 vendored 外协代码（HTML→PPTX 转换器），不做 lint/format/mypy 约束。
 
+## 新增 RPC：只改 schema.py
+
+`src/offipy/schema.py` 的 `OPS` 表是操作的**唯一注册源**——server 白名单（`server._OPS`）、
+CLI 参数类型转换（`cli._coerce_kwargs`）、MCP 工具注册（`mcp_server._build_tool`）全部由它派生。
+新增操作三步：
+
+1. 在对应 App 类（`excel.py` / `word.py` / `ppt.py`）实现方法；
+2. 在 `schema.py` 登记 `OpSpec`（`params` / `returns` / `readonly` / `destructive` / `description`）；
+3. 三入口自动就绪——**不要**再手写 `server._OPS` 或 MCP decorator。
+
+一致性由 `tests/test_schema_consistency.py` 兜底（schema ↔ `server._OPS` 双向一致、每个 schema op
+都有对应 MCP 工具、readonly/destructive 标志一致）。
+
+## 异常策略 A（领域异常）
+
+库层失败一律抛 `OffipyError` 子类，**绝不再抛 `SystemExit` / 裸 COM 异常**：
+
+- `InvalidArgumentError`（`invalid_argument`）：参数/输入非法（解析、常量表、范围校验）
+- `TargetNotFoundError`（`target_not_found`）：没有打开的工作簿/文档/演示文稿，或 `expected_target` 绑定失败
+- `FileConflictError`（`file_conflict`）：目标文件已存在且未显式 `overwrite`
+- `ComOperationError`（`com_operation`）：App 方法内 COM 调用失败（保留 `hresult` 供断连识别）
+- `ProtocolError`（`protocol`）：协议不符
+
+每个异常带 `code`，与 RPC 失败响应 `error_code` 一一对应。CLI 在边界捕获转退出码 + stderr 提示；
+MCP server 捕获后转工具错误返回；库调用方直接捕获即可。
+
 ## 验证 Office 集成后必做
 
 每次测试/验证通过后，主动关掉拉起的 Office 窗口并确认进程已退：
@@ -61,6 +87,11 @@ server 进程，否则 server 加载旧代码。
 - 401 不杀 server：token 校验失败只拒绝请求，server 继续服务 `/ping` 与正确 token 的调用。
 - `offipy server status|stop|restart` 管理常驻进程（PID 文件 + netstat 探测）；改 server 代码后
   用 `offipy server restart` 重启，验证时确认 `tasklist` 无 Office 残留。
+- `tests/test_mcp_server.py` 的 in-memory 测试不起子进程：用 mcp SDK 内存流
+  （`create_client_server_memory_streams`）+ `_lowlevel_server.run` 直连协议层，验证工具注册 /
+  结构化返回 / annotations / 错误映射——无 Office 也能跑，是 MCP 改动的首选回归。
+- 非 Windows 收集：COM 测试模块的 `pytestmark` 用 `sys.platform != "win32" or not core.running(...)`
+  短路 + `com` marker，Linux 上收集不炸、自动跳过。deck 转换测试挂 `deck_render` marker。
 
 ## 资源型开发（资产库 / 图标库 / 素材）
 
