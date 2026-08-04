@@ -6,6 +6,7 @@
 import os
 
 from . import core
+from .paths import ensure_writable
 
 PP_SAVE_PDF = 32  # ppSaveAsPDF
 PP_LAYOUT_TITLE = 1
@@ -30,23 +31,31 @@ class PptApp:
         return self._pres
 
     def active_pres(self):
-        if self._pres is not None:
+        # 会话语义（P1.2）：优先解析实时 ActivePresentation（用户当前激活的
+        # 文稿），仅当无活动文稿时回退缓存句柄 + liveness probe。
+        pres = core.active_doc("ppt", "ActivePresentation")
+        if pres is not None:
+            self._pres = pres
+            return pres
+        if self._pres is not None and core.doc_alive(self._pres):
             return self._pres
         pres = self.app.ActivePresentation
         if pres is None:
             pres = self.app.Presentations.Add()
-            self._pres = pres
+        self._pres = pres
         return pres
 
-    def save(self, path: str | None = None):
+    def save(self, path: str | None = None, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite) if path else None
         pres = self.active_pres()
-        if path:
-            pres.SaveAs(os.path.abspath(path))
+        if dest:
+            pres.SaveAs(dest)
         else:
             pres.Save()
 
-    def save_pdf(self, path: str):
-        self.active_pres().SaveAs(os.path.abspath(path), PP_SAVE_PDF)
+    def save_pdf(self, path: str, overwrite: bool = False):
+        dest = ensure_writable(path, overwrite)
+        self.active_pres().SaveAs(dest, PP_SAVE_PDF)
 
     def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
         """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""

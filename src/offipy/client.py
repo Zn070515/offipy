@@ -7,13 +7,16 @@ import sys
 import time
 import urllib.request
 
+from .exceptions import RemoteCallError, ServerStartError
+from .paths import user_data_dir
+
 HOST = "127.0.0.1"
 PORT = 8890
 SERVER_MOD = "offipy.server"
+_TOKEN_FILENAME = "token"
 _URL = f"http://{HOST}:{PORT}"
-# 用户 VPN 在注册表写系统代理（ProxyServer=127.0.0.1:12334）且 ProxyOverride 为空，
-# 会把本地 127.0.0.1:8890 回环请求也劫持给代理（返回 502）。
-# 本地回环必须强制直连；真正出站的请求才该走代理。
+# 部分机器会把系统代理写进注册表且 ProxyOverride 为空，连 127.0.0.1 回环请求
+# 也会被劫持给代理（返回 502）。本地回环必须强制直连；真正出站的请求才该走代理。
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -25,23 +28,36 @@ def _ping() -> bool:
         return False
 
 
+def _token() -> str | None:
+    """读取 server 落盘的鉴权 token；不存在/不可读（旧 server）返回 None。"""
+    try:
+        token = (user_data_dir() / _TOKEN_FILENAME).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return token or None
+
+
 def ensure_server():
     if _ping():
         return
-    # 日志落盘：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
-    logpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".offipy.log")
+    # 日志落盘用户数据目录：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
+    logpath = user_data_dir() / ".offipy.log"
+    logpath.parent.mkdir(parents=True, exist_ok=True)
+    popen_kwargs = {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     with open(logpath, "a", encoding="utf-8") as logfile:
         subprocess.Popen(
             [sys.executable, "-m", SERVER_MOD, "--port", str(PORT)],
             stdout=logfile,
             stderr=logfile,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            **popen_kwargs,
         )
     for _ in range(600):  # 最多等 60 秒（首次 gencache 可能较慢）
         if _ping():
             return
         time.sleep(0.1)
-    raise SystemExit("无法启动 offipy server，请查看 .offipy.log")
+    raise ServerStartError(f"无法启动 offipy server，请查看 {logpath}")
 
 
 # 这些参数是文件/目录路径，必须在 client 侧按调用方 CWD 绝对化——
@@ -59,9 +75,11 @@ def request(app: str, op: str, **args) -> dict:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
     data = json.dumps({"app": app, "op": op, "args": args}).encode("utf-8")
-    req = urllib.request.Request(
-        _URL + "/call", data=data, headers={"Content-Type": "application/json"}
-    )
+    headers = {"Content-Type": "application/json"}
+    token = _token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(_URL + "/call", data=data, headers=headers)
     with _OPENER.open(req, timeout=120) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -69,11 +87,10 @@ def request(app: str, op: str, **args) -> dict:
 def call(app: str, op: str, **args):
     resp = request(app, op, **args)
     if not resp.get("ok"):
-        print(f"[{app}::{op}] 失败: {resp.get('error')}", file=sys.stderr)
+        msg = f"[{app}::{op}] 失败: {resp.get('error')}"
         if resp.get("trace"):
-            for line in resp["trace"]:
-                print("  " + line, file=sys.stderr)
-        raise SystemExit(1)
+            msg += "\n" + "\n".join("  " + line for line in resp["trace"])
+        raise RemoteCallError(msg)
     return resp.get("result")
 
 

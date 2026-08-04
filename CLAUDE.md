@@ -5,10 +5,10 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 ## 环境要点（务必遵守）
 
 - Windows + bash（Git Bash）。命令用 bash 语法。
-- 用 `uv` 管理 `.venv`。**本机系统 `python` 是 3.10，务必用 `.venv`（3.12）**：`uv run python ...` / `uv run pytest ...` / `uv run office ...`。
+- 用 `uv` 管理 `.venv`。**本机系统 `python` 是 3.10，务必用 `.venv`（3.12）**：`uv run python ...` / `uv run pytest ...` / `uv run offipy ...`。
 - 调用 Python 子进程前 `export PYTHONIOENCODING=utf-8`，否则 Windows 终端中文乱码。
 - 禁在长命令尾部挂 `| tail`/`| head`（管道缓冲会丢日志）；长命令用日志重定向 + Read 工具读。
-- 本机 VPN 在注册表写系统代理（`ProxyServer=127.0.0.1:12334`、`ProxyOverride` 为空），会把本地 127.0.0.1 回环请求劫持给代理（返回 502）。本地回环必须直连（`client.py` 的 `ProxyHandler({})` 已处理）；出站请求（如 `git clone`）必要时显式 `export https_proxy=http://127.0.0.1:12334`。
+- 本机 VPN 在注册表写系统代理且 `ProxyOverride` 为空，会把本地 127.0.0.1 回环请求劫持给代理（返回 502）。本地回环必须直连（`client.py` 的 `ProxyHandler({})` 已处理）；出站请求（如 `git clone`）必要时显式 `export https_proxy=<系统代理地址>`（地址/端口查注册表 `Internet Settings\ProxyServer`）。
 
 ## 工程开发纪律
 
@@ -23,9 +23,9 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 
 ### Office 窗口清理（每次验证后，必做）
 
-- **每次测试/验证通过后，主动关掉拉起的 Office 窗口**：`uv run office quit ppt`（/excel/word）。注意 `quit` 只是 `obj.Quit()`，PowerPoint 进程可能残留（加载项/关闭对话框卡住）——quit 后**确认进程已退**：`tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"`，仍有残留则 `taskkill //F //PID <pid>`，**清理后再确认一次，不留任何 Office 进程**。
+- **每次测试/验证通过后，主动关掉拉起的 Office 窗口**：`uv run offipy quit ppt`（/excel/word）。注意 `quit` 只是 `obj.Quit()`，PowerPoint 进程可能残留（加载项/关闭对话框卡住）——quit 后**确认进程已退**：`tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"`，仍有残留则 `taskkill //F //PID <pid>`，**清理后再确认一次，不留任何 Office 进程**。
 - 改了 server 依赖的模块（如 `ppt.py`、`server.py`、`mcp_server.py`）后，必须重启 8890 的 server 进程（`taskkill` 该 PID 后 CLI 自动重建），否则 server 加载旧代码。
-- **收工检查不看「是否用了 COM」**：就算本轮只跑纯转换（convert.py / Playwright 渲染），也可能有之前会话拉起的 Office 窗口没关。**每轮验证收尾，一律 `tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"` 确认零残留，不猜**。2026-08-04 教训：冒烟只跑 convert.py，想当然以为没拉 PowerPoint，实际 POWERPNT.EXE 残留 415MB；`office quit` 后仍卡加载项，需 `taskkill //F //PID`。
+- **收工检查不看「是否用了 COM」**：就算本轮只跑纯转换（convert.py / Playwright 渲染），也可能有之前会话拉起的 Office 窗口没关。**每轮验证收尾，一律 `tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"` 确认零残留，不猜**。2026-08-04 教训：冒烟只跑 convert.py，想当然以为没拉 PowerPoint，实际 POWERPNT.EXE 残留 415MB；`offipy quit` 后仍卡加载项，需 `taskkill //F //PID`。
 
 ### 资源型开发（资产库 / 图标库 / 素材）
 
@@ -52,6 +52,6 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 - **每次升版本后必查配置与文档**：版本迭代（MINOR/MAJOR 必查，PATCH 视影响面）后，先用 `Glob **/README*` 排查所有 README，再逐一核对是否需要同步更新：
   - `pyproject.toml`：依赖增减、sdist/wheel 的 include/exclude 是否覆盖新增目录（如新增 `examples/`、`docs/`）
   - 根 `README.md`：特性列表、使用示例、结构图、MCP 配置示例是否跟上新功能
-  - 各子目录 README（`third_party/`、`examples/` 等 vendored/示例说明）
+  - 各子目录 README（`src/offipy/_vendor/`、`examples/` 等 vendored/示例说明）
   - `examples/` 新增示例里出现的命令要真实可跑（冒烟过再发布）
   需要更新就随版本一起修（单独 docs commit），并确认无残留旧版本号/旧命令。

@@ -1,6 +1,6 @@
 """HTML → 可编辑 PPTX 落地管线。
 
-Claude 写 16:9 HTML 幻灯片 → third_party 的 vector-first 转换器（Playwright
+Claude 写 16:9 HTML 幻灯片 → vendored 的 vector-first 转换器（Playwright
 实测 DOM 坐标）转成原生可编辑 .pptx → 通过常驻 server 在真实 PowerPoint 里
 打开实况展示（页面在动），并逐页导出 PNG 供 Claude 视觉迭代。
 
@@ -16,11 +16,25 @@ from pathlib import Path
 
 from .client import call, ensure_server
 from .design import inject_theme
+from .exceptions import ConversionError
 from .layouts import inject_layouts
+from .paths import converter_data_dir
 
-# deck.py 位于 src/offipy/，项目根需上溯三级
-ROOT = Path(__file__).resolve().parent.parent.parent
-CONVERT_PY = ROOT / "third_party" / "html-to-editable-pptx" / "convert.py"
+# vendored 转换器位于包内 _vendor/，site-packages 下经 __file__ 自定位
+_CONVERT_DIR = Path(__file__).resolve().parent / "_vendor" / "html_to_editable_pptx"
+CONVERT_PY = _CONVERT_DIR / "convert.py"
+
+
+def _preflight_browser() -> None:
+    """渲染前置：确保 chromium 可用，否则给安装提示（P0-2）。"""
+    from .envcheck import _check_browser
+
+    check = _check_browser()
+    if not check.ok:
+        raise ConversionError(
+            "HTML→PPTX 渲染需要 Chromium："
+            f"{check.detail}。请运行: python -m playwright install chromium"
+        )
 
 
 def _convert_cmd(
@@ -63,6 +77,7 @@ def render(
     html = os.path.abspath(html)
     if not os.path.exists(html):
         raise FileNotFoundError(html)
+    _preflight_browser()
     target = html
     tmp_html = None
     if theme or apply_layouts:
@@ -86,6 +101,8 @@ def render(
         cmd = _convert_cmd(target, out, only_slides, no_visual_audit)
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
+        # 转换器可变数据（配置/lessons-learned）落用户数据目录，不写包内
+        env["OFFIPY_CONVERTER_DATA_DIR"] = str(converter_data_dir())
         try:
             r = subprocess.run(
                 cmd,
@@ -100,12 +117,12 @@ def render(
             so, se = e.stdout, e.stderr
             out = so.decode("utf-8", errors="replace") if isinstance(so, bytes) else (so or "")
             err = se.decode("utf-8", errors="replace") if isinstance(se, bytes) else (se or "")
-            raise RuntimeError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
+            raise ConversionError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
         if r.returncode != 0:
-            raise RuntimeError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
+            raise ConversionError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
         pptx = os.path.abspath(out) if out else _default_out(html)
         if not os.path.exists(pptx):
-            raise FileNotFoundError(f"转换未产出 .pptx: {pptx}\n{r.stdout}\n{r.stderr}")
+            raise ConversionError(f"转换未产出 .pptx: {pptx}\n{r.stdout}\n{r.stderr}")
         # 图表后处理：HTML 声明了 data-chart → 读 measurements 替换成原生图表。
         # 惰性 import：charts.py 内部 import python-pptx，不拖慢无图表的路径。
         from .charts import postprocess_charts

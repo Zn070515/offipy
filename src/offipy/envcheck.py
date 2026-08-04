@@ -16,6 +16,7 @@ import sys
 from dataclasses import dataclass
 
 from . import __version__
+from .exceptions import UnsupportedPlatformError
 
 # (dist 名, import 名)：pywin32 dist="pywin32" import="win32com"
 _DEPS = [
@@ -99,10 +100,10 @@ def _check_office() -> list[Check]:
     if platform.system() != "Windows":
         return [Check("Office 套件", "Word/Excel/PowerPoint", False, "仅 Windows 支持", warn=True)]
     try:
-        from . import core  # 惰性：core 顶层 import pywin32
+        from . import core  # 惰性 import；core 顶层不 import pywin32
 
         running = {app: core.running(app) for app, _ in _OFFICE}
-    except ImportError:
+    except (ImportError, UnsupportedPlatformError):
         running = {}
     out = []
     for app, progid in _OFFICE:

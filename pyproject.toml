@@ -9,6 +9,17 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "XuXin", email = "302025510036@zjut.edu.cn" }]
+keywords = ["office", "automation", "com", "word", "excel", "powerpoint", "pptx", "html-to-pptx", "mcp"]
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Office Suites",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 # pywin32 仅支持 Windows：平台标记保证在 Linux/macOS 上也能解析依赖树
 # python-pptx/lxml/fonttools/playwright/Pillow 是 HTML→可编辑 PPTX 管线的硬依赖
 # （vendored 转换器的 requirements，先前散装 pip install、未入 pyproject，
@@ -21,9 +32,14 @@ dependencies = [
     "fonttools>=4.0",
     "playwright>=1.40",
     "Pillow>=10.0",
-    "mcp>=1.0",
+    "mcp>=2.0,<3.0",
 ]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/Zn070515/office-kit"
+Changelog = "https://github.com/Zn070515/office-kit/blob/main/CHANGELOG.md"
+Source = "https://github.com/Zn070515/office-kit"
 
 [project.optional-dependencies]
 dev = [
@@ -34,26 +50,33 @@ dev = [
 ]
 
 [project.scripts]
-office = "offipy.cli:main"
+offipy = "offipy.cli:main"
 
 # 版本单一来源：从 src/offipy/__init__.py 的 __version__ 读取
 [tool.hatch.version]
 path = "src/offipy/__init__.py"
 
+# wheel-exclude 相对包根（src/offipy）：vendored 转换器主体进包，
+# 仅剔除其自检资产（assets 对比 PNG ~8MB）与自带测试套件——两者运行时不需要。
 [tool.hatch.build.targets.wheel]
 packages = ["src/offipy"]
+exclude = [
+  "_vendor/html_to_editable_pptx/assets",
+  "_vendor/html_to_editable_pptx/tests",
+]
 
 [tool.hatch.build.targets.sdist]
 # 只打包构建 wheel 所需：src + pyproject + README/LICENSE。
-# vendored 转换器（wheel 不含它）、文档、示例、测试、CI 一律不进源码包，
-# 否则 sdist 会被 third_party 的 PNG 对比图撑到 8MB+。
+# 文档、示例、测试、CI 一律不进源码包；vendored 转换器的自检资产/测试
+# 同样剔除，否则 sdist 被 PNG 对比图撑到 8MB+。
 exclude = [
   "/.github",
   "/docs",
   "/examples",
   "/logs",
   "/tests",
-  "/third_party",
+  "/src/offipy/_vendor/html_to_editable_pptx/assets",
+  "/src/offipy/_vendor/html_to_editable_pptx/tests",
 ]
 
 [tool.pytest.ini_options]
@@ -69,8 +92,9 @@ target-version = "py310"
 src = ["src", "tests"]
 # docs/ 里的 plan 文档含 python 代码块，ruff format 会递归处理 markdown，
 # 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录；
-# third_party/ 是 vendored 转换器（外协代码，不做 lint/format 约束）。
-exclude = ["docs/", "test/", "third_party/"]
+# src/offipy/_vendor/ 是 vendored 转换器（外协代码，不做 lint/format 约束）；
+# ChatGPT_v1.md 是第三方审核参考文档（未纳入仓库），不参与 format。
+exclude = ["docs/", "test/", "src/offipy/_vendor/", "ChatGPT_v1.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -81,5 +105,7 @@ quote-style = "double"
 [tool.mypy]
 python_version = "3.10"
 files = ["src/offipy"]
+# vendored 转换器是外协代码，不进类型检查（与 ruff exclude 一致）
+exclude = ["src/offipy/_vendor/"]
 ignore_missing_imports = true
 show_error_codes = true

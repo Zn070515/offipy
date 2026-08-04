@@ -140,3 +140,57 @@ def test_check_dispatch_propagates_exit_code(monkeypatch):
 
     monkeypatch.setattr("offipy.envcheck.main", lambda json_output=False: 1)
     assert cli.main(["check"]) == 1
+
+
+# --- 批次4：复杂参数系统 + 未知参数校验 ---
+
+
+def test_parse_kwargs_repeat_flag_aggregates():
+    from offipy.cli import _parse_kwargs
+
+    assert _parse_kwargs(["--lines", "a", "--lines", "b"]) == {"lines": ["a", "b"]}
+    assert _parse_kwargs(["--n", "1", "--n", "2"]) == {"n": [1, 2]}
+
+
+def test_parse_kwargs_payload_overrides():
+    from offipy.cli import _parse_kwargs
+
+    kw = _parse_kwargs(["--layout", "2", "--payload", '{"layout": 5, "nested": {"a": 1}}'])
+    assert kw["layout"] == 5
+    assert kw["nested"] == {"a": 1}
+
+
+def test_parse_kwargs_payload_bad_json_exits():
+    from offipy.cli import _parse_kwargs
+
+    with pytest.raises(SystemExit):
+        _parse_kwargs(["--payload", "{not json"])
+
+
+def test_parse_kwargs_payload_must_be_object():
+    from offipy.cli import _parse_kwargs
+
+    with pytest.raises(SystemExit):
+        _parse_kwargs(["--payload", "[1, 2]"])
+
+
+def test_validate_kwargs_rejects_unknown_exit_2(monkeypatch, capsys):
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._validate_kwargs("ppt", "add_slide", {"bogus": 1})
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
+def test_validate_kwargs_accepts_known():
+    from offipy import cli
+
+    cli._validate_kwargs("ppt", "add_slide", {"layout": 2})
+    cli._validate_kwargs("word", "add_list", {"lines": ["a", "b"], "style": "bullet"})
+
+
+def test_validate_kwargs_unknown_op_deferred_to_server():
+    from offipy import cli
+
+    cli._validate_kwargs("ppt", "no_such_op", {"x": 1})  # 不抛：未知 op 交给 server

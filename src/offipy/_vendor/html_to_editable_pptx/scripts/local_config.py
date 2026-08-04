@@ -1,11 +1,17 @@
-"""local_config.py — skill 本机状态加载 + 首次 seed。
+"""local_config.py — 本机状态加载 + 首次 seed。
 
 - `.config.local.toml`（gitignored）：用户偏好（fonts.auto_install / cleanup.default / audit.mode）
-- `references/lessons-learned.md`（gitignored）：本地沉淀工作副本；首次缺失从
+- `lessons-learned.md`（gitignored）：本地沉淀工作副本；首次缺失从
   `lessons-learned.md.example`（committed 模板）seed
+
+可变数据一律落用户数据目录（OFFIPY_CONVERTER_DATA_DIR 优先），绝不写包内——
+转换器 vendored 进 site-packages 后是只读的。offipy 拉起转换器时通过
+OFFIPY_CONVERTER_DATA_DIR 注入；独立跑 convert.py 时回退平台用户目录。
 
 文件缺失 / 解析失败 / key 缺 → 走 `_DEFAULTS`。永不抛。
 """
+import os
+import sys
 from pathlib import Path
 
 try:
@@ -16,10 +22,25 @@ except ImportError:
     except ImportError:
         tomllib = None
 
-SKILL_ROOT = Path(__file__).parent.parent
-CONFIG_PATH = SKILL_ROOT / ".config.local.toml"
-LESSONS_LOCAL = SKILL_ROOT / "references" / "lessons-learned.md"
+SKILL_ROOT = Path(__file__).resolve().parent.parent
 LESSONS_TEMPLATE = SKILL_ROOT / "references" / "lessons-learned.md.example"
+
+
+def _data_dir() -> Path:
+    """可变数据目录：OFFIPY_CONVERTER_DATA_DIR 优先，否则平台用户目录。"""
+    override = os.environ.get("OFFIPY_CONVERTER_DATA_DIR")
+    if override:
+        return Path(override)
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA")
+        root = Path(base) if base else Path.home() / ".offipy"
+    else:
+        root = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share")))
+    return root / "offipy" / "converter"
+
+
+CONFIG_PATH = _data_dir() / ".config.local.toml"
+LESSONS_LOCAL = _data_dir() / "lessons-learned.md"
 
 _DEFAULTS: dict = {
     "fonts": {"auto_install": "ask"},   # "yes" / "no" / "ask"
@@ -88,5 +109,6 @@ def seed_lessons_learned() -> None:
     """
     if LESSONS_LOCAL.exists() or not LESSONS_TEMPLATE.exists():
         return
+    LESSONS_LOCAL.parent.mkdir(parents=True, exist_ok=True)
     LESSONS_LOCAL.write_text(LESSONS_TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
     print(f"[lessons-learned] 首次运行：从模板 seed 本地工作副本 → {LESSONS_LOCAL.name}")
