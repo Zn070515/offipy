@@ -282,3 +282,34 @@ def _replace_with_chart(slide, decl: ChartDecl, box: dict, xl_type) -> None:
         for i, point in enumerate(plot.series[0].points):
             point.format.fill.solid()
             point.format.fill.fore_color.rgb = colors[i % len(colors)]
+
+
+def postprocess_charts(html_path: str, pptx_path: str) -> None:
+    """转换后调用：HTML 含图表声明 → 读 measurements → 注入原生图表。
+
+    无图表声明 → 原样返回。measurements.json 缺失（--no-visual-audit）→ RuntimeError，
+    让调用方知道图表不会变成原生。图表声明/数据非法 → ValueError（从 parse 上抛）。
+    """
+    import os
+
+    with open(html_path, encoding="utf-8") as f:
+        html_text = f.read()
+    if "data-chart" not in html_text:
+        return
+    decls = parse_chart_declarations(html_text)
+    if not decls:
+        return
+    meas_path = _measurements_path(pptx_path)
+    if not os.path.exists(meas_path):
+        raise RuntimeError(
+            f"找不到 convert 审计产物 {meas_path}——图表注入需要 measurements.json，"
+            "请勿用 --no-visual-audit"
+        )
+    boxes = load_chart_boxes(meas_path)
+    missing = [d.slide_index for d in decls if d.slide_index not in boxes]
+    if missing:
+        raise RuntimeError(
+            f'第 {missing} 页没测到图表容器（class="chart"）——请确认 deck 用了 '
+            "chart-dominant 布局且 deck make 带了 --layouts"
+        )
+    inject_native_charts(pptx_path, decls, boxes)

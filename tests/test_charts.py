@@ -6,6 +6,7 @@ import json
 import pytest
 from pptx import Presentation
 
+from offipy import charts
 from offipy.charts import (
     ChartData,
     ChartDecl,
@@ -238,6 +239,77 @@ def test_parse_chart_outside_slide_raises():
     with pytest.raises(ValueError):
         parse_chart_declarations(
             '<div class="chart" data-chart="bar" '
-            'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]]}\'></div>'
+            'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div>'
             "<section data-pptx-slide><h2>x</h2></section>"
         )
+
+
+def test_postprocess_skips_without_charts(tmp_path, monkeypatch):
+    # HTML 无 data-chart → 不读 measurements、不改 pptx
+    called = {}
+    monkeypatch.setattr(charts, "load_chart_boxes", lambda *a, **k: called.setdefault("load", True))
+    html = tmp_path / "d.html"
+    html.write_text("<section data-pptx-slide><h2>x</h2></section>", encoding="utf-8")
+    pptx = tmp_path / "d.pptx"
+    pptx.write_bytes(b"not a real pptx")
+    charts.postprocess_charts(str(html), str(pptx))  # 不抛异常、load 不被调用
+    assert "load" not in called
+
+
+def test_postprocess_missing_measurements_raises(tmp_path):
+    html = tmp_path / "d.html"
+    html.write_text(
+        '<section data-pptx-slide><div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div></section>',
+        encoding="utf-8",
+    )
+    pptx = tmp_path / "d.pptx"
+    pptx.write_bytes(b"x")
+    with pytest.raises(RuntimeError, match="measurements"):
+        charts.postprocess_charts(str(html), str(pptx))
+
+
+def test_postprocess_calls_inject(monkeypatch, tmp_path):
+    from pptx.util import Emu
+
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    prs.slides.add_slide(prs.slide_layouts[6])
+    pptx = tmp_path / "d.pptx"
+    prs.save(str(pptx))
+    html = tmp_path / "d.html"
+    html.write_text(
+        '<section data-pptx-slide><div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1,2]}]}\'></div></section>',
+        encoding="utf-8",
+    )
+    meas_dir = tmp_path / "d_audit" / "_cache"
+    meas_dir.mkdir(parents=True)
+    (meas_dir / "measurements.json").write_text(
+        json.dumps(
+            {
+                "slides": [
+                    {
+                        "slide": {},
+                        "records": [
+                            {
+                                "id": 1,
+                                "kind": "shape",
+                                "tag": "div",
+                                "className": "chart",
+                                "rect": {"x": 100, "y": 200, "w": 800, "h": 500},
+                                "text": "",
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    charts.postprocess_charts(str(html), str(pptx))
+
+    prs2 = Presentation(str(pptx))
+    assert any(s.has_chart for s in prs2.slides[0].shapes)
