@@ -164,3 +164,11 @@ def test_chart_slide_skips_bullets_as_cards():
     html = to_deck_html(parse_outline(md))
     assert '<div class="cards">' not in html
     assert '<div class="chart"' in html
+
+
+def test_chart_data_without_chart_roundtrips():
+    o = parse_outline(
+        '# T\n\n## 页\n@chart-data: {"categories":["a"],"series":[{"name":"s","values":[1]}]}\n'
+    )
+    o2 = parse_outline(o.markdown())
+    assert o2.to_dict() == o.to_dict()

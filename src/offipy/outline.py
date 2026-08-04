@@ -98,9 +98,11 @@ class DeckOutline:
                 lines.append(b)
             for b in s.bullets:
                 lines.append(f"- {b}")
-            if s.chart_type:
-                lines.append(f"@chart: {s.chart_type}")
-                lines.append(f"@chart-data: {s.chart_data}")
+            if s.chart_type or s.chart_data:
+                if s.chart_type:
+                    lines.append(f"@chart: {s.chart_type}")
+                if s.chart_data:
+                    lines.append(f"@chart-data: {s.chart_data}")
             if s.note:
                 lines.append(f"@notes: {s.note}")
         return "\n".join(lines) + "\n"
