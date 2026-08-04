@@ -27,6 +27,16 @@ def _call(app: str, op: str, **kwargs):
     return resp.get("result")
 
 
+def _invoke(app: str, op: str, **kwargs):
+    """统一返回封装：void op 返回 "ok (op)"，有值 op 结构化透传（int/list/str 等）。
+
+    COM 对象结果在 server 侧 _serialize 成 null，落到这里就是 None → 返回
+    确认串；真实有值的 op（总页数、表格数、文件列表、单元格值…）原样透传。
+    """
+    result = _call(app, op, **kwargs)
+    return result if result is not None else f"ok ({op})"
+
+
 server = MCPServer(
     name="offipy",
     title="offipy Office COM 自动化",
@@ -48,7 +58,7 @@ server = MCPServer(
     description="在 PowerPoint 中新建空白演示文稿，之后的操作都作用在它上面。",
 )
 def ppt_new_presentation() -> str:
-    return str(_call("ppt", "new_pres"))
+    return _invoke("ppt", "new_pres")
 
 
 @server.tool(
@@ -56,23 +66,25 @@ def ppt_new_presentation() -> str:
     description="在 PowerPoint 中打开现有 .pptx，并把它设为当前文稿。",
 )
 def ppt_open_presentation(path: str) -> str:
-    return str(_call("ppt", "open_pres", path=path))
+    return _invoke("ppt", "open_pres", path=path)
 
 
 @server.tool(
     title="保存演示文稿",
-    description="保存当前演示文稿。给 path 则另存到该路径（.pptx）。",
+    description=(
+        "保存当前演示文稿。给 path 则另存到该路径（.pptx）；overwrite=True 允许覆盖已存在文件。"
+    ),
 )
-def ppt_save(path: str | None = None) -> str:
-    return str(_call("ppt", "save", path=path))
+def ppt_save(path: str | None = None, overwrite: bool = False) -> str:
+    return _invoke("ppt", "save", path=path, overwrite=overwrite)
 
 
 @server.tool(
     title="导出 PDF",
-    description="把当前演示文稿导出为 PDF 到指定路径。",
+    description="把当前演示文稿导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。",
 )
-def ppt_save_pdf(path: str) -> str:
-    return str(_call("ppt", "save_pdf", path=path))
+def ppt_save_pdf(path: str, overwrite: bool = False) -> str:
+    return _invoke("ppt", "save_pdf", path=path, overwrite=overwrite)
 
 
 @server.tool(
@@ -83,7 +95,7 @@ def ppt_save_pdf(path: str) -> str:
     ),
 )
 def ppt_export_slides(out_dir: str, width: int = 1920, height: int = 1080) -> list[str]:
-    return _call("ppt", "export_slides", out_dir=out_dir, width=width, height=height)
+    return _invoke("ppt", "export_slides", out_dir=out_dir, width=width, height=height)
 
 
 @server.tool(
@@ -94,7 +106,7 @@ def ppt_export_slides(out_dir: str, width: int = 1920, height: int = 1080) -> li
     ),
 )
 def ppt_add_slide(layout: int = 2) -> int:
-    return _call("ppt", "add_slide", layout=layout)
+    return _invoke("ppt", "add_slide", layout=layout)
 
 
 @server.tool(
@@ -102,7 +114,7 @@ def ppt_add_slide(layout: int = 2) -> int:
     description="设置第 slide_idx 张幻灯片的标题文本。",
 )
 def ppt_set_title(slide_idx: int, text: str) -> str:
-    return str(_call("ppt", "set_title", slide_idx=slide_idx, text=text))
+    return _invoke("ppt", "set_title", slide_idx=slide_idx, text=text)
 
 
 @server.tool(
@@ -110,7 +122,7 @@ def ppt_set_title(slide_idx: int, text: str) -> str:
     description="设置第 slide_idx 张幻灯片的正文占位符文本；lines 为逐行字符串列表。",
 )
 def ppt_set_body(slide_idx: int, lines: str | list[str]) -> str:
-    return str(_call("ppt", "set_body", slide_idx=slide_idx, lines=lines))
+    return _invoke("ppt", "set_body", slide_idx=slide_idx, lines=lines)
 
 
 @server.tool(
@@ -118,7 +130,7 @@ def ppt_set_body(slide_idx: int, lines: str | list[str]) -> str:
     description="写入第 slide_idx 张幻灯片的演讲者备注。",
 )
 def ppt_set_notes(slide_idx: int, text: str) -> str:
-    return str(_call("ppt", "set_notes", slide_idx=slide_idx, text=text))
+    return _invoke("ppt", "set_notes", slide_idx=slide_idx, text=text)
 
 
 @server.tool(
@@ -128,17 +140,15 @@ def ppt_set_notes(slide_idx: int, text: str) -> str:
 def ppt_add_textbox(
     slide_idx: int, left: float, top: float, width: float, height: float, text: str
 ) -> str:
-    return str(
-        _call(
-            "ppt",
-            "add_textbox",
-            slide_idx=slide_idx,
-            left=left,
-            top=top,
-            width=width,
-            height=height,
-            text=text,
-        )
+    return _invoke(
+        "ppt",
+        "add_textbox",
+        slide_idx=slide_idx,
+        left=left,
+        top=top,
+        width=width,
+        height=height,
+        text=text,
     )
 
 
@@ -149,17 +159,15 @@ def ppt_add_textbox(
 def ppt_add_picture(
     slide_idx: int, path: str, left: float, top: float, width: float, height: float
 ) -> str:
-    return str(
-        _call(
-            "ppt",
-            "add_picture",
-            slide_idx=slide_idx,
-            path=path,
-            left=left,
-            top=top,
-            width=width,
-            height=height,
-        )
+    return _invoke(
+        "ppt",
+        "add_picture",
+        slide_idx=slide_idx,
+        path=path,
+        left=left,
+        top=top,
+        width=width,
+        height=height,
     )
 
 
@@ -171,7 +179,7 @@ def ppt_add_picture(
     description="在 Word 中新建空白文档，之后的操作都作用在它上面。",
 )
 def word_new_document() -> str:
-    return str(_call("word", "new_doc"))
+    return _invoke("word", "new_doc")
 
 
 @server.tool(
@@ -179,23 +187,23 @@ def word_new_document() -> str:
     description="在 Word 中打开现有 .docx/.doc，并把它设为当前文档。",
 )
 def word_open_document(path: str) -> str:
-    return str(_call("word", "open_doc", path=path))
+    return _invoke("word", "open_doc", path=path)
 
 
 @server.tool(
     title="保存文档",
-    description="保存当前文档。给 path 则另存到该路径。",
+    description="保存当前文档。给 path 则另存到该路径；overwrite=True 允许覆盖已存在文件。",
 )
-def word_save(path: str | None = None) -> str:
-    return str(_call("word", "save", path=path))
+def word_save(path: str | None = None, overwrite: bool = False) -> str:
+    return _invoke("word", "save", path=path, overwrite=overwrite)
 
 
 @server.tool(
     title="导出 PDF",
-    description="把当前 Word 文档导出为 PDF 到指定路径。",
+    description="把当前 Word 文档导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。",
 )
-def word_save_pdf(path: str) -> str:
-    return str(_call("word", "save_pdf", path=path))
+def word_save_pdf(path: str, overwrite: bool = False) -> str:
+    return _invoke("word", "save_pdf", path=path, overwrite=overwrite)
 
 
 @server.tool(
@@ -203,7 +211,7 @@ def word_save_pdf(path: str) -> str:
     description="在文档末尾追加文本（不换行）。",
 )
 def word_write(text: str) -> str:
-    return str(_call("word", "write", text=text))
+    return _invoke("word", "write", text=text)
 
 
 @server.tool(
@@ -211,7 +219,7 @@ def word_write(text: str) -> str:
     description="在文档末尾追加一行文本（自动换行）。",
 )
 def word_write_line(text: str) -> str:
-    return str(_call("word", "write_line", text=text))
+    return _invoke("word", "write_line", text=text)
 
 
 @server.tool(
@@ -219,7 +227,7 @@ def word_write_line(text: str) -> str:
     description="在文档末尾添加标题行并应用 Heading 样式（level 1-3）。",
 )
 def word_add_heading(text: str, level: int = 1) -> str:
-    return str(_call("word", "add_heading", text=text, level=level))
+    return _invoke("word", "add_heading", text=text, level=level)
 
 
 @server.tool(
@@ -227,7 +235,7 @@ def word_add_heading(text: str, level: int = 1) -> str:
     description="在文档末尾添加 rows x cols 表格，返回当前表格数。",
 )
 def word_add_table(rows: int, cols: int) -> int:
-    return _call("word", "add_table", rows=rows, cols=cols)
+    return _invoke("word", "add_table", rows=rows, cols=cols)
 
 
 @server.tool(
@@ -235,7 +243,7 @@ def word_add_table(rows: int, cols: int) -> int:
     description="设置第 table_idx 个表格的 (row, col) 单元格文本（行列 1 基）。",
 )
 def word_set_table_cell(table_idx: int, row: int, col: int, text: str) -> str:
-    return str(_call("word", "set_table_cell", table_idx=table_idx, row=row, col=col, text=text))
+    return _invoke("word", "set_table_cell", table_idx=table_idx, row=row, col=col, text=text)
 
 
 @server.tool(
@@ -243,7 +251,7 @@ def word_set_table_cell(table_idx: int, row: int, col: int, text: str) -> str:
     description="关闭当前 Word 文档，save=True 则保存。",
 )
 def word_close_document(save: bool = True) -> str:
-    return str(_call("word", "close_doc", save=save))
+    return _invoke("word", "close_doc", save=save)
 
 
 @server.tool(
@@ -264,19 +272,17 @@ def word_format_text(
     underline: str | None = None,
     highlight: str | None = None,
 ) -> str:
-    return str(
-        _call(
-            "word",
-            "format_text",
-            paragraph=paragraph,
-            bold=bold,
-            italic=italic,
-            size=size,
-            name=name,
-            color=color,
-            underline=underline,
-            highlight=highlight,
-        )
+    return _invoke(
+        "word",
+        "format_text",
+        paragraph=paragraph,
+        bold=bold,
+        italic=italic,
+        size=size,
+        name=name,
+        color=color,
+        underline=underline,
+        highlight=highlight,
     )
 
 
@@ -297,18 +303,16 @@ def word_format_paragraph(
     left_indent: float | None = None,
     first_line_indent: float | None = None,
 ) -> str:
-    return str(
-        _call(
-            "word",
-            "format_paragraph",
-            paragraph=paragraph,
-            alignment=alignment,
-            line_spacing=line_spacing,
-            space_before=space_before,
-            space_after=space_after,
-            left_indent=left_indent,
-            first_line_indent=first_line_indent,
-        )
+    return _invoke(
+        "word",
+        "format_paragraph",
+        paragraph=paragraph,
+        alignment=alignment,
+        line_spacing=line_spacing,
+        space_before=space_before,
+        space_after=space_after,
+        left_indent=left_indent,
+        first_line_indent=first_line_indent,
     )
 
 
@@ -317,7 +321,7 @@ def word_format_paragraph(
     description="设置第 section 节的页眉文本。",
 )
 def word_set_header_text(text: str, section: int = 1) -> str:
-    return str(_call("word", "set_header_text", text=text, section=section))
+    return _invoke("word", "set_header_text", text=text, section=section)
 
 
 @server.tool(
@@ -325,7 +329,7 @@ def word_set_header_text(text: str, section: int = 1) -> str:
     description="设置第 section 节的页脚文本。",
 )
 def word_set_footer_text(text: str, section: int = 1) -> str:
-    return str(_call("word", "set_footer_text", text=text, section=section))
+    return _invoke("word", "set_footer_text", text=text, section=section)
 
 
 @server.tool(
@@ -338,7 +342,7 @@ def word_set_footer_text(text: str, section: int = 1) -> str:
 def word_add_page_number(
     alignment: str = "right", color: str | None = None, size: float | None = None
 ) -> str:
-    return str(_call("word", "add_page_number", alignment=alignment, color=color, size=size))
+    return _invoke("word", "add_page_number", alignment=alignment, color=color, size=size)
 
 
 @server.tool(
@@ -357,18 +361,16 @@ def word_page_setup(
     bottom_margin: float | None = None,
     gutter: float | None = None,
 ) -> str:
-    return str(
-        _call(
-            "word",
-            "page_setup",
-            orientation=orientation,
-            paper=paper,
-            left_margin=left_margin,
-            right_margin=right_margin,
-            top_margin=top_margin,
-            bottom_margin=bottom_margin,
-            gutter=gutter,
-        )
+    return _invoke(
+        "word",
+        "page_setup",
+        orientation=orientation,
+        paper=paper,
+        left_margin=left_margin,
+        right_margin=right_margin,
+        top_margin=top_margin,
+        bottom_margin=bottom_margin,
+        gutter=gutter,
     )
 
 
@@ -377,7 +379,7 @@ def word_page_setup(
     description="在文档开头插入目录（基于标题样式，levels 控制最深标题级别）。",
 )
 def word_insert_toc(levels: int = 3) -> str:
-    return str(_call("word", "insert_toc", levels=levels))
+    return _invoke("word", "insert_toc", levels=levels)
 
 
 @server.tool(
@@ -385,7 +387,7 @@ def word_insert_toc(levels: int = 3) -> str:
     description="更新文档中的目录域（新增/删除标题后刷新页码）。",
 )
 def word_update_toc() -> str:
-    return str(_call("word", "update_toc"))
+    return _invoke("word", "update_toc")
 
 
 @server.tool(
@@ -393,7 +395,7 @@ def word_update_toc() -> str:
     description="在文档末尾追加 lines 列表；style 取 bullet（项目符号）/ numbered（编号）。",
 )
 def word_add_list(lines: list[str], style: str = "bullet") -> str:
-    return str(_call("word", "add_list", lines=lines, style=style))
+    return _invoke("word", "add_list", lines=lines, style=style)
 
 
 @server.tool(
@@ -405,16 +407,14 @@ def word_add_list(lines: list[str], style: str = "bullet") -> str:
 def word_merge_table_cells(
     table_idx: int, start_row: int, start_col: int, end_row: int, end_col: int
 ) -> str:
-    return str(
-        _call(
-            "word",
-            "merge_table_cells",
-            table_idx=table_idx,
-            start_row=start_row,
-            start_col=start_col,
-            end_row=end_row,
-            end_col=end_col,
-        )
+    return _invoke(
+        "word",
+        "merge_table_cells",
+        table_idx=table_idx,
+        start_row=start_row,
+        start_col=start_col,
+        end_row=end_row,
+        end_col=end_col,
     )
 
 
@@ -433,16 +433,14 @@ def word_set_table_border(
     color: str | None = None,
     sides: str | None = None,
 ) -> str:
-    return str(
-        _call(
-            "word",
-            "set_table_border",
-            table_idx=table_idx,
-            style=style,
-            weight=weight,
-            color=color,
-            sides=sides,
-        )
+    return _invoke(
+        "word",
+        "set_table_border",
+        table_idx=table_idx,
+        style=style,
+        weight=weight,
+        color=color,
+        sides=sides,
     )
 
 
@@ -451,7 +449,7 @@ def word_set_table_border(
     description="设置第 table_idx 个表格第 col 列的宽度（单位磅）。",
 )
 def word_set_table_col_width(table_idx: int, col: int, width: float) -> str:
-    return str(_call("word", "set_table_col_width", table_idx=table_idx, col=col, width=width))
+    return _invoke("word", "set_table_col_width", table_idx=table_idx, col=col, width=width)
 
 
 @server.tool(
@@ -463,10 +461,8 @@ def word_set_table_col_width(table_idx: int, col: int, width: float) -> str:
 def word_set_table_row_height(
     table_idx: int, row: int, height: float, rule: str = "at_least"
 ) -> str:
-    return str(
-        _call(
-            "word", "set_table_row_height", table_idx=table_idx, row=row, height=height, rule=rule
-        )
+    return _invoke(
+        "word", "set_table_row_height", table_idx=table_idx, row=row, height=height, rule=rule
     )
 
 
@@ -478,7 +474,7 @@ def word_set_table_row_height(
     ),
 )
 def word_autofit_table(table_idx: int, behavior: str = "content") -> str:
-    return str(_call("word", "autofit_table", table_idx=table_idx, behavior=behavior))
+    return _invoke("word", "autofit_table", table_idx=table_idx, behavior=behavior)
 
 
 @server.tool(
@@ -495,16 +491,14 @@ def word_find_replace(
     whole_word: bool = False,
     replace_all: bool = True,
 ) -> str:
-    return str(
-        _call(
-            "word",
-            "find_replace",
-            find=find,
-            replace=replace,
-            match_case=match_case,
-            whole_word=whole_word,
-            replace_all=replace_all,
-        )
+    return _invoke(
+        "word",
+        "find_replace",
+        find=find,
+        replace=replace,
+        match_case=match_case,
+        whole_word=whole_word,
+        replace_all=replace_all,
     )
 
 
@@ -513,7 +507,7 @@ def word_find_replace(
     description="在文档末尾插入图片。width/height 单位磅（省略则保持原尺寸）。",
 )
 def word_insert_image(path: str, width: float | None = None, height: float | None = None) -> str:
-    return str(_call("word", "insert_image", path=path, width=width, height=height))
+    return _invoke("word", "insert_image", path=path, width=width, height=height)
 
 
 @server.tool(
@@ -521,7 +515,7 @@ def word_insert_image(path: str, width: float | None = None, height: float | Non
     description="在文档末尾插入分页符。",
 )
 def word_insert_page_break() -> str:
-    return str(_call("word", "insert_page_break"))
+    return _invoke("word", "insert_page_break")
 
 
 # ------------------------------------------------------------------- Excel
@@ -532,7 +526,7 @@ def word_insert_page_break() -> str:
     description="在 Excel 中新建空白工作簿，之后的操作都作用在它上面。",
 )
 def excel_new_workbook() -> str:
-    return str(_call("excel", "new_book"))
+    return _invoke("excel", "new_book")
 
 
 @server.tool(
@@ -540,23 +534,23 @@ def excel_new_workbook() -> str:
     description="在 Excel 中打开现有 .xlsx/.xls，并把它设为当前工作簿。",
 )
 def excel_open_workbook(path: str) -> str:
-    return str(_call("excel", "open_book", path=path))
+    return _invoke("excel", "open_book", path=path)
 
 
 @server.tool(
     title="保存工作簿",
-    description="保存当前工作簿。给 path 则另存到该路径。",
+    description="保存当前工作簿。给 path 则另存到该路径；overwrite=True 允许覆盖已存在文件。",
 )
-def excel_save(path: str | None = None) -> str:
-    return str(_call("excel", "save", path=path))
+def excel_save(path: str | None = None, overwrite: bool = False) -> str:
+    return _invoke("excel", "save", path=path, overwrite=overwrite)
 
 
 @server.tool(
     title="导出 PDF",
-    description="把当前工作簿导出为 PDF 到指定路径。",
+    description="把当前工作簿导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。",
 )
-def excel_save_pdf(path: str) -> str:
-    return str(_call("excel", "save_pdf", path=path))
+def excel_save_pdf(path: str, overwrite: bool = False) -> str:
+    return _invoke("excel", "save_pdf", path=path, overwrite=overwrite)
 
 
 @server.tool(
@@ -564,7 +558,7 @@ def excel_save_pdf(path: str) -> str:
     description="在活动工作簿中新建工作表并命名，返回该表对象。",
 )
 def excel_add_sheet(name: str) -> str:
-    return str(_call("excel", "add_sheet", name=name))
+    return _invoke("excel", "add_sheet", name=name)
 
 
 @server.tool(
@@ -572,7 +566,7 @@ def excel_add_sheet(name: str) -> str:
     description="写入单元格值；sheet 传表名或序号，cell 如 'A1'。",
 )
 def excel_set_cell(sheet: int | str, cell: str, value: str | int | float | bool) -> str:
-    return str(_call("excel", "set_cell", sheet=sheet, cell=cell, value=value))
+    return _invoke("excel", "set_cell", sheet=sheet, cell=cell, value=value)
 
 
 @server.tool(
@@ -580,7 +574,7 @@ def excel_set_cell(sheet: int | str, cell: str, value: str | int | float | bool)
     description="读取单元格的值；sheet 传表名或序号，cell 如 'A1'。",
 )
 def excel_get_cell(sheet: int | str, cell: str) -> str:
-    return str(_call("excel", "get_cell", sheet=sheet, cell=cell))
+    return _invoke("excel", "get_cell", sheet=sheet, cell=cell)
 
 
 @server.tool(
@@ -588,7 +582,7 @@ def excel_get_cell(sheet: int | str, cell: str) -> str:
     description="把二维值列表一次性写入 range_addr（如 'A1:C3'）。",
 )
 def excel_set_range(sheet: int | str, range_addr: str, values: list) -> str:
-    return str(_call("excel", "set_range", sheet=sheet, range_addr=range_addr, values=values))
+    return _invoke("excel", "set_range", sheet=sheet, range_addr=range_addr, values=values)
 
 
 @server.tool(
@@ -596,7 +590,7 @@ def excel_set_range(sheet: int | str, range_addr: str, values: list) -> str:
     description="设置列宽；col 传列号（1 基）或列字母。",
 )
 def excel_set_col_width(sheet: int | str, col: int | str, width: float) -> str:
-    return str(_call("excel", "set_col_width", sheet=sheet, col=col, width=width))
+    return _invoke("excel", "set_col_width", sheet=sheet, col=col, width=width)
 
 
 @server.tool(
@@ -616,19 +610,17 @@ def excel_format_cell(
     fg: str | None = None,
     align: int | None = None,
 ) -> str:
-    return str(
-        _call(
-            "excel",
-            "format_cell",
-            sheet=sheet,
-            cell=cell,
-            bold=bold,
-            size=size,
-            italic=italic,
-            bg=bg,
-            fg=fg,
-            align=align,
-        )
+    return _invoke(
+        "excel",
+        "format_cell",
+        sheet=sheet,
+        cell=cell,
+        bold=bold,
+        size=size,
+        italic=italic,
+        bg=bg,
+        fg=fg,
+        align=align,
     )
 
 
@@ -637,7 +629,7 @@ def excel_format_cell(
     description="关闭当前 Excel 工作簿，save=True 则保存。",
 )
 def excel_close_workbook(save: bool = True) -> str:
-    return str(_call("excel", "close_book", save=save))
+    return _invoke("excel", "close_book", save=save)
 
 
 @server.tool(
@@ -645,7 +637,7 @@ def excel_close_workbook(save: bool = True) -> str:
     description="把 range_addr（如 'A1:B2'）合并为一个单元格，值保留在左上角。",
 )
 def excel_merge_cells(sheet: int | str, range_addr: str) -> str:
-    return str(_call("excel", "merge_cells", sheet=sheet, range_addr=range_addr))
+    return _invoke("excel", "merge_cells", sheet=sheet, range_addr=range_addr)
 
 
 @server.tool(
@@ -653,7 +645,7 @@ def excel_merge_cells(sheet: int | str, range_addr: str) -> str:
     description="取消 range_addr 的合并。",
 )
 def excel_unmerge_cells(sheet: int | str, range_addr: str) -> str:
-    return str(_call("excel", "unmerge_cells", sheet=sheet, range_addr=range_addr))
+    return _invoke("excel", "unmerge_cells", sheet=sheet, range_addr=range_addr)
 
 
 @server.tool(
@@ -673,17 +665,15 @@ def excel_set_border(
     weight: str = "thin",
     color: str | None = None,
 ) -> str:
-    return str(
-        _call(
-            "excel",
-            "set_border",
-            sheet=sheet,
-            range_addr=range_addr,
-            side=side,
-            style=style,
-            weight=weight,
-            color=color,
-        )
+    return _invoke(
+        "excel",
+        "set_border",
+        sheet=sheet,
+        range_addr=range_addr,
+        side=side,
+        style=style,
+        weight=weight,
+        color=color,
     )
 
 
@@ -709,22 +699,20 @@ def excel_add_conditional_format(
     max_color: str | None = None,
     mid_color: str | None = None,
 ) -> str:
-    return str(
-        _call(
-            "excel",
-            "add_conditional_format",
-            sheet=sheet,
-            range_addr=range_addr,
-            rule=rule,
-            operator=operator,
-            value=value,
-            value2=value2,
-            bg=bg,
-            fg=fg,
-            min_color=min_color,
-            max_color=max_color,
-            mid_color=mid_color,
-        )
+    return _invoke(
+        "excel",
+        "add_conditional_format",
+        sheet=sheet,
+        range_addr=range_addr,
+        rule=rule,
+        operator=operator,
+        value=value,
+        value2=value2,
+        bg=bg,
+        fg=fg,
+        min_color=min_color,
+        max_color=max_color,
+        mid_color=mid_color,
     )
 
 
@@ -733,7 +721,7 @@ def excel_add_conditional_format(
     description="冻结 rows 行上方 + cols 列左侧；rows=0 且 cols=0 取消冻结。",
 )
 def excel_freeze_panes(sheet: int | str, rows: int = 0, cols: int = 0) -> str:
-    return str(_call("excel", "freeze_panes", sheet=sheet, rows=rows, cols=cols))
+    return _invoke("excel", "freeze_panes", sheet=sheet, rows=rows, cols=cols)
 
 
 @server.tool(
@@ -759,22 +747,20 @@ def excel_page_setup(
     print_titles_rows: str | None = None,
     print_titles_cols: str | None = None,
 ) -> str:
-    return str(
-        _call(
-            "excel",
-            "page_setup",
-            sheet=sheet,
-            orientation=orientation,
-            paper=paper,
-            fit_to_pages_wide=fit_to_pages_wide,
-            fit_to_pages_tall=fit_to_pages_tall,
-            margins=margins,
-            print_area=print_area,
-            center_horizontally=center_horizontally,
-            center_vertically=center_vertically,
-            print_titles_rows=print_titles_rows,
-            print_titles_cols=print_titles_cols,
-        )
+    return _invoke(
+        "excel",
+        "page_setup",
+        sheet=sheet,
+        orientation=orientation,
+        paper=paper,
+        fit_to_pages_wide=fit_to_pages_wide,
+        fit_to_pages_tall=fit_to_pages_tall,
+        margins=margins,
+        print_area=print_area,
+        center_horizontally=center_horizontally,
+        center_vertically=center_vertically,
+        print_titles_rows=print_titles_rows,
+        print_titles_cols=print_titles_cols,
     )
 
 
@@ -783,7 +769,7 @@ def excel_page_setup(
     description="设置某一行的高度（单位磅）。",
 )
 def excel_set_row_height(sheet: int | str, row: int, height: float) -> str:
-    return str(_call("excel", "set_row_height", sheet=sheet, row=row, height=height))
+    return _invoke("excel", "set_row_height", sheet=sheet, row=row, height=height)
 
 
 @server.tool(
@@ -791,7 +777,7 @@ def excel_set_row_height(sheet: int | str, row: int, height: float) -> str:
     description="给 range_addr 设置数字格式，如 '#,##0.00' / '0.0%' / 'yyyy-mm-dd'。",
 )
 def excel_set_number_format(sheet: int | str, range_addr: str, fmt: str) -> str:
-    return str(_call("excel", "set_number_format", sheet=sheet, range_addr=range_addr, fmt=fmt))
+    return _invoke("excel", "set_number_format", sheet=sheet, range_addr=range_addr, fmt=fmt)
 
 
 @server.tool(
@@ -807,15 +793,13 @@ def excel_autofit(
     columns: bool = True,
     rows: bool = True,
 ) -> str:
-    return str(
-        _call(
-            "excel",
-            "autofit",
-            sheet=sheet,
-            range_addr=range_addr,
-            columns=columns,
-            rows=rows,
-        )
+    return _invoke(
+        "excel",
+        "autofit",
+        sheet=sheet,
+        range_addr=range_addr,
+        columns=columns,
+        rows=rows,
     )
 
 
