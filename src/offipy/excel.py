@@ -294,12 +294,15 @@ class ExcelApp:
         max_color: str | None = None,
         mid_color: str | None = None,
     ):
+        rule = rule.strip().lower()
         ws = self._ws(sheet)
         rng = ws.Range(range_addr)
         if rule == "cell":
             if operator is None or value is None:
                 raise ValueError("cell 规则必须给 operator 和 value")
             op = _resolve_style(operator, _COND_OPERATOR, "条件格式运算符")
+            if op in (1, 2) and value2 is None:  # between/not_between 需要 Formula2
+                raise ValueError("between/not_between 必须给 value2")
             fc = rng.FormatConditions.Add(1, op, value, value2)  # xlCellValue
             if bg is not None:
                 fc.Interior.Color = _rgb(bg)

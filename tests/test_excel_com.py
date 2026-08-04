@@ -8,6 +8,7 @@ import pytest
 
 from offipy import core
 from offipy.client import call
+from offipy.excel import _rgb
 
 pytestmark = pytest.mark.skipif(
     not core.running("excel"),
@@ -120,3 +121,21 @@ def test_conditional_format_colorscale_three():
     fc = _excel().ActiveWorkbook.Sheets(1).Range("C2:C5").FormatConditions(1)
     assert fc.Type == 3  # xlColorScale
     assert fc.ColorScaleCriteria.Count == 3
+    assert fc.ColorScaleCriteria(1).FormatColor.Color == _rgb("#F8696B")
+    assert fc.ColorScaleCriteria(3).FormatColor.Color == _rgb("#63BE7B")
+
+
+def test_conditional_format_colorscale_two():
+    call("excel", "new_book")
+    call(
+        "excel",
+        "add_conditional_format",
+        sheet=1,
+        range_addr="D2:D5",
+        rule="colorscale",
+        min_color="#F8696B",
+        max_color="#63BE7B",
+    )
+    fc = _excel().ActiveWorkbook.Sheets(1).Range("D2:D5").FormatConditions(1)
+    assert fc.Type == 3  # xlColorScale
+    assert fc.ColorScaleCriteria.Count == 2
