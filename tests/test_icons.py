@@ -151,7 +151,8 @@ def fake_assets(tmp_path, monkeypatch):
     assets = tmp_path / "assets" / "icons"
     (assets / "phosphor").mkdir(parents=True)
     (assets / "lucide").mkdir(parents=True)
-    (assets / "phosphor" / "check.svg").write_text(PH_SVG, encoding="utf-8")
+    # ph 资产按真实库约定 <name>-fill.svg 命名
+    (assets / "phosphor" / "check-fill.svg").write_text(PH_SVG, encoding="utf-8")
     (assets / "lucide" / "zap.svg").write_text(LU_SVG, encoding="utf-8")
     monkeypatch.setattr(icons, "ASSETS_DIR", assets)
     return assets
@@ -172,6 +173,16 @@ def test_load_icon_svg_missing_raises(fake_assets):
 def test_load_icon_svg_bad_set(fake_assets):
     with pytest.raises(ValueError, match="xx"):
         load_icon_svg("xx:check")
+
+
+def test_load_icon_svg_ph_resolves_fill_suffix():
+    # 真实资产库（不 monkeypatch ASSETS_DIR）：ph 资产按 <name>-fill.svg 命名，
+    # ph:check 必须能解析到 check-fill.svg；ph:check-fill 已带后缀不重复加。
+    from offipy import icons
+
+    content = icons.load_icon_svg("ph:check")
+    assert content.startswith("<svg")  # 解析成功，读到真实资产
+    assert content == icons.load_icon_svg("ph:check-fill")  # 两种写法解析到同一资产
 
 
 def test_svg_to_subpaths_phosphor(fake_assets):

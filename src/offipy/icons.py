@@ -317,7 +317,11 @@ def _geom_points(tag: str, attrs: dict) -> tuple[list[tuple[float, float]], bool
 
 
 def load_icon_svg(data_icon: str) -> str:
-    """从 vendored assets 读图标 SVG 源码。"ph:name" → assets/phosphor/name.svg。"""
+    """从 vendored assets 读图标 SVG 源码。"ph:name" → assets/phosphor/<name>-fill.svg。
+
+    ph 资产按 <name>-fill.svg 命名（fill 权重），用户写 ph:check / ph:check-fill
+    都解析到 check-fill.svg；已带 -fill 后缀不重复加。lu 资产是纯名，原样解析。
+    """
     if ":" not in data_icon:
         raise ValueError(f"图标必须带集前缀 ph:/lu:，如 'ph:check': {data_icon!r}")
     set_, name = data_icon.split(":", 1)
@@ -325,6 +329,8 @@ def load_icon_svg(data_icon: str) -> str:
         raise ValueError(f"未知图标集 {set_!r}（可选: {', '.join(SET_DIRS)}）")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
         raise ValueError(f"非法图标名 {name!r}（限小写字母/数字/连字符）")
+    if set_ == "ph" and not name.endswith("-fill"):
+        name = f"{name}-fill"
     path = ASSETS_DIR / SET_DIRS[set_] / f"{name}.svg"
     if not path.exists():
         raise ValueError(

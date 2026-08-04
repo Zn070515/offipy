@@ -278,7 +278,7 @@ _register(
         description="眉标 + 标题 + 一排图标（各带标签），用于能力/价值/要点罗列。",
         css="""
 .icons-row .icon-row {
-  display: flex; gap: var(--gap); margin-top: 48px; justify-content: space-between;
+  display: flex; gap: var(--gap); margin-top: 48px;
 }
 .icons-row .icon-item { flex: 1; text-align: center; }
 .icons-row .icon-item .icon { width: 72px; height: 72px; color: var(--accent); }

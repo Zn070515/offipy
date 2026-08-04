@@ -144,7 +144,7 @@ def test_icons_row_css_uses_tokens_only():
     css = LAYOUTS["icons-row"].css
     assert "var(--" in css
     assert "#" not in css  # 禁止硬编码色值
-    assert "font-size" not in css or "var(" in css
+    assert "font-size: var(--body)" in css
 
 
 def test_inject_icons_row_layout():

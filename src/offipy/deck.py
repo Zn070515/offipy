@@ -112,7 +112,7 @@ def render(
 
         postprocess_charts(html, pptx)
         # 图标后处理：HTML 声明了 data-icon → 替换成 freeform 矢量图标（同 charts 架构）。
-        # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图表的路径。
+        # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图标的路径。
         from .icons import postprocess_icons
 
         postprocess_icons(html, pptx)
