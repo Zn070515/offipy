@@ -16,6 +16,7 @@ import io
 import json
 import re
 import tarfile
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,11 +26,13 @@ ASSETS = ROOT / "src" / "offipy" / "assets" / "icons"
 
 SOURCES = {
     "phosphor": {
+        "repo": "phosphor-icons/core",
         "url": "https://codeload.github.com/phosphor-icons/core/tar.gz/refs/heads/main",
         "pattern": r"^[^/]+/assets/fill/([^/]+)\.svg$",
         "license": "MIT",
     },
     "lucide": {
+        "repo": "lucide-icons/lucide",
         "url": "https://codeload.github.com/lucide-icons/lucide/tar.gz/refs/heads/main",
         "pattern": r"^[^/]+/icons/([^/]+)\.svg$",
         "license": "ISC",
@@ -49,8 +52,29 @@ def _opener():
 
 def _download(url: str) -> bytes:
     print(f"[fetch] {url}")
-    with _opener().open(url, timeout=300) as resp:
-        return resp.read()
+    try:
+        with _opener().open(url, timeout=300) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as exc:
+        print(f"[error] {url} → HTTP {exc.code} {exc.reason}")
+        print("  必要时 export https_proxy=http://127.0.0.1:12334")
+        raise
+    except urllib.error.URLError as exc:
+        print(f"[error] {url} → {exc.reason}")
+        print("  必要时 export https_proxy=http://127.0.0.1:12334")
+        raise
+
+
+def _resolve_sha(repo: str) -> str:
+    """通过 GitHub API 解析 main 分支当前 commit sha（走系统代理）。"""
+    url = f"https://api.github.com/repos/{repo}/commits/main"
+    print(f"[resolve-sha] {url}")
+    with _opener().open(url, timeout=120) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    sha = data["sha"]
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError(f"unexpected sha: {sha!r}")
+    return sha
 
 
 def _extract_commit(top: str) -> str:
@@ -58,10 +82,10 @@ def _extract_commit(top: str) -> str:
     return m.group(0)[1:] if m else "unknown"
 
 
-def _fetch_set(name: str, spec: dict) -> tuple[str, int]:
+def _fetch_set(name: str, spec: dict, url: str) -> tuple[str, int]:
     dest = ASSETS / name
     dest.mkdir(parents=True, exist_ok=True)
-    blob = _download(spec["url"])
+    blob = _download(url)
     rx = re.compile(spec["pattern"])
     commit = "unknown"
     count = 0
@@ -83,6 +107,8 @@ def _fetch_set(name: str, spec: dict) -> tuple[str, int]:
         tops = {m.name.split("/", 1)[0] for m in tf.getmembers()}
         if tops:
             commit = _extract_commit(min(tops))
+    if count == 0:
+        print(f"[warn] {name}: pattern 零命中，上游目录结构可能变了（pattern={spec['pattern']}）")
     # LICENSE 文本（从 tar 里复制官方许可文件）
     lic = None
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
@@ -94,7 +120,7 @@ def _fetch_set(name: str, spec: dict) -> tuple[str, int]:
                 lic = f.read().decode("utf-8", errors="replace")
                 break
     (ASSETS / f"LICENSE-{name}.txt").write_text(
-        lic or f"# {name} icon set\nLicense: {spec['license']}\nSource: {spec['url']}\n",
+        lic or f"# {name} icon set\nLicense: {spec['license']}\nSource: {url}\n",
         encoding="utf-8",
     )
     print(f"  → {count} icons, commit={commit}, license={spec['license']}")
@@ -105,10 +131,20 @@ def main() -> int:
     ASSETS.mkdir(parents=True, exist_ok=True)
     manifest = {}
     for name, spec in SOURCES.items():
-        commit, count = _fetch_set(name, spec)
+        url = spec["url"]
+        resolved = None
+        try:
+            resolved = _resolve_sha(spec["repo"])
+            url = f"https://codeload.github.com/{spec['repo']}/tar.gz/{resolved}"
+        except Exception as exc:
+            print(
+                f"[warn] {name}: 解析 main commit sha 失败（{exc}），"
+                "回退 main 分支 URL，commit=unknown"
+            )
+        commit, count = _fetch_set(name, spec, url)
         manifest[name] = {
-            "source": spec["url"],
-            "commit": commit,
+            "source": url,
+            "commit": resolved or commit,
             "count": count,
             "fetched": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "license": spec["license"],
@@ -118,7 +154,7 @@ def main() -> int:
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     (ASSETS / "README.md").write_text(
-        f"""# offipy 图标资产
+        """# offipy 图标资产
 
 从官方 repo 抓取（fetch 后覆盖本目录）：
 

@@ -1,17 +1,17 @@
 {
   "phosphor": {
-    "source": "https://codeload.github.com/phosphor-icons/core/tar.gz/refs/heads/main",
-    "commit": "unknown",
+    "source": "https://codeload.github.com/phosphor-icons/core/tar.gz/2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+    "commit": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
     "count": 1512,
-    "fetched": "2026-08-04T09:35:15+00:00",
+    "fetched": "2026-08-04T09:39:11+00:00",
     "license": "MIT",
     "filter": "^[^/]+/assets/fill/([^/]+)\\.svg$"
   },
   "lucide": {
-    "source": "https://codeload.github.com/lucide-icons/lucide/tar.gz/refs/heads/main",
-    "commit": "unknown",
+    "source": "https://codeload.github.com/lucide-icons/lucide/tar.gz/1d7da164bbaf684159accdfd3d568d82b87d54bd",
+    "commit": "1d7da164bbaf684159accdfd3d568d82b87d54bd",
     "count": 1756,
-    "fetched": "2026-08-04T09:35:16+00:00",
+    "fetched": "2026-08-04T09:39:13+00:00",
     "license": "ISC",
     "filter": "^[^/]+/icons/([^/]+)\\.svg$"
   }
