@@ -34,6 +34,9 @@ _LAYOUT_INLINE_RE = re.compile(r"\s*@layout:\s*([a-z0-9-]+)\s*$")
 # 布局名白名单：拼进 class/data-layout 属性，必须防注入（引号/空格逃逸）
 _LAYOUT_NAME_RE = re.compile(r"[a-z0-9-]+")
 _CHART_TYPES = ("bar", "line", "pie")  # 本地常量，避免 import charts（内部惰性 import python-pptx）
+_ICON_SETS = ("ph", "lu")  # 本地常量，避免 import icons
+_ICON_VIEWBOX = {"ph": "0 0 256 256", "lu": "0 0 24 24"}
+_ICON_NAME_RE = re.compile(r"[a-z0-9-]+")
 
 
 @dataclass
@@ -47,6 +50,7 @@ class SlideContent:
     layout: str = ""
     chart_type: str = ""
     chart_data: str = ""  # raw JSON 字符串（未转义原样存储）
+    icons: list[tuple[str, str]] = field(default_factory=list)  # [(data_icon, label), ...]
 
     def to_dict(self) -> dict:
         d: dict = {"index": self.index, "title": self.title}
@@ -62,6 +66,8 @@ class SlideContent:
             d["body"] = self.body
         if self.bullets:
             d["bullets"] = self.bullets
+        if self.icons:
+            d["icons"] = [[data_icon, label] for data_icon, label in self.icons]
         if self.note:
             d["note"] = self.note
         return d
@@ -103,6 +109,11 @@ class DeckOutline:
                     lines.append(f"@chart: {s.chart_type}")
                 if s.chart_data:
                     lines.append(f"@chart-data: {s.chart_data}")
+            if s.icons:
+                items = [
+                    f"{data_icon}:{label}" if label else data_icon for data_icon, label in s.icons
+                ]
+                lines.append(f"@icons: {'; '.join(items)}")
             if s.note:
                 lines.append(f"@notes: {s.note}")
         return "\n".join(lines) + "\n"
@@ -122,9 +133,9 @@ def parse_outline(md: str) -> DeckOutline:
         m = _DIRECTIVE_RE.match(line)
         if m:
             key, val = m.group(1).lower(), m.group(2).strip()
-            if key not in ("layout", "kicker", "notes", "chart", "chart-data"):
+            if key not in ("layout", "kicker", "notes", "chart", "chart-data", "icons"):
                 raise ValueError(
-                    f"未知指令 @{key}（可选: @layout/@kicker/@notes/@chart/@chart-data）"
+                    f"未知指令 @{key}（可选: @layout/@kicker/@notes/@chart/@chart-data/@icons）"
                 )
             if key == "layout" and not _LAYOUT_NAME_RE.fullmatch(val):
                 raise ValueError(
@@ -145,6 +156,10 @@ def parse_outline(md: str) -> DeckOutline:
                         cur.layout = "chart-dominant"
                 elif key == "chart-data":
                     cur.chart_data = val
+                elif key == "icons":
+                    cur.icons = _parse_icons_value(val)
+                    if not cur.layout:
+                        cur.layout = "icons-row"
             else:
                 pending[key] = val
             continue
@@ -168,14 +183,21 @@ def parse_outline(md: str) -> DeckOutline:
             else:
                 layout = ""
             chart_type = pending.pop("chart", "")
+            icons = _parse_icons_value(pending.pop("icons", "")) if pending.get("icons") else []
             cur = SlideContent(
                 index=len(slides) + 1,
                 title=text,
-                layout=layout or pending.pop("layout", "") or (chart_type and "chart-dominant"),
+                layout=(
+                    layout
+                    or pending.pop("layout", "")
+                    or (chart_type and "chart-dominant")
+                    or ("icons-row" if icons else "")
+                ),
                 kicker=pending.pop("kicker", ""),
                 note=pending.pop("notes", ""),
                 chart_type=chart_type,
                 chart_data=pending.pop("chart-data", ""),
+                icons=icons,
             )
             continue
         if cur is None:
@@ -189,6 +211,40 @@ def parse_outline(md: str) -> DeckOutline:
     if not title:
         raise ValueError("大纲缺少 # 主标题")
     return DeckOutline(title=title, subtitle=subtitle, slides=slides)
+
+
+def _parse_icons_value(val: str) -> list[tuple[str, str]]:
+    """@icons 值 → [(data_icon, label)]。每项 'ph:name:label' 或 'name:label' 或 'name'。
+
+    前缀缺省 ph；label 缺省空。set/name 白名单校验（name 拼进 data-icon 属性）。
+    """
+    icons: list[tuple[str, str]] = []
+    for item in val.split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        parts = [p.strip() for p in item.split(":")]
+        if len(parts) == 1:
+            set_, name, label = "ph", parts[0], ""
+        elif len(parts) == 2:
+            if parts[0] in _ICON_SETS:
+                set_, name, label = parts[0], parts[1], ""
+            else:
+                set_, name, label = "ph", parts[0], parts[1]
+        elif len(parts) == 3:
+            set_, name, label = parts[0], parts[1], parts[2]
+        else:
+            raise ValueError(f"非法图标项 @icons: {item!r}（格式 'ph:name:label'）")
+        if set_ not in _ICON_SETS:
+            raise ValueError(f"非法图标集 @icons: {set_!r}（可选: {'/'.join(_ICON_SETS)}）")
+        if not _ICON_NAME_RE.fullmatch(name):
+            raise ValueError(
+                f"非法图标名 @icons: {name!r}（限小写字母/数字/连字符，如 check-circle）"
+            )
+        icons.append((f"{set_}:{name}", label))
+    if not icons:
+        raise ValueError("@icons 不能为空")
+    return icons
 
 
 def _esc(text: str) -> str:
@@ -206,6 +262,19 @@ def _slide_section(s: SlideContent) -> str:
     if s.chart_type:
         data_attr = f' data-chart-data="{_esc(s.chart_data)}"' if s.chart_data else ""
         parts.append(f'  <div class="chart" data-chart="{_esc(s.chart_type)}"{data_attr}></div>')
+    elif s.icons:
+        items = []
+        for data_icon, label in s.icons:
+            set_, _ = data_icon.split(":", 1)
+            vb = _ICON_VIEWBOX.get(set_, "0 0 256 256")
+            svg = (
+                f'<svg class="icon" data-icon="{_esc(data_icon)}" '
+                f'viewBox="{vb}" width="64" height="64"></svg>'
+            )
+            label_html = f'<div class="label">{_esc(label)}</div>' if label else ""
+            items.append('    <div class="icon-item">' + svg + label_html + "</div>")
+        row = "\n".join(items)
+        parts.append(f'  <div class="icon-row">\n{row}\n  </div>')
     else:
         for b in s.body:
             parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
