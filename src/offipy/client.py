@@ -44,12 +44,20 @@ def ensure_server():
     raise SystemExit("无法启动 offipy server，请查看 .offipy.log")
 
 
+# 这些参数是文件/目录路径，必须在 client 侧按调用方 CWD 绝对化——
+# server 是独立进程，其 CWD 与用户调 CLI 时所在目录无关
+_PATH_KEYS = ("path", "out", "out_dir", "html", "pptx")
+
+
 def request(app: str, op: str, **args) -> dict:
     """发一次调用，返回完整响应 dict（{ok, result, error, trace}），不做失败处理。
 
     供 MCP server 等调用方自行决定如何处理失败；CLI 仍走 call()。
     """
     ensure_server()
+    for k in _PATH_KEYS:
+        if k in args and isinstance(args[k], str):
+            args[k] = os.path.abspath(args[k])
     data = json.dumps({"app": app, "op": op, "args": args}).encode("utf-8")
     req = urllib.request.Request(
         _URL + "/call", data=data, headers={"Content-Type": "application/json"}

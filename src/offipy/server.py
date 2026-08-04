@@ -42,7 +42,10 @@ def _serialize(v):
     try:
         return v.isoformat()  # datetime 等
     except Exception:
-        return str(v)
+        pass
+    if hasattr(v, "_oleobj_"):  # COM 对象（new_book 等返回的 Workbook/Presentation）
+        return None  # 序列化无意义，返回 null 而非 "<COMObject>"
+    return str(v)
 
 
 # 与 Office 进程断连/进程消失的 COM HRESULT
@@ -76,8 +79,9 @@ def _rebuild(app):
 def dispatch(app, op: str, args: dict):
     if op.startswith("_"):
         raise PermissionError(f"不允许调用私有操作: {op}")
-    if not _alive(app):
-        # 调用前主动保活检测：COM 引用已失效（用户关窗/Office 退出）则重建
+    if op != "quit" and not _alive(app):
+        # 调用前主动保活检测：COM 引用已失效（用户关窗/Office 退出）则重建。
+        # quit 例外：目标就是退出，app 已死时应直接成功，不反拉起新实例。
         app = _rebuild(app)
     method = getattr(app, op, None)
     if method is None:
@@ -87,6 +91,8 @@ def dispatch(app, op: str, args: dict):
     except pywintypes.com_error as e:
         if getattr(e, "hresult", None) not in _DISCONNECTED_HRS:
             raise
+        if op == "quit":
+            return None
         # 调用中对象断连：重建实例重试一次
         return getattr(_rebuild(app), op)(**args)
 
@@ -96,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/ping":
             self._reply({"ok": True, "result": "pong"})
         else:
-            self._reply({"ok": False, "error": "not found"})
+            self._reply({"ok": False, "error": "not found"}, status=404)
 
     def do_POST(self):
         # 单线程 HTTPServer 下 handler 在主线程执行；COM 在 serve() 里
@@ -115,12 +121,13 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": False,
                     "error": f"{type(e).__name__}: {e}",
                     "trace": tb[-3:],
-                }
+                },
+                status=500,
             )
 
-    def _reply(self, obj):
+    def _reply(self, obj, status=200):
         data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
