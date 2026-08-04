@@ -75,10 +75,19 @@ def contrast_ratio(fg: tuple[int, int, int], bg: tuple[int, int, int]) -> float:
 
 
 def _saturation(rgb: tuple[int, int, int]) -> float:
-    """饱和度近似（0-1）。< 0.12 视为中性色（黑/白/灰/近灰）。"""
+    """饱和度近似（0-1）。< 0.12 视为中性色（黑/白/灰/近灰）。
+
+    用 HSL 饱和度 + 亮度下限：除以 max 通道会高估暗色的饱和度
+    （rgb(10,10,14) 判成 0.29，其实近黑），极暗色感知为黑应算中性。
+    """
     r, g, b = (c / 255.0 for c in rgb)
     mx, mn = max(r, g, b), min(r, g, b)
-    return (mx - mn) / mx if mx else 0.0
+    lightness = (mx + mn) / 2.0
+    if mx == mn or lightness < 0.10:
+        return 0.0
+    if lightness <= 0.5:
+        return (mx - mn) / (mx + mn)
+    return (mx - mn) / (2.0 - mx - mn)
 
 
 def _is_neutral(rgb: tuple[int, int, int]) -> bool:
@@ -166,12 +175,27 @@ class AestheticReport:
 # ---------------------------------------------------------------- 单页审计
 
 
+def _num(value, default: float = 0.0) -> float:
+    """安全转 float：非法/NaN 值回退 default，不让畸形 measurement 崩整个审计。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if f != f else f  # NaN 自不等
+
+
+def _records(slide: dict) -> list:
+    recs = slide.get("records")
+    return recs if isinstance(recs, list) else []
+
+
 def _collect_text_runs(records: list[dict]) -> list[dict]:
     runs = []
     for rec in records:
         if rec.get("kind") != "text":
             continue
-        for run in rec.get("runs") or []:
+        rec_runs = rec.get("runs")
+        for run in rec_runs if isinstance(rec_runs, list) else []:
             if run.get("linebreak"):
                 continue
             if (run.get("text") or "").strip():
@@ -181,7 +205,7 @@ def _collect_text_runs(records: list[dict]) -> list[dict]:
 
 def _rect_area(rec: dict) -> float:
     r = rec.get("rect") or {}
-    return max(0.0, float(r.get("w", 0))) * max(0.0, float(r.get("h", 0)))
+    return max(0.0, _num(r.get("w"))) * max(0.0, _num(r.get("h")))
 
 
 def _cluster_font_sizes(sizes: list[float], tolerance: float = 2.0) -> int:
@@ -198,14 +222,25 @@ def _cluster_font_sizes(sizes: list[float], tolerance: float = 2.0) -> int:
     return groups
 
 
-def _audit_whitespace(records: list[dict], page_index: int) -> tuple[list[Finding], float]:
+def _audit_whitespace(
+    records: list[dict], page_index: int, background: str | None = None
+) -> tuple[list[Finding], float]:
     page_area = _CANVAS_W * _CANVAS_H
-    # 整页背景形状（≥90% 页面积的非文本 record）是画布本身，不算内容覆盖
-    content_area = sum(
-        _rect_area(r)
-        for r in records
-        if not (r.get("kind") != "text" and _rect_area(r) / page_area >= 0.90)
-    )
+    bg = parse_rgb(background)
+    # 整页背景形状（≥90% 页面积的非文本 record）是画布本身，不算内容覆盖。
+    # 只有当它匹配页面背景（或没有 deco 信息）才算背景；全出血 hero 图/图表有
+    # 独立 deco.bg、不匹配页面背景，仍计入内容，避免真实拥挤被误放行。
+    content_area = 0.0
+    for r in records:
+        area = _rect_area(r)
+        if r.get("kind") != "text" and area / page_area >= 0.90:
+            deco = r.get("deco")
+            deco_bg = parse_rgb(deco.get("bg")) if isinstance(deco, dict) else None
+            # 仅当 deco 色明确存在且 ≠ 页面背景（真·全出血 hero 图/图表）才算内容；
+            # 背景 shape（deco 无/未知/匹配）一律排除
+            if not (deco_bg is not None and bg is not None and deco_bg != bg):
+                continue
+        content_area += area
     ratio = min(1.0, content_area / page_area)
     findings = []
     if ratio > 0.75:
@@ -221,7 +256,7 @@ def _audit_whitespace(records: list[dict], page_index: int) -> tuple[list[Findin
 
 
 def _audit_type_scale(runs: list[dict], page_index: int) -> tuple[list[Finding], int]:
-    sizes = [float(r.get("fontSize") or 0) for r in runs if r.get("fontSize")]
+    sizes = [_num(r.get("fontSize")) for r in runs if _num(r.get("fontSize")) > 0]
     n = _cluster_font_sizes(sizes)
     findings = []
     if n > 6:
@@ -253,12 +288,15 @@ def _audit_palette(
     for rec in records:
         kind = rec.get("kind")
         if kind == "text":
-            for run in rec.get("runs") or []:
+            rec_runs = rec.get("runs")
+            for run in rec_runs if isinstance(rec_runs, list) else []:
                 c = parse_rgb(run.get("color"))
                 if c:
                     colors.add(c)
         else:
-            deco = rec.get("deco") or {}
+            deco = rec.get("deco")
+            if not isinstance(deco, dict):
+                deco = {}
             c = parse_rgb(deco.get("bg"))
             if c:
                 colors.add(c)
@@ -286,17 +324,24 @@ def _audit_palette(
 def _audit_contrast(records: list[dict], background: str | None, page_index: int) -> list[Finding]:
     bg = parse_rgb(background) or (255, 255, 255)
     findings = []
-    seen: set[tuple[int, int, int]] = set()
+    # 同一前景色在不同背景（页面 vs 色卡）上对比度不同，seen 需带背景键
+    seen: set[tuple[tuple[int, int, int], tuple[int, int, int]]] = set()
     for rec in records:
         if rec.get("kind") != "text":
             continue
-        for run in rec.get("runs") or []:
+        # 文本所在形状若有填充背景（色卡/卡片），用它作对比基准，而非整页背景
+        deco = rec.get("deco")
+        if not isinstance(deco, dict):
+            deco = {}
+        rec_bg = parse_rgb(deco.get("bg")) or bg
+        rec_runs = rec.get("runs")
+        for run in rec_runs if isinstance(rec_runs, list) else []:
             fg = parse_rgb(run.get("color"))
-            if not fg or fg in seen:
+            if not fg or (fg, rec_bg) in seen:
                 continue
-            seen.add(fg)
-            size = float(run.get("fontSize") or 0)
-            ratio = contrast_ratio(fg, bg)
+            seen.add((fg, rec_bg))
+            size = _num(run.get("fontSize"))
+            ratio = contrast_ratio(fg, rec_bg)
             threshold = 3.0 if size >= 24 else 4.5
             if ratio >= threshold:
                 continue
@@ -327,11 +372,11 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
     max_sizes: list[tuple[int, float]] = []
     for i, s in enumerate(slides, start=1):
         sizes = [
-            float(r.get("fontSize") or 0)
-            for rec in s.get("records") or []
+            _num(r.get("fontSize"))
+            for rec in _records(s)
             if rec.get("kind") == "text"
-            for r in rec.get("runs") or []
-            if r.get("fontSize") and float(r.get("fontSize")) <= 120
+            for r in (rec.get("runs") if isinstance(rec.get("runs"), list) else [])
+            if _num(r.get("fontSize")) > 0 and _num(r.get("fontSize")) <= 120
         ]
         if sizes:
             max_sizes.append((i, max(sizes)))
@@ -350,23 +395,29 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
                 )
             )
 
-    # 2) 背景漂移：全 deck 背景色 unique > 2（允许主背景 + 1 反色变体）
+    # 2) 背景漂移：主题给定时用 token 的主/变体背景作允许集（theme 参数真正生效）；
+    #    未给时允许 2 种（主背景 + 1 反色变体）
     bgs = []
     for s in slides:
         c = parse_rgb((s.get("slide") or {}).get("background"))
         if c:
             bgs.append(c)
-    if len(bgs) >= 3 and len(set(bgs)) > 2:
-        hexes = [f"#{r:02X}{g:02X}{b:02X}" for r, g, b in sorted(set(bgs))]
-        findings.append(
-            Finding(
-                CONSISTENCY,
-                "MID",
-                0,
-                f"全 deck 出现 {len(set(bgs))} 种背景色（最多主背景 + 1 变体）：{', '.join(hexes)}",
-                {"backgrounds": hexes},
-            )
+    actual = set(bgs)
+    if theme and theme in design.THEMES:
+        t = design.THEMES[theme]
+        for vars_ in (t.base_vars, t.variant_vars):
+            c = parse_rgb(vars_.get("--bg"))
+            if c:
+                actual.discard(c)
+    limit = 1 if theme else 2
+    if len(bgs) >= 3 and len(actual) > limit:
+        hexes = [f"#{r:02X}{g:02X}{b:02X}" for r, g, b in sorted(actual)]
+        msg = (
+            f"全 deck 出现非主题背景色：{', '.join(hexes)}"
+            if theme
+            else f"全 deck 出现 {len(set(bgs))} 种背景色（最多主背景 + 1 变体）：{', '.join(hexes)}"
         )
+        findings.append(Finding(CONSISTENCY, "MID", 0, msg, {"backgrounds": hexes}))
 
     # 3) 8pt 网格：间距/尺寸对齐 8px 的比例。规则密集的卡片 deck 允许部分不对齐，
     #    不对齐比例 > 30% 才报（避免小元素 sub-pixel 误报）
@@ -380,7 +431,7 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
                 if v is None:
                     continue
                 total += 1
-                if abs(float(v) % design.GRID_UNIT) > 0.5:
+                if abs(_num(v) % design.GRID_UNIT) > 0.5:
                     off += 1
     if total > 0 and off / total > 0.30:
         findings.append(
@@ -405,13 +456,13 @@ def _score_pages(
     weights = weights or {}
     pages = []
     for i, s in enumerate(measurement.get("slides") or [], start=1):
-        records = s.get("records") or []
+        records = _records(s)
         runs = _collect_text_runs(records)
         slide_info = s.get("slide") or {}
         background = slide_info.get("background")
 
         findings: list[Finding] = []
-        w_f, content_ratio = _audit_whitespace(records, i)
+        w_f, content_ratio = _audit_whitespace(records, i, background)
         findings += w_f
         t_f, n_sizes = _audit_type_scale(runs, i)
         findings += t_f
@@ -450,8 +501,8 @@ def load_measurement(path: str | Path) -> dict:
     if not p.exists():
         raise FileNotFoundError(p)
     data = json.loads(p.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or "slides" not in data:
-        raise ValueError(f"{p} 不是合法 measurement（缺 'slides'）")
+    if not isinstance(data, dict) or not isinstance(data.get("slides"), list):
+        raise ValueError(f"{p} 不是合法 measurement（缺 'slides' 数组）")
     return data
 
 
@@ -459,11 +510,17 @@ def audit_measurement(
     measurement: dict, theme: str | None = None, weights: dict[str, float] | None = None
 ) -> AestheticReport:
     """对 measurement 数据做审美审计，返回报告。"""
+    weights = weights or {}
     pages = _score_pages(measurement, theme, weights)
     consistency = _consistency_findings(measurement, theme)
-    # 跨页一致性 finding 是 deck 级（page=0），单独暴露；计分按均摊扣
+    # 跨页一致性 finding 是 deck 级（page=0），单独暴露；计分按均摊扣。
+    # 一致性维度同样受反馈权重调节，否则 feedback 的 consistency 记录永远无效
     total = sum(p.score for p in pages) / len(pages) if pages else 0
-    consistency_penalty = sum(_SEVERITY_PENALTY[f.severity] for f in consistency) if pages else 0
+    consistency_penalty = (
+        sum(int(_SEVERITY_PENALTY[f.severity] * weights.get(CONSISTENCY, 1.0)) for f in consistency)
+        if pages
+        else 0
+    )
     total = max(0, int(total - consistency_penalty / max(1, len(pages))))
     return AestheticReport(
         total_score=total,

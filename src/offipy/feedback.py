@@ -135,8 +135,8 @@ def load_records(feedback_dir: str | Path | None = None) -> list[FeedbackRecord]
             continue
         try:
             records.append(FeedbackRecord.from_dict(json.loads(line)))
-        except (json.JSONDecodeError, KeyError, TypeError):
-            continue  # 跳过坏行，不因一条脏数据破坏整体
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            continue  # 跳过坏行（含非数字 page），不因一条脏数据破坏整体
     return records
 
 

@@ -15,6 +15,7 @@ _HEADING_STYLES = {1: -2, 2: -3, 3: -4}
 class WordApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("word", visible=visible)
+        self.app.DisplayAlerts = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
         self._doc = None
 
     # --- 文档 ---

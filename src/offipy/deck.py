@@ -84,6 +84,8 @@ def render(
         target = tmp_html
     try:
         cmd = _convert_cmd(target, out, only_slides, no_visual_audit)
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
         try:
             r = subprocess.run(
                 cmd,
@@ -92,6 +94,7 @@ def render(
                 encoding="utf-8",
                 errors="replace",
                 timeout=timeout,
+                env=env,
             )
         except subprocess.TimeoutExpired as e:
             so, se = e.stdout, e.stderr
