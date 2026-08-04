@@ -173,5 +173,58 @@ class WordApp:
     def set_table_cell(self, table_idx: int, row: int, col: int, text: str):
         self.active_doc().Tables(table_idx).Cell(row, col).Range.Text = text
 
+    # --- 样式系统：文字格式 ---
+    def format_text(
+        self,
+        paragraph: int,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        size: float | None = None,
+        name: str | None = None,
+        color: str | None = None,
+        underline: str | None = None,
+        highlight: str | None = None,
+    ):
+        font = self.active_doc().Paragraphs(paragraph).Range.Font
+        if bold is not None:
+            font.Bold = bold
+        if italic is not None:
+            font.Italic = italic
+        if size is not None:
+            font.Size = size
+        if name is not None:
+            font.Name = name
+        if color is not None:
+            font.Color = _rgb(color)
+        if underline is not None:
+            font.Underline = _resolve_style(underline, _UNDERLINE, "下划线")
+        if highlight is not None:
+            font.HighlightColorIndex = _resolve_style(highlight, _HIGHLIGHT, "高亮色")
+
+    # --- 样式系统：段落格式 ---
+    def format_paragraph(
+        self,
+        paragraph: int,
+        alignment: str | None = None,
+        line_spacing: str | None = None,
+        space_before: float | None = None,
+        space_after: float | None = None,
+        left_indent: float | None = None,
+        first_line_indent: float | None = None,
+    ):
+        fmt = self.active_doc().Paragraphs(paragraph).Format
+        if alignment is not None:
+            fmt.Alignment = _resolve_style(alignment, _ALIGN, "对齐")
+        if line_spacing is not None:
+            fmt.LineSpacingRule = _resolve_style(line_spacing, _LINE_SPACING, "行距")
+        if space_before is not None:
+            fmt.SpaceBefore = space_before
+        if space_after is not None:
+            fmt.SpaceAfter = space_after
+        if left_indent is not None:
+            fmt.LeftIndent = left_indent
+        if first_line_indent is not None:
+            fmt.FirstLineIndent = first_line_indent
+
     def quit(self):
         core.quit_app("word")
