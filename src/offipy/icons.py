@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
 PX_TO_EMU = 6350
@@ -351,3 +352,241 @@ def _svg_to_subpaths(svg_text: str) -> tuple[list[_SubPath], float]:
             if pts:
                 subpaths.append(_SubPath(pts, close))
     return subpaths, stroke_width
+
+
+# ---------- HTML 声明解析 ----------
+
+
+class _IconHTMLParser(HTMLParser):
+    """提取每个 <section data-pptx-slide> 内的 <svg data-icon>。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.slide_index = 0
+        self.cur: list[IconDecl] = []
+        self.all: list[IconDecl] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        d = {k: (v or "") for k, v in attrs}
+        if tag == "section" and "data-pptx-slide" in d:
+            if self.cur:
+                self.all.extend(self.cur)
+            self.slide_index += 1
+            self.cur = []
+            return
+        if tag == "svg" and "data-icon" in d:
+            # HTMLParser 会把属性名小写化：viewBox → viewbox，两种都兜底
+            vb = d.get("viewbox") or d.get("viewBox") or "0 0 256 256"
+            parts = vb.split()
+            if len(parts) != 4:
+                raise ValueError(
+                    f"第 {self.slide_index} 页图标 viewBox 非法: {vb!r}（须为 'x y w h' 四值）"
+                )
+            self.cur.append(
+                IconDecl(
+                    slide_index=self.slide_index,
+                    data_icon=d["data-icon"],
+                    view_box=(
+                        float(parts[0]),
+                        float(parts[1]),
+                        float(parts[2]),
+                        float(parts[3]),
+                    ),
+                )
+            )
+
+
+def parse_icon_declarations(html_text: str) -> list[IconDecl]:
+    """解析 HTML → 图标声明列表（slide_index 1-based）。图标集非法即 ValueError。"""
+    p = _IconHTMLParser()
+    p.feed(html_text)
+    p.close()
+    if p.cur:  # flush 最后一页
+        p.all.extend(p.cur)
+    for decl in p.all:
+        if decl.slide_index <= 0:
+            raise ValueError(
+                f"第 {decl.slide_index} 页图标出现在 slide 之外——<svg data-icon> 必须在 "
+                "data-pptx-slide 的 <section> 内"
+            )
+        if ":" not in decl.data_icon or decl.data_icon.split(":", 1)[0] not in SET_DIRS:
+            raise ValueError(
+                f"第 {decl.slide_index} 页图标集非法: {decl.data_icon!r}（须带 ph:/lu: 前缀）"
+            )
+    return p.all
+
+
+# ---------- measurements 定位 ----------
+
+
+def _measurements_path(pptx_path: str) -> str:
+    """与 charts._measurements_path 一致：<stem>_audit/_cache/measurements.json。"""
+    from pathlib import Path
+
+    p = Path(pptx_path)
+    return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
+
+
+def load_icon_boxes(measurements_path: str) -> dict[int, list[dict]]:
+    """读 measurements.json → {slide_index: [svg record, ...]}（保序，仅 kind='svg'）。"""
+    import json as _json
+
+    with open(measurements_path, encoding="utf-8") as f:
+        data = _json.load(f)
+    boxes: dict[int, list[dict]] = {}
+    for i, slide in enumerate(data.get("slides", []), start=1):
+        svgs = [
+            {"rect": rec["rect"], "color": rec.get("color"), "outerHTML": rec.get("outerHTML", "")}
+            for rec in slide.get("records", [])
+            if rec.get("kind") == "svg" and "rect" in rec
+        ]
+        if svgs:
+            boxes[i] = svgs
+    return boxes
+
+
+def _match_svg(decl: IconDecl, svgs: list[dict]) -> dict | None:
+    """在 svg records 里找 outerHTML 含对应 data-icon 的那条。"""
+    pat = re.compile(r'data-icon=["\']' + re.escape(decl.data_icon) + r'["\']')
+    for svg in svgs:
+        if pat.search(svg.get("outerHTML", "")):
+            return svg
+    return None
+
+
+# ---------- 注入 ----------
+
+
+def _parse_color(color: str | None):
+    """measure 的 color（'rgb(r, g, b)' / '#rrggbb'）→ RGBColor；无法解析返回 None。"""
+    if not color:
+        return None
+    m = re.search(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", color)
+    if m:
+        from pptx.dml.color import RGBColor
+
+        return RGBColor(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = re.fullmatch(r"#([0-9a-fA-F]{6})", color.strip())
+    if m:
+        from pptx.dml.color import RGBColor
+
+        return RGBColor.from_string(m.group(1))
+    return None
+
+
+def _style_shape(shape, mode: str, color: str | None, line_width_emu: int) -> None:
+    rgb = _parse_color(color)
+    if rgb is None:
+        from pptx.dml.color import RGBColor
+
+        rgb = RGBColor(0x22, 0x51, 0xFF)  # 缺省主蓝（对齐 mckinsey --accent）
+    if mode == "fill":
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = rgb
+        shape.line.fill.background()
+    else:
+        # stroke 模式：不设任何填充元素（fill.type 为 None）。闭合子路径的显式
+        # noFill 由调用方 _build_icon_shapes 处理（background() 会令 fill.type 变
+        # 成 BACKGROUND，与测试断言的 None 相冲突）。
+        shape.line.color.rgb = rgb
+        shape.line.width = line_width_emu
+
+
+def _build_icon_shapes(
+    slide,
+    mode: str,
+    subpaths: list[_SubPath],
+    stroke_width: float,
+    view_box: tuple[float, float, float, float],
+    rect: dict,
+    color: str | None,
+) -> None:
+    """在 rect（px）位置画图标：每个子路径一个 freeform shape。"""
+    vbx, vby, vbw, vbh = view_box
+    scale = rect["w"] / vbw if vbw else 1.0
+    ox = rect["x"] - vbx * scale
+    oy = rect["y"] - vby * scale
+    line_width_emu = int(stroke_width * scale * PX_TO_EMU)
+
+    def to_emu(p: tuple[float, float]) -> tuple[int, int]:
+        return int((p[0] * scale + ox) * PX_TO_EMU), int((p[1] * scale + oy) * PX_TO_EMU)
+
+    for sp in subpaths:
+        if len(sp.points) < 2:
+            continue
+        first = to_emu(sp.points[0])
+        fb = slide.shapes.build_freeform(first[0], first[1])
+        rest = [to_emu(p) for p in sp.points[1:]]
+        if rest:
+            fb.add_line_segments(rest, close=sp.close)
+        shape = fb.convert_to_shape()
+        _style_shape(shape, mode, color, line_width_emu)
+        # 闭合 stroke 子路径：显式 noFill，避免继承主题填充把图标涂满
+        if mode == "stroke" and sp.close:
+            shape.fill.background()
+
+
+def _remove_placeholder(slide, rect: dict) -> None:
+    """删除中心落在图标 bbox 内的 PNG picture 占位（convert 的 SVG 光栅图）。"""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    cxm = (rect["x"] + rect["w"] / 2) * PX_TO_EMU
+    cym = (rect["y"] + rect["h"] / 2) * PX_TO_EMU
+    for shape in list(slide.shapes):
+        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE and (
+            shape.left <= cxm <= shape.left + shape.width
+            and shape.top <= cym <= shape.top + shape.height
+        ):
+            slide.shapes._spTree.remove(shape._element)
+
+
+def inject_icons(pptx_path: str, matched: dict[int, tuple[IconDecl, dict]]) -> None:
+    """把图标占位替换成 freeform 矢量图标。matched: {slide_index: (decl, svg_record)}。"""
+    from pptx import Presentation
+
+    prs = Presentation(pptx_path)
+    for slide_index, (decl, svg) in matched.items():
+        slide = prs.slides[slide_index - 1]
+        _remove_placeholder(slide, svg["rect"])
+        mode = SET_MODE[decl.data_icon.split(":", 1)[0]]
+        subpaths, stroke_width = _svg_to_subpaths(load_icon_svg(decl.data_icon))
+        _build_icon_shapes(
+            slide, mode, subpaths, stroke_width, decl.view_box, svg["rect"], svg["color"]
+        )
+    prs.save(pptx_path)
+
+
+def postprocess_icons(html_path: str, pptx_path: str) -> None:
+    """转换后调用：HTML 含 data-icon → 读 measurements → 注入矢量图标。
+
+    无图标声明 → 原样返回。measurements.json 缺失 → RuntimeError。图标/数据非法
+    → ValueError（从 parse 上抛）。
+    """
+    import os
+
+    with open(html_path, encoding="utf-8") as f:
+        html_text = f.read()
+    if "data-icon" not in html_text:
+        return
+    decls = parse_icon_declarations(html_text)
+    if not decls:
+        return
+    meas_path = _measurements_path(pptx_path)
+    if not os.path.exists(meas_path):
+        raise RuntimeError(
+            f"找不到 convert 审计产物 {meas_path}——图标注入需要 measurements.json，"
+            "请勿用 --no-visual-audit"
+        )
+    boxes = load_icon_boxes(meas_path)
+    matched: dict[int, tuple[IconDecl, dict]] = {}
+    for decl in decls:
+        svgs = boxes.get(decl.slide_index, [])
+        svg = _match_svg(decl, svgs)
+        if svg is None:
+            raise RuntimeError(
+                f"第 {decl.slide_index} 页图标 {decl.data_icon} 没测到 <svg> 占位——"
+                "请确认图标容器是空 <svg data-icon=...>（不是 <i>/伪元素），且尺寸非 0"
+            )
+        svgs.remove(svg)
+        matched[decl.slide_index] = (decl, svg)
+    inject_icons(pptx_path, matched)
