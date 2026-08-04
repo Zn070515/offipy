@@ -1,4 +1,5 @@
 """Excel 纯逻辑单测：常量映射 + 解析辅助（不依赖 Office/COM）。"""
+
 import pytest
 
 from offipy.excel import (
