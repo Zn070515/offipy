@@ -199,6 +199,15 @@ def test_icons_invalid_name_raises():
         parse_outline('# 标题\n\n## 页\n@icons: ph:x" onmouseover="evil\n')
 
 
+def test_icons_empty_raises():
+    # cur 路径：## 之后空 @icons → 报错
+    with pytest.raises(ValueError, match="不能为空"):
+        parse_outline("# 标题\n\n## 页\n@icons:\n")
+    # pending 路径：第一个 ## 之前空 @icons → 构造页时同样报错
+    with pytest.raises(ValueError, match="不能为空"):
+        parse_outline("# 标题\n\n@icons:\n## 页\n")
+
+
 def test_icons_section_html():
     o = parse_outline("# 标题\n\n## 页\n@icons: ph:check:已完成; star\n")
     html = to_deck_html(o)

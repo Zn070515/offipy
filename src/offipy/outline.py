@@ -36,7 +36,7 @@ _LAYOUT_NAME_RE = re.compile(r"[a-z0-9-]+")
 _CHART_TYPES = ("bar", "line", "pie")  # 本地常量，避免 import charts（内部惰性 import python-pptx）
 _ICON_SETS = ("ph", "lu")  # 本地常量，避免 import icons
 _ICON_VIEWBOX = {"ph": "0 0 256 256", "lu": "0 0 24 24"}
-_ICON_NAME_RE = re.compile(r"[a-z0-9-]+")
+_ICON_NAME_RE = re.compile(r"[a-z0-9][a-z0-9-]*")  # 与 icons.py 一致：首字符必须字母数字
 
 
 @dataclass
@@ -183,7 +183,7 @@ def parse_outline(md: str) -> DeckOutline:
             else:
                 layout = ""
             chart_type = pending.pop("chart", "")
-            icons = _parse_icons_value(pending.pop("icons", "")) if pending.get("icons") else []
+            icons = _parse_icons_value(pending.pop("icons", "")) if "icons" in pending else []
             cur = SlideContent(
                 index=len(slides) + 1,
                 title=text,
@@ -217,6 +217,8 @@ def _parse_icons_value(val: str) -> list[tuple[str, str]]:
     """@icons 值 → [(data_icon, label)]。每项 'ph:name:label' 或 'name:label' 或 'name'。
 
     前缀缺省 ph；label 缺省空。set/name 白名单校验（name 拼进 data-icon 属性）。
+    label 不得含 ';' 或 ':'（分项/分段分隔符）；首段恰为 ph/lu 时按 set 解释
+    （如 'lu:zap' = set lu + 图标 zap）。
     """
     icons: list[tuple[str, str]] = []
     for item in val.split(";"):
