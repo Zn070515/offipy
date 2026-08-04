@@ -9,7 +9,7 @@ Live Microsoft Office automation via COM（会话式驱动）。目标：让 Cla
 ## 特性
 
 - **会话式常驻 server**：跨调用保持 Office 窗口存活、文档 / 工作簿 / 演示文稿状态不丢
-- **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF
+- **三套件原子操作**：Word / Excel / PowerPoint 增删改 + 保存 / 导出 PDF；Excel 另含格式能力——合并单元格、边框、条件格式（cell 规则 / 数据条 / 色阶）、冻结窗格、打印设置、行高 / 数字格式 / 自动列宽
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
 - **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
@@ -33,6 +33,13 @@ uv pip install -e .
 office excel new_book
 office excel set_cell --sheet 1 --cell A1 --value 100
 office excel format_cell --sheet 1 --cell A1 --bold true --size 14 --bg "#38BDF8"
+office excel merge_cells --sheet 1 --range_addr A1:B2
+office excel set_border --sheet 1 --range_addr A1:D5 --side all --style continuous --weight thin --color "#D0D7DE"
+office excel add_conditional_format --sheet 1 --range_addr C2:C5 --rule cell --operator greater --value 0 --bg "#C6EFCE"
+office excel freeze_panes --sheet 1 --rows 1 --cols 0
+office excel page_setup --sheet 1 --orientation landscape --fit_to_pages_wide 1
+office excel set_number_format --sheet 1 --range_addr B2:B5 --fmt "#,##0"
+office excel autofit --sheet 1 --range_addr A1:D5 --rows false
 
 office word new_doc
 office word write_line --text "你好，世界"

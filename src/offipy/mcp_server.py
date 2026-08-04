@@ -361,6 +361,185 @@ def excel_close_workbook(save: bool = True) -> str:
     return str(_call("excel", "close_book", save=save))
 
 
+@server.tool(
+    title="合并单元格",
+    description="把 range_addr（如 'A1:B2'）合并为一个单元格，值保留在左上角。",
+)
+def excel_merge_cells(sheet: int | str, range_addr: str) -> str:
+    return str(_call("excel", "merge_cells", sheet=sheet, range_addr=range_addr))
+
+
+@server.tool(
+    title="取消合并单元格",
+    description="取消 range_addr 的合并。",
+)
+def excel_unmerge_cells(sheet: int | str, range_addr: str) -> str:
+    return str(_call("excel", "unmerge_cells", sheet=sheet, range_addr=range_addr))
+
+
+@server.tool(
+    title="设置边框",
+    description=(
+        "给 range_addr 设置边框。side 取 all/outside/inside 或 "
+        "left/top/bottom/right/inside-h/inside-v（逗号分隔）；style 取 "
+        "continuous/dash/dash-dot/dash-dot-dot/dot/double/none/slant-dash-dot；"
+        "weight 取 hairline/thin/medium/thick；color 传 '#RRGGBB'。"
+    ),
+)
+def excel_set_border(
+    sheet: int | str,
+    range_addr: str,
+    side: str = "all",
+    style: str = "continuous",
+    weight: str = "thin",
+    color: str | None = None,
+) -> str:
+    return str(
+        _call(
+            "excel",
+            "set_border",
+            sheet=sheet,
+            range_addr=range_addr,
+            side=side,
+            style=style,
+            weight=weight,
+            color=color,
+        )
+    )
+
+
+@server.tool(
+    title="设置条件格式",
+    description=(
+        "给 range_addr 加条件格式。rule 取 cell（单元格值规则，需 operator+value，可带 bg/fg）/ "
+        "databar（数据条，可带 bg）/ colorscale（色阶，需 min_color/max_color，"
+        "可带 mid_color 成三色）。"
+        "operator 取 greater/less/between/equal/not_equal/greater_equal/less_equal/not_between。"
+    ),
+)
+def excel_add_conditional_format(
+    sheet: int | str,
+    range_addr: str,
+    rule: str,
+    operator: str | None = None,
+    value: str | int | float | None = None,
+    value2: str | int | float | None = None,
+    bg: str | None = None,
+    fg: str | None = None,
+    min_color: str | None = None,
+    max_color: str | None = None,
+    mid_color: str | None = None,
+) -> str:
+    return str(
+        _call(
+            "excel",
+            "add_conditional_format",
+            sheet=sheet,
+            range_addr=range_addr,
+            rule=rule,
+            operator=operator,
+            value=value,
+            value2=value2,
+            bg=bg,
+            fg=fg,
+            min_color=min_color,
+            max_color=max_color,
+            mid_color=mid_color,
+        )
+    )
+
+
+@server.tool(
+    title="冻结窗格",
+    description="冻结 rows 行上方 + cols 列左侧；rows=0 且 cols=0 取消冻结。",
+)
+def excel_freeze_panes(sheet: int | str, rows: int = 0, cols: int = 0) -> str:
+    return str(_call("excel", "freeze_panes", sheet=sheet, rows=rows, cols=cols))
+
+
+@server.tool(
+    title="页面设置",
+    description=(
+        "打印设置。orientation 取 portrait/landscape；paper 取 letter/a3/a4；"
+        "fit_to_pages_wide/tall 传整数（设置后自动关 Zoom）；margins 传 "
+        "{'left':..,'right':..,'top':..,'bottom':..}（单位磅）；print_area 传 'A1:C10'"
+        "（空串清除）；center_horizontally/center_vertically 传布尔；"
+        "print_titles_rows 如 '$1:$2'；print_titles_cols 如 '$A:$B'。"
+    ),
+)
+def excel_page_setup(
+    sheet: int | str,
+    orientation: str | None = None,
+    paper: str | None = None,
+    fit_to_pages_wide: int | None = None,
+    fit_to_pages_tall: int | None = None,
+    margins: dict[str, float] | None = None,
+    print_area: str | None = None,
+    center_horizontally: bool | None = None,
+    center_vertically: bool | None = None,
+    print_titles_rows: str | None = None,
+    print_titles_cols: str | None = None,
+) -> str:
+    return str(
+        _call(
+            "excel",
+            "page_setup",
+            sheet=sheet,
+            orientation=orientation,
+            paper=paper,
+            fit_to_pages_wide=fit_to_pages_wide,
+            fit_to_pages_tall=fit_to_pages_tall,
+            margins=margins,
+            print_area=print_area,
+            center_horizontally=center_horizontally,
+            center_vertically=center_vertically,
+            print_titles_rows=print_titles_rows,
+            print_titles_cols=print_titles_cols,
+        )
+    )
+
+
+@server.tool(
+    title="设置行高",
+    description="设置某一行的高度（单位磅）。",
+)
+def excel_set_row_height(sheet: int | str, row: int, height: float) -> str:
+    return str(_call("excel", "set_row_height", sheet=sheet, row=row, height=height))
+
+
+@server.tool(
+    title="设置数字格式",
+    description="给 range_addr 设置数字格式，如 '#,##0.00' / '0.0%' / 'yyyy-mm-dd'。",
+)
+def excel_set_number_format(sheet: int | str, range_addr: str, fmt: str) -> str:
+    return str(_call("excel", "set_number_format", sheet=sheet, range_addr=range_addr, fmt=fmt))
+
+
+@server.tool(
+    title="自动调整列宽行高",
+    description=(
+        "自动调整 range_addr 的列宽/行高；不传 range_addr 则调整已用区域（UsedRange）。"
+        "columns/rows 为布尔开关，默认都调整，可只调列宽（rows=False）或只调行高（columns=False）。"
+    ),
+)
+def excel_autofit(
+    sheet: int | str,
+    range_addr: str | None = None,
+    columns: bool = True,
+    rows: bool = True,
+) -> str:
+    return str(
+        _call(
+            "excel",
+            "autofit",
+            sheet=sheet,
+            range_addr=range_addr,
+            columns=columns,
+            rows=rows,
+        )
+    )
+
+
 def main():
     # stdio 传输：MCP 客户端（Claude Desktop 等）以子进程方式拉起并接管 stdin/stdout
     server.run()

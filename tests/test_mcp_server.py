@@ -37,6 +37,15 @@ def test_initialize_and_tool_names(module):
         "word_add_heading",
         "excel_set_cell",
         "excel_format_cell",
+        "excel_merge_cells",
+        "excel_unmerge_cells",
+        "excel_set_border",
+        "excel_add_conditional_format",
+        "excel_freeze_panes",
+        "excel_page_setup",
+        "excel_set_row_height",
+        "excel_set_number_format",
+        "excel_autofit",
     ):
         assert expected in tools
 
@@ -51,3 +60,24 @@ def test_tool_input_schema_requires_typed_args(module):
     body = tools["ppt_set_body"].input_schema
     assert "slide_idx" in body["properties"]
     assert "lines" in body["properties"]
+
+    cond = tools["excel_add_conditional_format"].input_schema
+    assert cond["required"] == ["sheet", "range_addr", "rule"]
+    for prop in ("operator", "value", "value2", "bg", "fg", "min_color", "max_color", "mid_color"):
+        assert prop in cond["properties"]
+
+    page = tools["excel_page_setup"].input_schema
+    assert page["required"] == ["sheet"]
+    for prop in (
+        "orientation",
+        "paper",
+        "fit_to_pages_wide",
+        "fit_to_pages_tall",
+        "margins",
+        "print_area",
+        "center_horizontally",
+        "center_vertically",
+        "print_titles_rows",
+        "print_titles_cols",
+    ):
+        assert prop in page["properties"]
