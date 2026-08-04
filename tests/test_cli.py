@@ -53,3 +53,25 @@ def test_deck_make_passes_theme_and_layouts(monkeypatch, capsys):
     assert captured["kw"]["theme"] == "mckinsey"
     assert captured["kw"]["apply_layouts"] is True
     assert "deck.pptx" in capsys.readouterr().out
+
+
+def test_deck_outline_writes_html(tmp_path):
+    from offipy import cli
+
+    md = tmp_path / "outline.md"
+    md.write_text("# T\n> S\n\n## 页一 @layout: big-number\n- 甲\n", encoding="utf-8")
+    out = tmp_path / "deck.html"
+    cli.main(["deck", "outline", "--input", str(md), "--theme", "mckinsey", "--out", str(out)])
+    html = out.read_text(encoding="utf-8")
+    assert "data-pptx-slide" in html
+    assert 'data-layout="big-number"' in html
+    assert '<style data-theme="mckinsey">' in html
+
+
+def test_deck_outline_prints_json_without_out(tmp_path, capsys):
+    from offipy import cli
+
+    md = tmp_path / "outline.md"
+    md.write_text("# T\n\n## 页\n- 甲\n", encoding="utf-8")
+    cli.main(["deck", "outline", "--input", str(md)])
+    assert '"title": "T"' in capsys.readouterr().out

@@ -17,6 +17,7 @@
 
 import argparse
 import json
+import os
 
 from .client import call, convert_value, ensure_server
 
@@ -49,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         # REMAINDER：原样捕获 --key value 形式的任意 kwargs
         sp.add_argument("kwargs", nargs=argparse.REMAINDER)
     deck = sub.add_parser("deck")
-    deck.add_argument("action", choices=["make"])
+    deck.add_argument("action", choices=["make", "outline"])
     deck.add_argument("kwargs", nargs=argparse.REMAINDER)
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
@@ -92,6 +93,25 @@ def main(argv=None):
                 apply_layouts=bool(kw.pop("layouts", False) or kw.pop("apply-layouts", False)),
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
+        elif args.action == "outline":
+            from .outline import parse_outline, to_deck_html
+
+            md_path = kw.pop("input", None) or kw.pop("md", None)
+            if not md_path:
+                raise SystemExit(
+                    "用法: office deck outline --input <outline.md> "
+                    "[--theme <name>] [--out <deck.html>]"
+                )
+            with open(md_path, encoding="utf-8") as f:
+                outline = parse_outline(f.read())
+            html = to_deck_html(outline, theme=kw.pop("theme", None))
+            out = kw.pop("out", None)
+            if out:
+                with open(out, "w", encoding="utf-8") as f:
+                    f.write(html)
+                print(json.dumps({"html": os.path.abspath(out)}, ensure_ascii=False))
+            else:
+                print(outline.to_json())
         return
     kw = _parse_kwargs(args.kwargs)
     result = call(args.app, args.op, **kw)
