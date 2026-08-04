@@ -6,7 +6,6 @@
 输出 Markdown 表（可直接并入 docs/benchmarks.md）。结束自动 quit 各 App。
 """
 
-from statistics import median
 from time import perf_counter
 
 from offipy import client
@@ -33,24 +32,62 @@ def main() -> None:
     client.ensure_server()
     rows = []
     # Excel 首 op 触发应用启动
-    rows.append(bench("excel", "new_book", "excel.new_book", lambda: client.call("excel", "new_book")))
     rows.append(
-        bench("excel", "set_cell", "excel.set_cell", lambda: client.call("excel", "set_cell", sheet=1, cell="A1", value=1))
+        bench("excel", "new_book", "excel.new_book", lambda: client.call("excel", "new_book"))
     )
     rows.append(
-        bench("excel", "read_range", "excel.read_range", lambda: client.call("excel", "read_range", sheet=1, range_addr="A1:A1"))
+        bench(
+            "excel",
+            "set_cell",
+            "excel.set_cell",
+            lambda: client.call("excel", "set_cell", sheet=1, cell="A1", value=1),
+        )
+    )
+    rows.append(
+        bench(
+            "excel",
+            "read_range",
+            "excel.read_range",
+            lambda: client.call("excel", "read_range", sheet=1, range_addr="A1:A1"),
+        )
     )
     # Word
     rows.append(bench("word", "new_doc", "word.new_doc", lambda: client.call("word", "new_doc")))
-    rows.append(bench("word", "write_line", "word.write_line", lambda: client.call("word", "write_line", text="hello")))
-    rows.append(bench("word", "read_doc_text", "word.read_doc_text", lambda: client.call("word", "read_doc_text")))
+    rows.append(
+        bench(
+            "word",
+            "write_line",
+            "word.write_line",
+            lambda: client.call("word", "write_line", text="hello"),
+        )
+    )
+    rows.append(
+        bench(
+            "word",
+            "read_doc_text",
+            "word.read_doc_text",
+            lambda: client.call("word", "read_doc_text"),
+        )
+    )
     # PPT
     rows.append(bench("ppt", "new_pres", "ppt.new_pres", lambda: client.call("ppt", "new_pres")))
     rows.append(bench("ppt", "add_slide", "ppt.add_slide", lambda: client.call("ppt", "add_slide")))
     rows.append(
-        bench("ppt", "set_title", "ppt.set_title", lambda: client.call("ppt", "set_title", slide_idx=1, text="t"))
+        bench(
+            "ppt",
+            "set_title",
+            "ppt.set_title",
+            lambda: client.call("ppt", "set_title", slide_idx=1, text="t"),
+        )
     )
-    rows.append(bench("ppt", "read_slide_texts", "ppt.read_slide_texts", lambda: client.call("ppt", "read_slide_texts")))
+    rows.append(
+        bench(
+            "ppt",
+            "read_slide_texts",
+            "ppt.read_slide_texts",
+            lambda: client.call("ppt", "read_slide_texts"),
+        )
+    )
 
     client.call("excel", "quit")
     client.call("word", "quit")

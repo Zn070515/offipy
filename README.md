@@ -314,3 +314,11 @@ examples/     # 可运行示例（decks / outline / excel / word）
 ## License
 
 MIT
+
+## 反馈与问题
+
+- **Bug / 功能请求**：到 [GitHub Issues](https://github.com/Zn070515/office-kit/issues) 提交，
+  附上 `offipy check --json` 输出与最小复现。
+- **预发布版本**：TestPyPI 冒烟用 `scripts/pypi_smoke.py --index https://test.pypi.org/simple --version <预发布号>`
+  （见 CHANGELOG「预发布编号策略」）。预发布版本仅供验证，稳定首发前 `__version__` / tag / CHANGELOG
+  顶层三者保持一致。

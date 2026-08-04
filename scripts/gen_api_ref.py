@@ -43,7 +43,13 @@ def _flags(spec: schema.OpSpec) -> list[str]:
 
 
 def _render_op(app: str, op: str, spec: schema.OpSpec) -> str:
-    lines = [f"### `{op}`", "", spec.description or "", "", f"- **参数**: {_param_list(spec.params)}"]
+    lines = [
+        f"### `{op}`",
+        "",
+        spec.description or "",
+        "",
+        f"- **参数**: {_param_list(spec.params)}",
+    ]
     lines.append(f"- **返回**: `{spec.returns}`")
     flags = _flags(spec)
     lines.append(f"- **标志**: {'，'.join(flags) if flags else '普通操作'}")

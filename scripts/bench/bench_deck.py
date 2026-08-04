@@ -29,8 +29,8 @@ def main() -> None:
         times.append(perf_counter() - t0)
         out.unlink(missing_ok=True)
 
-    print(f"| 轮次 | 墙钟 ms |")
-    print(f"| --- | --- |")
+    print("| 轮次 | 墙钟 ms |")
+    print("| --- | --- |")
     for i, t in enumerate(times, 1):
         tag = "（含 chromium 冷启动）" if i == 1 else ""
         print(f"| {i}{tag} | {t * 1000:.0f} |")
