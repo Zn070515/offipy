@@ -84,7 +84,7 @@ _register(
   flex: 1; background: var(--surface); border-radius: var(--radius);
   padding: 40px; border-top: 4px solid var(--accent);
 }
-.split-2col .col-title { font-size: 34px; font-weight: 700; margin-bottom: 20px; }
+.split-2col .col-title { font-size: var(--col-title); font-weight: 700; margin-bottom: 20px; }
 .split-2col .col p { font-size: var(--body); color: var(--ink); line-height: 1.7; }
 """,
         html="""<section class="slide split-2col" data-pptx-slide data-layout="split-2col">
@@ -105,7 +105,10 @@ _register(
   flex: 1; background: var(--surface); border-radius: var(--radius); padding: 40px;
   border-left: 6px solid var(--accent);
 }
-.cards-3 .num { font-size: 30px; color: var(--accent); font-weight: 700; margin-bottom: 14px; }
+.cards-3 .num {
+  font-size: var(--num); color: var(--accent); font-weight: 700;
+  margin-bottom: 14px;
+}
 .cards-3 .txt { font-size: var(--body); color: var(--ink); line-height: 1.6; }
 """,
         html="""<section class="slide cards-3" data-pptx-slide data-layout="cards-3">
@@ -127,7 +130,7 @@ _register(
         description="超大数字 + 一句结论，highlight the one。",
         css="""
 .big-number .big {
-  font-size: 200px; font-weight: 800; color: var(--accent);
+  font-size: var(--display); font-weight: 800; color: var(--accent);
   line-height: 1; margin: 40px 0 24px;
 }
 .big-number .rule { margin-top: 16px; }
@@ -151,10 +154,13 @@ _register(
   display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
 }
 .quote-frame .quote {
-  font-family: var(--font-serif); font-size: 52px; font-weight: 600;
+  font-family: var(--font-serif); font-size: var(--quote); font-weight: 600;
   line-height: 1.4; color: var(--ink); max-width: 26ch; margin-bottom: 32px;
 }
-.quote-frame .quote::before { content: "“"; color: var(--accent); font-size: 72px; line-height: 0; }
+.quote-frame .quote::before {
+  content: "“"; color: var(--accent);
+  font-size: var(--quote-mark); line-height: 0;
+}
 .quote-frame .attribution {
   font-size: var(--body); color: var(--muted); font-family: var(--font-sans);
 }
@@ -174,10 +180,10 @@ _register(
         css="""
 .timeline .tl-item {
   display: flex; gap: 32px; align-items: baseline;
-  padding: 18px 0; border-bottom: 1px solid var(--divider);
+  padding: 16px 0; border-bottom: 1px solid var(--divider);
 }
 .timeline .tl-date {
-  font-family: var(--font-sans); font-size: 26px; font-weight: 700;
+  font-family: var(--font-sans); font-size: var(--tl-date); font-weight: 700;
   color: var(--accent); min-width: 160px;
 }
 .timeline .tl-txt { font-size: var(--body); color: var(--ink); line-height: 1.6; }
@@ -338,7 +344,7 @@ def layout_html(name: str) -> str:
 
 def referenced_layouts(html: str) -> list[str]:
     """找出 HTML 里被 data-layout 引用的布局名（保序去重）。"""
-    names = re.findall(r'data-layout="([a-z0-9-]+)"', html)
+    names = re.findall(r'data-layout=["\']([a-z0-9-]+)["\']', html)
     seen: list[str] = []
     for n in names:
         if n not in seen:
@@ -353,6 +359,8 @@ def inject_layouts(html: str) -> str:
     只注入被引用的布局（+ 公共排版），未被引用的布局不进产物。
     """
     names = referenced_layouts(html)
+    # 未知名称无 CSS 可注入：跳过不崩，单个拼写错误不打断整个管线
+    names = [n for n in names if n in LAYOUTS]
     if not names:
         return html
     css = _COMMON_CSS + "".join(LAYOUTS[n].css for n in names)

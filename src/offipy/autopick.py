@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from .design import THEMES
-from .layouts import LAYOUTS
+from .layouts import LAYOUTS, referenced_layouts
 
 # ---------------------------------------------------------------- 信号常量
 
@@ -79,8 +79,8 @@ def _slide_blocks(html: str) -> list[str]:
 
 
 def _explicit_layout(block: str) -> str | None:
-    m = re.search(r'data-layout="([a-z0-9-]+)"', block)
-    return m.group(1) if m else None
+    names = referenced_layouts(block)
+    return names[0] if names else None
 
 
 # ---------------------------------------------------------------- 单页布局
@@ -133,11 +133,13 @@ def _pick_layout_for_slide(index: int, block: str) -> tuple[str, str, dict]:
 
 
 def _count_keywords(words: tuple[str, ...], text: str) -> int:
-    """英文词按 \b 边界匹配（避免 'ai' 误中 'daily'），中文直接子串匹配。"""
+    """英文词按「前后非字母数字」匹配（避免 'ai' 误中 'daily'，也避开
+    \b 对 CJK 相邻词失效——'AI模型' 里 'AI'/'模型' 两侧无单词边界），
+    中文直接子串匹配。"""
     n = 0
     for w in words:
         if w.isascii():
-            if re.search(rf"\b{re.escape(w)}\b", text):
+            if re.search(rf"(?<![A-Za-z0-9]){re.escape(w)}(?![A-Za-z0-9])", text):
                 n += 1
         elif w in text:
             n += 1
@@ -215,13 +217,18 @@ def pick_layouts(html: str) -> list[SlidePick]:
             picks.append(SlidePick(index, explicit, "slide 已显式指定 data-layout", explicit=True))
             continue
         layout, reason, signals = _pick_layout_for_slide(index, block)
+        if layout not in LAYOUTS:  # 漂移防护：推断结果不在布局库时回退封面
+            layout, reason = "hero-title", f"推断布局 {layout!r} 不在布局库，回退封面"
         picks.append(SlidePick(index, layout, reason, signals=signals))
     return picks
 
 
 def pick_theme(html: str) -> tuple[str, str]:
     """推断整份 deck 的主题 → (theme, reason)。"""
-    return _pick_theme(html)
+    theme, reason = _pick_theme(html)
+    if theme not in THEMES:  # 漂移防护：推断结果不在主题库时回退默认
+        return _DEFAULT_THEME, f"{theme!r} 不在主题库，回退 {_DEFAULT_THEME}"
+    return theme, reason
 
 
 def pick(html: str) -> DeckPick:

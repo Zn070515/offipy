@@ -41,6 +41,12 @@ _BASE_TOKENS = {
     "--title": "52px",  # 大标题
     "--body": "24px",  # 正文（≥24px，1080p 全屏可读）
     "--caption": "18px",  # 注释/来源
+    "--col-title": "34px",  # 两栏/卡片区块标题
+    "--num": "30px",  # 卡片序号
+    "--display": "200px",  # 大数字页主数字
+    "--quote": "52px",  # 引言正文
+    "--quote-mark": "72px",  # 引言引号装饰
+    "--tl-date": "26px",  # 时间线日期
     "--pad": "96px",  # 页边距（≈5% 安全区）
     "--gap": "24px",  # 组件间距（8pt 网格 × 3）
     "--radius": "8px",
@@ -216,8 +222,8 @@ def theme_css(name: str) -> str:
     return css
 
 
-def _fmt_vars(vars: dict[str, str]) -> str:
-    return "".join(f"  {k}: {v};\n" for k, v in vars.items())
+def _fmt_vars(tokens: dict[str, str]) -> str:
+    return "".join(f"  {k}: {v};\n" for k, v in tokens.items())
 
 
 def inject_theme(html: str, name: str) -> str:
@@ -255,6 +261,12 @@ TOKEN_NAMES = (
     "--title",
     "--body",
     "--caption",
+    "--col-title",
+    "--num",
+    "--display",
+    "--quote",
+    "--quote-mark",
+    "--tl-date",
     "--pad",
     "--gap",
     "--radius",
