@@ -86,7 +86,9 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   `deck make --layouts` 后替换成 PowerPoint 原生 freeform 矢量图标（双击显示可编辑
   锚点，非图片）。内置 Phosphor（`ph:`，256 viewBox，填充）+ Lucide（`lu:`，24 viewBox，
   线形）双集（vendored 于 `src/offipy/assets/icons/`，更新见 `scripts/fetch_icons.py`）；
-  图标颜色继承容器的 `color`（HTML 里 `color: var(--accent)` 即上主题色）。示例见
+  图标颜色继承容器的 `color`（HTML 里 `color: var(--accent)` 即上主题色；容器未设色时
+  缺省取当前主题的 `--accent`）。Lucide 线形图标按 round 线帽/拐角渲染（对齐源 SVG
+  设计，非图片非贴图）。示例见
   [`examples/decks/icons/icons-demo.html`](examples/decks/icons/icons-demo.html)。
 
   ```html
@@ -94,7 +96,8 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   ```
 
   大纲里用 `@icons: <名字>[:标签]; ...` 声明图标行（默认 `ph:` 前缀），骨架自动落
-  `icons-row` 布局。示例见 [`examples/outline/icons-demo.md`](examples/outline/icons-demo.md)。
+  `icons-row` 布局（超过 3 个图标自动换行，3 列/行）。示例见
+  [`examples/outline/icons-demo.md`](examples/outline/icons-demo.md)。
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 
 ```python
@@ -153,6 +156,7 @@ src/offipy/
   deck.py     # HTML → 可编辑 PPTX 管线（render/open_live/export_slides）*
   design.py   # 设计系统：token 模型 + 3 套内置主题 + .slide 基础样式 *
   layouts.py  # 命名布局库：11 种布局组件 + data-layout 注入 *
+  charts.py   # 原生图表：图表声明解析 + 原生可编辑图表注入（bar/line/pie）*
   icons.py    # 原生图标：SVG 路径压平 + freeform 矢量图标注入（ph/lu 双集）*
   assets/icons/  # vendored 图标资产（Phosphor fill + Lucide）+ manifest + LICENSE *
   aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
