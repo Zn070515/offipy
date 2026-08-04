@@ -106,6 +106,7 @@ class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
         # 关闭所有提示（保存/覆盖/文件锁），避免模态对话框卡死单线程 server
+        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
         self.app.DisplayAlerts = False
         self._book = None
 
@@ -351,4 +352,6 @@ class ExcelApp:
 
     # --- 生命周期 ---
     def quit(self):
+        # 库改全局状态（DisplayAlerts），释放前还原原值
+        self.app.DisplayAlerts = self._saved_alerts
         core.quit_app("excel")
