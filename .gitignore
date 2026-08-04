@@ -20,6 +20,9 @@ _audit/
 out/
 logs/
 
+# 内部开发计划（含本机绝对路径，不入库）
+docs/superpowers/
+
 # vendored 转换器本机偏好（跨机器不同，不入库）
 third_party/html-to-editable-pptx/.config.local.toml
 # vendored 转换器回归测试的生成产物（可再生成，不入库）
