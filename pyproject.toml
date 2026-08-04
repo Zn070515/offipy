@@ -41,6 +41,19 @@ path = "src/offipy/__init__.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/offipy"]
 
+[tool.hatch.build.targets.sdist]
+# 只打包构建 wheel 所需：src + pyproject + README/LICENSE。
+# vendored 转换器（wheel 不含它）、文档、示例、测试、CI 一律不进源码包，
+# 否则 sdist 会被 third_party 的 PNG 对比图撑到 8MB+。
+exclude = [
+  "/.github",
+  "/docs",
+  "/examples",
+  "/logs",
+  "/tests",
+  "/third_party",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
