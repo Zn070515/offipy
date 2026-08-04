@@ -76,13 +76,13 @@ print(report.markdown())
 （`ppt_set_title`、`word_write_line`、`excel_set_cell` 等）。工具调用与 `office` 命令等价，
 作用在用户当前激活的文档 / 工作簿 / 演示文稿上，窗口实时可见。
 
-在 Claude Desktop 的 `claude_desktop_config.json` 添加：
+在 Claude Desktop 的 `claude_desktop_config.json` 添加。`<OFFIPY_ROOT>` 是你本地仓库的绝对路径（Windows 示例：`C:\\path\\to\\officeforclaude`），**不要提交真实本机路径**：
 
 ```json
 {
   "mcpServers": {
     "offipy": {
-      "command": "C:\\Users\\16275\\Desktop\\OfficeForClaude\\.venv\\Scripts\\python.exe",
+      "command": "<OFFIPY_ROOT>\\.venv\\Scripts\\python.exe",
       "args": ["-m", "offipy.mcp_server"]
     }
   }
