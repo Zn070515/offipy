@@ -100,6 +100,30 @@ _BOOL_TOKENS = {
 }
 
 
+class _BoolAction(argparse.Action):
+    """--flag / --flag <true|false> 两用布尔：裸用为 True，显式值按 token 解析。
+
+    根除 bool("false") is True 陷阱：显式传 false 必须是 False。
+    """
+
+    def __init__(self, option_strings, dest, **kwargs):
+        kwargs.setdefault("nargs", "?")
+        kwargs.setdefault("const", True)
+        kwargs.setdefault("default", False)
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values is None:
+            setattr(namespace, self.dest, True)
+            return
+        token = str(values).strip().lower()
+        if token not in _BOOL_TOKENS:
+            raise argparse.ArgumentError(
+                self, f"布尔值（true/false/1/0/on/off/yes/no），收到: {values!r}"
+            )
+        setattr(namespace, self.dest, _BOOL_TOKENS[token])
+
+
 def _unwrap_optional(ann):
     """Optional[X] / X | None → X；其余注解原样返回。"""
     origin = typing.get_origin(ann)
@@ -207,7 +231,17 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("kwargs", nargs=argparse.REMAINDER)
     deck = sub.add_parser("deck")
     deck.add_argument("action", choices=["make", "outline"])
-    deck.add_argument("kwargs", nargs=argparse.REMAINDER)
+    # 专用选项（P0-4）：布尔用 _BoolAction，`--overwrite false` 不再是
+    # bool("false")→True 的坑；未知 --key 由 argparse 直接 exit 2。
+    deck.add_argument("--html", help="HTML 幻灯片源文件（make 必填）")
+    deck.add_argument("--out", help="输出路径（make: .pptx；outline: .html）")
+    deck.add_argument("--no-open", action="store_true", help="渲染后不打开实况演示（make）")
+    deck.add_argument("--feedback", help="导出 PNG 反馈目录（make）")
+    deck.add_argument("--theme", help="注入内置主题名（make/outline）")
+    deck.add_argument("--layouts", action=_BoolAction, help="注入 data-layout 布局 CSS（make）")
+    deck.add_argument("--overwrite", action=_BoolAction, help="覆盖已存在的 .pptx（make）")
+    deck.add_argument("--input", help="大纲 markdown 源文件（outline）")
+    deck.add_argument("--md", help="大纲 markdown 源文件别名（outline）")
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
     q = sub.add_parser("quit")
@@ -257,31 +291,29 @@ def _main(argv=None):
             print("server 已重启")
         return
     if args.app == "deck":
-        from .deck import make as deck_make
-
-        kw = _parse_kwargs(args.kwargs)
         if args.action == "make":
-            html = kw.pop("html", None)
-            if not html:
+            from .deck import make as deck_make
+
+            if not args.html:
                 raise SystemExit(
                     "用法: offipy deck make --html <deck.html> "
                     "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
                     "[--theme <name>] [--layouts] [--overwrite]"
                 )
             pptx = deck_make(
-                html,
-                out=kw.pop("out", None),
-                open_live_flag=not (kw.pop("no-open", False) or kw.pop("no_open", False)),
-                feedback_dir=kw.pop("feedback", None),
-                theme=kw.pop("theme", None),
-                apply_layouts=bool(kw.pop("layouts", False) or kw.pop("apply-layouts", False)),
-                overwrite=bool(kw.pop("overwrite", False)),
+                args.html,
+                out=args.out,
+                open_live_flag=not args.no_open,
+                feedback_dir=args.feedback,
+                theme=args.theme,
+                apply_layouts=args.layouts,
+                overwrite=args.overwrite,
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
-        elif args.action == "outline":
+        else:  # outline
             from .outline import parse_outline, to_deck_html
 
-            md_path = kw.pop("input", None) or kw.pop("md", None)
+            md_path = args.input or args.md
             if not md_path:
                 raise SystemExit(
                     "用法: offipy deck outline --input <outline.md> "
@@ -294,12 +326,11 @@ def _main(argv=None):
                 raise SystemExit(f"找不到文件: {md_path}") from None
             except ValueError as e:
                 raise SystemExit(f"大纲格式错误: {e}") from None
-            html = to_deck_html(outline, theme=kw.pop("theme", None))
-            out = kw.pop("out", None)
-            if out:
-                with open(out, "w", encoding="utf-8") as f:
+            html = to_deck_html(outline, theme=args.theme)
+            if args.out:
+                with open(args.out, "w", encoding="utf-8") as f:
                     f.write(html)
-                print(json.dumps({"html": os.path.abspath(out)}, ensure_ascii=False))
+                print(json.dumps({"html": os.path.abspath(args.out)}, ensure_ascii=False))
             else:
                 print(outline.to_json())
         return

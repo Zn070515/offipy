@@ -4,6 +4,7 @@
 """
 
 import os
+from contextlib import contextmanager
 
 from . import core
 from .exceptions import TargetNotFoundError
@@ -116,9 +117,19 @@ def _end_range(doc):
 class WordApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("word", visible=visible)
-        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
-        self.app.DisplayAlerts = WD_ALERTS_NONE
+        # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
+        self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._doc = None
+
+    @contextmanager
+    def _alerts_scope(self, value: int = WD_ALERTS_NONE):
+        """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
+        prev = self.app.DisplayAlerts
+        self.app.DisplayAlerts = value
+        try:
+            yield
+        finally:
+            self.app.DisplayAlerts = prev
 
     # --- 文档 ---
     def new_doc(self):
@@ -169,21 +180,23 @@ class WordApp:
 
     def close_doc(self, save: bool = True):
         doc = self._require_doc()
-        if doc is not None:
+        with self._alerts_scope():
             doc.Close(SaveChanges=save)
         self._doc = None
 
     def save(self, path: str | None = None, overwrite: bool = False):
         dest = ensure_writable(path, overwrite) if path else None
-        doc = self._require_doc()
-        if dest:
-            doc.SaveAs2(dest)
-        else:
-            doc.Save()
+        with self._alerts_scope():
+            doc = self._require_doc()
+            if dest:
+                doc.SaveAs2(dest)
+            else:
+                doc.Save()
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
-        self._require_doc().ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
+        with self._alerts_scope():
+            self._require_doc().ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
 
     # --- 内容 ---
     def write(self, text: str):

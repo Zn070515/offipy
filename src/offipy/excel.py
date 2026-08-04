@@ -4,6 +4,8 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
+from contextlib import contextmanager
+
 from . import core
 from .exceptions import TargetNotFoundError
 from .paths import ensure_writable
@@ -123,10 +125,19 @@ def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
-        # 关闭所有提示（保存/覆盖/文件锁），避免模态对话框卡死单线程 server
-        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
-        self.app.DisplayAlerts = False
+        # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
+        self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._book = None
+
+    @contextmanager
+    def _alerts_scope(self, value: bool = False):
+        """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
+        prev = self.app.DisplayAlerts
+        self.app.DisplayAlerts = value
+        try:
+            yield
+        finally:
+            self.app.DisplayAlerts = prev
 
     # --- 工作簿 ---
     def new_book(self):
@@ -177,23 +188,25 @@ class ExcelApp:
 
     def close_book(self, save: bool = True):
         book = self._require_book()
-        if book is not None:
-            # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
+        # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
+        with self._alerts_scope():
             book.Close(SaveChanges=-1 if save else 2)
         self._book = None
 
     def save(self, path: str | None = None, overwrite: bool = False):
         dest = ensure_writable(path, overwrite) if path else None
-        book = self._require_book()
-        if dest:
-            # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
-            book.SaveAs(dest)
-        else:
-            book.Save()
+        with self._alerts_scope():
+            book = self._require_book()
+            if dest:
+                # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
+                book.SaveAs(dest)
+            else:
+                book.Save()
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
-        self._require_book().ExportAsFixedFormat(XL_TYPE_PDF, dest)
+        with self._alerts_scope():
+            self._require_book().ExportAsFixedFormat(XL_TYPE_PDF, dest)
 
     # --- 工作表 ---
     def _ws(self, sheet):

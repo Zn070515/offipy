@@ -30,6 +30,7 @@ class _FakeApp:
         self.Workbooks = no_add
         self.Documents = no_add
         self.Presentations = no_add
+        self.DisplayAlerts = True  # _alerts_scope 读写 DisplayAlerts
 
 
 class _Book:

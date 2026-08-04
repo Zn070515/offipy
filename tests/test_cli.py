@@ -71,6 +71,50 @@ def test_deck_make_passes_overwrite(monkeypatch, capsys):
     assert captured["kw"]["overwrite"] is False
 
 
+def test_deck_make_overwrite_false_not_bool_true(monkeypatch, capsys):
+    # P0-4 回归：--overwrite false 曾因 bool("false") is True 被翻成 True。
+    from offipy import cli
+
+    captured = {}
+
+    def fake_make(html, **kw):
+        captured["kw"] = kw
+        return r"C:\out\deck.pptx"
+
+    monkeypatch.setattr("offipy.deck.make", fake_make)
+    cli.main(["deck", "make", "--html", "x.html", "--overwrite", "false"])
+    assert captured["kw"]["overwrite"] is False
+    cli.main(["deck", "make", "--html", "x.html", "--overwrite", "true"])
+    assert captured["kw"]["overwrite"] is True
+
+
+def test_deck_make_layouts_false(monkeypatch, capsys):
+    # P0-4 回归：--layouts false 必须为 False，不能走 bool("false")。
+    from offipy import cli
+
+    captured = {}
+
+    def fake_make(html, **kw):
+        captured["kw"] = kw
+        return r"C:\out\deck.pptx"
+
+    monkeypatch.setattr("offipy.deck.make", fake_make)
+    cli.main(["deck", "make", "--html", "x.html", "--layouts", "false"])
+    assert captured["kw"]["apply_layouts"] is False
+    cli.main(["deck", "make", "--html", "x.html", "--layouts"])
+    assert captured["kw"]["apply_layouts"] is True
+
+
+def test_deck_make_unknown_option_rejected(capsys):
+    # P0-4：未知 --key 不再被 REMAINDER 吞掉，argparse 直接 exit 2。
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "make", "--html", "x.html", "--bogus", "1"])
+    assert exc.value.code == 2
+    assert "unrecognized arguments" in capsys.readouterr().err
+
+
 def test_deck_outline_writes_html(tmp_path):
     from offipy import cli
 

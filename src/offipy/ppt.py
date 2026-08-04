@@ -4,6 +4,7 @@
 """
 
 import os
+from contextlib import contextmanager
 
 from . import core
 from .exceptions import TargetNotFoundError
@@ -20,9 +21,19 @@ PP_LAYOUT_BLANK = 12
 class PptApp:
     def __init__(self, visible: bool = True):
         self.app, _ = core.ensure_app("ppt", visible=visible)
-        self._saved_alerts = self.app.DisplayAlerts  # 库改全局状态，释放时还原
-        self.app.DisplayAlerts = PP_ALERTS_NONE
+        # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
+        self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._pres = None
+
+    @contextmanager
+    def _alerts_scope(self, value: int = PP_ALERTS_NONE):
+        """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
+        prev = self.app.DisplayAlerts
+        self.app.DisplayAlerts = value
+        try:
+            yield
+        finally:
+            self.app.DisplayAlerts = prev
 
     # --- 演示文稿 ---
     def new_pres(self):
@@ -73,19 +84,21 @@ class PptApp:
 
     def save(self, path: str | None = None, overwrite: bool = False):
         dest = ensure_writable(path, overwrite) if path else None
-        pres = self._require_pres()
-        if dest:
-            pres.SaveAs(dest)
-        else:
-            pres.Save()
+        with self._alerts_scope():
+            pres = self._require_pres()
+            if dest:
+                pres.SaveAs(dest)
+            else:
+                pres.Save()
 
     def save_pdf(self, path: str, overwrite: bool = False):
         dest = ensure_writable(path, overwrite)
         # ExportAsFixedFormat 第二位置参数是 Intent（打印=2），OutputType 才是
         # 输出格式——必须显式指定 PDF，不能只传一个 2 了事。
-        self._require_pres().ExportAsFixedFormat(
-            dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF
-        )
+        with self._alerts_scope():
+            self._require_pres().ExportAsFixedFormat(
+                dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF
+            )
 
     def export_slides(self, out_dir: str, width: int = 1920, height: int = 1080):
         """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""

@@ -10,6 +10,7 @@ CSS；同一份 HTML 换主题即换皮，内容与视觉解耦。
 """
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -75,6 +76,10 @@ def render(
     （见 layouts.inject_layouts）。两者可叠加，输出路径仍基于原 html 名。
     注入副本是临时文件，转换后删除。overwrite=False 时若输出 .pptx 已存在
     抛 FileExistsError（fail-fast，不浪费一次渲染）。
+
+    原子替换（P0-6）：转换先写同目录临时 .pptx，图表/图标后处理作用于
+    临时文件，全部成功后才 os.replace 一步替换目标。任何失败/异常都会
+    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。
     """
     html = os.path.abspath(html)
     if not os.path.exists(html):
@@ -95,8 +100,6 @@ def render(
         if theme:
             content = inject_theme(content, theme)
         # 以 .audited.html 结尾 → convert 跳过 work-copy 分支，不留 .audited 残留。
-        # 输出名必须显式锁到原 html 的默认名，否则 convert 会用临时文件命名的 .pptx。
-        out = out or _default_out(html)
         tmp_html = os.path.join(
             os.path.dirname(html),
             f".{os.path.basename(html)}.{theme or 'layouts'}.tmp.audited.html",
@@ -104,8 +107,12 @@ def render(
         with open(tmp_html, "w", encoding="utf-8") as f:
             f.write(content)
         target = tmp_html
+    # 原子替换：与最终输出同目录的临时 .pptx（同卷，保证 os.replace 原子）
+    tmp_pptx = os.path.join(
+        os.path.dirname(final_out), f".{Path(final_out).stem}.{theme or 'deck'}.tmp.pptx"
+    )
     try:
-        cmd = _convert_cmd(target, out, only_slides, no_visual_audit)
+        cmd = _convert_cmd(target, tmp_pptx, only_slides, no_visual_audit)
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
         # 转换器可变数据（配置/lessons-learned）落用户数据目录，不写包内
@@ -127,23 +134,30 @@ def render(
             raise ConversionError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
         if r.returncode != 0:
             raise ConversionError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
-        pptx = os.path.abspath(out) if out else _default_out(html)
-        if not os.path.exists(pptx):
-            raise ConversionError(f"转换未产出 .pptx: {pptx}\n{r.stdout}\n{r.stderr}")
+        if not os.path.exists(tmp_pptx):
+            raise ConversionError(f"转换未产出 .pptx: {tmp_pptx}\n{r.stdout}\n{r.stderr}")
         # 图表后处理：HTML 声明了 data-chart → 读 measurements 替换成原生图表。
         # 惰性 import：charts.py 内部 import python-pptx，不拖慢无图表的路径。
         from .charts import postprocess_charts
 
-        postprocess_charts(html, pptx)
+        postprocess_charts(html, tmp_pptx)
         # 图标后处理：HTML 声明了 data-icon → 替换成 freeform 矢量图标（同 charts 架构）。
         # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图标的路径。
         from .icons import postprocess_icons
 
-        postprocess_icons(html, pptx)
-        return pptx
+        postprocess_icons(html, tmp_pptx)
+        os.replace(tmp_pptx, final_out)
+        return final_out
     finally:
-        if tmp_html and os.path.exists(tmp_html):
-            os.unlink(tmp_html)
+        # 任何路径（成功或失败）都清理临时文件；已存在的 final_out 不受影响。
+        # convert 的 <out>_audit 审计目录跟着临时 .pptx 名字走，tmp 被替换/删除后
+        # 就成了孤儿（charts 后处理在 os.replace 前已读完 measurements），一并清掉。
+        for p in (tmp_pptx, tmp_html):
+            if p and os.path.exists(p):
+                os.unlink(p)
+        tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
+        if os.path.isdir(tmp_audit):
+            shutil.rmtree(tmp_audit, ignore_errors=True)
 
 
 def open_live(pptx: str) -> None:
