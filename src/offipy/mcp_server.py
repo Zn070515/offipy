@@ -13,14 +13,15 @@ from mcp.server import MCPServer
 
 from . import __version__
 from .client import request
+from .exceptions import OffipyError
 
 
 def _call(app: str, op: str, **kwargs):
     """转成 8890 server 调用；失败抛 RuntimeError 让模型看到原因。"""
     try:
         resp = request(app, op, **kwargs)
-    except SystemExit as e:
-        raise RuntimeError(str(e) or f"offipy server 启动失败 (exit {e.code})") from None
+    except OffipyError as e:
+        raise RuntimeError(str(e)) from None
     if not resp.get("ok"):
         raise RuntimeError(resp.get("error", "未知错误"))
     return resp.get("result")

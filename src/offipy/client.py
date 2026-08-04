@@ -7,6 +7,9 @@ import sys
 import time
 import urllib.request
 
+from .exceptions import RemoteCallError, ServerStartError
+from .paths import user_data_dir
+
 HOST = "127.0.0.1"
 PORT = 8890
 SERVER_MOD = "offipy.server"
@@ -28,20 +31,24 @@ def _ping() -> bool:
 def ensure_server():
     if _ping():
         return
-    # 日志落盘：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
-    logpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".offipy.log")
+    # 日志落盘用户数据目录：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
+    logpath = user_data_dir() / ".offipy.log"
+    logpath.parent.mkdir(parents=True, exist_ok=True)
+    popen_kwargs = {}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     with open(logpath, "a", encoding="utf-8") as logfile:
         subprocess.Popen(
             [sys.executable, "-m", SERVER_MOD, "--port", str(PORT)],
             stdout=logfile,
             stderr=logfile,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            **popen_kwargs,
         )
     for _ in range(600):  # 最多等 60 秒（首次 gencache 可能较慢）
         if _ping():
             return
         time.sleep(0.1)
-    raise SystemExit("无法启动 offipy server，请查看 .offipy.log")
+    raise ServerStartError(f"无法启动 offipy server，请查看 {logpath}")
 
 
 # 这些参数是文件/目录路径，必须在 client 侧按调用方 CWD 绝对化——
@@ -69,11 +76,10 @@ def request(app: str, op: str, **args) -> dict:
 def call(app: str, op: str, **args):
     resp = request(app, op, **args)
     if not resp.get("ok"):
-        print(f"[{app}::{op}] 失败: {resp.get('error')}", file=sys.stderr)
+        msg = f"[{app}::{op}] 失败: {resp.get('error')}"
         if resp.get("trace"):
-            for line in resp["trace"]:
-                print("  " + line, file=sys.stderr)
-        raise SystemExit(1)
+            msg += "\n" + "\n".join("  " + line for line in resp["trace"])
+        raise RemoteCallError(msg)
     return resp.get("result")
 
 

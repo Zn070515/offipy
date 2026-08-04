@@ -19,8 +19,10 @@
 import argparse
 import json
 import os
+import sys
 
 from .client import call, convert_value, ensure_server
+from .exceptions import OffipyError
 
 
 def _parse_kwargs(tokens):
@@ -63,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv=None):
+def _main(argv=None):
     args = build_parser().parse_args(argv)
     if args.app == "mcp":
         from .mcp_server import main as mcp_main
@@ -129,6 +131,15 @@ def main(argv=None):
     result = call(args.app, args.op, **kw)
     if result is not None:
         print(json.dumps(result, ensure_ascii=False))
+
+
+def main(argv=None):
+    """offipy CLI 入口：库异常转 stderr + exit 1；SystemExit/argparse 原样放行。"""
+    try:
+        return _main(argv)
+    except OffipyError as e:
+        print(f"offipy: {e}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
