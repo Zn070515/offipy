@@ -13,7 +13,7 @@
 |------|------|
 | `office_kit/` | COM 会话式自动化库（pywin32），Word / Excel / PPT 三套件 |
 | `office_kit/server.py` | 常驻 session server（HTTP `127.0.0.1:8890`），持有 COM 引用跨调用保活、断连自动重建 |
-| `office_kit/cli.py` | CLI 入口 `office <app> <op> [--key value ...]` |
+| `office_kit/cli.py` | CLI 入口 `offipy <app> <op> [--key value ...]` |
 
 已验证：三套件 new/open/save/save_pdf、用户关窗后自动重建会话、跨进程 Active 文档定位。
 
@@ -66,7 +66,7 @@
 - 我们的 COM server 的独特价值：**打开真实 Office → 截图 → 喂回给 Claude → 它自己看自己迭代**——真实渲染验证，截图管线替代不了。
 
 **⑤ 集成层**
-- 现在 CLI `office word add_heading ...` 对 Claude 不友好。
+- 现在 CLI `offipy word add_heading ...` 对 Claude 不友好。
 - 标准做法是 MCP server（结构化工具 schema），Claude Code / Claude Desktop 原生驱动。ppt-mcp 即此形态。
 
 ### 2.3 战略判断

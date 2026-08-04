@@ -190,7 +190,7 @@ agentara/skills 给出了 10 种可复用布局：`hero-title`、`split-2col`、
 
 ```bash
 # 出站需走代理（本机 VPN 拦截出站）
-export https_proxy=http://127.0.0.1:12334 http_proxy=http://127.0.0.1:12334
+export https_proxy=<系统代理地址> http_proxy=<系统代理地址>
 
 # 生态扫描
 gh search repos "slide design skill" --sort stars --limit 8

@@ -6,8 +6,8 @@
   Lucide    https://github.com/lucide-icons/lucide    ISC  （icons/*.svg）
 
 用法：uv run python scripts/fetch_icons.py
-网络：默认 opener 自动用系统代理（本机 VPN 注册表代理 127.0.0.1:12334 是出站转发
-      端口，必须走它才能出网）；必要时先 export https_proxy=http://127.0.0.1:12334
+网络：默认 opener 自动用系统代理（环境变量 https_proxy 优先，否则 Windows 注册表
+      系统代理）；出站受限时先 export https_proxy=<代理地址>
 """
 
 from __future__ import annotations
@@ -42,10 +42,10 @@ SOURCES = {
 
 def _opener():
     """默认 opener：urllib 自动用系统代理（环境变量 https_proxy 优先，否则
-    Windows 注册表系统代理 127.0.0.1:12334 = 本机 VPN 转发端口）。
+    Windows 注册表系统代理）。
 
     注意：不能像 client.py 那样 ProxyHandler({}) 直连——那是针对本地回环劫持；
-    这里出站 codeload.github.com 必须走 VPN 转发端口才能出网。
+    这里出站抓取 GitHub 必须走代理才能出网。
     """
     return urllib.request.build_opener()
 
@@ -57,11 +57,11 @@ def _download(url: str) -> bytes:
             return resp.read()
     except urllib.error.HTTPError as exc:
         print(f"[error] {url} → HTTP {exc.code} {exc.reason}")
-        print("  必要时 export https_proxy=http://127.0.0.1:12334")
+        print("  必要时 export https_proxy=<代理地址>")
         raise
     except urllib.error.URLError as exc:
         print(f"[error] {url} → {exc.reason}")
-        print("  必要时 export https_proxy=http://127.0.0.1:12334")
+        print("  必要时 export https_proxy=<代理地址>")
         raise
 
 

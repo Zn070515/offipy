@@ -15,9 +15,8 @@ PORT = 8890
 SERVER_MOD = "offipy.server"
 _TOKEN_FILENAME = "token"
 _URL = f"http://{HOST}:{PORT}"
-# 用户 VPN 在注册表写系统代理（ProxyServer=127.0.0.1:12334）且 ProxyOverride 为空，
-# 会把本地 127.0.0.1:8890 回环请求也劫持给代理（返回 502）。
-# 本地回环必须强制直连；真正出站的请求才该走代理。
+# 部分机器会把系统代理写进注册表且 ProxyOverride 为空，连 127.0.0.1 回环请求
+# 也会被劫持给代理（返回 502）。本地回环必须强制直连；真正出站的请求才该走代理。
 _OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 

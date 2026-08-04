@@ -27,7 +27,7 @@
 
 ### 1.2 HTML→可编辑 PPTX 管线（`src/offipy/deck.py`）
 
-Claude 写 16:9 HTML → vendored `third_party/html-to-editable-pptx`（即 Hasasasa/html-to-editable-pptx）转换 →
+Claude 写 16:9 HTML → vendored `_vendor/html_to_editable_pptx`（即 Hasasasa/html-to-editable-pptx）转换 →
 在真实 PowerPoint 打开实况 + 逐页导出 PNG 供视觉迭代。
 
 - `render(html, out, only_slides, no_visual_audit, timeout)`：跑完整转换，返回 .pptx 绝对路径
@@ -35,7 +35,7 @@ Claude 写 16:9 HTML → vendored `third_party/html-to-editable-pptx`（即 Hasa
 - 转换器是 **vector-first**：preflight → Playwright 实测 DOM 坐标 → 组装 → 内嵌字体 → 自检 → 视觉审计
 - 产物为原生可编辑 .pptx（占位符、文本、图形都保留可编辑性），而非扁平化的图片页
 
-> ⚠️ 已知边界：`third_party/` 转换器未进 wheel，`pip install offipy` 后 deck 管线不可用（PyPI 发布前置项，已延迟）。
+> ⚠️ 已知边界：转换器未进 wheel 前，`pip install offipy` 后 deck 管线不可用。**0.9.0 已修复**：converter vendored 进 `src/offipy/_vendor/`，随 wheel 分发。
 
 ---
 
@@ -141,7 +141,7 @@ AI 生成器（Anionex/banana-slides 等）   —— 上层封装，多数底层
 
 ### P0（低成本、高差异化）
 - **MCP server 化**：把 8890 的 HTTP server 包成 MCP，让 Claude/其他 agent 通过标准协议驱动真实 PowerPoint。对齐生态最热形态，复用现有会话基础设施。
-  - ✅ **已实现**（2026-08-04）：`office mcp` / `python -m offipy.mcp_server`，Word/Excel/PPT 全部操作暴露为 MCP 工具，见 [`../src/offipy/mcp_server.py`](../src/offipy/mcp_server.py)。
+  - ✅ **已实现**（2026-08-04）：`offipy mcp` / `python -m offipy.mcp_server`，Word/Excel/PPT 全部操作暴露为 MCP 工具，见 [`../src/offipy/mcp_server.py`](../src/offipy/mcp_server.py)。
 - **模板/母版 API**：`add_slide` 支持指定母版 + 自定义版式，把"设计系统"沉淀成可复用的 .potx。
 - **逐页备注导出**（演讲者模式）配套：`export_slides` 时一并导出每页备注成 Markdown/PDF 讲稿。
 
@@ -163,7 +163,7 @@ AI 生成器（Anionex/banana-slides 等）   —— 上层封装，多数底层
 
 ```bash
 # 出站需走代理（本机 VPN 拦截出站）
-export https_proxy=http://127.0.0.1:12334 http_proxy=http://127.0.0.1:12334
+export https_proxy=<系统代理地址> http_proxy=<系统代理地址>
 
 # 生态头部扫描
 gh search repos "python-pptx" --sort stars --limit 10
