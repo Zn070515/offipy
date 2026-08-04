@@ -92,9 +92,8 @@ target-version = "py310"
 src = ["src", "tests"]
 # docs/ 里的 plan 文档含 python 代码块，ruff format 会递归处理 markdown，
 # 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录；
-# src/offipy/_vendor/ 是 vendored 转换器（外协代码，不做 lint/format 约束）；
-# ChatGPT_v2.md 是第三方审核参考文档（未纳入仓库），不参与 format。
-exclude = ["docs/", "test/", "src/offipy/_vendor/", "ChatGPT_v2.md"]
+# src/offipy/_vendor/ 是 vendored 转换器（外协代码，不做 lint/format 约束）。
+exclude = ["docs/", "test/", "src/offipy/_vendor/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

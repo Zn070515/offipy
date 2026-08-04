@@ -23,9 +23,6 @@ logs/
 # 内部开发计划（含本机绝对路径，不入库）
 docs/superpowers/
 
-# 第三方审核参考文档（不入库）
-ChatGPT_v2.md
-
 # vendored 转换器本机偏好（跨机器不同，不入库）
 src/offipy/_vendor/html_to_editable_pptx/.config.local.toml
 # vendored 转换器回归测试的生成产物（可再生成，不入库）
