@@ -27,6 +27,12 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 - 改了 server 依赖的模块（如 `ppt.py`、`server.py`、`mcp_server.py`）后，必须重启 8890 的 server 进程（`taskkill` 该 PID 后 CLI 自动重建），否则 server 加载旧代码。
 - **收工检查不看「是否用了 COM」**：就算本轮只跑纯转换（convert.py / Playwright 渲染），也可能有之前会话拉起的 Office 窗口没关。**每轮验证收尾，一律 `tasklist | grep -iE "POWERPNT|WINWORD|EXCEL"` 确认零残留，不猜**。2026-08-04 教训：冒烟只跑 convert.py，想当然以为没拉 PowerPoint，实际 POWERPNT.EXE 残留 415MB；`office quit` 后仍卡加载项，需 `taskkill //F //PID`。
 
+### 资源型开发（资产库 / 图标库 / 素材）
+
+- 建立艺术库、图标库、字体/素材类资产时，**先 `WebSearch` 调研 + `gh` 查 GitHub 现成方案**
+  （开源库、许可证、维护状态、成熟度），别闭门造车。选型后记 ADR 与来源，尊重许可证
+  （MIT / Apache / SIL OFL 等），资产文件注明出处。
+
 ### 提交纪律
 
 - 小步提交：指定具体文件、清晰 message，前缀 `feat:` / `fix:` / `docs:` / `build:` / `chore:` + 一句话说明。
@@ -43,3 +49,9 @@ Windows-only 的 Office COM 自动化库（office-kit）：会话式驱动 Word/
 - **0.x 开发期约定**：破坏性变更升 `MINOR` 即可，不升 `MAJOR`（尚未对外承诺稳定性）。
 - **每次升版本**：单独成一个 commit（message 形如 `chore: bump version to 0.2.0`）；若已发布 PyPI，同步打 tag `v0.2.0` 并推送。功能 commit 不带版本号，升版本也不夹带功能改动。
 - **验证**：改完跑 `uv run python -c "import offipy; print(offipy.__version__)"` 确认生效。
+- **每次升版本后必查配置与文档**：版本迭代（MINOR/MAJOR 必查，PATCH 视影响面）后，先用 `Glob **/README*` 排查所有 README，再逐一核对是否需要同步更新：
+  - `pyproject.toml`：依赖增减、sdist/wheel 的 include/exclude 是否覆盖新增目录（如新增 `examples/`、`docs/`）
+  - 根 `README.md`：特性列表、使用示例、结构图、MCP 配置示例是否跟上新功能
+  - 各子目录 README（`third_party/`、`examples/` 等 vendored/示例说明）
+  - `examples/` 新增示例里出现的命令要真实可跑（冒烟过再发布）
+  需要更新就随版本一起修（单独 docs commit），并确认无残留旧版本号/旧命令。
