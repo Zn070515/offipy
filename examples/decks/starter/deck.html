@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Starter Deck</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --ink: #f8fafc;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --pad: 96px;
+    --gap: 24px;
+    --radius: 16px;
+    --font: "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    --kicker: 20px;
+    --title: 52px;
+    --body: 24px;
+    --caption: 18px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); }
+  /* 每页必须是 1920x1080 的不透明 section；data-pptx-slide 显式标记 */
+  .slide {
+    width: 1920px; height: 1080px; position: relative;
+    overflow: hidden; background: var(--bg); color: var(--ink);
+    padding: var(--pad);
+  }
+  .slide.light { background: #f8fafc; color: #0f172a; }
+  .slide.light .kicker { color: #0284c7; }
+  .slide.light .subtitle,
+  .slide.light .footer { color: #475569; }
+  .kicker {
+    font-size: var(--kicker); letter-spacing: 4px; color: var(--accent);
+    text-transform: uppercase; margin-bottom: 24px;
+  }
+  .title { font-size: var(--title); font-weight: 700; line-height: 1.15; margin-bottom: 32px; }
+  .subtitle { font-size: var(--body); color: var(--muted); max-width: 1200px; line-height: 1.6; }
+  .cards { display: flex; gap: var(--gap); margin-top: 64px; }
+  .card {
+    background: var(--surface); border-radius: var(--radius); padding: 40px;
+    flex: 1; border-left: 6px solid var(--accent);
+  }
+  .card .num { font-size: 28px; color: var(--accent); font-weight: 700; margin-bottom: 12px; }
+  .card .txt { font-size: var(--body); color: var(--ink); line-height: 1.6; }
+  .big { font-size: 200px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .rule { font-size: var(--body); color: var(--muted); margin-top: 24px; }
+  .footer {
+    position: absolute; bottom: 56px; left: var(--pad); right: var(--pad);
+    font-size: var(--caption); color: var(--muted);
+    display: flex; justify-content: space-between;
+  }
+  ul.bullets { margin-top: 48px; font-size: var(--body); line-height: 1.8; list-style: none; }
+  ul.bullets li { margin-bottom: 20px; padding-left: 36px; position: relative; }
+  ul.bullets li::before { content: ""; position: absolute; left: 0; top: 18px;
+    width: 14px; height: 14px; border-radius: 4px; border: 7px solid var(--accent); }
+</style>
+</head>
+<body>
+
+<section class="slide" data-pptx-slide>
+  <div class="kicker">Quarterly Review · Q2 2026</div>
+  <h1 class="title">产品增长报告<br>与下季度规划</h1>
+  <p class="subtitle">聚焦三个核心指标：活跃用户、留存与收入；给出下一步行动清单。</p>
+  <div class="footer"><span>OfficeForClaude · 设计引擎 starter</span><span>01 / 05</span></div>
+</section>
+
+<section class="slide" data-pptx-slide>
+  <div class="kicker">Agenda</div>
+  <h2 class="title">今天讲三件事</h2>
+  <div class="cards">
+    <div class="card"><div class="num">01</div><div class="txt">增长：活跃用户月环比 +18%</div></div>
+    <div class="card"><div class="num">02</div><div class="txt">留存：次月留存提升 6 个百分点</div></div>
+    <div class="card"><div class="num">03</div><div class="txt">规划：下季度三件必做</div></div>
+  </div>
+  <div class="footer"><span>OfficeForClaude · 设计引擎 starter</span><span>02 / 05</span></div>
+</section>
+
+<section class="slide" data-pptx-slide>
+  <div class="kicker">Highlight</div>
+  <div class="big">+18%</div>
+  <h2 class="title">月活跃用户增速创新高</h2>
+  <p class="rule">连续三个季度加速，本季度达到历史峰值。</p>
+  <div class="footer"><span>OfficeForClaude · 设计引擎 starter</span><span>03 / 05</span></div>
+</section>
+
+<section class="slide" data-pptx-slide>
+  <div class="kicker">Plan</div>
+  <h2 class="title">下季度三件必做</h2>
+  <ul class="bullets">
+    <li>上线推荐位改版，承接新增量</li>
+    <li>完善付费转化漏斗，目标提升 5%</li>
+    <li>启动企业版 beta，验证 B 端需求</li>
+  </ul>
+  <div class="footer"><span>OfficeForClaude · 设计引擎 starter</span><span>04 / 05</span></div>
+</section>
+
+<section class="slide light" data-pptx-slide>
+  <div class="kicker">Thank You</div>
+  <h1 class="title">欢迎提问与反馈</h1>
+  <p class="subtitle">完整数据包与复盘文档已归档，随时可取。</p>
+  <div class="footer"><span>OfficeForClaude · 设计引擎 starter</span><span>05 / 05</span></div>
+</section>
+
+</body>
+</html>

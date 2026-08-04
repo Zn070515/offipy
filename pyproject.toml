@@ -3,14 +3,24 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "office-kit"
+name = "offipy"
 description = "Live Microsoft Office automation via COM (session-based) + HTML-first slide pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "OfficeForClaude" }]
 # pywin32 仅支持 Windows：平台标记保证在 Linux/macOS 上也能解析依赖树
-dependencies = ["pywin32; platform_system == 'Windows'"]
+# python-pptx/lxml/fonttools/playwright/Pillow 是 HTML→可编辑 PPTX 管线的硬依赖
+# （vendored 转换器的 requirements，先前散装 pip install、未入 pyproject，
+# 导致 uv sync 把它们清掉）。pdf2image 仅在自检可选路径懒加载，不入依赖。
+dependencies = [
+    "pywin32; platform_system == 'Windows'",
+    "python-pptx>=1.0.2",
+    "lxml>=5.0",
+    "fonttools>=4.0",
+    "playwright>=1.40",
+    "Pillow>=10.0",
+]
 dynamic = ["version"]
 
 [project.optional-dependencies]
@@ -22,14 +32,14 @@ dev = [
 ]
 
 [project.scripts]
-office = "office_kit.cli:main"
+office = "offipy.cli:main"
 
-# 版本单一来源：从 src/office_kit/__init__.py 的 __version__ 读取
+# 版本单一来源：从 src/offipy/__init__.py 的 __version__ 读取
 [tool.hatch.version]
-path = "src/office_kit/__init__.py"
+path = "src/offipy/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/office_kit"]
+packages = ["src/offipy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,8 +53,9 @@ line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
 # docs/ 里的 plan 文档含 python 代码块，ruff format 会递归处理 markdown，
-# 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录。
-exclude = ["docs/", "test/"]
+# 排除以免 CI 误伤；test/ 是 src-layout 迁移前的遗留产物目录；
+# third_party/ 是 vendored 转换器（外协代码，不做 lint/format 约束）。
+exclude = ["docs/", "test/", "third_party/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
@@ -54,6 +65,6 @@ quote-style = "double"
 
 [tool.mypy]
 python_version = "3.10"
-files = ["src/office_kit"]
+files = ["src/offipy"]
 ignore_missing_imports = true
 show_error_codes = true

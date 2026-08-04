@@ -14,13 +14,17 @@ dist/
 htmlcov/
 
 # --- 运行产物 ---
-.office-kit.log
+.offipy.log
 _audit/
 *.audited.html
 out/
+logs/
 
 # vendored 转换器本机偏好（跨机器不同，不入库）
 third_party/html-to-editable-pptx/.config.local.toml
+# vendored 转换器回归测试的生成产物（可再生成，不入库）
+third_party/html-to-editable-pptx/tests/fixtures/regression_deck.pptx
+third_party/html-to-editable-pptx/tests/fixtures/regression_deck_audit/
 
 # 遗留的回归测试产物（正式测试目录已改用 tests/）
 /test/

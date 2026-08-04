@@ -2,6 +2,8 @@
 
 Live Microsoft Office automation via COM（会话式驱动）。目标：让 Claude 能独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
+> 库名 **offipy**（`pip install offipy`，`import offipy`）；CLI 命令 `office`。
+
 > 当前状态：COM 会话管线（Excel / Word / PPT）已打通；「HTML-first 可编辑 PPTX」管线推进中（背景见 [`docs/gap_analysis.md`](docs/gap_analysis.md)）。
 
 ## 特性
@@ -47,14 +49,14 @@ office quit excel
 uv sync --extra dev                     # 装 dev 依赖（ruff / mypy / pytest）
 uv run ruff check .                     # lint
 uv run ruff format --check .            # 格式
-uv run mypy src/office_kit              # 类型
+uv run mypy src/offipy                  # 类型
 uv run pytest tests -q                  # 测试（COM 集成测试无 Office 自动跳过）
 ```
 
 ## 结构
 
 ```
-src/office_kit/
+src/offipy/
   core.py     # COM 应用生命周期与会话管理
   server.py   # 常驻会话 HTTP server（持有 COM 引用）
   cli.py      # `office` 命令入口
