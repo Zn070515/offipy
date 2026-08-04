@@ -30,7 +30,7 @@ import os
 import sys
 
 from . import excel, ppt, word
-from .client import call, convert_value, ensure_server
+from .client import call, convert_value, ensure_server, server_status, stop_server
 from .exceptions import OffipyError
 
 _APP_CLASSES = {
@@ -128,6 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("mcp", help="启动 MCP stdio server（Claude Desktop 等接入）")
     ck = sub.add_parser("check", help="检查环境就绪（Python/依赖/Office/浏览器/server）")
     ck.add_argument("--json", action="store_true", help="输出 JSON")
+    srv = sub.add_parser("server", help="管理常驻 server（status/stop/restart）")
+    srv.add_argument(
+        "action",
+        nargs="?",
+        default="status",
+        choices=["status", "stop", "restart"],
+    )
     return p
 
 
@@ -146,6 +153,17 @@ def _main(argv=None):
         ensure_server()
         call(args.target, "quit")
         print("quit ok")
+        return
+    if args.app == "server":
+        if args.action == "status":
+            ensure_server()
+            print(json.dumps(server_status(), ensure_ascii=False))
+        elif args.action == "stop":
+            print("server 未在运行" if not stop_server() else "server 已停止")
+        else:  # restart
+            stop_server()
+            ensure_server()
+            print("server 已重启")
         return
     if args.app == "deck":
         from .deck import make as deck_make

@@ -142,6 +142,45 @@ def test_check_dispatch_propagates_exit_code(monkeypatch):
     assert cli.main(["check"]) == 1
 
 
+# --- 批次2：offipy server status/stop/restart ---
+
+
+def test_server_subcommand_parses():
+    args = build_parser().parse_args(["server"])
+    assert args.app == "server"
+    assert args.action == "status"  # 缺省 status
+    assert build_parser().parse_args(["server", "stop"]).action == "stop"
+    assert build_parser().parse_args(["server", "restart"]).action == "restart"
+
+
+def test_server_status_dispatch(monkeypatch, capsys):
+    from offipy import cli
+
+    monkeypatch.setattr("offipy.cli.ensure_server", lambda: None)
+    monkeypatch.setattr("offipy.cli.server_status", lambda: {"version": "0.9.0", "pid": 1})
+    assert cli.main(["server", "status"]) is None
+    assert "0.9.0" in capsys.readouterr().out
+
+
+def test_server_stop_dispatch(monkeypatch, capsys):
+    from offipy import cli
+
+    monkeypatch.setattr("offipy.cli.stop_server", lambda: True)
+    assert cli.main(["server", "stop"]) is None
+    assert "已停止" in capsys.readouterr().out
+
+
+def test_server_restart_dispatch(monkeypatch, capsys):
+    from offipy import cli
+
+    calls = []
+    monkeypatch.setattr("offipy.cli.stop_server", lambda: calls.append("stop") or True)
+    monkeypatch.setattr("offipy.cli.ensure_server", lambda: calls.append("ensure"))
+    assert cli.main(["server", "restart"]) is None
+    assert calls == ["stop", "ensure"]
+    assert "已重启" in capsys.readouterr().out
+
+
 # --- 批次4：复杂参数系统 + 未知参数校验 ---
 
 
