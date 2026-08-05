@@ -14,7 +14,7 @@ Goal: let Claude independently produce **polished, aesthetically sound, substant
 - **Atomic operations for the three suites**: Word / Excel / PowerPoint add-edit-delete + save / export PDF
   - Excel also includes formatting capabilities — merged cells, borders, conditional formatting (cell rules / data bars / color scales), frozen panes, print setup, row height / number format / auto column width
   - Word also includes layout capabilities — a style system (character / paragraph formatting), page structure (header/footer, page numbers, page setup, table of contents), lists and tables (merge / borders / column width / row height / auto-fit), document helpers (find & replace / images / page breaks)
-- **Real-time document session semantics**: ops default to acting on the user's **currently active** document (ActiveDocument / ActiveWorkbook / ActivePresentation), and are automatically re-established after a window closes
+- **Real-time document session semantics**: read ops default to acting on the user's **currently active** document (ActiveDocument / ActiveWorkbook / ActivePresentation); destructive ops require an explicit `doc_id`, `follow_active=True`, or an `expected_target` binding, so they can never silently modify the wrong document; sessions auto-rebuild after a window closes
 - **Disconnect self-healing**: automatically rebuilds the session when the user closes a window or Office exits
 - **HTML-first pipeline + design system**: Claude writes HTML slides → natively editable `.pptx` → live presentation + visual iteration; built-in design tokens, 3 themes, 11 layouts, aesthetic audit, automatic pick, feedback learning (see "Design system" below)
 - **MCP server**: exposes all three-suite operations as MCP tools, so Claude Desktop and similar can drive real Office directly
@@ -35,17 +35,17 @@ Goal: let Claude independently produce **polished, aesthetically sound, substant
 ## Installation
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install -e ".[all]"            # everything (office COM + deck pipeline + MCP)
-uv run playwright install chromium    # the converter needs chromium for DOM measurement
+py -m pip install "offipy[all]"       # everything (office COM + deck pipeline + MCP)
+py -m playwright install chromium     # the converter needs chromium for DOM measurement
+offipy check --profile all            # one-shot environment readiness check (Python/deps/Office/browser/server)
 ```
 
 The core `import offipy` has zero extra dependencies; install extras incrementally by use case:
 
-- `.[office]`: Windows COM automation (Word/Excel/PowerPoint)
-- `.[deck]`: HTML→editable PPTX deck pipeline (python-pptx / lxml / fonttools / playwright / Pillow)
-- `.[mcp]`: MCP server (`offipy mcp`, for Claude Desktop and similar)
-- `.[all]`: all of the above
+- `offipy[office]`: Windows COM automation (Word/Excel/PowerPoint)
+- `offipy[deck]`: HTML→editable PPTX deck pipeline (python-pptx / lxml / fonttools / playwright / Pillow)
+- `offipy[mcp]`: MCP server (`offipy mcp`, for Claude Desktop and similar)
+- `offipy[all]`: all of the above
 
 The converter itself is vendored into the wheel, so it works right after install; the deck pipeline additionally needs `playwright install chromium`.
 
@@ -54,18 +54,27 @@ The converter itself is vendored into the wheel, so it works right after install
 `offipy` is **session-based**, not a one-shot script:
 
 - The first call automatically starts a resident server in the background (`127.0.0.1:8890`); all subsequent operations go to the same process.
-- Ops act on the **user's currently active** document — whichever workbook you have active in Excel is the one `set_cell` writes to.
-  **No implicit creation**: when no document is open, ops that need a document raise `TargetNotFoundError`, telling you to run
-  `new_book` / `open_book` first. Use `get_target` to query the current active target identity:
+- **`doc_id` is the authoritative target identifier**: `new_book` / `new_doc` / `new_pres` and the `open_*` ops return a `doc_id`,
+  which is stable within the session, stays valid across calls, and does not change when the document is renamed.
+  Use `get_target` to query the current active target identity:
   `offipy excel get_target` → `{"app": "excel", "doc_id": "book1", "name": "Book1", "path": "..."}`
-  (`null` if none). `doc_id` is a stable session identifier that stays valid across calls and does not change when the document is renamed.
+  (`null` if none).
+- **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …) default to acting on the
+  user's **currently active** document (ActiveDocument / ActiveWorkbook / ActivePresentation), resolved in real time — never from a stale
+  internal cache. When no document is open, they raise `TargetNotFoundError`, telling you to run `new_*` / `open_*` first.
+- **Destructive ops** (writes / formatting / save / close, etc.) **refuse to run by default**; you must provide one of three:
+  - an explicit `doc_id=<the session-returned identifier>` (CLI `--doc-id`);
+  - or `follow_active=True` — an explicit declaration to "follow the currently active document" (CLI `--follow-active`);
+  - or an `expected_target` binding (below).
+  If none is present, they raise `InvalidArgumentError` prompting you for a target — **they never silently write to the currently active document**.
+- **`expected_target` binding** (available across CLI `--expected-target '<json>'` / MCP tool arguments / the Remote client,
+  all three entry points): `{"doc_id": ...}` / `{"name": ...}` / `{"path": ...}`, combinable, for **target binding**:
+  resolve-once — the server first resolves the target doc_id from the binding keys, then executes the operation with the resolved result;
+  a binding failure raises `TargetNotFoundError` — eliminating "validate A, execute B" and preventing accidental modification after switching to another document
+  (bypassing focus-based routing).
 - `activate(doc_id)` sets the given document as the active target and **syncs the real UI** (Excel `Workbook.Activate()`,
   Word `Document.Activate()`, PPT activates the window containing that document); on sync failure it rolls back and raises `ComOperationError`;
   `list_docs` truthfully returns the registered handles as `{doc_id: {"name", "path", "active"}}` (it does not implicitly enumerate unregistered ones).
-- Destructive ops can carry an `expected_target` (`{"doc_id": ...}` / `{"name": ...}` / `{"path": ...}`, combinable)
-  for **target binding**: resolve-once — the server first resolves the target doc_id from the binding keys, then executes the operation with the resolved result;
-  a binding failure raises `TargetNotFoundError` — eliminating "validate A, execute B" and preventing accidental modification after switching to another document
-  (available on the Python client / RPC layer, bypassing focus-based routing).
 - Commands like `quit excel` close the app; `__exit__` (Python API) does **not** close the Office window, so windows and documents stay alive across calls.
 - After the user manually closes a window, the next call automatically rebuilds the session (disconnect self-healing).
 
@@ -86,36 +95,38 @@ The converter itself is vendored into the wheel, so it works right after install
 
 ```bash
 # First call automatically starts a resident server in the background; all later operations hit the same process
+# Destructive ops need a target: --doc-id <the session-returned id> / --follow-active (follow the active document) /
+# --expected-target '<json>' (doc_id/name/path binding). The examples use --follow-active to follow the newly created/opened document.
 offipy excel new_book
-offipy excel set_cell --sheet 1 --cell A1 --value 100
-offipy excel format_cell --sheet 1 --cell A1 --bold true --size 14 --bg "#38BDF8"
-offipy excel merge_cells --sheet 1 --range_addr A1:B2
-offipy excel set_border --sheet 1 --range_addr A1:D5 --side all --style continuous --weight thin --color "#D0D7DE"
-offipy excel add_conditional_format --sheet 1 --range_addr C2:C5 --rule cell --operator greater --value 0 --bg "#C6EFCE"
-offipy excel freeze_panes --sheet 1 --rows 1 --cols 0
-offipy excel page_setup --sheet 1 --orientation landscape --fit_to_pages_wide 1
-offipy excel set_number_format --sheet 1 --range_addr B2:B5 --fmt "#,##0"
-offipy excel autofit --sheet 1 --range_addr A1:D5 --rows false
+offipy excel set_cell --sheet 1 --cell A1 --value 100 --follow-active
+offipy excel format_cell --sheet 1 --cell A1 --bold true --size 14 --bg "#38BDF8" --follow-active
+offipy excel merge_cells --sheet 1 --range_addr A1:B2 --follow-active
+offipy excel set_border --sheet 1 --range_addr A1:D5 --side all --style continuous --weight thin --color "#D0D7DE" --follow-active
+offipy excel add_conditional_format --sheet 1 --range_addr C2:C5 --rule cell --operator greater --value 0 --bg "#C6EFCE" --follow-active
+offipy excel freeze_panes --sheet 1 --rows 1 --cols 0 --follow-active
+offipy excel page_setup --sheet 1 --orientation landscape --fit_to_pages_wide 1 --follow-active
+offipy excel set_number_format --sheet 1 --range_addr B2:B5 --fmt "#,##0" --follow-active
+offipy excel autofit --sheet 1 --range_addr A1:D5 --rows false --follow-active
 
 offipy word new_doc
-offipy word write_line --text "你好，世界"
-offipy word format_text --paragraph 1 --bold true --size 18 --color "#2251FF"
-offipy word format_paragraph --paragraph 1 --alignment center --line_spacing double
-offipy word set_header_text --text "季度报告"
-offipy word add_page_number --alignment center
-offipy word page_setup --orientation landscape --paper a4 --top_margin 60
-offipy word insert_toc --levels 3
-offipy word add_list --style bullet
-offipy word merge_table_cells --table_idx 1 --start_row 1 --start_col 1 --end_row 1 --end_col 3
-offipy word set_table_border --table_idx 1 --style single --color "#9AA5B1" --sides all
-offipy word set_table_col_width --table_idx 1 --col 1 --width 140
-offipy word find_replace --find 季度 --replace 半年度 --replace_all true
-offipy word insert_image --path out/cover.png --width 360
-offipy word insert_page_break
+offipy word write_line --text "你好，世界" --follow-active
+offipy word format_text --paragraph 1 --bold true --size 18 --color "#2251FF" --follow-active
+offipy word format_paragraph --paragraph 1 --alignment center --line_spacing double --follow-active
+offipy word set_header_text --text "季度报告" --follow-active
+offipy word add_page_number --alignment center --follow-active
+offipy word page_setup --orientation landscape --paper a4 --top_margin 60 --follow-active
+offipy word insert_toc --levels 3 --follow-active
+offipy word add_list --style bullet --follow-active
+offipy word merge_table_cells --table_idx 1 --start_row 1 --start_col 1 --end_row 1 --end_col 3 --follow-active
+offipy word set_table_border --table_idx 1 --style single --color "#9AA5B1" --sides all --follow-active
+offipy word set_table_col_width --table_idx 1 --col 1 --width 140 --follow-active
+offipy word find_replace --find 季度 --replace 半年度 --replace_all true --follow-active
+offipy word insert_image --path out/cover.png --width 360 --follow-active
+offipy word insert_page_break --follow-active
 
 offipy ppt new_pres
-offipy ppt add_slide --layout 2
-offipy ppt set_title --slide_idx 1 --text "标题"
+offipy ppt add_slide --layout 2 --follow-active
+offipy ppt set_title --slide_idx 1 --text "标题" --follow-active
 
 offipy check            # environment readiness diagnostics: Python/deps/Office/browser/server (--json machine-readable)
 offipy server status    # resident server status (/status handshake, read-only, doesn't start it); stop / restart likewise
@@ -127,21 +138,37 @@ offipy quit excel
 ```
 
 Complex parameters are passed through with `--payload '<json>'` (overriding same-named kwargs); repeating `--key` aggregates into a list.
+Read ops (`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target`) need no target parameter.
 
 ## Python API
 
 ```python
 from offipy import Excel, Word, Ppt
 
-with Excel() as x:  # context manager; __exit__ does not close the Office window (session semantics)
-    x.new_book()
-    x.set_cell(1, "A1", 100)
-    x.save("out/report.xlsx")
+with Excel() as x:  # local direct COM (= offipy.direct.*), independent doc_id/thread
+    doc_id = x.new_book()
+    x.set_cell(1, "A1", 100, doc_id=doc_id)  # destructive ops need an explicit doc_id
+    x.save("out/report.xlsx", doc_id=doc_id)
 
 with Ppt() as p:
-    p.new_pres()
-    p.add_slide(2)
-    p.set_title(1, "标题")
+    pres_id = p.new_pres()
+    p.add_slide(2, doc_id=pres_id)
+    p.set_title(1, "标题", doc_id=pres_id)
+```
+
+**Two session models (P0-4)**:
+- `Excel() / Word() / Ppt()` (equivalent to `offipy.direct.*`) — **local direct COM**,
+  with a doc_id/thread/session state fully isolated from the CLI/MCP.
+- `RemoteExcel() / RemoteWord() / RemotePpt()` — a **remote session** through the resident server,
+  sharing the same session (same doc_id) with the CLI/MCP; the right choice when an agent needs
+  "CLI/Python/tools all in one Office session":
+
+```python
+from offipy import RemoteExcel
+
+with RemoteExcel() as x:  # connects to local 8890 by default (auto-starts the server)
+    x.new_book()  # the same doc_id seen by `offipy excel list_docs`
+    x.set_cell(1, "A1", 42, follow_active=True)
 ```
 
 Ops not explicitly defined are proxied to the underlying app via `__getattr__`; offipy exceptions (the `OffipyError` family) pass through unchanged.
@@ -231,16 +258,17 @@ print(report.markdown())
 
 `offipy mcp` starts an MCP stdio server that exposes all Word / Excel / PowerPoint operations as MCP tools
 (`ppt_set_title`, `word_write_line`, `excel_set_cell`, etc.). Tool calls are equivalent to `offipy` commands,
-acting on the user's currently active document / workbook / presentation, with windows visible in real time.
+with windows visible in real time; read ops act on the user's currently active document, and destructive tool
+arguments include `expected_target` / `follow_active` (see "Session semantics" above).
 
-Add it to Claude Desktop's `claude_desktop_config.json`. `<OFFIPY_ROOT>` is the absolute path to your local repository (Windows example: `C:\\path\\to\\offipy`); **do not commit your real machine path**:
+Add it to Claude Desktop's `claude_desktop_config.json`. The `offipy` command must be on PATH (pip install adds it automatically); if you use a dedicated venv, point `command` at that venv's `offipy.exe` absolute path (e.g. `<venv>\\Scripts\\offipy.exe`):
 
 ```json
 {
   "mcpServers": {
     "offipy": {
-      "command": "<OFFIPY_ROOT>\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "offipy.mcp_server"]
+      "command": "offipy",
+      "args": ["mcp"]
     }
   }
 }
@@ -252,53 +280,22 @@ Manual verification (no Office needed, handshake only):
 offipy mcp        # blocks, waiting for a stdio client to connect
 ```
 
-## Release hardening (ChatGPT review fix mapping)
-
-0.9.0a1 closes out all fixes from the third-party review, item by item:
-
-| Review item | Fix |
-|--------|------|
-| P0-1 converter not in wheel | converter vendored into `src/offipy/_vendor/`, so the deck pipeline works after `pip install` |
-| P0-2 missing chromium precheck | checks the browser before rendering; raises `ConversionError` with an install hint if missing |
-| P0-3 library layer raises SystemExit | new offipy exception hierarchy; library layer no longer calls `sys.exit` |
-| P0-4 server security | Bearer token + `/status` + 16MB limit + Content-Type + op allowlist |
-| P0-5 mcp dependency too broad | narrowed to `mcp>=2.0,<3.0` |
-| P0-6 no release gate | release workflow completed: lint→format→mypy→pytest→tag version check→build→twine→install smoke→`--verify-tag` |
-| P0-7 cannot import on non-Windows | lazy COM import, cross-platform compatible |
-| P1 all | CLI renamed `offipy` + complex args, high-level API, real-time document session semantics, save overwrite protection, metadata/docs/types/CI governance |
-| P2 architecture | the three architectural items landed: session semantics, CLI argument system, high-level API |
-
-**round-3 (ChatGPT_v3 review)**: four main threads — target identity / process ownership / failure atomicity / entry-point consistency, closed out batch by batch over 11 batches:
-
-| Batch | Fix |
-|------|------|
-| Process ownership + HTTP boundaries | `_probe` four states (ok/auth_fail/mismatch/down), `ensure_server` no-kill policy, authenticated `/shutdown`, `server status` read-only, path 404 / negative length 400 / response limit 500 |
-| Target identity + read-only, no create | `get_target`, `/status` targets, `expected_target` binding, raise `TargetNotFoundError` when no document |
-| DisplayAlerts scope + deck atomicity + CLI real booleans | save/restore within ops, temp file + `os.replace` atomic replacement, `store_true` booleans |
-| Threads + worker + returns + exceptions | `ThreadingHTTPServer` + single COM worker queue, `OperationResult` contract, domain exception hierarchy A |
-| schema single source of truth | new RPC changes only touch `schema.py`; server/CLI/MCP three entry points derive from it |
-| extras + branding | `office/deck/mcp/all` split, `py.typed`, unified `offipy` |
-| CI matrix + non-Windows | pure-module (coverage gate) / windows 3.10–3.13 / wheel-smoke / office-real; MCP in-memory protocol-layer tests |
-
-**round-4 (ChatGPT_v4 review)**: explicit target semantics + bounded resources + release gates + tightened conversion boundaries:
-
-| Main thread | Fix |
-|------|------|
-| Explicit target semantics (P0-4/5/6) | `doc_id` is authoritative; `expected_target` is **resolve-once** (three keys `doc_id`/`name`/`path`, rejects empty objects / unknown keys, injects the resolved doc_id into args); `activate()` syncs the real UI (rolls back and raises `ComOperationError` on failure); `resource_id` uses doc_id; `list_docs` only reports registered handles (including `active`); `get_target(doc_id=)` for explicit queries |
-| Bounded resources + idempotency (§4/5) | client timeout 600s aligned with server; `request_id` idempotency cache (repeated retries don't re-execute); COM queue limit 64 + concurrent-thread limit 16, 503 when full; PID file includes `port/pid/token_sha256/started_at` for ownership verification; token file 0o600 |
-| Deck atomic rendering (§7) | `render` temp files switch to `mkstemp` (random names in the same directory, no collision under concurrency); temp files cleaned up on failure, never destroys an existing .pptx; missing source HTML raises `InvalidArgumentError` |
-| Release gates (P0-2/3) | `release.yml` gate chain quality → office-real (must pass on real machine) → gh-release → publish-testpypi → publish-pypi (OIDC Trusted Publishing); `ci.yml` office-real becomes the PR merge gate; `docs/release.md` release manual |
-| Tightened conversion boundaries (§6/11/12) | `_parse_cell` tightened (rejects out-of-range XFD/1048576); `set_title`/`set_body` explicitly error on empty input; CLI `--port` subcommand SUPPRESS inheritance; `/call` non-dict args → 400; `offipy check --profile`; `install_smoke.py --profile`; license `MIT AND ISC`; dependabot |
-| save/close prevent dialog pop-ups | `save()`/`close_book()`/`close_doc()` auto-save never-saved documents to the same directory and return the absolute path, without the Save As dialog; `overwrite` overwrite protection fail-fast |
-
 ## Development
 
+To develop from source (rather than the PyPI release):
+
 ```bash
-uv sync --extra dev                     # install dev deps (ruff / mypy / pytest)
-uv run ruff check .                     # lint
-uv run ruff format --check .            # format
-uv run mypy src/offipy                  # types
-uv run pytest tests -q                  # tests (COM integration tests skip automatically without Office)
+uv venv --python 3.12 .venv
+uv pip install -e ".[all]"            # source dev install (everything)
+uv run playwright install chromium    # needed by the deck pipeline
+```
+
+```bash
+uv sync --extra dev                   # install dev deps (ruff / mypy / pytest)
+uv run ruff check .                   # lint
+uv run ruff format --check .          # format
+uv run mypy src/offipy                # types
+uv run pytest tests -q                # tests (COM integration tests skip automatically without Office)
 ```
 
 See [`CONTRIBUTING.en.md`](CONTRIBUTING.en.md) for contribution guidelines and gates.

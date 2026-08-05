@@ -3,6 +3,12 @@ site_description: Live Microsoft Office automation via COM (session-based) + HTM
 repo_url: https://github.com/Zn070515/office-kit
 docs_dir: docs
 
+exclude_docs: |
+  # 内部开发文档不进 git 追踪，也排除出站点构建
+  development/
+  development-history/
+  superpowers/
+
 nav:
   - 首页: index.md
   - 快速上手: usage.md

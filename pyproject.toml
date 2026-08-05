@@ -122,9 +122,13 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 # gen_api_ref.py 的 _EN_DESC 是英文翻译数据表，长描述字符串天然超 100 列
 "scripts/gen_api_ref.py" = ["E501"]
+# api.pyi 是生成的类型 stub，长签名行天然超 100 列；由生成器 + 漂移测试保证一致
+"src/offipy/api.pyi" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
+# 生成的 api.pyi 保持生成器输出（长签名单行），不套 ruff 换行
+exclude = ["src/offipy/api.pyi"]
 
 [tool.mypy]
 python_version = "3.10"

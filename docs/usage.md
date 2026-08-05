@@ -5,13 +5,16 @@
 ## 会话模型
 
 `offipy` 把 Office 应用当成一个**会话**：每次调用通过 8890 端口的 server 重连同一个
-Office 实例。目标文档由以下规则解析：
+Office 实例。目标文档按 op 类型解析：
 
-1. **显式 `doc_id`**：操作参数里的 `doc_id` 直接路由到指定文档（`book1` / `doc1` / `pres1`）；
-   未知或已失效句柄抛 `TargetNotFoundError`。
-2. **缺省活动目标**：走 `activate` 或 `new_*/open_*` 设定的活动文档。
-3. **重连兜底**：无登记活动目标时，实时探测 `ActiveWorkbook` / `ActiveDocument` /
-   `ActivePresentation` 并入文档表（纯探测，绝不隐式创建）。
+- **读 op**（`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …）：
+  缺省作用在**当前激活**文档上——优先显式 `doc_id`，其次 `activate` 或 `new_*/open_*` 设定的
+  活动目标，再次实时探测 `ActiveWorkbook` / `ActiveDocument` / `ActivePresentation` 并入文档表
+  （纯探测，绝不隐式创建）。未知或已失效句柄抛 `TargetNotFoundError`。
+- **破坏性 op**（写入 / 格式 / 保存 / 关闭等）：**默认拒绝执行**，必须三选一——
+  显式 `doc_id`；或 `follow_active=True`（跟随当前激活文档）；或 `expected_target` 绑定
+  （`{"doc_id"}` / `{"name"}` / `{"path"}` 可组合，resolve-once）。三者都没有时抛
+  `InvalidArgumentError` 提示补目标——绝不静默改到当前激活的文档。
 
 ## CLI
 
@@ -20,13 +23,14 @@ offipy excel new_book                      # "book1"
 offipy excel new_book                      # "book2"（新书成为活动目标）
 offipy excel get_target                    # 指向最新创建的"工作簿2"
 offipy excel activate --doc_id book1       # 切换活动目标到 book1
-offipy excel set_cell --sheet 1 --cell A1 --value 100
+offipy excel set_cell --sheet 1 --cell A1 --value 100 --follow-active
 offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # 显式路由
-offipy excel read_range --sheet 1 --range_addr A1:B1
+offipy excel read_range --sheet 1 --range_addr A1:B1   # 读 op 缺省走活动目标
 offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
 ```
 
+破坏性 op 需要一个目标：`--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`。
 布尔参数用 `--key true/false`：`--overwrite true`。结构化值可用 `--payload '{"...": ...}'`。
 参数名以下划线分隔（如 `--range_addr`、`--doc_id`），类型由 `schema.py` 声明并自动转换。
 
@@ -71,8 +75,8 @@ offipy deck outline --input outline.md --out deck.html   # markdown 大纲 → H
 任何失败不会破坏已存在的 `.pptx`。转换管线需要 `offipy[deck]` 与 chromium：
 
 ```bash
-uv pip install -e ".[deck]"
-uv run playwright install chromium
+pip install "offipy[deck]"
+playwright install chromium
 ```
 
 ## Python API
@@ -82,8 +86,8 @@ from offipy import Excel
 
 with Excel() as x:
     book = x.new_book()                    # "book1"
-    x.set_cell(1, "A1", 42)
-    assert x.read_range(1, "A1:A1") == [[42.0]]
+    x.set_cell(1, "A1", 42, doc_id=book)   # 破坏性 op 需显式 doc_id
+    assert x.read_range(1, "A1:A1", doc_id=book) == [[42.0]]
     x.quit()
 ```
 

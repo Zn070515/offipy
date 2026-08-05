@@ -32,18 +32,18 @@ extra 增量安装；各 extra 有各自的平台/版本要求，见下表。
 
 | Windows | COM 自动化 | deck 管线 | 备注 |
 |---------|-----------|-----------|------|
-| Windows 10 (x64) | ✓ | ✓ | 主流验证环境 |
-| Windows 11 (x64) | ✓ | ✓ | 开发环境（11 Pro for Workstations） |
-| Server 2019+ | 视环境 | ✓ | COM 需桌面会话；Server Core 无 Office GUI 不可用 |
+| Windows 10 (x64) | 🟡 Expected | 🟡 Expected | 合理预期，未逐版本实测 |
+| Windows 11 (x64) | ✅ Tested | ✅ Tested | 开发环境（11 Pro for Workstations，本机实测） |
+| Server 2019+ | 🟡 Expected | 🟡 Expected | 合理预期；COM 需桌面会话，Server Core 无 Office GUI 不可用 |
 
 ## Office 版本
 
 | Office | Word | Excel | PowerPoint | 备注 |
 |--------|------|-------|------------|------|
-| Office 2016 | ✓ | ✓ | ✓ | 最低支持版本 |
-| Office 2019 | ✓ | ✓ | ✓ | |
-| Office 2021 / LTSC | ✓ | ✓ | ✓ | |
-| Microsoft 365 | ✓ | ✓ | ✓ | 开发与验证主力 |
+| Office 2016 | 🟡 Expected | 🟡 Expected | 🟡 Expected | 最低支持版本，合理预期未实测 |
+| Office 2019 | 🟡 Expected | 🟡 Expected | 🟡 Expected | 合理预期未实测 |
+| Office 2021 / LTSC | 🟡 Expected | 🟡 Expected | 🟡 Expected | 合理预期未实测 |
+| Microsoft 365 | ✅ Tested | ✅ Tested | ✅ Tested | 开发与验证主力（本机实测） |
 
 依赖 COM 的对象模型按版本存在细微差异（如常量枚举、个别新属性），
 遇差异以 Microsoft 365 行为为准并在 `CHANGELOG.md` 记录。
@@ -58,7 +58,7 @@ extra 增量安装；各 extra 有各自的平台/版本要求，见下表。
 | `mcp` | mcp SDK | 任意（服务消费 Office 时需 Windows + office） | `offipy mcp`，Claude Desktop 等接入 |
 | `all` | 以上三合一 | 按需 | `pip install offipy[all]` 一键全装 |
 
-`deck` 管线首次使用需装 chromium：`uv run playwright install chromium`。
+`deck` 管线首次使用需装 chromium：`playwright install chromium`。
 playwright 渲染在非 Windows 亦可行，但 deck 产物常回灌 Office 会话，因此
 整体仍按 Windows 支持。
 

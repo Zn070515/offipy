@@ -35,19 +35,63 @@ Authorization: Bearer <token>
 Content-Type: application/json
 X-Offipy-Protocol: offipy-http/v1
 
-{"app": "excel", "op": "set_cell", "args": {"sheet": 1, "cell": "A1", "value": 100}}
+{"app": "excel", "op": "set_cell",
+ "args": {"sheet": 1, "cell": "A1", "value": 100, "doc_id": "book1"},
+ "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 | Field | Description |
 |------|------|
 | `app` | `excel` / `word` / `ppt` (unknown → 400 `invalid_argument`) |
 | `op` | Must be an op in the schema allowlist (`server._OPS` is derived from `schema.py`; unknown → 400 `invalid_argument`) |
-| `args` | Keyword arguments passed through to the App method; path-like arguments (`path`/`out`, etc.) are absolutized by the client against the caller's CWD |
+| `args` | Keyword arguments passed through to the App method (including the `doc_id` target); path-like arguments (`path`/`out`, etc.) are absolutized by the client against the caller's CWD. Destructive ops can also carry the transport parameters `expected_target` / `follow_active` (see below) |
+| `request_id` | Optional; the caller-held idempotency identifier (uuid4 string). When present, the server dedupes/merges/replays the cache by request_id + payload hash (see "Idempotency"); when absent, the non-idempotent legacy path is used |
 
 Boundary checks (all fail fast in the handler thread, never touching COM):
 - `Content-Type` must be `application/json`, otherwise 415.
 - The request body is capped at 16MB; exceeding it returns 413.
 - A negative `Content-Length` → 400 (`read(negative)` would swallow the connection buffer).
+- `args` that is not an object (list/str) → 400 `invalid_argument`.
+
+### Transport parameters (target binding)
+
+`expected_target` / `follow_active` are transport parameters: passed through by the client, not part of
+the App method signature; the server dispatch pops them, resolves a target, and injects a `doc_id`.
+They are meaningful only for destructive ops (`schema.supports_expected_target`):
+
+- `follow_active` (bool, optional, default `false`): explicitly declares "follow the currently active
+  document" — the server resolves the current active target in real time and injects its doc_id;
+  with no active target → `TargetNotFoundError` (it never silently lands on any document).
+- `expected_target` (object, optional): target binding — `{"doc_id"}` / `{"name"}` / `{"path"}`, combinable,
+  **resolve-once**: the server resolves the target doc_id from the binding keys, validates, then injects it
+  into the method call; an empty object / unknown keys → 400 `invalid_argument`; binding failure → `target_not_found`.
+
+Precedence: `expected_target` > `follow_active` > explicit `doc_id` (the first two overwrite any doc_id already
+in `args`). In normal use, provide just one. Constraints:
+
+- `expected_target` on a non-destructive op → 400 `invalid_argument` (strictly rejected, not silently ignored).
+- `follow_active` on a non-destructive op is silently ignored (popped).
+- `quit` accepts neither (it has no doc_id target).
+
+### Idempotency (request_id, P0-2 Plan A)
+
+When `request_id` is present, the server enables the idempotency path — "timeout retries never re-execute":
+
+- **Payload hash binding**: `sha256(json.dumps({"app","op","args"}, sort_keys=True))`. The same
+  request_id with a different payload (argument drift) → 400 `invalid_argument` (caller bug, not a silent
+  return of a stale result).
+- **In-flight merge**: concurrent/retried calls with the same request_id have non-owner threads wait on the
+  owner (via `entry.event.wait`); nothing is re-enqueued or re-executed.
+- **Result cache**: once the owner finishes, the result is cached (LRU cap 512, TTL 600s, on the same scale as
+  the timeout window); retries with the same request_id replay the cached response with `cached: true`.
+  Eviction only removes non-inflight entries.
+- **Timeout**: the owner waiting past `_CALL_TIMEOUT` → 504, but the entry stays inflight — same-id retries
+  still merge and never double-write. A full COM queue → 503 and the entry is rolled back (same-id retries
+  rebuild it rather than merging into a never-completing deadlock).
+- Calls without request_id use the legacy path: no cache, no dedupe, no merge.
+
+Client side: `client.request/call` auto-generates a uuid4 by default and carries it on the request; the
+response echoes the request_id for the caller to verify. On timeout, retry with the **same** request_id.
 
 ## /call Response
 
@@ -57,19 +101,24 @@ Success (HTTP 200):
 
 ```json
 {"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book1",
- "message": "ok", "data": null, "result": null}
+ "message": "ok", "data": null, "result": null,
+ "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `resource_id`: `"<app>:<kind>:<doc_id>"` identifies the document the operation acted on (the raw COM object is never exposed; `resource_id` is used instead); **doc_id is a stable identifier within the session, not the user-editable name**; `null` when there is no target.
 - `data`: the operation result (the raw value for read ops; `null` for void ops).
 - `result`: a compatibility alias for `data` (gradual migration for older clients).
+- `request_id`: the idempotency echo — returned verbatim when the request carried one, for the caller to verify / retry.
+
+When an idempotent call with a request_id hits the cache, the response additionally carries `"cached": true`
+(same request_id + same payload retries don't re-execute; the original response is replayed).
 
 Failure (HTTP 500):
 
 ```json
 {"ok": false, "operation": "excel.set_cell", "resource_id": null,
  "error": "TargetNotFoundError: 没有打开的工作簿", "error_code": "target_not_found",
- "trace": ["..."]}
+ "trace": ["..."], "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `error_code` maps one-to-one to the domain exceptions (see `exceptions.py`):
