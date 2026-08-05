@@ -351,6 +351,22 @@ def test_read_slide_summary_textbox_page_fallback_and_stable():
     assert summary[0]["body"] == "纯文本框正文第一行\n纯文本框正文第二行"
 
 
+def test_read_slide_summary_title_fallback_skips_empty_text():
+    # 回归：P6 真机 bug——header 背景矩形带空 TextFrame（top=0）按阅读顺序排在
+    # 真标题（top=12）前，title 回退 cands 必须过滤空文本，否则 title 拿到空串。
+    empty_bar = _FakeShape(1, "HeaderBar", "", left=0, top=0, width=720, height=10, z_order=1)
+    title = _FakeShape(2, "RealTitle", "真实标题", left=36, top=12, width=400, height=30, z_order=2)
+    body = _FakeShape(3, "BodyText", "正文内容", left=36, top=60, width=400, height=40, z_order=3)
+    slide = SimpleNamespace(
+        Shapes=_FakeShapes([empty_bar, title, body]),
+        NotesPage=SimpleNamespace(Shapes=_FakeShapes([])),
+    )
+    app = _app_with(_pres(slide))
+    s = app.read_slide_summary()[0]
+    assert s["title"] == "真实标题"
+    assert s["body"] == "正文内容"  # 空文本 shape 也不进 body
+
+
 def test_read_slide_summary_textbox_page_iteration_order_stable():
     # 同一批 shape 换迭代顺序（body 在前），摘要不变：阅读顺序 key 保证确定性
     title = _FakeShape(

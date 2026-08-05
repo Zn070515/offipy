@@ -333,7 +333,9 @@ def _summarize_slide(slide, index: int, pw: float, ph: float) -> dict:
         cands = [
             item
             for item in items
-            if item.record["shape_id"] not in used and not _is_exempt_text(item.record, pw, ph)
+            if item.record["shape_id"] not in used
+            and not _is_exempt_text(item.record, pw, ph)
+            and item.record["text"]
         ]
         if cands:
             first = min(cands, key=_reading_order_key)

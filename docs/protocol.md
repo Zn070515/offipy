@@ -155,7 +155,7 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
 
 ```json
 {"ok": true, "result": {
-  "version": "0.10.0",
+  "version": "0.10.1",
   "protocol": "offipy-http/v1",
   "session_id": "<uuid4>",
   "pid": 28776,
