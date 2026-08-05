@@ -29,7 +29,7 @@ Goal: let Claude independently produce **polished, aesthetically sound, substant
 - Windows + Microsoft Office installed (Word / Excel / PowerPoint)
 - Python ≥ 3.10 (this repository's dev environment is 3.12)
 - `import offipy` works on non-Windows; calling Office APIs raises `UnsupportedPlatformError`
-- See [`docs/compatibility.en.md`](docs/compatibility.en.md) for the supported platform / Office / Python compatibility matrix
+- See [`docs/compatibility.en.md`](https://github.com/Zn070515/office-kit/blob/main/docs/compatibility.en.md) for the supported platform / Office / Python compatibility matrix
   (Tested / Expected / Unsupported columns)
 
 ## Installation
@@ -116,7 +116,7 @@ offipy word set_header_text --text "季度报告" --follow-active
 offipy word add_page_number --alignment center --follow-active
 offipy word page_setup --orientation landscape --paper a4 --top_margin 60 --follow-active
 offipy word insert_toc --levels 3 --follow-active
-offipy word add_list --style bullet --follow-active
+offipy word add_list --lines "first item" --lines "second item" --style bullet --follow-active
 offipy word merge_table_cells --table_idx 1 --start_row 1 --start_col 1 --end_row 1 --end_col 3 --follow-active
 offipy word set_table_border --table_idx 1 --style single --color "#9AA5B1" --sides all --follow-active
 offipy word set_table_col_width --table_idx 1 --col 1 --width 140 --follow-active
@@ -174,7 +174,7 @@ with RemoteExcel() as x:  # connects to local 8890 by default (auto-starts the s
 Ops not explicitly defined are proxied to the underlying app via `__getattr__`; offipy exceptions (the `OffipyError` family) pass through unchanged.
 
 **Return contract**: the three entry points (Python API / HTTP RPC / MCP) share the same source but have **different return shapes**; see
-[`docs/api.en.md`](docs/api.en.md) for the honest comparison:
+[`docs/api.en.md`](https://github.com/Zn070515/office-kit/blob/main/docs/api.en.md) for the honest comparison:
 - **Python API** returns the App method's raw value (`new_book`→`doc_id` string, `get_cell`→cell value,
   `get_target`→dict …); void ops return `None`; failures raise `OffipyError` domain exceptions.
 - **HTTP RPC `/call`** returns an `OperationResult` (**HTTP-only contract**):
@@ -192,7 +192,7 @@ corresponding domain exception, so the three entry points share the same source.
 
 ## Design system (HTML deck)
 
-When Claude writes deck HTML, it only needs to reference design tokens (CSS variables) and tag each slide with `data-layout`; themes and layouts are injected at render time, so one HTML file reskins by switching themes. See [`examples/decks/design-system/deck.html`](examples/decks/design-system/deck.html) for an example.
+When Claude writes deck HTML, it only needs to reference design tokens (CSS variables) and tag each slide with `data-layout`; themes and layouts are injected at render time, so one HTML file reskins by switching themes. See [`examples/decks/design-system/deck.html`](https://github.com/Zn070515/office-kit/blob/main/examples/decks/design-system/deck.html) for an example.
 
 ```html
 <head>
@@ -210,7 +210,7 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
   (`# Title` + each `## section` = one slide, `- ` bullet points, body text, `@layout:` directives),
   `offipy deck outline --input outline.md --out deck.html` produces an HTML skeleton in one step with
   layouts auto-inferred, then `offipy deck make --theme <theme> --layouts` injects theme and layouts to finalize.
-  See [`examples/outline/quarterly-review.md`](examples/outline/quarterly-review.md) for an example.
+  See [`examples/outline/quarterly-review.md`](https://github.com/Zn070515/office-kit/blob/main/examples/outline/quarterly-review.md) for an example.
 
   ```bash
   offipy deck outline --input examples/outline/quarterly-review.md --out out/quarterly.html
@@ -220,7 +220,7 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
   `data-chart-data` JSON attribute or an in-page `<script type="application/json" data-chart-target="<selector>">` block,
   and `deck make --layouts` replaces them with PowerPoint-native editable charts (double-click to edit data), no longer pasted images.
   **Prerequisite**: the slide containing a chart must reference the chart-dominant layout (`data-layout="chart-dominant"`) so the container has a measurable
-  surface rectangle. See [`examples/decks/charts/chart-demo.html`](examples/decks/charts/chart-demo.html) for an example.
+  surface rectangle. See [`examples/decks/charts/chart-demo.html`](https://github.com/Zn070515/office-kit/blob/main/examples/decks/charts/chart-demo.html) for an example.
 
   ```html
   <div class="chart" data-chart="bar"
@@ -235,7 +235,7 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
   icon color inherits the container's `color` (setting `color: var(--accent)` in HTML applies the theme color; if the container has no
   color set, it defaults to the current theme's `--accent`). Lucide line icons render with round line caps/corners (aligned with the
   source SVG design, not images or pasted graphics). See
-  [`examples/decks/icons/icons-demo.html`](examples/decks/icons/icons-demo.html) for an example.
+  [`examples/decks/icons/icons-demo.html`](https://github.com/Zn070515/office-kit/blob/main/examples/decks/icons/icons-demo.html) for an example.
 
   ```html
   <svg class="icon" data-icon="ph:check-circle" viewBox="0 0 256 256" width="72" height="72"></svg>
@@ -243,7 +243,7 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
 
   In the outline, use `@icons: <name>[:label]; ...` to declare icon rows (default `ph:` prefix); the skeleton automatically lands on the
   `icons-row` layout (more than 3 icons auto-wrap into 3 columns per row). See
-  [`examples/outline/icons-demo.md`](examples/outline/icons-demo.md) for an example.
+  [`examples/outline/icons-demo.md`](https://github.com/Zn070515/office-kit/blob/main/examples/outline/icons-demo.md) for an example.
 - **Feedback learning**: post-audit dispositions (fixed / accepted / ignored) are recorded to `~/.offipy/feedback.jsonl`; `feedback.dimension_weights()` reweights the audit weights, getting stricter the more it fixes (P2 validation build)
 
 ```python
@@ -338,7 +338,7 @@ examples/     # runnable examples (decks / outline / excel / word)
 
 MIT AND ISC (SPDX expression) — offipy itself and the vendored converter / Phosphor icons are MIT,
 the embedded Lucide icons are ISC. The license texts are distributed with the artifacts: the root `LICENSE` +
-[`THIRD_PARTY_NOTICES.en.md`](THIRD_PARTY_NOTICES.en.md); each icon set's `LICENSE-*.txt` is in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md); each icon set's `LICENSE-*.txt` is in
 `src/offipy/assets/icons/`.
 
 ## Feedback and issues

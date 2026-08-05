@@ -157,6 +157,17 @@ def test_export_tools_expose_transport_params(module):
 # --- _invoke 统一返回封装（mock _call，不需要 Office） ---
 
 
+def test_server_description_mentions_target_binding():
+    # 契约1：模型描述跟上 doc_id/follow_active/expected_target 设计，防焦点漂移
+    from offipy import mcp_server
+
+    desc = mcp_server.server.description
+    assert "只读操作" in desc
+    assert "doc_id" in desc
+    assert "follow_active" in desc
+    assert "expected_target" in desc
+
+
 def test_invoke_void_op_returns_ok_string(monkeypatch):
     from offipy import mcp_server
 
