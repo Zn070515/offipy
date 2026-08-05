@@ -21,7 +21,6 @@ import os
 import platform
 import queue
 import secrets
-import socket
 import sys
 import threading
 import time
@@ -898,10 +897,14 @@ class Server(ThreadingHTTPServer):
         try:
             with contextlib.suppress(Exception):
                 request.sendall(resp)
-            # 丢弃客户端已发出但尚未被读取的请求字节再关闭：直接 close 会因接收
-            # 缓冲非空触发 TCP RST，客户端读到 ConnectionResetError 而非 503。
+            # 清空接收缓冲再关闭：直接 close 会因缓冲里已有客户端请求字节触发 TCP RST，
+            # 客户端读到 ConnectionResetError 而非 503。shutdown(SHUT_RD) 只挡「还没到」
+            # 的数据、对已进缓冲的字节无效——非阻塞 recv 读光当前缓冲（不等客户端继续
+            # 发送），close 时缓冲为空 → 正常 FIN。BlockingIOError 即缓冲已读光，退出。
             with contextlib.suppress(Exception):
-                request.shutdown(socket.SHUT_RD)
+                request.setblocking(False)
+                while request.recv(65536):
+                    pass
         finally:
             with contextlib.suppress(Exception):
                 request.close()
