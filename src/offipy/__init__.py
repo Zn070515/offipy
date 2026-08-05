@@ -1,5 +1,14 @@
 from . import direct
 from .api import Excel, Ppt, RemoteExcel, RemotePpt, RemoteWord, Word, op
+from .audit import (
+    AuditConfig,
+    AuditFinding,
+    PptxAuditReport,
+    PptxDiffReport,
+    Severity,
+    audit_pptx,
+    compare_pptx,
+)
 from .core import (
     PROGIDS,
     connect,
@@ -23,7 +32,7 @@ from .exceptions import (
 )
 from .models import PLACEHOLDER_TYPE_NAMES, SlideTextRecord
 
-__version__ = "0.10.2"
+__version__ = "0.11.0"
 
 __all__ = [
     "Excel",
@@ -53,4 +62,11 @@ __all__ = [
     "ProtocolError",
     "SlideTextRecord",
     "PLACEHOLDER_TYPE_NAMES",
+    "Severity",
+    "AuditConfig",
+    "AuditFinding",
+    "PptxAuditReport",
+    "PptxDiffReport",
+    "audit_pptx",
+    "compare_pptx",
 ]

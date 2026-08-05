@@ -28,11 +28,19 @@ offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # 显式�
 offipy excel read_range --sheet 1 --range_addr A1:B1   # 读 op 缺省走活动目标
 offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
+
+# PPTX 静态质量审计与基线回归（纯解析，不需要打开 PowerPoint，无 Office 依赖）
+offipy audit deck.pptx                     # 文本报告（默认）
+offipy audit deck.pptx --fail-on HIGH      # 达 HIGH → 退出码 1（CI 门禁）
+offipy audit deck.pptx --format html --out audit.html --slides-dir export/   # SVG 画布报告
+offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID      # 基线回归：只阻断新增/恶化
 ```
 
 破坏性 op 需要一个目标：`--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`。
 布尔参数用 `--key true/false`：`--overwrite true`。结构化值可用 `--payload '{"...": ...}'`。
 参数名以下划线分隔（如 `--range_addr`、`--doc_id`），类型由 `schema.py` 声明并自动转换。
+PPTX 审计的参数与退出码、Python API 详见 [docs/audit.md](audit.md)（审计）与
+[docs/audit-baseline.md](audit-baseline.md)（基线回归）。
 
 ## Server 生命周期
 
@@ -102,6 +110,21 @@ HTTP-only），MCP 返回 `data` 载荷——三入口返回形状不同，如�
 同一实例须在创建线程内使用；跨线程各自建 facade 时用 `offipy.direct.com_apartment()`
 包一层（线程各自 CoInitialize/Uninitialize）。连到既有实例默认不改其可见性；
 确需改传 `modify_existing_visibility=True`。
+
+PPTX 质量审计不需要 Office、不需要打开 PowerPoint：
+
+```python
+from offipy import audit_pptx, compare_pptx, Severity
+
+report = audit_pptx("deck.pptx")
+if report.max_severity is not None and report.max_severity >= Severity.HIGH:
+    print("存在 HIGH 级问题，拒绝发布")
+print(report.to_markdown())
+
+diff = compare_pptx("baseline.pptx", "candidate.pptx")
+if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
+    print("候选相对基线新增/恶化 MID+ 问题")
+```
 
 ## 能力边界：创建/追加 vs 增量修改
 

@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.10.2（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.11.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -22,6 +22,11 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - **server 进程管理**：`offipy server status|stop|restart` 用 `/status` 真实握手 + PID 文件 / netstat 探测管理常驻进程
 - **Agent 只读回读**：`word read_doc_text` / `ppt read_slide_summary`（逐页标题/正文/备注）`ppt read_slide_texts --slide_idx N`（单页逐 shape 文本）/ `excel read_range`
   把文档文本层读回（供 Agent 迭代），经 CLI / RPC / MCP 三路暴露
+- **PPTX 静态质量门禁**：`offipy audit`（见 [`docs/audit.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit.md)）不开 PowerPoint、不依赖 Microsoft Office，
+  纯解析 `.pptx` 检查越界 / 贴边 / 重叠 / 文本溢出 / autofit 风险，输出 text / json / markdown / html 报告，
+  按严重度门槛阻断不合格产物（`--fail-on`）；`compare_pptx` 基线回归（见
+  [`docs/audit-baseline.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit-baseline.md)）只阻断候选**新增/恶化**的问题；`deck render_with_report`
+  让 HTML→PPTX 生成即门禁
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
 
 ## 环境要求
@@ -135,6 +140,13 @@ offipy ppt read_slide_summary        # Agent 只读：逐页 title/body/notes �
 offipy ppt read_slide_texts --slide_idx 1   # Agent 只读：单页逐 shape 文本（v0.10）
 offipy excel read_range --sheet 1 --range_addr A1:B2   # Agent 只读：区域二维值
 offipy quit excel
+
+offipy audit deck.pptx                    # PPTX 静态质量审计（文本报告）
+offipy audit deck.pptx --fail-on HIGH     # 达 HIGH 就退出码 1（CI 门禁）
+offipy audit deck.pptx --format html --out audit.html --slides-dir export/  # SVG 画布报告
+offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID     # 基线回归：只阻断新增/恶化
+offipy deck make --html deck.html --out deck.pptx --no-open \
+  --audit-mode strict --fail-on HIGH --audit-report deck.audit.json        # HTML→PPTX 生成即门禁
 ```
 
 复杂参数用 `--payload '<json>'` 透传（覆盖同名 kwargs）；重复 `--key` 会聚合成 list。
@@ -330,6 +342,7 @@ src/offipy/
   server.py     # 常驻会话 HTTP server（token 鉴权 + worker 队列 + /status + /shutdown）
   cli.py        # `offipy` 命令入口（复杂参数：重复 flag → list / --payload JSON）
   api.py        # 高层 API facade：Excel() / Word() / Ppt() 上下文管理器
+  audit/        # PPTX 静态质量审计与基线回归（models/extract/geometry/roles/rules/compare/render/pptx，纯解析无 COM）
   mcp_server.py # MCP stdio server（三套件操作 → MCP 工具）
   excel.py / word.py / ppt.py   # 三套件原子操作
   client.py     # server 的 HTTP 客户端（HTML 管线复用）*

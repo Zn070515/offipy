@@ -1,3 +1,34 @@
+# 0.10 → 0.11 迁移指南
+
+0.11 是**纯新增**版本：不破坏任何 0.10 的既有 API、CLI 行为或返回契约。现有代码**无需改动**。
+
+## 新增（全部可选项）
+
+- **PPTX 静态质量审计**：`audit_pptx(path, config=None)` 纯解析 `.pptx`（ZIP+XML），
+  不开 PowerPoint、不依赖 Microsoft Office，检查越界 / 贴边 / 重叠 / 文本溢出 / autofit 风险，
+  产出 `PptxAuditReport`（text / json / markdown / html）。
+- **基线回归**：`compare_pptx(baseline, candidate)` 产出 `PptxDiffReport`，
+  聚合新增 / 已解决 / 变化的问题与形状增删移动缩放文本变化；`--fail-on-new` 只阻断候选
+  **新增或恶化**的问题。
+- **Deck 生成门禁**：`deck.render_with_report(html, output, audit_mode="report"|"strict", fail_on=...)`。
+  `render()` **签名与行为完全不变**，只是新增了这个带审计的变体。
+- **CLI**：`offipy audit` 子命令（参数与退出码见 [docs/audit.md](audit.md)）。
+
+## 迁移步骤
+
+0.10 → 0.11 **无迁移步骤**。如果 0.10 代码能跑，0.11 直接换版本号即可。
+
+唯一注意点（非破坏）：
+
+- `import offipy` / `import offipy.audit` **仍然不加载 python-pptx**（惰性 import 硬约束）；
+  只有真正 `audit_pptx` / `compare_pptx` 解析文件时才需要，且解析依赖 python-pptx
+  （`pip install offipy[deck]`）。
+- `offipy audit` 的退出码语义与其它命令不同：0=未达门槛 / 1=达 `--fail-on` 或 `--fail-on-new` /
+  2=参数或输入错误 / 3=依赖或解析错误。这是 **audit 子命令内部**自捕异常的结果，
+  不影响其它子命令的 `OffipyError → 1` 行为。
+
+---
+
 # 0.9 → 0.10 迁移指南
 
 0.10 对 PowerPoint 读 API 做了一次**破坏性重构**：旧的 `read_slide_texts()`（无参，

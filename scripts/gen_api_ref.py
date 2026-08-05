@@ -83,7 +83,9 @@ def _render_index() -> str:
         "| --- | --- | --- | --- |\n"
         f"{table}\n"
         "\n每个操作：`doc_id` 缺省走当前活动文档（Excel `bookN` / Word `docN` / PPT `presN`）；"
-        "`expected_target` 用于破坏性操作的绑定校验。\n"
+        "`expected_target` 用于破坏性操作的绑定校验。\n\n"
+        "> 静态几何质量门禁与基线回归不经过 `schema.py`（纯解析、无 Office/无 COM），"
+        "另见 [PPTX 质量审计](audit.md) 与 [基线回归](audit-baseline.md)。\n"
     )
 
 
@@ -430,7 +432,10 @@ def _render_index_en() -> str:
         f"{table}\n"
         "\nEvery operation: `doc_id` defaults to the current active document (Excel `bookN` "
         "/ Word `docN` / PPT `presN`); `expected_target` provides target binding for "
-        "destructive operations.\n"
+        "destructive operations.\n\n"
+        "> Static geometry quality gates and baseline regression do not go through `schema.py` "
+        "(pure parsing, no Office/COM); see [PPTX Quality Audit](audit.en.md) and "
+        "[Baseline Regression](audit-baseline.en.md).\n"
     )
 
 

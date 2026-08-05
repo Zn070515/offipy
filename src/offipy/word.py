@@ -231,7 +231,10 @@ class WordApp:
         """
         doc = self._docs.get(doc_id)
         if doc is None or not core.doc_alive(doc):
-            raise TargetNotFoundError(f"未知文档句柄: {doc_id!r}（用 list_docs 查看当前打开的）")
+            raise TargetNotFoundError(
+                f"未知文档句柄: {doc_id!r}（当前会话未打开；doc_id 只在同会话内有效，"
+                f"本地直连 Word() 与会话式 Remote*/CLI/HTTP 互不相通；用本会话 list_docs 核对）"
+            )
         old = self._active_id
         self._active_id = doc_id
         try:

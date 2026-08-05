@@ -28,8 +28,10 @@ import inspect
 import json
 import os
 import sys
+import traceback
 import types
 import typing
+from pathlib import Path
 
 from . import excel, ppt, schema, word
 from .client import call, ensure_server, server_status, set_port, stop_server
@@ -390,6 +392,21 @@ def build_parser() -> argparse.ArgumentParser:
     deck.add_argument("--theme", help="注入内置主题名（make/outline）")
     deck.add_argument("--layouts", action=_BoolAction, help="注入 data-layout 布局 CSS（make）")
     deck.add_argument("--overwrite", action=_BoolAction, help="覆盖已存在的 .pptx（make）")
+    deck.add_argument(
+        "--audit-mode",
+        choices=["report", "strict"],
+        help="make 渲染后跑质量审计：report 产出报告并替换；strict 达 --fail-on 拒绝替换（make）",
+    )
+    deck.add_argument(
+        "--fail-on",
+        choices=["HIGH", "MID", "LOW"],
+        default="HIGH",
+        help="strict 门禁严重度阈值，默认 HIGH（make，需 --audit-mode）",
+    )
+    deck.add_argument(
+        "--audit-report",
+        help="审计报告输出路径（扩展名定格式：.md/.json/.html，否则 text；make，需 --audit-mode）",
+    )
     deck.add_argument("--input", help="大纲 markdown 源文件（outline）")
     deck.add_argument("--md", help="大纲 markdown 源文件别名（outline）")
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
@@ -427,6 +444,48 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument(
         "--port", type=int, default=argparse.SUPPRESS, help="目标 server 端口（默认 8890）"
     )
+    au = sub.add_parser("audit", help="PPTX 质量审计 / 基线回归对比（不依赖 Office）")
+    au.add_argument("file", help="目标 .pptx（对比模式下为候选）")
+    au.add_argument(
+        "--format",
+        choices=["text", "json", "markdown", "html"],
+        default="text",
+        help="报告格式（默认 text）",
+    )
+    au.add_argument(
+        "--out",
+        help="输出文件；html 缺省写 <stem>.audit.html，其余缺省打 stdout",
+    )
+    au.add_argument(
+        "--fail-on",
+        choices=["HIGH", "MID", "LOW"],
+        default="HIGH",
+        help="审计达该严重度 → exit 1（默认 HIGH）",
+    )
+    au.add_argument("--baseline", help="基线 .pptx；给出则走回归对比（用 --fail-on-new 门槛）")
+    au.add_argument(
+        "--fail-on-new",
+        choices=["HIGH", "MID", "LOW"],
+        help="对比模式：候选新增/恶化问题达该严重度 → exit 1",
+    )
+    au.add_argument("--safe-margin", type=float, default=0.2, help="安全边距（英寸，默认 0.2）")
+    au.add_argument(
+        "--bounds-tolerance", type=float, default=0.01, help="越界容差（英寸，默认 0.01）"
+    )
+    au.add_argument("--no-full-bleed-ignore", action="store_true", help="关闭全页背景豁免")
+    au.add_argument("--no-repeated-decoration-ignore", action="store_true", help="关闭重复装饰豁免")
+    au.add_argument("--no-page-number-ignore", action="store_true", help="关闭页码豁免")
+    au.add_argument("--no-header-footer-ignore", action="store_true", help="关闭页眉页脚豁免")
+    au.add_argument(
+        "--show-suppressed",
+        action="store_true",
+        help="豁免项默认已在报告中列出；本标志保留兼容",
+    )
+    au.add_argument(
+        "--slides-dir",
+        help="html 专用：PNG 页面背景目录（slide-<n>.png）",
+    )
+    au.add_argument("--debug", action="store_true", help="失败时打印完整 traceback")
     return p
 
 
@@ -450,6 +509,8 @@ def _main(argv=None):
         from .envcheck import main as check_main
 
         return check_main(json_output=args.json, profile=getattr(args, "profile", None))
+    if args.app == "audit":
+        return _audit_main(args)
     if args.app == "quit":
         ensure_server()
         call(args.target, "quit", force=args.force)
@@ -483,6 +544,8 @@ def _main(argv=None):
         return
     if args.app == "deck":
         if args.action == "make":
+            if args.audit_mode:
+                return _deck_make_with_audit(args)
             from .deck import make as deck_make
 
             if not args.html:
@@ -542,6 +605,166 @@ def main(argv=None):
     except OffipyError as e:
         print(f"offipy: {e}", file=sys.stderr)
         return 1
+
+
+# ---------------------------------------------------------------- audit 子命令
+
+
+def _build_audit_config(args):
+    from .audit import AuditConfig
+
+    return AuditConfig(
+        safe_margin_in=args.safe_margin,
+        bounds_tolerance_in=args.bounds_tolerance,
+        ignore_full_bleed_shapes=not args.no_full_bleed_ignore,
+        ignore_repeated_decorations=not args.no_repeated_decoration_ignore,
+        ignore_page_numbers=not args.no_page_number_ignore,
+        ignore_headers_footers=not args.no_header_footer_ignore,
+    )
+
+
+def _audit_fail(args, exc) -> None:
+    if getattr(args, "debug", False):
+        traceback.print_exc()
+    else:
+        print(f"offipy: error: {exc}", file=sys.stderr)
+
+
+def _audit_render(report, args) -> str:
+    from .audit import render_html, render_markdown, render_text
+
+    fmt = args.format
+    if fmt == "text":
+        return render_text(report)
+    if fmt == "markdown":
+        return render_markdown(report)
+    if fmt == "json":
+        return report.to_json()
+    return render_html(report, slides_dir=args.slides_dir)
+
+
+def _write_audit_report(path: str, report) -> None:
+    """按扩展名定格式落盘审计报告（.md/.json/.html，否则 text）。"""
+    from .audit import render_html, render_markdown, render_text
+
+    ext = Path(path).suffix.lower()
+    if ext == ".md":
+        text = render_markdown(report)
+    elif ext == ".json":
+        text = report.to_json()
+    elif ext == ".html":
+        text = render_html(report)
+    else:
+        text = render_text(report)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"offipy: 审计报告已写入 {path}")
+
+
+def _deck_make_with_audit(args) -> int | None:
+    """offipy deck make --audit-mode：渲染 + 静态审计门禁。
+
+    report：审计后替换，报告（若有 --audit-report）落盘；
+    strict：达 --fail-on → 先写报告再 exit 1（旧目标不动），未达 → 替换。
+    """
+    from .audit import Severity
+    from .deck import AuditGateError, export_slides, open_live, render_with_report
+
+    if not args.html:
+        raise SystemExit(
+            "用法: offipy deck make --html <deck.html> "
+            "[--audit-mode report|strict] [--fail-on HIGH|MID|LOW] "
+            "[--audit-report <path>] [--out <x.pptx>] [--no-open] "
+            "[--feedback <dir>] [--theme <name>] [--layouts] [--overwrite]"
+        )
+    fail_on = {"HIGH": Severity.HIGH, "MID": Severity.MID, "LOW": Severity.LOW}[args.fail_on]
+    try:
+        result = render_with_report(
+            args.html,
+            out=args.out,
+            theme=args.theme,
+            apply_layouts=args.layouts,
+            overwrite=args.overwrite,
+            audit_mode=args.audit_mode,
+            fail_on=fail_on,
+        )
+    except AuditGateError as e:
+        # strict 未通过：先落盘报告（若指定路径），再以 exit 1 收场（旧目标未动）。
+        if args.audit_report:
+            _write_audit_report(args.audit_report, e.report)
+        sev = e.report.max_severity
+        sev_name = sev.name if sev is not None else "?"
+        print(
+            f"offipy: 审计门槛未通过（最高 {sev_name} ≥ {args.fail_on}），未替换输出",
+            file=sys.stderr,
+        )
+        return 1
+    pptx = result.output_path
+    if args.audit_report:
+        _write_audit_report(args.audit_report, result.audit_report)
+    if args.feedback:
+        doc_id = open_live(pptx)
+        export_slides(args.feedback, doc_id=doc_id, overwrite=args.overwrite)
+    elif not args.no_open:
+        open_live(pptx)
+    print(json.dumps({"pptx": pptx}, ensure_ascii=False))
+    return None
+
+
+def _audit_main(args) -> int:
+    """offipy audit 入口：自捕全部预期异常转 exit 码，绝不让 OffipyError 逃逸。
+
+    退出码：0=未达门槛 / 1=成功但达 --fail-on 或 --fail-on-new / 2=参数或输入错 /
+    3=依赖或解析错。--debug 时保留完整 traceback。
+    """
+    from .audit import PptxAuditReport, PptxDiffReport, Severity, audit_pptx, compare_pptx
+    from .exceptions import ConversionError, InvalidArgumentError
+
+    threshold_map = {"HIGH": Severity.HIGH, "MID": Severity.MID, "LOW": Severity.LOW}
+    cfg = _build_audit_config(args)
+    report: PptxAuditReport | PptxDiffReport
+    try:
+        if args.baseline:
+            if args.fail_on_new is None:
+                print(
+                    "offipy: error: 对比模式需要 --fail-on-new （对候选新增/恶化问题设门槛）",
+                    file=sys.stderr,
+                )
+                return 2
+            report = compare_pptx(args.baseline, args.file, audit_config=cfg)
+            threshold = threshold_map[args.fail_on_new]
+            gate = report.gate_severity()
+            triggered = gate is not None and gate >= threshold
+        else:
+            if args.fail_on_new is not None:
+                print(
+                    "offipy: error: --fail-on-new 只用于 --baseline 对比模式",
+                    file=sys.stderr,
+                )
+                return 2
+            report = audit_pptx(args.file, cfg)
+            threshold = threshold_map[args.fail_on]
+            gate = report.max_severity
+            triggered = gate is not None and gate >= threshold
+    except InvalidArgumentError as e:
+        _audit_fail(args, e)
+        return 2
+    except (ConversionError, ImportError) as e:
+        _audit_fail(args, e)
+        return 3
+
+    out_path = args.out
+    if not out_path and args.format == "html":
+        p = Path(args.file)
+        out_path = str(p.with_name(p.stem + ".audit.html"))
+    text = _audit_render(report, args)
+    if out_path:
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        print(f"offipy: 报告已写入 {out_path}")
+    else:
+        sys.stdout.write(text)
+    return 1 if triggered else 0
 
 
 if __name__ == "__main__":

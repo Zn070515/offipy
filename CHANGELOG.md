@@ -3,7 +3,25 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
-## [Unreleased]
+## [0.11.0] - 2026-08-06
+
+### Added
+- **PPTX 静态质量审计**（`offipy audit` / `audit_pptx`，见 docs/audit.md）：纯解析 `.pptx`
+  （ZIP+XML），**不开 PowerPoint、不依赖 Microsoft Office**，静态几何门禁检查越界 / 贴边 /
+  重叠 / 文本溢出 / autofit 风险；输出稳定 `rule_id`（机器键）与 text / json / markdown / html
+  报告（html 为单文件内联 SVG 画布，可按严重度筛选，可选 PNG 页面背景）；`--fail-on` 按严重度
+  门槛阻断，退出码 0/1/2/3 不与其它命令的 `OffipyError → 1` 冲突；`import offipy` 不加载
+  python-pptx（惰性 import 硬约束）
+- **基线回归**（`compare_pptx` / `offipy audit --baseline ... --fail-on-new`，见
+  docs/audit-baseline.md）：形状匹配链（同 shape_id → name+type → 归一化文本 hash+几何邻近 →
+  图片 sha256）聚合新增/已解决/变化的问题与形状增删移动缩放文本变化；`--fail-on-new` **只阻断
+  候选新增或恶化**的问题，基线历史问题放行
+- **Deck 生成门禁**（`deck.render_with_report` / `deck make --audit-mode strict --fail-on ...`）：
+  HTML→PPTX 渲染后即审计，达 `fail_on` 抛 `AuditGateError`（报告先落盘、临时文件已清理、
+  旧 `.pptx` 不被破坏）；`render()` 签名与行为不变
+- 固定验收集：`tests/fixtures/audit/`（synthetic / edge_cases / baseline / candidate /
+  deck_generated）驱动逐规则断言与误报控制（connector / hidden / rotate / flip / group 不误判）
+- 文档：docs/audit.md + audit.en.md + audit-baseline.md + audit-baseline.en.md（挂 mkdocs nav）
 
 ## [0.10.2] - 2026-08-05
 
