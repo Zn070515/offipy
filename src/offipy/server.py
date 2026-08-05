@@ -15,6 +15,7 @@
 """
 
 import contextlib
+import hashlib
 import json
 import os
 import platform
@@ -24,6 +25,7 @@ import threading
 import time
 import traceback
 import uuid
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -45,6 +47,12 @@ _PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8）
 _MAX_BODY = 16 * 1024 * 1024  # 请求体上限 16MB
 _MAX_RESPONSE = 64 * 1024 * 1024  # 响应上限 64MB（超限降级 500，不写大 payload）
 _CALL_TIMEOUT = 600  # /call 入队后等 worker 结果的超时（安全兜底，op 本身由 client 超时）
+# 有界资源（§4/§5）：队列与并发都设上限，满则快速失败（503），不做无限排队
+_COM_QUEUE_MAX = 64  # COM worker 队列容量；满 → /call 立即 503 busy
+_MAX_CONCURRENCY = 16  # 同时处理的 HTTP 连接上限；超出直接 503（防线程风暴）
+# request_id 幂等缓存（§4）：最近 N 个已处理请求，重试命中直接返回缓存结果
+_REQUEST_ID_MAX = 512  # LRU 上限
+_REQUEST_ID_TTL = 600.0  # 缓存存活与 _CALL_TIMEOUT 同量级：超时重试窗口内有效
 _TOKEN_FILENAME = "token"
 _STARTED_AT = time.time()
 # 本次 server 会话标识（P2-3）：随 /status 暴露并写入每条 oplog，供跨实例
@@ -72,9 +80,15 @@ _DESTRUCTIVE_OPS = {app: frozenset(schema.destructive_ops(app)) for app in schem
 # 单 COM worker（P1-1）：COM 对象只允许在创建它的线程里访问，所有 App
 # 实例都绑定 worker 线程；HTTP handler 线程只入队/取回结果，慢 op 不阻塞
 # /ping /status /shutdown。队列与 worker 均为模块级（与 _APPS 同级共享）。
-_COM_QUEUE: "queue.Queue[tuple | None]" = queue.Queue()
+# 有界队列（§4）：容量 _COM_QUEUE_MAX，满则 handler 立即 503，不无限阻塞。
+_COM_QUEUE: "queue.Queue[tuple | None]" = queue.Queue(maxsize=_COM_QUEUE_MAX)
 _WORKER: threading.Thread | None = None
 _WORKER_LOCK = threading.Lock()
+
+# request_id 幂等缓存：request_id → (monotonic 时间戳, 响应 dict)。LRU（过
+# 期惰性清理 + 容量封顶）。handler 线程只读，GIL 下 get/set 原子够用；同一
+# id 的并发首投仍可能双双入队（幂等针对「超时后顺序重试」，非分布式锁）。
+_REQUEST_ID_CACHE: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
 
 # /status 的目标身份缓存：worker 每次 op 后刷新（worker 线程持有 COM，探测
 # 安全）；handler 线程只读快照，绝不因 status 探测拉起 Office 或触碰 COM。
@@ -90,12 +104,41 @@ def _token_path(port: int):
     return user_data_dir() / name
 
 
+def _pid_path(port: int):
+    # 默认端口沿用旧文件名（server.pid），非默认端口按端口隔离（server-{port}.pid）
+    name = "server.pid" if port == DEFAULT_PORT else f"server-{port}.pid"
+    return user_data_dir() / name
+
+
+def _write_pid_file(port: int, token: str) -> None:
+    """落盘 PID 文件（{port,pid,token_sha256,started_at}），供 client 归属验证。
+
+    写失败不致命：client 可用 netstat 兜底定位；token_sha256 让 client 在
+    强杀前证明归属（P0-1），对不上就不杀。
+    """
+    pid_file = _pid_path(port)
+    with contextlib.suppress(OSError):
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(
+            json.dumps(
+                {
+                    "port": port,
+                    "pid": os.getpid(),
+                    "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
+                    "started_at": _STARTED_AT,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+
 def _load_token(port: int) -> str:
     """env 优先，其次持久文件。
 
     env token 存在则直接返回（无需落盘）；否则必须落盘供 client 读取，
     写失败抛 ServerStartError——server 不应以 client 读不到 token 的
-    假活状态启动。
+    假活状态启动。落盘 token 收紧为 0o600（§4：Windows 上 chmod 为 no-op，
+    但 POSIX 下杜绝同机其他用户读取）。
     """
     env = os.environ.get("OFFIPY_SERVER_TOKEN")
     token = (env or "").strip()
@@ -104,6 +147,8 @@ def _load_token(port: int) -> str:
     token_file = _token_path(port)
     if token_file.exists():
         token = token_file.read_text(encoding="utf-8").strip()
+        with contextlib.suppress(OSError):
+            os.chmod(token_file, 0o600)  # 顺手收紧既有文件权限
     if not token:
         token = secrets.token_urlsafe(32)
     try:
@@ -111,6 +156,8 @@ def _load_token(port: int) -> str:
         token_file.write_text(token, encoding="utf-8")
     except OSError as e:
         raise ServerStartError(f"无法写入 token 文件 {token_file}: {e}") from e
+    with contextlib.suppress(OSError):
+        os.chmod(token_file, 0o600)
     return token
 
 
@@ -307,6 +354,33 @@ def _append_oplog(app_name: str, op: str, kind: str, payload: dict, duration_ms:
         )
 
 
+def _dedupe_hit(request_id: str) -> dict | None:
+    """request_id 幂等命中：已处理返回缓存响应，未处理/缺省返回 None。
+
+    顺带惰性清理过期项（TTL 窗口外的旧请求让位）。
+    """
+    if not request_id:
+        return None
+    now = time.monotonic()
+    stale = [k for k, (ts, _) in _REQUEST_ID_CACHE.items() if now - ts > _REQUEST_ID_TTL]
+    for k in stale:
+        _REQUEST_ID_CACHE.pop(k, None)
+    item = _REQUEST_ID_CACHE.get(request_id)
+    if item is None:
+        return None
+    _REQUEST_ID_CACHE[request_id] = (now, item[1])  # 刷新 LRU 位置
+    return item[1]
+
+
+def _dedupe_store(request_id: str, payload: dict) -> None:
+    """记录已处理 request_id 的响应；容量封顶（LRU 丢弃最旧）。"""
+    if not request_id:
+        return
+    _REQUEST_ID_CACHE[request_id] = (time.monotonic(), payload)
+    while len(_REQUEST_ID_CACHE) > _REQUEST_ID_MAX:
+        _REQUEST_ID_CACHE.popitem(last=False)
+
+
 def _ensure_worker() -> None:
     """懒启动单 COM worker（幂等）。COM 初始化移到 worker 线程（P1-1）。"""
     global _WORKER
@@ -318,13 +392,19 @@ def _ensure_worker() -> None:
 
 
 def _stop_worker() -> None:
-    """停 worker：哨兵唤醒退出循环，join 有限等待（daemon 兜底不阻塞进程）。"""
+    """停 worker：哨兵唤醒退出循环，join 有限等待（daemon 兜底不阻塞进程）。
+
+    队列有界（§4）：哨兵放不进时最多等 _COM_QUEUE_MAX 满队被消费，超时放弃
+    （daemon 线程随进程退出，不强行阻塞停机路径）。
+    """
     global _WORKER
     with _WORKER_LOCK:
         w = _WORKER
         _WORKER = None
     if w is not None and w.is_alive():
-        _COM_QUEUE.put(None)
+        # 队列可能被长 op 占满：daemon 兜底，放不进哨兵就放弃，不无限等待
+        with contextlib.suppress(queue.Full):
+            _COM_QUEUE.put(None, timeout=5)
         w.join(timeout=5)
 
 
@@ -507,9 +587,28 @@ class Handler(BaseHTTPRequestHandler):
             )
         # 校验（鉴权/路径/Content-Type/体积/白名单）留在 handler 线程 fail-fast；
         # COM op 入队给单 worker 串行执行，worker 结果经 per-request 队列取回。
+        request_id = body.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            request_id = None
+        cached = _dedupe_hit(request_id)
+        if cached is not None:
+            # request_id 幂等（§4）：重复请求返回缓存结果，不重执行
+            self._reply(cached, status=200 if cached.get("ok") else 500)
+            return
         _ensure_worker()
         resp_q: queue.Queue[tuple] = queue.Queue(maxsize=1)
-        _COM_QUEUE.put((app_name, op, body.get("args", {}), resp_q))
+        try:
+            _COM_QUEUE.put_nowait((app_name, op, body.get("args", {}), resp_q))
+        except queue.Full:
+            # 有界队列（§4）：满则立即 503，不让调用方无限排队
+            return self._reply(
+                {
+                    "ok": False,
+                    "error": "server 忙（COM 队列已满），请稍后重试",
+                    "error_code": "busy",
+                },
+                status=503,
+            )
         try:
             kind, payload = resp_q.get(timeout=_CALL_TIMEOUT)
         except queue.Empty:
@@ -521,6 +620,7 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 status=504,
             )
+        _dedupe_store(request_id, payload)
         self._reply(payload, status=200 if kind == "ok" else 500)
 
     def _reply(self, obj, status=200):
@@ -539,7 +639,45 @@ class Server(ThreadingHTTPServer):
     # 线程前端（P1-1）：每个 HTTP 请求独立线程，/ping /status /shutdown 不碰
     # COM、直处理；慢 COM op 在单 worker 里串行排队，不阻塞健康检查与停机。
     # 禁止端口复用：防止多个 server 实例抢绑同一端口导致请求漂移。
+    # 有界线程（§4）：Semaphore 限并发 _MAX_CONCURRENCY，超出直接 503——防
+    # 线程风暴拖垮进程（ThreadingMixIn 默认每连接一线程、无上限）。
     allow_reuse_address = False
+    _SLOT = threading.BoundedSemaphore(_MAX_CONCURRENCY)
+
+    def process_request(self, request, client_address):
+        if not self._SLOT.acquire(blocking=False):
+            # 并发已满：连接级直回 503，不让客户端挂到传输超时
+            self._reply_503(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._SLOT.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._SLOT.release()
+
+    def _reply_503(self, request) -> None:
+        body = json.dumps(
+            {"ok": False, "error": "server 忙（并发连接数已满）", "error_code": "busy"},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        resp = (
+            b"HTTP/1.1 503 Service Unavailable\r\n"
+            b"Content-Type: application/json\r\n"
+            b"Content-Length: " + str(len(body)).encode("utf-8") + b"\r\n"
+            b"Connection: close\r\n\r\n" + body
+        )
+        try:
+            with contextlib.suppress(Exception):
+                request.sendall(resp)
+        finally:
+            with contextlib.suppress(Exception):
+                request.close()
 
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
@@ -562,6 +700,7 @@ def serve(
     _validate_host(host, allow_remote)
     oplog.configure(port)  # P2-2 多实例：日志按端口隔离
     _TOKEN = _load_token(port)
+    _write_pid_file(port, _TOKEN)  # §4 启动锁：port+pid+token_sha256 落盘，供归属验证
     print(f"offipy server listening on http://{host}:{port}", flush=True)
     # COM 初始化移到 worker 线程（P1-1）：HTTP 线程只入队，App 对象只被
     # worker 触碰，套间安全；/ping /status /shutdown 不碰 COM，不被排队。
