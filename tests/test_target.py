@@ -179,7 +179,7 @@ def test_word_read_doc_text_no_doc_raises(monkeypatch):
         app.read_doc_text()
 
 
-def test_ppt_read_slide_texts_no_doc_raises(monkeypatch):
+def test_ppt_read_slide_summary_no_doc_raises(monkeypatch):
     from offipy import ppt
 
     app = ppt.PptApp.__new__(ppt.PptApp)
@@ -189,7 +189,7 @@ def test_ppt_read_slide_texts_no_doc_raises(monkeypatch):
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
-        app.read_slide_texts()
+        app.read_slide_summary()
 
 
 # --- expected_target 绑定（P0-7，server dispatch 层） ---

@@ -644,7 +644,17 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "read_slide_texts": OpSpec(
             description=(
-                "逐页读取演示文稿（doc_id 缺省为活动）的标题/正文/备注文本（只读），"
+                "读取第 slide_idx 页全部具有文本能力的 shape（含 group 内文本），返回"
+                "SlideTextRecord（shape_id/name/text/坐标/占位符/group 路径）。"
+                "include_empty=True 连空文本 shape 也返回；recursive=False 不递归 group。"
+            ),
+            readonly=True,
+            returns="list[SlideTextRecord]",
+            params={"slide_idx": int, "include_empty": bool, "recursive": bool, "doc_id": str},
+        ),
+        "read_slide_summary": OpSpec(
+            description=(
+                "逐页读取演示文稿（doc_id 缺省为活动）的标题/正文/备注摘要（只读），"
                 "返回 [{index, title, body, notes}]。"
             ),
             readonly=True,

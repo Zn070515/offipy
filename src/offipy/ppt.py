@@ -3,11 +3,12 @@
 基于 core 的会话管理；跨进程时通过 ActivePresentation 定位当前文稿。
 """
 
+import math
 import os
 import shutil
 import tempfile
 from contextlib import contextmanager, suppress
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import core
 from ._comguard import guard_com
@@ -18,6 +19,7 @@ from .exceptions import (
     InvalidArgumentError,
     TargetNotFoundError,
 )
+from .models import CoordinateSpace, SlideTextRecord, placeholder_type_name
 from .paths import default_save_path, ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -50,6 +52,306 @@ def _placeholder_by_type(shapes, *pp_types):
         if placeholders(i).PlaceholderFormat.Type in pp_types:
             return placeholders(i)
     return None
+
+
+# ------------------------------------------------------------------ 读全（P1-4）
+
+
+def _tri_state_to_bool(value) -> bool | None:
+    """MsoTriState 正规化：-1/1→True、0→False、其余（-2/-3 混合态）→None。禁 bool() 偷译。"""
+    if value in (-1, 1):
+        return True
+    if value == 0:
+        return False
+    return None
+
+
+def _shape_has_text_frame(shape) -> bool:
+    """shape 是否有文本能力：HasTextFrame 优先；None/读不到再兜底访问 TextFrame（P2-1）。"""
+    try:
+        state = _tri_state_to_bool(shape.HasTextFrame)
+    except Exception:
+        state = None
+    if state is not None:
+        return state
+    try:
+        shape.TextFrame  # noqa: B018 — 访问成功即证明有 TextFrame，忽略返回值
+    except Exception:
+        return False
+    return True
+
+
+MSO_GROUP = 6  # MsoShapeType.msoGroup
+MSO_PLACEHOLDER = 14  # MsoShapeType.msoPlaceholder
+
+
+def _shape_is_group(shape) -> bool:
+    try:
+        return int(shape.Type) == MSO_GROUP
+    except Exception:
+        return False
+
+
+def _shape_is_rotated(shape) -> bool:
+    """是否旋转（非 90° 整数倍）。旋转 group 内子元素读值不可信（探针 P0-2）。"""
+    try:
+        return float(shape.Rotation) % 90 != 0
+    except Exception:
+        return False
+
+
+def _iter_shapes(
+    shapes,
+    *,
+    recursive: bool,
+    parent_shape_id: int | None = None,
+    group_path: tuple[int, ...] = (),
+    rotated: bool = False,
+):
+    """统一遍历器：产出 (shape, parent_shape_id, group_path, rotated)（v0.12 read_shapes 共用）。
+
+    - top-level：parent_shape_id=None、group_path=()；group 子元素 parent_shape_id=直接父
+      group 的 shape_id、group_path=祖先链（外层→内层）。
+    - rotated：shape 是否处于**旋转 group 内**（非旋转 group 子元素读值是幻灯片绝对坐标；
+      旋转 group 子元素读值不可信 → coordinate_space="unknown"）。
+    - 先判 Type==6 再访问 GroupItems：COM Group() 会把嵌套 group 拍平，对拍平成员直接
+      访问 GroupItems 抛 E_ACCESSDENIED（探针实证）。
+    """
+    try:
+        count = int(shapes.Count)
+    except Exception:
+        return
+    for i in range(1, count + 1):
+        try:
+            shape = shapes(i)
+        except Exception:
+            continue
+        sid = _shape_id(shape)
+        is_group = _shape_is_group(shape)
+        yield (shape, parent_shape_id, group_path, rotated)
+        if is_group and recursive:
+            try:
+                items = shape.GroupItems
+            except Exception:
+                continue
+            child_rotated = rotated or _shape_is_rotated(shape)
+            yield from _iter_shapes(
+                items,
+                recursive=True,
+                parent_shape_id=sid,
+                group_path=group_path + (sid,),
+                rotated=child_rotated,
+            )
+
+
+def _shape_id(shape) -> int:
+    try:
+        return int(shape.Id)
+    except Exception:
+        return 0
+
+
+def _shape_name(shape) -> str:
+    try:
+        return str(shape.Name)
+    except Exception:
+        return ""
+
+
+def _shape_text(shape) -> str:
+    try:
+        return str(shape.TextFrame.TextRange.Text)
+    except Exception:
+        return ""
+
+
+def _shape_float(shape, attr: str) -> float:
+    try:
+        return float(getattr(shape, attr))
+    except Exception:
+        return 0.0
+
+
+def _shape_z_order(shape) -> int:
+    """ZOrderPosition 兜底大数：读不到排最后（稳定，不干扰阅读顺序）。"""
+    try:
+        return int(shape.ZOrderPosition)
+    except Exception:
+        return 1_000_000
+
+
+def _placeholder_info(shape) -> tuple[bool, int | None, str | None]:
+    """(is_placeholder, type, type_name)。shape.Type==14（msoPlaceholder）判定占位符。"""
+    try:
+        if int(shape.Type) != MSO_PLACEHOLDER:
+            return False, None, None
+        ph_type = shape.PlaceholderFormat.Type
+        if ph_type is None:
+            return True, None, None
+        ph_type = int(ph_type)
+        return True, ph_type, placeholder_type_name(ph_type)
+    except Exception:
+        return False, None, None
+
+
+def _record_from_shape(
+    shape,
+    *,
+    parent_shape_id: int | None,
+    group_path: tuple[int, ...],
+    rotated: bool,
+) -> SlideTextRecord:
+    """读 shape → SlideTextRecord；逐属性 try/except 兜底。坐标单位恒为磅（pt）。"""
+    is_ph, ph_type, ph_name = _placeholder_info(shape)
+    coordinate_space: CoordinateSpace = "unknown" if rotated else "slide"
+    return {
+        "shape_id": _shape_id(shape),
+        "name": _shape_name(shape),
+        "text": _shape_text(shape),
+        "left": _shape_float(shape, "Left"),
+        "top": _shape_float(shape, "Top"),
+        "width": _shape_float(shape, "Width"),
+        "height": _shape_float(shape, "Height"),
+        "coordinate_space": coordinate_space,
+        "coordinate_unit": "pt",
+        "is_placeholder": is_ph,
+        "placeholder_type": ph_type,
+        "placeholder_type_name": ph_name,
+        "parent_shape_id": parent_shape_id,
+        "group_path": list(group_path),
+    }
+
+
+class _InternalTextShapeRecord(NamedTuple):
+    """公开 SlideTextRecord + 内部 z_order（P1-4：阅读排序用，不进公开模型）。"""
+
+    record: SlideTextRecord
+    z_order: int
+
+
+def _collect_text_records(slide, *, recursive: bool = True) -> list[_InternalTextShapeRecord]:
+    """收集 slide 上全部**有文本能力**的 shape：[(record, z_order)]。"""
+    out: list[_InternalTextShapeRecord] = []
+    for shape, parent_id, group_path, rotated in _iter_shapes(slide.Shapes, recursive=recursive):
+        if not _shape_has_text_frame(shape):
+            continue
+        out.append(
+            _InternalTextShapeRecord(
+                _record_from_shape(
+                    shape,
+                    parent_shape_id=parent_id,
+                    group_path=group_path,
+                    rotated=rotated,
+                ),
+                _shape_z_order(shape),
+            )
+        )
+    return out
+
+
+def _reading_order_key(item: _InternalTextShapeRecord):
+    """稳定阅读顺序（P1-4）：top 按 5pt 一档取整（floor 防银行家舍入）→ left → z → id。"""
+    return (
+        math.floor((item.record["top"] + 2.5) / 5.0),
+        item.record["left"],
+        item.z_order,
+        item.record["shape_id"],
+    )
+
+
+def _page_size_pt(pres) -> tuple[float, float]:
+    """演示文稿页面尺寸（磅）(width, height)；读不到回 4:3 默认 (960, 540)。"""
+    try:
+        ps = pres.PageSetup
+        return float(ps.SlideWidth), float(ps.SlideHeight)
+    except Exception:
+        return 960.0, 540.0
+
+
+# 摘要豁免占位符类型（P1-2）：页码/页眉/页脚/日期，不进 title/body
+_EXEMPT_PLACEHOLDER_TYPES = frozenset({13, 14, 15, 16})
+_PAGE_NUMBER_MAX_WIDTH_PT = 72.0  # 页码通常远小于 72pt 宽
+
+
+def _is_page_number_candidate(rec: SlideTextRecord, pw: float, ph: float) -> bool:
+    """页码候选：纯数字文本 AND 位于页面底部/右下角落 AND 宽度较小（P1-2）。
+
+    只豁免「极像页码」的文本；普通纯数字（年份/章节号/KPI）不豁免。
+    """
+    text = rec["text"].strip()
+    if not text.isdigit():
+        return False
+    bottom = rec["top"] > 0.8 * ph
+    corner = rec["left"] > 0.9 * pw and rec["top"] > 0.7 * ph
+    if not (bottom or corner):
+        return False
+    return rec["width"] <= _PAGE_NUMBER_MAX_WIDTH_PT
+
+
+def _is_exempt_text(rec: SlideTextRecord, pw: float, ph: float) -> bool:
+    """摘要豁免集：页码/页眉/页脚/日期占位符 + 页码候选。"""
+    if rec["is_placeholder"] and rec["placeholder_type"] in _EXEMPT_PLACEHOLDER_TYPES:
+        return True
+    return _is_page_number_candidate(rec, pw, ph)
+
+
+def _read_notes(slide) -> str:
+    """读取演讲者备注文本；无正文占位符/读取失败回空串。"""
+    try:
+        ph = _placeholder_by_type(slide.NotesPage.Shapes, PP_PLACEHOLDER_BODY)
+        if ph is None:
+            return ""
+        return str(ph.TextFrame.TextRange.Text)
+    except Exception:
+        return ""
+
+
+def _summarize_slide(slide, index: int, pw: float, ph: float) -> dict:
+    """单页摘要：title/body 启发式聚合 + notes（兼容 0.9 read_slide_texts 语义）。"""
+    items = _collect_text_records(slide, recursive=True)
+    title_ph = body_ph = None
+    for item in items:
+        rec = item.record
+        if not rec["is_placeholder"]:
+            continue
+        t = rec["placeholder_type"]
+        if title_ph is None and t in (PP_PLACEHOLDER_TITLE, PP_PLACEHOLDER_CENTER_TITLE):
+            title_ph = rec
+        if body_ph is None and t == PP_PLACEHOLDER_BODY:
+            body_ph = rec
+    used = {
+        sid
+        for sid in (
+            title_ph["shape_id"] if title_ph else None,
+            body_ph["shape_id"] if body_ph else None,
+        )
+        if sid is not None
+    }
+    if title_ph is not None:
+        title = title_ph["text"]
+    else:
+        cands = [
+            item
+            for item in items
+            if item.record["shape_id"] not in used and not _is_exempt_text(item.record, pw, ph)
+        ]
+        if cands:
+            first = min(cands, key=_reading_order_key)
+            title = first.record["text"]
+            used.add(first.record["shape_id"])
+        else:
+            title = ""
+    if body_ph is not None:
+        body = body_ph["text"]
+    else:
+        body = "\n".join(
+            item.record["text"]
+            for item in sorted(items, key=_reading_order_key)
+            if item.record["shape_id"] not in used
+            and not _is_exempt_text(item.record, pw, ph)
+            and item.record["text"]
+        )
+    return {"index": index, "title": title, "body": body, "notes": _read_notes(slide)}
 
 
 @guard_com
@@ -364,30 +666,42 @@ class PptApp:
         slide = self._require_pres(doc_id).Slides(slide_idx)
         slide.Shapes.AddPicture(os.path.abspath(path), 0, 0, left, top, width, height)
 
-    def read_slide_texts(self, doc_id: str | None = None):
-        """逐页读取幻灯片文本：标题/正文占位符/备注，缺字段用空串。返回 list[dict]。"""
+    def read_slide_texts(
+        self,
+        slide_idx: int,
+        *,
+        include_empty: bool = False,
+        recursive: bool = True,
+        doc_id: str | None = None,
+    ) -> list[SlideTextRecord]:
+        """读取第 slide_idx 页全部**具有文本能力**的 shape 文本（含 group 内文本）。
+
+        - 只返回有 TextFrame 的 shape；图片/线条/无文本图形不在此列（read_shapes 的职责）。
+        - include_empty=True 连文本为空的 TextFrame shape 也返回；False 只返回文本非空。
+        - recursive=True 递归 group；坐标单位恒为磅（pt），coordinate_space 按探针结论
+          标注（非旋转 group 子元素为幻灯片绝对坐标 "slide"；旋转 group 内不可信 "unknown"）。
+        """
+        slide = self._require_pres(doc_id).Slides(slide_idx)
+        return [
+            item.record
+            for item in _collect_text_records(slide, recursive=recursive)
+            if include_empty or item.record["text"]
+        ]
+
+    def read_slide_summary(self, doc_id: str | None = None) -> list[dict]:
+        """逐页读标题/正文/备注摘要（0.9 read_slide_texts 的语义），返回 list[dict]。
+
+        - title：标题/居中标题占位符（type 1/3）优先；否则按稳定阅读顺序回退第一个非豁免文本。
+        - body：正文占位符（type 2）优先；否则其余文本 shape 按阅读顺序 "\\n" 拼接。
+        - 豁免集：页码/页眉/页脚/日期占位符 + 页码候选（P1-2），不进 title/body。
+        - 对标准标题/正文占位符页面与 0.9 行为一致；纯文本框页面为启发式摘要，
+          排序稳定、语义一致，不承诺与 0.9 逐字节一致。
+        """
         pres = self._require_pres(doc_id)
-        result = []
-        for i in range(1, pres.Slides.Count + 1):
-            slide = pres.Slides(i)
-            title = ""
-            if slide.Shapes.HasTitle:
-                try:
-                    title = slide.Shapes.Title.TextFrame.TextRange.Text
-                except Exception:
-                    title = ""
-            body = ""
-            try:
-                body = slide.Shapes.Placeholders(2).TextFrame.TextRange.Text
-            except Exception:
-                body = ""
-            notes = ""
-            try:
-                notes = slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text
-            except Exception:
-                notes = ""
-            result.append({"index": i, "title": title, "body": body, "notes": notes})
-        return result
+        pw, ph = _page_size_pt(pres)
+        return [
+            _summarize_slide(pres.Slides(i), i, pw, ph) for i in range(1, pres.Slides.Count + 1)
+        ]
 
     def quit(self, force: bool = False):
         """退出 PowerPoint 会话。

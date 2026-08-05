@@ -336,7 +336,12 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ): "Add a free text box on the slide_idx-th slide (coordinates in points).",
     ("ppt", "add_picture"): "Insert an image on the slide_idx-th slide (coordinates in points).",
     ("ppt", "read_slide_texts"): (
-        "Read the title/body/notes text of each slide of the presentation (doc_id defaults "
+        "Read every text-capable shape on the slide_idx-th slide (including text inside groups), "
+        "returning SlideTextRecord entries (shape_id/name/text/coordinates/placeholder/group path). "
+        "include_empty=True also returns text shapes with empty text; recursive=False skips groups."
+    ),
+    ("ppt", "read_slide_summary"): (
+        "Read the title/body/notes summary of each slide of the presentation (doc_id defaults "
         "to the active one) (read-only), returning [{index, title, body, notes}]."
     ),
     (

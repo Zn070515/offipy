@@ -21,30 +21,64 @@ class _Text:
         self.Text = value
 
 
-class _Shape:
+class _TextFrame:
     def __init__(self, text):
-        self.TextFrame = SimpleNamespace(TextRange=_Text(text))
+        self.TextRange = _Text(text)
 
 
-def _slide(title, body, notes_text, has_title=True):
-    shapes = SimpleNamespace()
-    shapes.HasTitle = has_title
-    if has_title:
-        shapes.Title = _Shape(title)
+class _FakeShape:
+    """COM shape 最小 fake：覆盖 read_slide_texts/read_slide_summary 用到的属性面。"""
 
-    def body_placeholders(idx):
-        if idx == 2:
-            return _Shape(body)
-        raise AttributeError("no such placeholder")
+    def __init__(
+        self,
+        sid,
+        text,
+        *,
+        name="shp",
+        kind=1,
+        ph_type=None,
+        left=0.0,
+        top=0.0,
+        width=100.0,
+        height=20.0,
+        has_text=True,
+        group_items=None,
+    ):
+        self.Id = sid
+        self.Name = name
+        self.Type = kind  # 1=AutoShape, 6=Group, 14=Placeholder
+        self.Left = left
+        self.Top = top
+        self.Width = width
+        self.Height = height
+        self.Rotation = 0.0
+        self.ZOrderPosition = sid
+        self.HasTextFrame = -1 if has_text else 0
+        if has_text:
+            self.TextFrame = _TextFrame(text)
+        if ph_type is not None:
+            self.PlaceholderFormat = SimpleNamespace(Type=ph_type)
+        if group_items is not None:
+            self.GroupItems = group_items
 
-    def notes_placeholders(idx):
-        if idx == 2:
-            return _Shape(notes_text)
-        raise AttributeError("no such placeholder")
 
-    shapes.Placeholders = body_placeholders
-    notes_page = SimpleNamespace(Shapes=SimpleNamespace(Placeholders=notes_placeholders))
-    return SimpleNamespace(Shapes=shapes, NotesPage=notes_page)
+class _FakePlaceholders:
+    def __init__(self, shapes):
+        self._shapes = list(shapes)
+        self.Count = len(self._shapes)
+
+    def __call__(self, idx):
+        return self._shapes[idx - 1]
+
+
+class _FakeShapes:
+    def __init__(self, shapes):
+        self._shapes = list(shapes)
+        self.Count = len(self._shapes)
+        self.Placeholders = _FakePlaceholders([s for s in self._shapes if s.Type == 14])
+
+    def __call__(self, idx):
+        return self._shapes[idx - 1]
 
 
 class _Slides:
@@ -56,7 +90,25 @@ class _Slides:
         return self._items[idx - 1]
 
 
-def test_ppt_read_slide_texts_golden():
+def _slide(title, body, notes_text, has_title=True):
+    shapes = []
+    if has_title:
+        shapes.append(
+            _FakeShape(
+                1, title, name="title", kind=14, ph_type=1, left=36, top=18, width=600, height=72
+            )
+        )
+    shapes.append(
+        _FakeShape(2, body, name="body", kind=14, ph_type=2, left=36, top=90, width=600, height=396)
+    )
+    notes = _FakeShape(99, notes_text, name="notes", kind=14, ph_type=2)
+    return SimpleNamespace(
+        Shapes=_FakeShapes(shapes),
+        NotesPage=SimpleNamespace(Shapes=_FakeShapes([notes])),
+    )
+
+
+def test_ppt_read_slide_summary_golden():
     pres = SimpleNamespace(
         Slides=_Slides(
             [
@@ -68,7 +120,7 @@ def test_ppt_read_slide_texts_golden():
     )
     p = ppt.PptApp.__new__(ppt.PptApp)
     p.active_pres = lambda doc_id=None: pres
-    assert p.read_slide_texts() == [
+    assert p.read_slide_summary() == [
         {"index": 1, "title": "增长概览", "body": "MAU +18%\n留存 41%", "notes": "对应第 2 页图表"},
         {"index": 2, "title": "季度规划", "body": "上线推荐位改版", "notes": "负责人：产品组"},
         {"index": 3, "title": "", "body": "", "notes": "无标题页备注"},
