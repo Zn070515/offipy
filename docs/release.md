@@ -15,11 +15,26 @@ offipy 的发布走 **CI 自动管线**（推荐）或**手动发布**（首次/
 | 前置 | 说明 |
 |------|------|
 | PyPI / TestPyPI 账号 | 需在 [pypi.org](https://pypi.org) 和 [test.pypi.org](https://test.pypi.org) 注册同名账号 |
-| 发布方式二选一 | **① Trusted Publishing（OIDC，推荐）**：在 PyPI/TestPyPI 的「Publishing」页把本 GitHub 仓库 `Zn070515/office-kit` 配置为可信发布者（可限定 workflow `release.yml` 与环境 `testpypi`/`pypi`）；**② API token**：手动 `twine upload` 用，`~/.pypirc` 或环境变量 `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
+| 发布方式二选一 | **① Trusted Publishing（OIDC，推荐）**：在 PyPI/TestPyPI 的「Publishing」页把本 GitHub 仓库 `Zn070515/offipy` 配置为可信发布者（可限定 workflow `release.yml` 与环境 `testpypi`/`pypi`）；**② API token**：手动 `twine upload` 用，`~/.pypirc` 或环境变量 `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
 | `twine` | 手动发布需要：`uv tool install twine` 或 `uvx twine`（CI 里用 `uvx twine` 免安装） |
+
+> **仓库改名提示**：若仓库更名，PyPI 上保存的旧仓库名**不会自动跟随**——Trusted Publisher
+> 精确匹配仓库所有者 / 仓库名 / workflow 文件名 / environment，须用新名重配。
 
 CI 自动管线（`.github/workflows/release.yml`）在推 `v*` tag 时运行，其发布 job 依赖
 TestPyPI/PyPI 的 OIDC 信任配置——**未配置前发布 job 会失败**，此时走下面的手动发布。
+
+### OIDC（Trusted Publisher）核验清单
+
+在 PyPI/TestPyPI 的「Publishing」页配置可信发布者后，逐项核验**与 release.yml 完全一致**：
+
+- [ ] 仓库：`Zn070515/offipy`（本仓库已由 `office-kit` 更名——PyPI 保存的旧名**不跟随**，须用新名重配）
+- [ ] workflow 文件名：`release.yml`（精确匹配，不是 `release.yaml`）
+- [ ] environment：与发布 job 完全一致——TestPyPI 发布 job 用 `testpypi`、PyPI 发布 job 用 `pypi`
+- [ ] `pypi` Environment 建议加 **required reviewers**（Settings → Environments → `pypi` → Required
+      reviewers）——正式版发布多一道人工审批，防意外推正式版
+- [ ] 配置保存后，推一次 `v*` tag 实测 publish job 的 OIDC token 交换；失败多为仓库名 /
+      workflow 文件名 / environment 拼写不一致
 
 ---
 
@@ -54,7 +69,7 @@ uv build && uvx twine check dist/*
 uvx twine upload --repository testpypi dist/*
 
 # 3) 冒烟：从 TestPyPI 装到干净 venv，验证 import / 版本 / check 可跑
-uv run python scripts/pypi_smoke.py --index https://test.pypi.org/simple --version 0.9.0a1
+uv run python scripts/pypi_smoke.py --index https://test.pypi.org --version 0.9.0a1
 ```
 
 `pypi_smoke.py` 任一验证点失败即非 0 退出。注意它**不断言 `offipy check` 的退出码**

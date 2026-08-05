@@ -17,12 +17,28 @@ complete steps for pre-releasing 0.9.0a* to TestPyPI.
 | Prerequisite | Description |
 |------|------|
 | PyPI / TestPyPI account | Register accounts with the same name on [pypi.org](https://pypi.org) and [test.pypi.org](https://test.pypi.org) |
-| Release method (choose one) | **① Trusted Publishing (OIDC, recommended)**: configure this GitHub repository `Zn070515/office-kit` as a trusted publisher on the PyPI/TestPyPI "Publishing" page (can be restricted to the workflow `release.yml` and the `testpypi`/`pypi` environments); **② API token**: for manual `twine upload`, via `~/.pypirc` or the environment variables `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
+| Release method (choose one) | **① Trusted Publishing (OIDC, recommended)**: configure this GitHub repository `Zn070515/offipy` as a trusted publisher on the PyPI/TestPyPI "Publishing" page (can be restricted to the workflow `release.yml` and the `testpypi`/`pypi` environments); **② API token**: for manual `twine upload`, via `~/.pypirc` or the environment variables `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
 | `twine` | Required for manual releases: `uv tool install twine` or `uvx twine` (CI uses `uvx twine` to avoid installing) |
 
 The CI automated pipeline (`.github/workflows/release.yml`) runs when a `v*` tag is pushed; its
 publish job relies on the OIDC trust configuration of TestPyPI/PyPI — **the publish job will fail
 until configured**, in which case use the manual release below.
+
+### OIDC (Trusted Publisher) verification checklist
+
+After configuring the trusted publisher on the PyPI/TestPyPI "Publishing" page, verify each item
+**exactly matches release.yml**:
+
+- [ ] Repository: `Zn070515/offipy` (this repository was renamed from `office-kit` — an old name
+      saved on PyPI does **not** follow; reconfigure with the new name)
+- [ ] Workflow file name: `release.yml` (exact match, not `release.yaml`)
+- [ ] Environment: identical to the publish jobs — `testpypi` for the TestPyPI publish job, `pypi`
+      for the PyPI publish job
+- [ ] Add **required reviewers** to the `pypi` Environment (Settings → Environments → `pypi` →
+      Required reviewers) — one more manual approval gate before stable releases, guarding against
+      accidental stable publishes
+- [ ] After saving, push a `v*` tag once and watch the publish job's OIDC token exchange; a failure
+      is usually a mismatch in repository name / workflow file name / environment
 
 ---
 
@@ -58,7 +74,7 @@ uv build && uvx twine check dist/*
 uvx twine upload --repository testpypi dist/*
 
 # 3) 冒烟：从 TestPyPI 装到干净 venv，验证 import / 版本 / check 可跑
-uv run python scripts/pypi_smoke.py --index https://test.pypi.org/simple --version 0.9.0a1
+uv run python scripts/pypi_smoke.py --index https://test.pypi.org --version 0.9.0a1
 ```
 
 `pypi_smoke.py` exits non-zero if any verification point fails. Note that it does **not** assert
@@ -78,7 +94,9 @@ for non-pre-release tags). **Hard gates:**
    version numbers.
 
 CI path: after `git push origin v<版本>`, `release.yml` completes everything automatically
-(quality → office-real → gh-release → publish-testpypi → publish-pypi).
+(quality → office-real → TestPyPI publish → TestPyPI smoke → GitHub Release / PyPI stable). The
+GitHub Release and the PyPI stable index are not triggered before the TestPyPI exact-install smoke
+passes.
 
 Manual fallback (when there is no OIDC): use the commands from Section 2 but replace
 `--repository testpypi` with PyPI.

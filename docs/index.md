@@ -2,7 +2,7 @@
 
 # offipy
 
-**offipy**（office-kit）是一个 Windows-only 的 Office COM 自动化库：会话式驱动
+**offipy** 是一个 Windows-only 的 Office COM 自动化库：会话式驱动
 Word / Excel / PowerPoint，外加 HTML→可编辑 PPTX 的转换管线。它把 Office 应用当成
 一个「会话」，跨进程复用同一实例，并提供 server / CLI / MCP 三个一致的入口。
 

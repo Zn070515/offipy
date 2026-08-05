@@ -1,7 +1,7 @@
 """README 链接契约（契约3）：docs/ 与 examples/ 链接转绝对 GitHub URL。
 
 PyPI 渲染无仓库上下文，相对链接会断链——docs/ 与 examples/ 一律用
-`https://github.com/Zn070515/office-kit/blob/main/<path>` 绝对地址，且目标
+`https://github.com/Zn070515/offipy/blob/main/<path>` 绝对地址，且目标
 必须真实存在于仓库。仓库根文件（SECURITY/CONTRIBUTING/THIRD_PARTY_NOTICES、
 语言切换器）维持相对链接白名单。
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[1]
-_BASE = "https://github.com/Zn070515/office-kit/blob/main/"
+_BASE = "https://github.com/Zn070515/offipy/blob/main/"
 
 _README_PATHS = ["README.md", "README.en.md"]
 _RELATIVE_OK = {
