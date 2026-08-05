@@ -160,9 +160,7 @@ def extract_presentation(path: str | Path) -> _PresentationExtract:
         from lxml.etree import XMLSyntaxError
         from pptx.exc import PythonPptxError
 
-        if not isinstance(
-            e, (zipfile.BadZipFile, ValueError, XMLSyntaxError, PythonPptxError)
-        ):
+        if not isinstance(e, (zipfile.BadZipFile, ValueError, XMLSyntaxError, PythonPptxError)):
             raise
         raise ConversionError(f"PPTX 文件无法解析（ZIP/XML 损坏）: {path} ({e})") from e
     slide_w = _to_inches(prs.slide_width) or 0.0

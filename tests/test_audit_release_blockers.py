@@ -50,9 +50,7 @@ def test_page_number_margin_default_suppressed_then_recovered(tmp_path):
     assert findings == []  # 默认：页码 margin 全部进 suppressed
     assert any(s.reason == "page_number" for s in suppressed)
 
-    findings, suppressed, _ = _run(
-        prs, tmp_path, AuditConfig(ignore_page_numbers=False)
-    )
+    findings, suppressed, _ = _run(prs, tmp_path, AuditConfig(ignore_page_numbers=False))
     assert any(f.rule_id == RULE_MARGIN_BOTTOM for f in findings)
     assert not any(s.reason == "page_number" for s in suppressed)
 
@@ -68,9 +66,7 @@ def test_background_margin_and_overlap_default_exempt_then_recovered(tmp_path):
     assert any(s.reason == "full_bleed" for s in suppressed)
     assert not any(s.reason == "intentional_containment" for s in suppressed)
 
-    findings, suppressed, _ = _run(
-        prs, tmp_path, AuditConfig(ignore_full_bleed_shapes=False)
-    )
+    findings, suppressed, _ = _run(prs, tmp_path, AuditConfig(ignore_full_bleed_shapes=False))
     assert any(f.kind == "margin" for f in findings)
     assert any(f.kind == "overlap" for f in findings)
     assert not any(s.reason == "full_bleed" for s in suppressed)
@@ -86,9 +82,7 @@ def test_header_margin_default_suppressed_then_recovered(tmp_path):
     assert findings == []
     assert any(s.reason == "header_footer" for s in suppressed)
 
-    findings, suppressed, _ = _run(
-        prs, tmp_path, AuditConfig(ignore_headers_footers=False)
-    )
+    findings, suppressed, _ = _run(prs, tmp_path, AuditConfig(ignore_headers_footers=False))
     assert any(f.rule_id == RULE_MARGIN_TOP for f in findings)
     assert not any(s.reason == "header_footer" for s in suppressed)
 
@@ -103,9 +97,7 @@ def test_decoration_margin_default_suppressed_then_recovered(tmp_path):
     assert findings == []
     assert any(s.reason == "repeated_decoration" for s in suppressed)
 
-    findings, suppressed, _ = _run(
-        prs, tmp_path, AuditConfig(ignore_repeated_decorations=False)
-    )
+    findings, suppressed, _ = _run(prs, tmp_path, AuditConfig(ignore_repeated_decorations=False))
     assert any(f.rule_id == RULE_MARGIN_LEFT for f in findings)
     assert not any(s.reason == "repeated_decoration" for s in suppressed)
 
@@ -119,15 +111,11 @@ def test_ignored_overlap_secondary_shape_suppressed(tmp_path):
     a = slide.shapes.add_shape(1, Inches(2), Inches(2), Inches(4), Inches(2))
     b = slide.shapes.add_shape(1, Inches(3), Inches(2), Inches(4), Inches(2))
     # 忽略 primary → 抑制
-    findings, suppressed, _ = _run(
-        prs, tmp_path, AuditConfig(ignored_shapes={(1, a.shape_id)})
-    )
+    findings, suppressed, _ = _run(prs, tmp_path, AuditConfig(ignored_shapes={(1, a.shape_id)}))
     assert findings == []
     assert any(s.reason == "user_shape" for s in suppressed)
     # 忽略同一 overlap 的 secondary → 修复后同样抑制（不再依赖谁恰好是 primary）
-    findings, suppressed, _ = _run(
-        prs, tmp_path, AuditConfig(ignored_shapes={(1, b.shape_id)})
-    )
+    findings, suppressed, _ = _run(prs, tmp_path, AuditConfig(ignored_shapes={(1, b.shape_id)}))
     assert findings == []
     assert any(s.reason == "user_shape" for s in suppressed)
 

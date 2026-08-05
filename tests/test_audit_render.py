@@ -151,6 +151,28 @@ def test_render_html_audit_slides_dir(tmp_path):
     assert "href=" in html
 
 
+def test_render_html_audit_detail_tables(tmp_path):
+    # 每页 SVG 下方必须能读到完整问题信息（rule_id/message/置信度/豁免原因）
+    deck = _deck(tmp_path, "deck.pptx")
+    report = audit_pptx(deck)
+    html = report.to_html()
+    assert "class='audit-detail'" in html  # findings 详情表
+    assert "<th>rule_id</th>" in html
+    assert "<th>关联形状</th>" in html
+    assert "<th>置信度</th>" in html
+    assert "geometry.bounds.partial" in html
+    assert "geometry.margin.right" in html
+    assert "geometry.overlap.partial" in html
+
+    margin_id = next(
+        f.primary.shape_id for f in report.findings if f.rule_id == "geometry.margin.right"
+    )
+    report2 = audit_pptx(deck, AuditConfig(ignored_shapes={(1, margin_id)}))
+    html2 = report2.to_html()
+    assert "<th>豁免原因</th>" in html2  # suppressed 详情表
+    assert "user_shape" in html2
+
+
 # ---------------------------------------------------------------- html：对比
 
 

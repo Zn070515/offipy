@@ -402,6 +402,7 @@ border-radius:4px;background:#fff}
 .filters button.active{background:#1976d2;color:#fff;border-color:#1976d2}
 .slide{margin:28px 0}
 .slide svg{border:1px solid #ddd;max-width:100%;height:auto;background:#fff}
+.audit-detail{width:100%;margin-top:6px}
 .shape-label{font-size:9px;fill:#616161;pointer-events:none}
 .legend .sw{display:inline-block;width:14px;height:14px;margin:0 4px -2px 12px}
 table{border-collapse:collapse;margin:8px 0}
@@ -584,6 +585,67 @@ def _svg_slide(
     return "\n".join(lines)
 
 
+def _html_detail_tables(
+    parts: list[str],
+    fs: list[AuditFinding],
+    sups: list[SuppressedFinding],
+    warns: list[AuditWarning],
+) -> None:
+    """每页 SVG 下方的可读问题详情表（行 class 与 SVG 一致，参与严重度筛选）。"""
+    if fs:
+        parts.append(
+            "<table class='audit-detail'><tr><th>严重度</th><th>rule_id</th>"
+            "<th>形状</th><th>关联形状</th><th>描述</th><th>置信度</th></tr>"
+        )
+        for f in fs:
+            p = f.primary
+            name = p.name or "(无名称)"
+            sev = f.severity.name.lower()
+            sec = f"#{f.secondary.shape_id}" if f.secondary is not None else ""
+            parts.append(
+                f'<tr class="shape sev-{sev}">'
+                f'<td class="{sev}">{f.severity.name}</td>'
+                f"<td>{f.rule_id}</td>"
+                f'<td>#{p.shape_id} "{_html.escape(name)}"</td>'
+                f"<td>{sec}</td>"
+                f"<td>{_html.escape(f.message)}</td>"
+                f"<td>{f.confidence:.2f}</td></tr>"
+            )
+        parts.append("</table>")
+    if sups:
+        parts.append(
+            "<table class='audit-detail'><tr><th>严重度</th><th>rule_id</th>"
+            "<th>形状</th><th>描述</th><th>豁免原因</th></tr>"
+        )
+        for s in sups:
+            f = s.finding
+            p = f.primary
+            name = p.name or "(无名称)"
+            sev = f.severity.name.lower()
+            parts.append(
+                f'<tr class="shape sup">'
+                f'<td class="{sev}">{f.severity.name}</td>'
+                f"<td>{f.rule_id}</td>"
+                f'<td>#{p.shape_id} "{_html.escape(name)}"</td>'
+                f"<td>{_html.escape(f.message)}</td>"
+                f"<td>{s.reason}</td></tr>"
+            )
+        parts.append("</table>")
+    if warns:
+        parts.append(
+            "<table class='audit-detail'><tr><th>code</th><th>页面</th>"
+            "<th>形状</th><th>描述</th></tr>"
+        )
+        for wd in warns:
+            sid = f"#{wd.shape_id}" if wd.shape_id is not None else "-"
+            parts.append(
+                f'<tr class="shape warn"><td>{wd.code}</td>'
+                f"<td>{wd.slide_index if wd.slide_index is not None else '-'}</td>"
+                f"<td>{sid}</td><td>{_html.escape(wd.message)}</td></tr>"
+            )
+        parts.append("</table>")
+
+
 def _html_audit(report: PptxAuditReport, slides_dir: str | None) -> str:
     parts = _html_page_start(f"审计报告: {report.path}", _AUDIT_CSS)
     w, h = report.slide_size
@@ -639,6 +701,7 @@ def _html_audit(report: PptxAuditReport, slides_dir: str | None) -> str:
         parts.append('<div class="slide">')
         parts.append(f"<h2>第 {idx} 页 / {report.slide_count}</h2>")
         parts.append(_svg_slide(report, idx, shapes, fs, sups, warns, slides_dir))
+        _html_detail_tables(parts, fs, sups, warns)
         parts.append("</div>")
     parts.append(_html_page_end(_AUDIT_JS))
     return "\n".join(parts)

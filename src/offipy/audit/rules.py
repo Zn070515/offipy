@@ -639,7 +639,9 @@ class TextFitRule:
                 or not rec.text.strip()
             ):
                 continue
-            if rec.role in _TEXT_FIT_SKIP_ROLES and _role_text_fit_ignored(rec.role, context.config):
+            if rec.role in _TEXT_FIT_SKIP_ROLES and _role_text_fit_ignored(
+                rec.role, context.config
+            ):
                 continue
             r = _rect(rec)
             if r is None:
@@ -733,7 +735,9 @@ class AutofitRiskRule:
                 or not rec.text.strip()
             ):
                 continue
-            if rec.role in _TEXT_FIT_SKIP_ROLES and _role_text_fit_ignored(rec.role, context.config):
+            if rec.role in _TEXT_FIT_SKIP_ROLES and _role_text_fit_ignored(
+                rec.role, context.config
+            ):
                 continue
             if rec.autofit_norm_auto_fit:
                 f = _shrink_finding(rec)
@@ -840,6 +844,7 @@ DEFAULT_RULES: list[AuditRule] = [
     TextFitRule(),
     AutofitRiskRule(),
 ]
+
 
 def _automatic_suppression_reason(
     record: _ShapeRecord, config: AuditConfig
