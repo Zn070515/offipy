@@ -296,7 +296,8 @@ def test_render_atomic_postprocess_failure_preserves_existing(tmp_path, monkeypa
         raise RuntimeError("图表后处理失败")
 
     monkeypatch.setattr("offipy.charts.postprocess_charts", boom)
-    with pytest.raises(RuntimeError):
+    # 后处理异常统一包装：RuntimeError → ConversionError（保留 __cause__）
+    with pytest.raises(deck.ConversionError):
         deck.render(str(html), overwrite=True)
     assert existing.read_bytes() == b"precious"
     assert _hidden_pptx(tmp_path) == []
@@ -310,6 +311,121 @@ def test_render_missing_source_raises_invalid_argument(tmp_path):
     with pytest.raises(deck.InvalidArgumentError) as exc:
         deck.render(str(tmp_path / "nope.html"))
     assert "nope.html" in str(exc.value)
+
+
+# --- B7：注入副本挪 TemporaryDirectory（不再污染源目录）+ 后处理异常包装 + 前置校验 ---
+
+
+def test_render_theme_tmp_not_in_source_dir(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><head><style data-theme="mckinsey"></style></head>'
+        '<body><section class="slide" data-pptx-slide>hi</section></body></html>',
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    deck.render(str(html), theme="mckinsey")
+    injected = created["cmd"][2]
+    assert injected.endswith(".audited.html")
+    assert not os.path.exists(injected), "注入副本应已清理"
+    # 注入副本不再落在源目录（TemporaryDirectory），源目录只剩原 html + 产物
+    assert set(p.name for p in tmp_path.iterdir()) == {"deck.html", "deck.pptx"}
+
+
+def test_render_postprocess_valueerror_maps_to_invalid_argument(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    def boom(html_path, pptx_path):
+        raise ValueError("图表数据 categories 必须是非空字符串列表")
+
+    monkeypatch.setattr("offipy.charts.postprocess_charts", boom)
+    with pytest.raises(deck.InvalidArgumentError) as exc:
+        deck.render(str(html), overwrite=True)
+    assert "图表" in str(exc.value)
+    assert isinstance(exc.value.__cause__, ValueError)  # __cause__ 保留
+
+
+def test_render_postprocess_runtimeerror_maps_to_conversion(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    def boom(html_path, pptx_path):
+        raise RuntimeError("找不到 convert 审计产物")
+
+    monkeypatch.setattr("offipy.charts.postprocess_charts", boom)
+    with pytest.raises(deck.ConversionError) as exc:
+        deck.render(str(html), overwrite=True)
+    assert "图表" in str(exc.value)
+    assert isinstance(exc.value.__cause__, RuntimeError)
+
+
+def test_render_postprocess_icons_valueerror_maps(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    def boom(html_path, pptx_path):
+        raise ValueError("图标数据非法")
+
+    monkeypatch.setattr("offipy.icons.postprocess_icons", boom)
+    with pytest.raises(deck.InvalidArgumentError) as exc:
+        deck.render(str(html), overwrite=True)
+    assert "图标" in str(exc.value)
+    assert isinstance(exc.value.__cause__, ValueError)
+
+
+def test_render_no_visual_audit_with_chart_rejected(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><body><section class="slide" data-pptx-slide><div class="chart" '
+        'data-chart="bar" data-chart-data=\'{"categories":["a"],"series":'
+        '[{"name":"s","values":[1]}]}\'></div></section></body></html>',
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    with pytest.raises(deck.InvalidArgumentError) as exc:
+        deck.render(str(html), no_visual_audit=True)
+    assert "data-chart" in str(exc.value)
+    assert "cmd" not in created  # fail-fast：未触发转换
+
+
+def test_render_no_visual_audit_with_icon_rejected(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><body><section class="slide" data-pptx-slide>'
+        '<svg class="icon" data-icon="ph:check" viewBox="0 0 256 256"></svg>'
+        "</section></body></html>",
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    with pytest.raises(deck.InvalidArgumentError) as exc:
+        deck.render(str(html), no_visual_audit=True)
+    assert "data-icon" in str(exc.value)
+    assert "cmd" not in created
+
+
+def test_render_no_visual_audit_without_charts_ok(tmp_path, monkeypatch):
+    # 回归：无图表/图标的纯 deck 配 no_visual_audit 不受前置校验影响
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    pptx = deck.render(str(html), no_visual_audit=True)
+    assert pptx.endswith("deck.pptx")
+    assert created["cmd"][-1] == "--no-visual-audit"  # 转换器确实收到该开关
 
 
 def test_render_concurrent_same_output_no_clash(tmp_path, monkeypatch):

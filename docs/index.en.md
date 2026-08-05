@@ -25,8 +25,8 @@ processes, and provides three consistent entry points: server / CLI / MCP.
 ## Installation
 
 ```bash
-uv pip install -e ".[all]"          # office + deck + mcp
-uv run playwright install chromium  # required by the deck pipeline
+py -m pip install "offipy[all]"     # office + deck + mcp
+py -m playwright install chromium   # required by the deck pipeline
 ```
 
 Split by use case: `offipy[office]` (COM automation only), `offipy[deck]` (HTMLâ†’PPTX),
@@ -36,7 +36,7 @@ Split by use case: `offipy[office]` (COM automation only), `offipy[deck]` (HTMLâ
 
 ```bash
 offipy excel new_book            # returns "book1"
-offipy excel set_cell --sheet 1 --cell A1 --value 42
+offipy excel set_cell --sheet 1 --cell A1 --value 42 --follow-active
 offipy excel read_range --sheet 1 --range_addr A1:A1   # [[42.0]]
 offipy excel quit
 ```

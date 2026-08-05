@@ -6,16 +6,18 @@
 
 `offipy` treats an Office application as a **session**: every call reconnects to the
 same Office instance through the server on port 8890. The target document is resolved
-by the following rules:
+by op type:
 
-1. **Explicit `doc_id`**: a `doc_id` in the operation parameters routes directly to the
-   given document (`book1` / `doc1` / `pres1`); an unknown or stale handle raises
-   `TargetNotFoundError`.
-2. **Default to the active target**: falls back to the active document set by `activate`
-   or `new_*/open_*`.
-3. **Reconnect fallback**: when no active target is registered, probes
-   `ActiveWorkbook` / `ActiveDocument` / `ActivePresentation` in real time and registers
-   it in the document table (pure probing, never implicitly creates).
+- **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …):
+  default to the **currently active** document — an explicit `doc_id` takes priority, then the
+  active target set by `activate` or `new_*/open_*`, then a real-time probe of
+  `ActiveWorkbook` / `ActiveDocument` / `ActivePresentation` registered into the document table
+  (pure probing, never implicitly creates). An unknown or stale handle raises `TargetNotFoundError`.
+- **Destructive ops** (writes / formatting / save / close, etc.): **refuse to run by default**;
+  you must provide one of three — an explicit `doc_id`; or `follow_active=True` (follow the
+  currently active document); or an `expected_target` binding (`{"doc_id"}` / `{"name"}` /
+  `{"path"}`, combinable, resolve-once). With none present, they raise `InvalidArgumentError`
+  prompting for a target — they never silently write to the currently active document.
 
 ## CLI
 
@@ -24,13 +26,14 @@ offipy excel new_book                      # "book1"
 offipy excel new_book                      # "book2" (the new book becomes the active target)
 offipy excel get_target                    # points to the latest "Workbook2"
 offipy excel activate --doc_id book1       # switch the active target to book1
-offipy excel set_cell --sheet 1 --cell A1 --value 100
+offipy excel set_cell --sheet 1 --cell A1 --value 100 --follow-active
 offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # explicit routing
-offipy excel read_range --sheet 1 --range_addr A1:B1
+offipy excel read_range --sheet 1 --range_addr A1:B1   # read ops default to the active target
 offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
 ```
 
+Destructive ops need a target: `--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`.
 Boolean parameters use `--key true/false`: `--overwrite true`. Structured values can be
 passed with `--payload '{"...": ...}'`. Parameter names use underscores (e.g.
 `--range_addr`, `--doc_id`); types are declared in `schema.py` and converted automatically.
@@ -81,8 +84,8 @@ failure will not corrupt an existing `.pptx`. The conversion pipeline requires
 `offipy[deck]` and chromium:
 
 ```bash
-uv pip install -e ".[deck]"
-uv run playwright install chromium
+pip install "offipy[deck]"
+playwright install chromium
 ```
 
 ## Python API
@@ -92,8 +95,8 @@ from offipy import Excel
 
 with Excel() as x:
     book = x.new_book()                    # "book1"
-    x.set_cell(1, "A1", 42)
-    assert x.read_range(1, "A1:A1") == [[42.0]]
+    x.set_cell(1, "A1", 42, doc_id=book)   # destructive ops need an explicit doc_id
+    assert x.read_range(1, "A1:A1", doc_id=book) == [[42.0]]
     x.quit()
 ```
 

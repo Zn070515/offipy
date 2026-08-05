@@ -41,19 +41,58 @@ Authorization: Bearer <token>
 Content-Type: application/json
 X-Offipy-Protocol: offipy-http/v1
 
-{"app": "excel", "op": "set_cell", "args": {"sheet": 1, "cell": "A1", "value": 100}}
+{"app": "excel", "op": "set_cell",
+ "args": {"sheet": 1, "cell": "A1", "value": 100, "doc_id": "book1"},
+ "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 | 字段 | 说明 |
 |------|------|
 | `app` | `excel` / `word` / `ppt`（未知 → 400 `invalid_argument`） |
 | `op` | 必须是 schema 白名单内 op（`server._OPS` 由 `schema.py` 派生；未知 → 400 `invalid_argument`） |
-| `args` | 透传给 App 方法的关键字参数；文件路径类参数（`path`/`out` 等）由 client 按调用方 CWD 绝对化 |
+| `args` | 透传给 App 方法的关键字参数（含 `doc_id` 目标）；文件路径类参数（`path`/`out` 等）由 client 按调用方 CWD 绝对化。破坏性 op 还可带传输层参数 `expected_target` / `follow_active`（见下） |
+| `request_id` | 可选；调用方持有的幂等标识（uuid4 字符串）。提供时 server 按 request_id + payload hash 去重/合并/回放缓存（见「幂等」）；缺省则走不带幂等的老路径 |
 
 边界（全部在 handler 线程 fail-fast，不触碰 COM）：
 - `Content-Type` 必须为 `application/json`，否则 415。
 - 请求体上限 16MB，超限 413。
 - 负 `Content-Length` → 400（`read(负值)` 会吞掉连接缓冲）。
+- `args` 非对象（list/str）→ 400 `invalid_argument`。
+
+### 传输层参数（目标绑定）
+
+`expected_target` / `follow_active` 是传输层参数：client 直接透传、不进 App 方法签名，
+由 server dispatch 弹出后解析并注入 `doc_id`。只对破坏性 op（`schema.supports_expected_target`）有意义：
+
+- `follow_active`（bool，可选，默认 `false`）：显式声明「跟随当前活动文档」——server 实时解析
+  当前激活目标并注入其 doc_id；无活动目标 → `TargetNotFoundError`（绝不静默落到任何文档）。
+- `expected_target`（对象，可选）：目标绑定——`{"doc_id"}` / `{"name"}` / `{"path"}` 可组合，
+  **resolve-once**：server 用绑定键解析出目标 doc_id，校验后注入方法调用；空对象 / 含未知键 →
+  400 `invalid_argument`；绑定失败 → `target_not_found`。
+
+优先级：`expected_target` > `follow_active` > 显式 `doc_id`（前两者会覆盖 args 里已有的 doc_id）。
+正常用法三者取一即可。约束：
+
+- 非破坏性 op 出现 `expected_target` → 400 `invalid_argument`（严格拒绝，不静默忽略）。
+- 非破坏性 op 上的 `follow_active` 静默忽略（被 pop 掉）。
+- `quit` 不接受两者（无 doc_id 目标）。
+
+### 幂等（request_id，P0-2 方案 A）
+
+提供 `request_id` 时，server 开启幂等路径——「超时重试不重执行」：
+
+- **payload hash 绑定**：`sha256(json.dumps({"app","op","args"}, sort_keys=True))`。同 request_id
+  换了 payload（参数漂移）→ 400 `invalid_argument`（调用方 bug，不静默返回旧结果）。
+- **in-flight 合并**：并发/重试带同 request_id 时，非 owner 线程等待 owner 完成（`entry.event.wait`），
+  不重复入队、不重复执行。
+- **结果缓存**：owner 完成后结果缓存（LRU 上限 512，TTL 600s，与超时窗口同量级），同 request_id
+  重试直接回放缓存响应并标注 `cached: true`；`done` 条目被淘汰只发生在非 inflight 时。
+- **超时**：owner 等待超 `_CALL_TIMEOUT` → 504，但 entry 留 inflight——同 id 重试仍合并、绝不双写。
+  COM 队列满 → 503 并回滚 entry（同 id 重试重建，不 merge 到永不完成）。
+- 不带 request_id 的调用走老路径：不入缓存、不去重、不合并。
+
+client 侧：`client.request/call` 缺省自动生成 uuid4 并随请求带上；响应回显 request_id 供调用方核对。
+超时重试务必复用同一 request_id。
 
 ## /call 响应
 
@@ -65,7 +104,8 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
 
 ```json
 {"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book1",
- "message": "ok", "data": null, "result": null}
+ "message": "ok", "data": null, "result": null,
+ "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `resource_id`：`"<app>:<kind>:<doc_id>"` 标识本次操作作用的文档（原始 COM 对象
@@ -73,13 +113,17 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
   无目标时为 `null`。
 - `data`：操作结果（读 op 的原值；void op 为 `null`）。
 - `result`：`data` 的兼容别名（旧 client 渐进切换）。
+- `request_id`：幂等回显——请求带了 request_id 时原样带回，供调用方核对/重试。
+
+带 request_id 的幂等调用命中缓存时，响应额外带 `"cached": true`（同 request_id 同 payload
+重试不重执行，回放原响应）。
 
 失败（HTTP 500）：
 
 ```json
 {"ok": false, "operation": "excel.set_cell", "resource_id": null,
  "error": "TargetNotFoundError: 没有打开的工作簿", "error_code": "target_not_found",
- "trace": ["..."]}
+ "trace": ["..."], "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `error_code` 与领域异常一一对应（见 `exceptions.py`）：

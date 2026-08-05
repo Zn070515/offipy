@@ -6,6 +6,7 @@
   供测试/CI 注入临时目录，也便于用户显式迁移数据。
 """
 
+import contextlib
 import os
 import sys
 from datetime import datetime
@@ -62,13 +63,17 @@ def ensure_writable(path: str, overwrite: bool = False) -> str:
 
 
 def default_save_path(doc_name: str, ext: str) -> str:
-    """未保存文档的默认落盘路径：<cwd>/<名字>_<时间戳><ext>（同层目录）。
+    """未保存文档的默认落盘路径：<user_data_dir>/documents/<名字>_<时间戳><ext>。
 
-    save()/close() 未给 path 时用自动路径直接 SaveAs，不触发 Office 的
-    「另存为」对话框——保证无人值守自动化可跑通。时间戳后缀天然唯一，
-    不会与既有文件冲突。doc_name 通常是不含扩展名的默认文档名
+    不依赖 server CWD（Agent/服务场景 CWD 不可控），统一落在用户数据目录，
+    目录自动创建。save()/close() 未给 path 时用自动路径直接 SaveAs，不触发
+    Office 的「另存为」对话框——保证无人值守自动化可跑通。时间戳后缀天然
+    唯一，不会与既有文件冲突。doc_name 通常是不含扩展名的默认文档名
     （工作簿1/文档1/演示文稿1），转义文件系统非法字符兜底。
     """
     safe = "".join(c for c in doc_name if c not in '\\/:*?"<>|').strip() or "document"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.abspath(os.path.join(os.getcwd(), f"{safe}_{stamp}{ext}"))
+    dest_dir = user_data_dir() / "documents"
+    with contextlib.suppress(OSError):
+        dest_dir.mkdir(parents=True, exist_ok=True)
+    return str(dest_dir / f"{safe}_{stamp}{ext}")

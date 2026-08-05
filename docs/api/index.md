@@ -6,8 +6,8 @@
 
 | 应用 | 操作数 | 只读 | 改动状态 |
 | --- | --- | --- | --- |
-| [Excel](excel.md) | 25 | 4 | 18 |
-| [Word](word.md) | 32 | 3 | 26 |
-| [PowerPoint](ppt.md) | 16 | 3 | 10 |
+| [Excel](excel.md) | 25 | 4 | 17 |
+| [Word](word.md) | 32 | 3 | 25 |
+| [PowerPoint](ppt.md) | 16 | 3 | 8 |
 
 每个操作：`doc_id` 缺省走当前活动文档（Excel `bookN` / Word `docN` / PPT `presN`）；`expected_target` 用于破坏性操作的绑定校验。

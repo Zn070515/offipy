@@ -21,8 +21,8 @@ Word / Excel / PowerPoint，外加 HTML→可编辑 PPTX 的转换管线。它�
 ## 安装
 
 ```bash
-uv pip install -e ".[all]"          # office + deck + mcp
-uv run playwright install chromium  # deck 管线需要
+py -m pip install "offipy[all]"     # office + deck + mcp
+py -m playwright install chromium   # deck 管线需要
 ```
 
 按用途拆分：`offipy[office]`（仅 COM 自动化）、`offipy[deck]`（HTML→PPTX）、
@@ -32,7 +32,7 @@ uv run playwright install chromium  # deck 管线需要
 
 ```bash
 offipy excel new_book            # 返回 "book1"
-offipy excel set_cell --sheet 1 --cell A1 --value 42
+offipy excel set_cell --sheet 1 --cell A1 --value 42 --follow-active
 offipy excel read_range --sheet 1 --range_addr A1:A1   # [[42.0]]
 offipy excel quit
 ```

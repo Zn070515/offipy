@@ -25,6 +25,7 @@ class OpSpec:
     description: str = ""
     readonly: bool = False  # 只读：不改任何文档/应用状态
     destructive: bool = False  # 会改动文档内容/状态（expected_target 绑定对象）
+    supports_expected_target: bool = False  # 传输层额外支持 expected_target 绑定
     deprecated: bool = False  # P2-9 预留：已弃用 op，响应带 warning
     returns: str = "void"  # void/int/str/bool/list/dict/any（文档化用）
     params: dict[str, Any] = field(default_factory=dict)  # 参数类型（与 App 方法签名一致）
@@ -55,6 +56,16 @@ def readonly_ops(app: str) -> frozenset[str]:
     return frozenset(op for op, s in OPS.get(app, {}).items() if s.readonly)
 
 
+def supports_expected_target(app: str, op: str) -> bool:
+    """该 op 是否暴露 expected_target 传输参数（P0-1）。
+
+    destructive 自动继承（expected_target 用于防目标漂移）；个别非破坏性但
+    可绑定目标的 op 可显式置 supports_expected_target=True。
+    """
+    s = spec(app, op)
+    return bool(s and (s.destructive or s.supports_expected_target))
+
+
 # =================================================================== Excel
 
 OPS: dict[str, dict[str, OpSpec]] = {
@@ -71,7 +82,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "close_book": OpSpec(
             description=(
                 "关闭工作簿（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
-                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
+                "自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
                 "返回 null。"
             ),
             destructive=True,
@@ -81,7 +92,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "save": OpSpec(
             description=(
                 "保存工作簿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该"
-                "路径；未给 path 则存回原路径（从未保存过自动落盘同层目录，不弹另存为）；"
+                "路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
@@ -93,7 +104,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把工作簿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
-            destructive=True,
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "add_sheet": OpSpec(
@@ -259,7 +269,14 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
             params={"doc_id": str},
         ),
-        "quit": OpSpec(description="退出 Excel 会话（关闭应用窗口）。", destructive=True),
+        "quit": OpSpec(
+            description=(
+                "退出 Excel 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝"
+                "（不夺走用户正用的窗口），force=True 强制退出。"
+            ),
+            destructive=True,
+            params={"force": bool},
+        ),
     },
     # ================================================================== Word
     "word": {
@@ -275,7 +292,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "close_doc": OpSpec(
             description=(
                 "关闭文档（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
-                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
+                "自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
                 "返回 null。"
             ),
             destructive=True,
@@ -285,7 +302,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "save": OpSpec(
             description=(
                 "保存文档（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该"
-                "路径；未给 path 则存回原路径（从未保存过自动落盘同层目录，不弹另存为）；"
+                "路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
@@ -297,7 +314,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把文档（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
-            destructive=True,
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "write": OpSpec(
@@ -516,7 +532,14 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
             params={"doc_id": str},
         ),
-        "quit": OpSpec(description="退出 Word 会话（关闭应用窗口）。", destructive=True),
+        "quit": OpSpec(
+            description=(
+                "退出 Word 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝"
+                "（不夺走用户正用的窗口），force=True 强制退出。"
+            ),
+            destructive=True,
+            params={"force": bool},
+        ),
     },
     # ==================================================================== PPT
     "ppt": {
@@ -532,7 +555,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "save": OpSpec(
             description=(
                 "保存演示文稿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到"
-                "该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘同层目录，"
+                "该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，"
                 "不弹另存为）；overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
@@ -544,7 +567,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把演示文稿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
-            destructive=True,
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "export_slides": OpSpec(
@@ -552,7 +574,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir"
                 "（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。"
             ),
-            destructive=True,
             returns="list",
             params={"out_dir": str, "width": int, "height": int, "doc_id": str},
         ),
@@ -566,18 +587,21 @@ OPS: dict[str, dict[str, OpSpec]] = {
             params={"layout": int, "doc_id": str},
         ),
         "set_title": OpSpec(
-            description="设置第 slide_idx 张幻灯片的标题文本。",
+            description="设置第 slide_idx 张幻灯片的标题；无标题占位符自动建框，返回 shape ID。",
             destructive=True,
+            returns="int",
             params={"slide_idx": int, "text": str, "doc_id": str},
         ),
         "set_body": OpSpec(
-            description="设置第 slide_idx 张幻灯片的正文占位符文本；lines 为逐行字符串列表。",
+            description="设置第 slide_idx 张幻灯片的正文；无正文占位符自动建框，返回 shape ID。",
             destructive=True,
+            returns="int",
             params={"slide_idx": int, "lines": Any, "doc_id": str},
         ),
         "set_notes": OpSpec(
-            description="写入第 slide_idx 张幻灯片的演讲者备注。",
+            description="写入第 slide_idx 张幻灯片的演讲者备注，返回 shape ID。",
             destructive=True,
+            returns="int",
             params={"slide_idx": int, "text": str, "doc_id": str},
         ),
         "add_textbox": OpSpec(
@@ -633,6 +657,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
             params={"doc_id": str},
         ),
-        "quit": OpSpec(description="退出 PowerPoint 会话（关闭应用窗口）。", destructive=True),
+        "quit": OpSpec(
+            description=(
+                "退出 PowerPoint 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝"
+                "（不夺走用户正用的窗口），force=True 强制退出。"
+            ),
+            destructive=True,
+            params={"force": bool},
+        ),
     },
 }

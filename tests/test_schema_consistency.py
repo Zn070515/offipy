@@ -64,13 +64,19 @@ def test_schema_flags_internally_consistent():
                 assert op not in schema.destructive_ops(app), f"{app}.{op} 只读但被标破坏性"
 
 
+# 导出类 op：overwrite 保护的是「输出文件」（path 参数），不是 Office 文档——
+# 它们不改文档，无需 doc_id 强制（P0-3：破坏性 = 改文档）。豁免
+# 「overwrite→destructive」规则，但输出文件覆盖保护仍由 paths.ensure_writable 施加。
+_OUTPUT_ONLY_OPS = {"save_pdf", "export_slides"}
+
+
 def test_overwrite_ops_are_destructive():
     # P2-4 destructive 确认系统化：任何带 overwrite 参数（会覆盖目标文件）的
     # op 必须标 destructive——确保没有文件写入 op 逃过破坏性标记（覆盖保护
     # 由 paths.ensure_writable 统一施加，破坏性标记是它被调用的前提）。
     for app in schema.apps():
         for op, sp in schema.OPS[app].items():
-            if "overwrite" in sp.params:
+            if "overwrite" in sp.params and op not in _OUTPUT_ONLY_OPS:
                 assert sp.destructive, f"{app}.{op} 带 overwrite 参数但未标 destructive"
 
 

@@ -24,7 +24,7 @@ Open an existing .docx/.doc file, set it active, return doc_id.
 
 ### `close_doc`
 
-Close the document (doc_id defaults to the active one). With save=True it saves first (a never-saved document auto-saves to the same directory without the Save As dialog) and returns the save path; with save=False nothing is saved, no dialog, returns null.
+Close the document (doc_id defaults to the active one). With save=True it saves first (a never-saved document auto-saves to the user data directory without the Save As dialog) and returns the save path; with save=False nothing is saved, no dialog, returns null.
 
 - **Parameters**: `save: bool`, `doc_id: str`
 - **Returns**: `str|null`
@@ -34,7 +34,7 @@ Close the document (doc_id defaults to the active one). With save=True it saves 
 
 ### `save`
 
-Save the document (doc_id defaults to the active one) and return the absolute path. If path is given, save-as to that path; otherwise save back to the original path (a never-saved document auto-saves to the same directory without the Save As dialog); overwrite=True allows overwriting an existing file.
+Save the document (doc_id defaults to the active one) and return the absolute path. If path is given, save-as to that path; otherwise save back to the original path (a never-saved document auto-saves to the user data directory without the Save As dialog); overwrite=True allows overwriting an existing file.
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `str`
@@ -48,7 +48,7 @@ Export the document (doc_id defaults to the active one) to PDF at the given path
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `void`
-- **Flags**: mutates document/app state
+- **Flags**: normal operation
 
 ---
 
@@ -314,8 +314,8 @@ Identity of the active document (app/doc_id/name/path); null if none. Pass doc_i
 
 ### `quit`
 
-Quit the Word session (close the application window).
+Quit the Word session (close the application window). Refuses by default when attached to an existing Office instance; force=True overrides.
 
-- **Parameters**: _none_
+- **Parameters**: `force: bool`
 - **Returns**: `void`
 - **Flags**: mutates document/app state

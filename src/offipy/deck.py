@@ -60,6 +60,25 @@ def _default_out(html: str) -> str:
     return str(p.with_suffix(".pptx"))
 
 
+def _postprocess(label: str, fn, html: str, pptx: str) -> None:
+    """统一包装图表/图标后处理：解析/数据错 → InvalidArgumentError，其余 → ConversionError。
+
+    ValueError（HTML 图表/图标声明非法、数据缺失/损坏）属用户输入问题；
+    其余异常（measurements 缺失、python-pptx/XML/zip 损坏）属转换产物问题。
+    均 from e 保留 __cause__。
+    """
+    try:
+        fn(html, pptx)
+    except InvalidArgumentError:
+        raise
+    except ConversionError:
+        raise
+    except ValueError as e:
+        raise InvalidArgumentError(f"{label}后处理失败（HTML 声明数据非法）: {e}") from e
+    except Exception as e:
+        raise ConversionError(f"{label}后处理失败: {e}") from e
+
+
 def render(
     html: str,
     out: str | None = None,
@@ -96,6 +115,17 @@ def render(
         )
     target = html
     tmp_html = None
+    tmp_html_dir = None
+    if no_visual_audit:
+        # 图表/图标注入依赖 visual audit 的 measurements.json；no_visual_audit 不产出
+        # → 转换开始前 fail-fast，省一次白跑的 chromium 渲染。
+        with open(html, encoding="utf-8") as f:
+            content = f.read()
+        if "data-chart" in content or "data-icon" in content:
+            raise InvalidArgumentError(
+                "no_visual_audit=True 但 HTML 声明了图表/图标（data-chart/data-icon）："
+                "注入需要 measurements.json，请去掉 no_visual_audit 或用 visual audit 渲染"
+            )
     if theme or apply_layouts:
         with open(html, encoding="utf-8") as f:
             content = f.read()
@@ -104,13 +134,11 @@ def render(
         if theme:
             content = inject_theme(content, theme)
         # 以 .audited.html 结尾 → convert 跳过 work-copy 分支，不留 .audited 残留。
-        # mkstemp：同目录随机名（前缀带点即隐藏），finally 统一清理。
-        fd, tmp_html = tempfile.mkstemp(
-            prefix=f".{Path(html).stem}.",
-            suffix=".audited.html",
-            dir=os.path.dirname(html),
-        )
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        # TemporaryDirectory：注入副本不再落在源目录（避免污染用户目录/并发互踩），
+        # finally 随整目录清理。
+        tmp_html_dir = tempfile.TemporaryDirectory(prefix="offipy-deck-")
+        tmp_html = os.path.join(tmp_html_dir.name, f"{Path(html).stem}.audited.html")
+        with open(tmp_html, "w", encoding="utf-8") as f:
             f.write(content)
         target = tmp_html
     tmp_pptx = None
@@ -151,23 +179,26 @@ def render(
             raise ConversionError(f"转换未产出 .pptx: {tmp_pptx}\n{r.stdout}\n{r.stderr}")
         # 图表后处理：HTML 声明了 data-chart → 读 measurements 替换成原生图表。
         # 惰性 import：charts.py 内部 import python-pptx，不拖慢无图表的路径。
+        # 异常统一包装（_postprocess）：解析/数据错 → InvalidArgumentError，
+        # 其余（measurements 缺失/XML/zip 损坏）→ ConversionError，均保留 __cause__。
         from .charts import postprocess_charts
 
-        postprocess_charts(html, tmp_pptx)
+        _postprocess("图表", postprocess_charts, html, tmp_pptx)
         # 图标后处理：HTML 声明了 data-icon → 替换成 freeform 矢量图标（同 charts 架构）。
         # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图标的路径。
         from .icons import postprocess_icons
 
-        postprocess_icons(html, tmp_pptx)
+        _postprocess("图标", postprocess_icons, html, tmp_pptx)
         os.replace(tmp_pptx, final_out)
         return final_out
     finally:
         # 任何路径（成功或失败）都清理临时文件；已存在的 final_out 不受影响。
         # convert 的 <out>_audit 审计目录跟着临时 .pptx 名字走，tmp 被替换/删除后
         # 就成了孤儿（charts 后处理在 os.replace 前已读完 measurements），一并清掉。
-        for p in (tmp_pptx, tmp_html):
-            if p and os.path.exists(p):
-                os.unlink(p)
+        if tmp_html_dir is not None:
+            tmp_html_dir.cleanup()  # 注入副本随整目录删除
+        if tmp_pptx and os.path.exists(tmp_pptx):
+            os.unlink(tmp_pptx)
         if tmp_pptx:
             tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
             if os.path.isdir(tmp_audit):

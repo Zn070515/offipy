@@ -35,18 +35,18 @@ Office is unavailable.
 
 | Windows | COM automation | deck pipeline | Notes |
 |---------|-----------|-----------|------|
-| Windows 10 (x64) | ✓ | ✓ | Main verification environment |
-| Windows 11 (x64) | ✓ | ✓ | Development environment (11 Pro for Workstations) |
-| Server 2019+ | Depends on environment | ✓ | COM requires a desktop session; Server Core has no Office GUI, so it is unavailable |
+| Windows 10 (x64) | 🟡 Expected | 🟡 Expected | Reasonably expected, not individually verified |
+| Windows 11 (x64) | ✅ Tested | ✅ Tested | Development environment (11 Pro for Workstations, verified on this machine) |
+| Server 2019+ | 🟡 Expected | 🟡 Expected | Reasonably expected; COM requires a desktop session, Server Core has no Office GUI so it is unavailable |
 
 ## Office Versions
 
 | Office | Word | Excel | PowerPoint | Notes |
 |--------|------|-------|------------|------|
-| Office 2016 | ✓ | ✓ | ✓ | Minimum supported version |
-| Office 2019 | ✓ | ✓ | ✓ | |
-| Office 2021 / LTSC | ✓ | ✓ | ✓ | |
-| Microsoft 365 | ✓ | ✓ | ✓ | Primary development and verification environment |
+| Office 2016 | 🟡 Expected | 🟡 Expected | 🟡 Expected | Minimum supported version; reasonably expected, not individually verified |
+| Office 2019 | 🟡 Expected | 🟡 Expected | 🟡 Expected | Reasonably expected, not individually verified |
+| Office 2021 / LTSC | 🟡 Expected | 🟡 Expected | 🟡 Expected | Reasonably expected, not individually verified |
+| Microsoft 365 | ✅ Tested | ✅ Tested | ✅ Tested | Primary development and verification environment (verified on this machine) |
 
 The COM-based object model has minor differences across versions (e.g., constant enums, a few
 new properties); when differences arise, Microsoft 365 behavior is authoritative and is recorded
@@ -62,7 +62,7 @@ in `CHANGELOG.md`.
 | `mcp` | mcp SDK | Any (needs Windows + office when the service consumes Office) | `offipy mcp`, for Claude Desktop and other integrations |
 | `all` | The three above combined | As needed | One-command install of everything via `pip install offipy[all]` |
 
-The `deck` pipeline needs chromium installed for first use: `uv run playwright install chromium`.
+The `deck` pipeline needs chromium installed for first use: `playwright install chromium`.
 Playwright rendering also works on non-Windows, but deck output is often fed back into Office
 sessions, so overall support remains Windows-based.
 

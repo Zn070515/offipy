@@ -2,6 +2,7 @@
 
 import pytest
 
+from offipy.exceptions import InvalidArgumentError
 from offipy.word import (
     _ALIGN,
     _AUTOFIT,
@@ -16,6 +17,7 @@ from offipy.word import (
     _TABLE_LINE_WIDTH,
     _TABLE_SIDES,
     _UNDERLINE,
+    WordApp,
     _end_range,
     _resolve_style,
     _resolve_table_sides,
@@ -66,6 +68,23 @@ def test_resolve_table_sides_variants():
     assert _resolve_table_sides("outside") == [1, 2, 3, 4]
     assert _resolve_table_sides("inside") == [5, 6]
     assert _resolve_table_sides("left,top") == [2, 1]
+
+
+def test_add_list_empty_rejected():
+    app = WordApp.__new__(WordApp)
+    # 传 doc_id 放行 destructive wrapper，触发方法体内空列表校验
+    with pytest.raises(InvalidArgumentError, match="lines 不能为空"):
+        app.add_list([], doc_id="x")
+    with pytest.raises(InvalidArgumentError):
+        app.add_list([], style="numbered", doc_id="x")
+
+
+def test_add_table_zero_dims_rejected():
+    app = WordApp.__new__(WordApp)
+    with pytest.raises(InvalidArgumentError, match="行列必须"):
+        app.add_table(0, 2, doc_id="x")
+    with pytest.raises(InvalidArgumentError):
+        app.add_table(2, 0, doc_id="x")
 
 
 def test_resolve_table_sides_unknown_raises():

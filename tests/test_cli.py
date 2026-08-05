@@ -20,6 +20,14 @@ def test_quit_target_does_not_shadow_app():
     assert args.target == "ppt"
 
 
+def test_quit_parser_has_force_flag():
+    # P1-5：offipy quit <target> --force 强制退出既有 Office 实例
+    args = build_parser().parse_args(["quit", "excel", "--force"])
+    assert args.force is True
+    args = build_parser().parse_args(["quit", "excel"])
+    assert args.force is False
+
+
 def test_office_subcommand_has_kwargs():
     args = build_parser().parse_args(["ppt", "add_slide", "--layout", "2"])
     assert args.app == "ppt"
@@ -401,8 +409,9 @@ def test_main_coerces_before_call(monkeypatch):
         return None
 
     monkeypatch.setattr("offipy.cli.call", fake_call)
-    cli.main(["ppt", "add_slide", "--layout", "2"])
-    assert captured == {"layout": 2}
+    # add_slide 是破坏性 op：必须带目标（doc_id/expected-target/follow-active）
+    cli.main(["ppt", "add_slide", "--layout", "2", "--follow-active"])
+    assert captured == {"layout": 2, "follow_active": True}
 
 
 # --- 批次6：必填参数预校验（不碰 COM）+ mcp 缺 extra 友好报错 ---
@@ -457,8 +466,132 @@ def test_required_payload_keys_count_as_provided(monkeypatch):
         return None
 
     monkeypatch.setattr("offipy.cli.call", fake_call)
-    cli.main(["excel", "set_cell", "--payload", '{"sheet": 1, "cell": "A1", "value": 5}'])
-    assert captured == {"sheet": 1, "cell": "A1", "value": 5}
+    # set_cell 是破坏性 op：payload 之外补 --follow-active 满足目标要求
+    cli.main(
+        [
+            "excel",
+            "set_cell",
+            "--payload",
+            '{"sheet": 1, "cell": "A1", "value": 5}',
+            "--follow-active",
+        ]
+    )
+    assert captured == {"sheet": 1, "cell": "A1", "value": 5, "follow_active": True}
+
+
+# --- 批次 B1：传输层参数 expected-target / follow-active（P0-1/P0-3） ---
+
+
+def test_parse_kwargs_expected_target_json():
+    from offipy.cli import _parse_kwargs
+
+    kw = _parse_kwargs(["--expected-target", '{"doc_id": "book1"}'])
+    assert kw == {"expected_target": {"doc_id": "book1"}}
+
+
+def test_parse_kwargs_expected_target_bad_json_exits():
+    from offipy.cli import _parse_kwargs
+
+    with pytest.raises(SystemExit):
+        _parse_kwargs(["--expected-target", "{not json"])
+
+
+def test_parse_kwargs_expected_target_must_be_object():
+    from offipy.cli import _parse_kwargs
+
+    with pytest.raises(SystemExit):
+        _parse_kwargs(["--expected-target", "[1, 2]"])
+
+
+def test_parse_kwargs_follow_active_flag():
+    from offipy.cli import _parse_kwargs
+
+    assert _parse_kwargs(["--follow-active"]) == {"follow_active": True}
+    assert _parse_kwargs(["--follow-active", "false"]) == {"follow_active": False}
+
+
+def test_validate_kwargs_accepts_transport_params():
+    from offipy.cli import _validate_kwargs
+
+    # 破坏性 op 放行 expected_target / follow_active
+    _validate_kwargs("excel", "set_cell", {"expected_target": {"doc_id": "b1"}})
+    _validate_kwargs("excel", "set_cell", {"follow_active": True})
+
+
+def test_validate_kwargs_rejects_transport_params_on_readonly():
+    # 只读 op 不允许 expected_target（传输层绑定对只读 op 无意义）
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._validate_kwargs("excel", "read_range", {"expected_target": {"doc_id": "b1"}})
+    assert exc.value.code == 2
+
+
+def test_validate_destructive_target_missing_exits_2(capsys):
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._validate_destructive_target(
+            "excel", "set_cell", {"sheet": 1, "cell": "A1", "value": 5}
+        )
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "必须显式指定目标文档" in err
+
+
+def test_validate_destructive_target_doc_id_passes():
+    from offipy.cli import _validate_destructive_target
+
+    _validate_destructive_target("excel", "set_cell", {"doc_id": "b1"})
+    _validate_destructive_target("excel", "set_cell", {"expected_target": {"doc_id": "b1"}})
+    _validate_destructive_target("excel", "set_cell", {"follow_active": True})
+
+
+def test_validate_destructive_target_skips_quit():
+    from offipy.cli import _validate_destructive_target
+
+    _validate_destructive_target("excel", "quit", {})  # quit 无 doc_id，不拦截
+
+
+def test_main_destructive_without_target_exits_2(monkeypatch, capsys):
+    # 破坏性 op 缺目标 → 调用前 exit 2，不拉起 server/碰 COM
+    from offipy import cli
+
+    def boom(*a, **kw):
+        raise AssertionError("缺目标时不该调 server")
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["excel", "set_cell", "--sheet", "1", "--cell", "A1", "--value", "5"])
+    assert exc.value.code == 2
+
+
+def test_main_expected_target_passed_through(monkeypatch):
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured.update(kw)
+        return None
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(
+        [
+            "excel",
+            "set_cell",
+            "--sheet",
+            "1",
+            "--cell",
+            "A1",
+            "--value",
+            "5",
+            "--expected-target",
+            '{"doc_id": "book1"}',
+        ]
+    )
+    assert captured["expected_target"] == {"doc_id": "book1"}
+    assert "value" in captured  # value 按 schema 为 Any，原样透传
 
 
 def test_mcp_missing_extra_friendly_error(monkeypatch, capsys):

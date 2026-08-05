@@ -24,7 +24,7 @@
 
 ### `save`
 
-保存演示文稿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘同层目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
+保存演示文稿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
 - **返回**: `str`
@@ -38,7 +38,7 @@
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
 - **返回**: `void`
-- **标志**: 会改动文档/应用状态
+- **标志**: 普通操作
 
 ---
 
@@ -48,7 +48,7 @@
 
 - **参数**: `out_dir: str`、`width: int`、`height: int`、`doc_id: str`
 - **返回**: `list`
-- **标志**: 会改动文档/应用状态
+- **标志**: 普通操作
 
 ---
 
@@ -64,30 +64,30 @@
 
 ### `set_title`
 
-设置第 slide_idx 张幻灯片的标题文本。
+设置第 slide_idx 张幻灯片的标题；无标题占位符自动建框，返回 shape ID。
 
 - **参数**: `slide_idx: int`、`text: str`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `int`
 - **标志**: 会改动文档/应用状态
 
 ---
 
 ### `set_body`
 
-设置第 slide_idx 张幻灯片的正文占位符文本；lines 为逐行字符串列表。
+设置第 slide_idx 张幻灯片的正文；无正文占位符自动建框，返回 shape ID。
 
 - **参数**: `slide_idx: int`、`lines: any`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `int`
 - **标志**: 会改动文档/应用状态
 
 ---
 
 ### `set_notes`
 
-写入第 slide_idx 张幻灯片的演讲者备注。
+写入第 slide_idx 张幻灯片的演讲者备注，返回 shape ID。
 
 - **参数**: `slide_idx: int`、`text: str`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `int`
 - **标志**: 会改动文档/应用状态
 
 ---
@@ -154,8 +154,8 @@
 
 ### `quit`
 
-退出 PowerPoint 会话（关闭应用窗口）。
+退出 PowerPoint 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝（不夺走用户正用的窗口），force=True 强制退出。
 
-- **参数**: _无参数_
+- **参数**: `force: bool`
 - **返回**: `void`
 - **标志**: 会改动文档/应用状态

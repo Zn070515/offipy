@@ -199,17 +199,19 @@ def _check_pdf() -> Check:
     return Check("PDF 可选路径", "LibreOffice/pdf2image", True, detail, warn=True)
 
 
-# check --profile 过滤表：office/deck/mcp 都以 core 为基线，再叠加各自分组
+# check --profile 过滤表：office/deck/mcp/all 都以 core 为基线，再叠加各自分组
 _CORE_SECTIONS = {"运行时", "offipy", "本地 server", "PDF 可选路径"}
 _PROFILE_SECTIONS = {
     "office": {"Office 套件"},
     "deck": {"浏览器"},
     "mcp": set(),
+    "all": {"Office 套件", "浏览器"},
 }
 _PROFILE_DEPS = {
     "office": {"pywin32"},
     "deck": {"python-pptx", "lxml", "fonttools", "playwright", "Pillow"},
     "mcp": {"mcp"},
+    "all": {"pywin32", "python-pptx", "lxml", "fonttools", "playwright", "Pillow", "mcp"},
 }
 
 

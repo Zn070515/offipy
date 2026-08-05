@@ -14,8 +14,10 @@ import http.client
 import json
 import os
 import queue
+import sys
 import threading
 import time
+import types
 
 import pytest
 
@@ -66,6 +68,7 @@ def srv(monkeypatch):
     monkeypatch.setitem(server._OPS, "ppt", server._OPS["ppt"] | {"slow", "boom"})
 
     server._TOKEN = TOKEN
+    server._REQUEST_ID_CACHE.clear()  # 幂等缓存是模块级：每测试隔离，防跨测试串味
     server._ensure_worker()
     srv = server.Server(("127.0.0.1", 0), server.Handler)
     thread = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -111,9 +114,13 @@ def test_request_id_same_id_no_double_exec(srv):
     body = {"app": "ppt", "op": "slow", "request_id": "rid-0001"}
     s1, r1 = _post(port, body, token=TOKEN)
     assert s1 == 200 and r1["data"] == "slow-done"
+    assert r1["request_id"] == "rid-0001"  # 幂等回显（P0-2 方案 A）
+    assert "cached" not in r1  # 首次执行不是缓存命中
     s2, r2 = _post(port, body, token=TOKEN)
     assert s2 == 200
-    assert r2 == r1  # 命中缓存，返回同一响应
+    assert r2["data"] == "slow-done"  # 命中缓存，返回同一结果
+    assert r2["cached"] is True  # 缓存命中标注
+    assert r2["request_id"] == "rid-0001"
     assert len(calls) == 1  # 只执行一次，第二次不重执行
 
 
@@ -156,19 +163,121 @@ def test_request_id_failure_also_deduped(srv):
     body = {"app": "ppt", "op": "boom", "request_id": "rid-err"}
     s1, r1 = _post(port, body, token=TOKEN)
     assert s1 == 500
+    assert r1["request_id"] == "rid-err"
     s2, r2 = _post(port, body, token=TOKEN)
-    assert s2 == 500 and r2 == r1
+    assert s2 == 500
+    assert r2["cached"] is True  # 失败结果同样被缓存回放
+    assert r2["error_code"] == r1["error_code"] == "internal"
     assert len(calls) == 1
 
 
-def test_dedupe_cache_lru_cap(monkeypatch):
+# --- P0-2 方案 A：payload hash 绑定 / in-flight 合并 / LRU ---
+
+
+def test_request_id_same_id_different_payload_rejected(srv):
+    # 同 request_id 不同 payload → 400 invalid_argument，不静默返回旧结果
+    port, calls = srv
+    base = {"app": "ppt", "op": "slow", "request_id": "rid-dup"}
+    s1, r1 = _post(port, {**base, "args": {"a": 1}}, token=TOKEN)
+    assert s1 == 200
+    s2, r2 = _post(port, {**base, "args": {"a": 2}}, token=TOKEN)
+    assert s2 == 400
+    assert r2["error_code"] == "invalid_argument"
+    assert "不同 payload" in r2["error"]
+    assert len(calls) == 1  # 第二次被拒，未执行
+
+
+def test_request_id_concurrent_same_id_merges(srv):
+    # 并发同 ID → 合并执行一次，两个调用方都拿到结果
+    port, calls = srv
+    body = {"app": "ppt", "op": "slow", "request_id": "rid-merge"}
+    results = []
+    lock = threading.Lock()
+
+    def _post_in_thread():
+        s, r = _post(port, body, token=TOKEN)
+        with lock:
+            results.append((s, r))
+
+    ts = [threading.Thread(target=_post_in_thread) for _ in range(2)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert len(results) == 2
+    for s, r in results:
+        assert s == 200 and r["data"] == "slow-done"
+    assert len(calls) == 1  # 合并：只执行一次
+
+
+def test_request_id_timeout_then_retry_no_double_exec(srv, monkeypatch):
+    # owner 超时(504)后同 id 重试：合并等 worker 完成，不重执行（绝无双写）
+    port, calls = srv
+    monkeypatch.setattr(server, "_CALL_TIMEOUT", 0.3)
+    gate = threading.Event()
+    entered = threading.Event()
+
+    def gated_dispatch(app, op, args, app_name):
+        calls.append((app_name, op, args))
+        entered.set()
+        gate.wait(5)  # 模拟慢 op：阻塞直到测试放行
+        return "slow-done"
+
+    monkeypatch.setattr(server, "dispatch", gated_dispatch)
+    calls.clear()
+    body = {"app": "ppt", "op": "slow", "request_id": "rid-gated"}
+
+    s1, r1 = _post(port, body, token=TOKEN)
+    assert s1 == 504  # owner 在 _CALL_TIMEOUT 内没等到 worker → 超时
+    assert entered.wait(2)  # worker 已进入（op 只执行了一次）
+
+    gate.set()  # 放行 worker
+    s2, r2 = _post(port, body, token=TOKEN)
+    assert s2 == 200 and r2["data"] == "slow-done"
+    assert len(calls) == 1  # 重试不重执行
+
+
+def test_claim_inflight_merges_after_owner_timeout(monkeypatch):
+    # 状态机：owner 超时后 entry 留 inflight，同 id 重试仍合并（不重建不重执行）
+    server._REQUEST_ID_CACHE.clear()
+    e1, is_owner1 = server._claim("rid-x", "hash-x")
+    assert is_owner1 is True and e1.state == "inflight"
+    e2, is_owner2 = server._claim("rid-x", "hash-x")
+    assert is_owner2 is False and e2 is e1  # 并发同 ID 合并同一 entry
+    e3, is_owner3 = server._claim("rid-x", "hash-x")
+    assert is_owner3 is False and e3 is e1  # owner 超时后仍合并，不重执行
+    assert e1.state == "inflight"
+
+
+def test_claim_hash_mismatch_rejects(monkeypatch):
+    server._REQUEST_ID_CACHE.clear()
+    server._claim("rid-y", "hash-1")
+    with pytest.raises(server.InvalidArgumentError):
+        server._claim("rid-y", "hash-2")
+
+
+def test_idempotency_lru_cap(monkeypatch):
     server._REQUEST_ID_CACHE.clear()
     monkeypatch.setattr(server, "_REQUEST_ID_MAX", 3)
     for i in range(5):
-        server._dedupe_store(f"rid-{i}", {"ok": True, "i": i})
+        e, is_owner = server._claim(f"rid-{i}", f"hash-{i}")
+        assert is_owner is True
+        server._complete_entry(e, {"ok": True, "i": i})
     assert len(server._REQUEST_ID_CACHE) == 3
-    assert server._dedupe_hit("rid-0") is None  # 最旧被淘汰
-    assert server._dedupe_hit("rid-4") == {"ok": True, "i": 4}
+    assert server._REQUEST_ID_CACHE.get("rid-0") is None  # 最旧 done 被淘汰
+    assert server._REQUEST_ID_CACHE.get("rid-4") is not None
+
+
+def test_idempotency_lru_skips_inflight(monkeypatch):
+    server._REQUEST_ID_CACHE.clear()
+    monkeypatch.setattr(server, "_REQUEST_ID_MAX", 2)
+    e1, _ = server._claim("a", "h-a")
+    e2, _ = server._claim("b", "h-b")
+    server._complete_entry(e1, {"ok": True})
+    server._claim("c", "h-c")  # 超限：只淘汰 done(a)，保留 inflight b 与 c
+    assert "a" not in server._REQUEST_ID_CACHE
+    assert "b" in server._REQUEST_ID_CACHE
+    assert "c" in server._REQUEST_ID_CACHE
 
 
 # --- 有界队列（§4）：满 → 503 ---
@@ -270,6 +379,83 @@ def test_find_server_pid_json_format(monkeypatch, tmp_path):
         "offipy.client.subprocess.run", lambda *a, **k: type("R", (), {"stdout": ""})()
     )
     assert client._find_server_pid() == 777
+
+
+# --- P1-1 Windows named mutex 防双启 ---
+
+
+def _fake_win32_modules(already_exists: bool):
+    """注入假 win32event/win32api：CreateMutex 按 already_exists 报 GetLastError。"""
+    fake_ev = types.ModuleType("win32event")
+    fake_ev.created_name = None
+
+    def create(parent, initial, name):
+        fake_ev.created_name = name
+        return object()
+
+    fake_ev.CreateMutex = create
+    fake_api = types.ModuleType("win32api")
+    fake_api.GetLastError = lambda: 183 if already_exists else 0  # ERROR_ALREADY_EXISTS
+    return fake_ev, fake_api
+
+
+def test_acquire_startup_lock_returns_handle_when_free(monkeypatch):
+    fake_ev, fake_api = _fake_win32_modules(already_exists=False)
+    monkeypatch.setitem(sys.modules, "win32event", fake_ev)
+    monkeypatch.setitem(sys.modules, "win32api", fake_api)
+    monkeypatch.setattr(server.sys, "platform", "win32")
+    assert server._acquire_startup_lock(8890) is not None
+    assert fake_ev.created_name == "Local\\offipy_server_8890"
+
+
+def test_acquire_startup_lock_rejects_double_start(monkeypatch):
+    fake_ev, fake_api = _fake_win32_modules(already_exists=True)
+    monkeypatch.setitem(sys.modules, "win32event", fake_ev)
+    monkeypatch.setitem(sys.modules, "win32api", fake_api)
+    monkeypatch.setattr(server.sys, "platform", "win32")
+    with pytest.raises(server.ServerStartError, match="在运行"):
+        server._acquire_startup_lock(8890)
+
+
+def test_acquire_startup_lock_noop_off_windows(monkeypatch):
+    monkeypatch.setattr(server.sys, "platform", "linux")
+    assert server._acquire_startup_lock(8890) is None  # 纯模块/WSL 不拉锁
+
+
+# --- P1-3 PID 进程创建时间校验（防 PID 复用误杀） ---
+
+
+def test_process_start_time_noop_off_windows(monkeypatch):
+    monkeypatch.setattr(client.sys, "platform", "linux")
+    assert client._process_start_time(999999) is None
+
+
+def test_process_start_time_parses_powershell_iso(monkeypatch):
+    fake = types.SimpleNamespace(stdout="2026-08-05T01:02:03.0000000+00:00")
+    monkeypatch.setattr(client.sys, "platform", "win32")
+    monkeypatch.setattr("offipy.client.subprocess.run", lambda *a, **k: fake)
+    from datetime import datetime, timezone
+
+    expected = datetime(2026, 8, 5, 1, 2, 3, tzinfo=timezone.utc).timestamp()
+    assert abs(client._process_start_time(1) - expected) < 1
+
+
+def test_pid_file_matches_rejects_reused_pid(monkeypatch, tmp_path):
+    token = "t"
+    pid = 5555
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    (tmp_path / "server.pid").write_text(
+        json.dumps({"port": client.PORT, "pid": pid, "token_sha256": digest, "started_at": 1000.0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(client, "_token", lambda: token)
+    monkeypatch.setattr(client, "_process_start_time", lambda p: 9999.0)  # 偏差 > 窗口
+    assert client._pid_file_matches(pid) is False  # PID 复用 → 拒认归属
+    monkeypatch.setattr(client, "_process_start_time", lambda p: 1000.5)  # 吻合
+    assert client._pid_file_matches(pid) is True
+    monkeypatch.setattr(client, "_process_start_time", lambda p: None)  # 查不到 → 不校验
+    assert client._pid_file_matches(pid) is True
 
 
 # --- token 权限（§4） ---

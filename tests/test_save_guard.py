@@ -10,6 +10,7 @@ import types
 import pytest
 
 from offipy import excel, paths, ppt, word
+from offipy.exceptions import ComOperationError
 
 
 def test_ensure_writable_refuses_existing(tmp_path):
@@ -42,8 +43,9 @@ def test_ppt_save_guard_fires_before_com(tmp_path):
     target = tmp_path / "deck.pptx"
     target.write_text("x")
     p = ppt.PptApp.__new__(ppt.PptApp)
+    # save 是破坏性 op：显式 doc_id 放行，命中 body 的 ensure_writable 才报已存在
     with pytest.raises(FileExistsError):
-        p.save(str(target))
+        p.save(str(target), doc_id="pres1")
 
 
 def test_ppt_save_overwrite_proceeds(tmp_path):
@@ -53,7 +55,7 @@ def test_ppt_save_overwrite_proceeds(tmp_path):
     p.app = types.SimpleNamespace(DisplayAlerts=0)  # _alerts_scope 读写 DisplayAlerts
     fake = _FakePres()
     p.active_pres = lambda doc_id=None: fake
-    p.save(str(target), overwrite=True)
+    p.save(str(target), overwrite=True, doc_id="pres1")
     assert fake.saved == os.path.abspath(str(target))
 
 
@@ -62,7 +64,7 @@ def test_excel_save_pdf_guard_fires(tmp_path):
     target.write_text("x")
     b = excel.ExcelApp.__new__(excel.ExcelApp)
     with pytest.raises(FileExistsError):
-        b.save_pdf(str(target))
+        b.save_pdf(str(target), doc_id="book1")
 
 
 def test_word_save_pdf_guard_fires(tmp_path):
@@ -70,7 +72,7 @@ def test_word_save_pdf_guard_fires(tmp_path):
     target.write_text("x")
     d = word.WordApp.__new__(word.WordApp)
     with pytest.raises(FileExistsError):
-        d.save_pdf(str(target))
+        d.save_pdf(str(target), doc_id="doc1")
 
 
 # --- P0-2：DisplayAlerts 常量正确 + 全局副作用还原 ---
@@ -179,7 +181,7 @@ def test_ppt_save_pdf_uses_export_as_fixed_format(tmp_path):
     p.app = types.SimpleNamespace(DisplayAlerts=0)
     fake = _FakePresExport()
     p.active_pres = lambda doc_id=None: fake
-    p.save_pdf(str(target))
+    p.save_pdf(str(target), doc_id="pres1")
     path, args, kwargs = fake.calls[0]
     assert path == os.path.abspath(str(target))
     assert kwargs["Intent"] == 2  # ppFixedFormatIntentPrint
@@ -192,7 +194,55 @@ def test_word_save_pdf_uses_export_as_fixed_format(tmp_path):
     d.app = types.SimpleNamespace(DisplayAlerts=0)
     fake = _FakeDocExport()
     d.active_doc = lambda doc_id=None: fake
-    d.save_pdf(str(target))
+    d.save_pdf(str(target), doc_id="doc1")
     path, args, kwargs = fake.calls[0]
     assert path == os.path.abspath(str(target))
     assert kwargs["ExportFormat"] == word.WD_EXPORT_FORMAT_PDF
+
+
+# --- P1-5：quit 只退 offipy-owned 实例；attached（既有实例）默认拒绝 ---
+
+
+def _ensure_app_attached(app):
+    def _ensure(app_name, visible=True):
+        return app, False  # created=False → attached，非本库启动
+
+    return _ensure
+
+
+@pytest.mark.parametrize(
+    ("cls", "core_name"),
+    [
+        (excel.ExcelApp, "excel"),
+        (word.WordApp, "word"),
+        (ppt.PptApp, "ppt"),
+    ],
+)
+def test_quit_attached_refuses_without_force(monkeypatch, cls, core_name):
+    app = types.SimpleNamespace(DisplayAlerts=0)
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_attached(app))
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: True)
+    obj = cls()
+    assert obj._owned is False
+    with pytest.raises(ComOperationError, match="既有"):
+        obj.quit(force=False)
+    assert obj.quit(force=True) is None  # force 放行，own 句柄才直接退
+
+
+@pytest.mark.parametrize(
+    ("cls", "core_name"),
+    [
+        (excel.ExcelApp, "excel"),
+        (word.WordApp, "word"),
+        (ppt.PptApp, "ppt"),
+    ],
+)
+def test_quit_owned_proceeds(monkeypatch, cls, core_name):
+    app = types.SimpleNamespace(DisplayAlerts=0)
+    calls = []
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_returning(app))  # created=True
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: calls.append(n) or True)
+    obj = cls()
+    assert obj._owned is True
+    obj.quit()
+    assert calls == [core_name]

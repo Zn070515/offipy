@@ -81,7 +81,7 @@ def test_render_charts_error_skips_icons(tmp_path, monkeypatch):
     monkeypatch.setattr(icons, "postprocess_icons", lambda *a, **k: calls.append("icons"))
     monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
 
-    with pytest.raises(RuntimeError, match="charts failed"):
+    with pytest.raises(deck.ConversionError, match="charts failed"):
         deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert calls == ["charts"]  # icons 不该被调用
     assert pptx.read_bytes() == b"placeholder"  # 失败不破坏已存在 .pptx

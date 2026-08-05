@@ -9,7 +9,8 @@ from contextlib import contextmanager
 from typing import Any
 
 from . import core
-from ._comguard import guard_com
+from ._comguard import _COM_ERROR, guard_com
+from .core import destructive
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -143,6 +144,8 @@ def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
+        # _owned：本库启动的实例才允许 quit() 直接退出；连到既有实例默认拒绝
+        self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._docs: dict[str, Any] = {}  # doc_id → 工作簿句柄（P2-2 多文档）
@@ -159,8 +162,38 @@ class ExcelApp:
         finally:
             self.app.DisplayAlerts = prev
 
+    def _stable_identity(self, obj):
+        """稳定身份键（P0-4）：已保存 → (FullName.lower(), None)；未保存 → (None, Name.lower())。
+
+        pywin32 的 wrapper 每次获取都可能是新对象（`is` 不成立），但底层文档的
+        FullName/Name 稳定——同文件重开/重连据此复用同一 doc_id。双 None 表示
+        无法识别，跳过匹配（防死句柄误复用）。
+        """
+        try:
+            fullname = obj.FullName
+        except Exception:
+            fullname = None
+        try:
+            name = obj.Name
+        except Exception:
+            name = None
+        try:
+            path = obj.Path
+        except Exception:
+            path = None
+        if path:
+            return (str(fullname).lower() if fullname else None, None)
+        return (None, name.lower() if name else None)
+
     def _register(self, obj) -> str:
-        """登记一个新文档句柄，分配 doc_id 并设为活动。返回 doc_id。"""
+        """登记新文档句柄，分配 doc_id 并设为活动；同底层文档复用已有 doc_id。"""
+        ident = self._stable_identity(obj)
+        if ident != (None, None):
+            for did, book in self._docs.items():
+                if self._stable_identity(book) == ident:
+                    self._docs[did] = obj  # 复用 doc_id，换用实时句柄
+                    self._active_id = did
+                    return did
         self._seq += 1
         did = f"book{self._seq}"
         self._docs[did] = obj
@@ -186,8 +219,8 @@ class ExcelApp:
 
     def active_book(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
-        # 缺省 active：优先 app 登记的活动句柄（new_book/open_book/activate 切换）；
-        # 无登记或失效时实时解析 ActiveWorkbook 并并入文档表（重连既有会话场景）。
+        # 缺省 active：实时解析 ActiveWorkbook（doc_id 权威——绝不静默用陈旧的
+        # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
         # P0-8：全程纯探测，绝不隐式 Workbooks.Add()。
         if doc_id is not None:
             book = self._docs.get(doc_id)
@@ -196,10 +229,6 @@ class ExcelApp:
                     f"未知工作簿句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
                 )
             return book
-        if self._active_id is not None:
-            book = self._docs.get(self._active_id)
-            if book is not None and core.doc_alive(book):
-                return book
         book = core.active_doc("excel", "ActiveWorkbook")
         if book is not None:
             self._sync_registered(book)
@@ -277,10 +306,11 @@ class ExcelApp:
             path = None
         return {"app": "excel", "doc_id": resolved, "name": name, "path": path}
 
+    @destructive
     def close_book(self, save: bool = True, doc_id: str | None = None):
         """关闭工作簿（doc_id 缺省为活动）。
 
-        save=True → 先保存（从未保存过则自动落盘同层目录，不弹另存为）并返回
+        save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
         保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。
         """
         book = self._require_book(doc_id)
@@ -303,11 +333,12 @@ class ExcelApp:
                 self._active_id = None
         return path
 
+    @destructive
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         """保存工作簿并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
-        自动落盘 <cwd>/<名字>_<时间戳>.xlsx（不弹另存为对话框）。
+        自动落盘 <用户数据目录>/documents/<名字>_<时间戳>.xlsx（不弹另存为对话框）。
         """
         if path:
             dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
@@ -336,10 +367,16 @@ class ExcelApp:
         if isinstance(sheet, str):
             try:
                 return book.Worksheets(sheet)
-            except Exception:
-                return book.Worksheets(int(sheet))
+            except _COM_ERROR:
+                if not sheet.isdigit():
+                    raise ComOperationError(f"工作表不存在: {sheet!r}") from None
+                try:
+                    return book.Worksheets(int(sheet))
+                except (ValueError, _COM_ERROR):
+                    raise ComOperationError(f"工作表不存在: {sheet!r}") from None
         return book.Worksheets(sheet)
 
+    @destructive
     def add_sheet(self, name: str, doc_id: str | None = None):
         book = self._require_book(doc_id)
         ws = book.Worksheets.Add()
@@ -347,6 +384,7 @@ class ExcelApp:
         return ws
 
     # --- 单元格 ---
+    @destructive
     def set_cell(self, sheet, cell: str, value, doc_id: str | None = None):
         row, col = _parse_cell(cell)
         self._ws(sheet, doc_id).Cells(row, col).Value = value
@@ -355,9 +393,11 @@ class ExcelApp:
         row, col = _parse_cell(cell)
         return self._ws(sheet, doc_id).Cells(row, col).Value
 
+    @destructive
     def set_range(self, sheet, range_addr: str, values, doc_id: str | None = None):
         self._ws(sheet, doc_id).Range(range_addr).Value = values
 
+    @destructive
     def set_col_width(self, sheet, col, width, doc_id: str | None = None):
         self._ws(sheet, doc_id).Columns(col).ColumnWidth = width
 
@@ -366,6 +406,7 @@ class ExcelApp:
         return _normalize_range(self._ws(sheet, doc_id).Range(range_addr).Value)
 
     # --- 格式化 ---
+    @destructive
     def format_cell(
         self,
         sheet,
@@ -395,13 +436,16 @@ class ExcelApp:
             cell_obj.HorizontalAlignment = align
 
     # --- 合并单元格 ---
+    @destructive
     def merge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
         self._ws(sheet, doc_id).Range(range_addr).Merge()
 
+    @destructive
     def unmerge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
         self._ws(sheet, doc_id).Range(range_addr).UnMerge()
 
     # --- 边框 ---
+    @destructive
     def set_border(
         self,
         sheet,
@@ -424,6 +468,7 @@ class ExcelApp:
                 b.Color = _rgb(color)
 
     # --- 冻结窗格 ---
+    @destructive
     def freeze_panes(self, sheet, rows: int = 0, cols: int = 0, doc_id: str | None = None):
         if rows < 0 or cols < 0:
             raise InvalidArgumentError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
@@ -437,6 +482,7 @@ class ExcelApp:
             self.app.ActiveWindow.FreezePanes = True
 
     # --- 打印设置 ---
+    @destructive
     def page_setup(
         self,
         sheet,
@@ -480,6 +526,7 @@ class ExcelApp:
             ps.PrintTitleColumns = print_titles_cols
 
     # --- 条件格式 ---
+    @destructive
     def add_conditional_format(
         self,
         sheet,
@@ -528,12 +575,15 @@ class ExcelApp:
             )
 
     # --- 基础三件套 ---
+    @destructive
     def set_row_height(self, sheet, row, height: float, doc_id: str | None = None):
         self._ws(sheet, doc_id).Rows(row).RowHeight = height
 
+    @destructive
     def set_number_format(self, sheet, range_addr: str, fmt: str, doc_id: str | None = None):
         self._ws(sheet, doc_id).Range(range_addr).NumberFormat = fmt
 
+    @destructive
     def autofit(
         self,
         sheet,
@@ -550,7 +600,14 @@ class ExcelApp:
             target.Rows.AutoFit()
 
     # --- 生命周期 ---
-    def quit(self):
+    def quit(self, force: bool = False):
+        """退出 Excel 会话。
+
+        own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
+        （不夺走用户正用的窗口），确需退出传 force=True。
+        """
         # 库改全局状态（DisplayAlerts），释放前还原原值
         self.app.DisplayAlerts = self._saved_alerts
+        if not self._owned and not force:
+            raise ComOperationError("连接的是既有 Excel 实例，拒绝退出；确需退出请传 force=True")
         core.quit_app("excel")

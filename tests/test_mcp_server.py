@@ -245,7 +245,11 @@ def test_inmemory_int_and_void_and_args(monkeypatch):
 
     def fake_call(app, op, **kw):
         calls[op] = kw
-        return 5 if op == "add_slide" else None
+        if op == "add_slide":
+            return 5
+        if op in ("set_title", "set_body", "set_notes"):
+            return 7  # B6：shape ID（int）
+        return None
 
     monkeypatch.setattr(mcp_server, "_call", fake_call)
 
@@ -255,7 +259,7 @@ def test_inmemory_int_and_void_and_args(monkeypatch):
         r_void = await session.call_tool("ppt_new_presentation")
         assert r_void.content[0].text == "ok (new_pres)"
         r_args = await session.call_tool("ppt_set_title", {"slide_idx": 2, "text": "x"})
-        assert r_args.content[0].text == "ok (set_title)"
+        assert r_args.content[0].text == "7"
         assert calls["set_title"] == {"slide_idx": 2, "text": "x", "doc_id": None}
 
     _run_inmemory(check)

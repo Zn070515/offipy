@@ -9,6 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
+from .core import destructive
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -19,11 +20,32 @@ PP_LAYOUT_TEXT = 2
 PP_LAYOUT_TITLE_ONLY = 5
 PP_LAYOUT_BLANK = 12
 
+PP_PLACEHOLDER_BODY = 2  # ppPlaceholderBody
+PP_PLACEHOLDER_TITLE = 13  # ppPlaceholderTitle
+PP_PLACEHOLDER_CENTER_TITLE = 14  # ppPlaceholderCenterTitle
+
+# 无对应占位符时自动建文本框的默认位置（磅）：4:3 标准幻灯片
+_TITLE_BOX = (36, 18, 648, 72)
+_BODY_BOX = (36, 90, 648, 396)
+
+
+def _placeholder_by_type(shapes, *pp_types):
+    """按占位符类型找 shape（不硬编码 Placeholders(2) 序号）；找不到返回 None。"""
+    placeholders = getattr(shapes, "Placeholders", None)
+    if placeholders is None:
+        return None
+    for i in range(1, placeholders.Count + 1):
+        if placeholders(i).PlaceholderFormat.Type in pp_types:
+            return placeholders(i)
+    return None
+
 
 @guard_com
 class PptApp:
     def __init__(self, visible: bool = True):
-        self.app, _ = core.ensure_app("ppt", visible=visible)
+        self.app, self.created = core.ensure_app("ppt", visible=visible)
+        # _owned：本库启动的实例才允许 quit() 直接退出；连到既有实例默认拒绝
+        self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._docs: dict[str, Any] = {}  # doc_id → 演示文稿句柄（P2-2 多文档）
@@ -40,8 +62,33 @@ class PptApp:
         finally:
             self.app.DisplayAlerts = prev
 
+    def _stable_identity(self, obj):
+        """稳定身份键（P0-4）：已保存 → (FullName.lower(), None)；未保存 → (None, Name.lower())。"""
+        try:
+            fullname = obj.FullName
+        except Exception:
+            fullname = None
+        try:
+            name = obj.Name
+        except Exception:
+            name = None
+        try:
+            path = obj.Path
+        except Exception:
+            path = None
+        if path:
+            return (str(fullname).lower() if fullname else None, None)
+        return (None, name.lower() if name else None)
+
     def _register(self, obj) -> str:
-        """登记一个新文档句柄，分配 doc_id 并设为活动。返回 doc_id。"""
+        """登记新文档句柄，分配 doc_id 并设为活动；同底层文档复用已有 doc_id。"""
+        ident = self._stable_identity(obj)
+        if ident != (None, None):
+            for did, pres in self._docs.items():
+                if self._stable_identity(pres) == ident:
+                    self._docs[did] = obj  # 复用 doc_id，换用实时句柄
+                    self._active_id = did
+                    return did
         self._seq += 1
         did = f"pres{self._seq}"
         self._docs[did] = obj
@@ -67,8 +114,8 @@ class PptApp:
 
     def active_pres(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
-        # 缺省 active：优先 app 登记的活动句柄（new_pres/open_pres/activate 切换）；
-        # 无登记或失效时实时解析 ActivePresentation 并并入文档表（重连既有会话场景）。
+        # 缺省 active：实时解析 ActivePresentation（doc_id 权威——绝不静默用陈旧的
+        # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
         # P0-8：全程纯探测，绝不隐式 Presentations.Add()。
         if doc_id is not None:
             pres = self._docs.get(doc_id)
@@ -77,10 +124,6 @@ class PptApp:
                     f"未知演示文稿句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
                 )
             return pres
-        if self._active_id is not None:
-            pres = self._docs.get(self._active_id)
-            if pres is not None and core.doc_alive(pres):
-                return pres
         pres = core.active_doc("ppt", "ActivePresentation")
         if pres is not None:
             self._sync_registered(pres)
@@ -161,11 +204,12 @@ class PptApp:
             path = None
         return {"app": "ppt", "doc_id": resolved, "name": name, "path": path}
 
+    @destructive
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         """保存演示文稿并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
-        自动落盘 <cwd>/<名字>_<时间戳>.pptx（不弹另存为对话框）。
+        自动落盘 <用户数据目录>/documents/<名字>_<时间戳>.pptx（不弹另存为对话框）。
         """
         if path:
             dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
@@ -206,31 +250,47 @@ class PptApp:
         return paths
 
     # --- 幻灯片 ---
+    @destructive
     def add_slide(self, layout: int = PP_LAYOUT_TEXT, doc_id: str | None = None):
         pres = self._require_pres(doc_id)
         pres.Slides.Add(pres.Slides.Count + 1, layout)
         return pres.Slides.Count
 
+    @destructive
     def set_title(self, slide_idx: int, text: str, doc_id: str | None = None):
         if not text:
             raise InvalidArgumentError("set_title: text 不能为空")
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        if slide.Shapes.HasTitle:
-            slide.Shapes.Title.TextFrame.TextRange.Text = text
+        ph = _placeholder_by_type(slide.Shapes, PP_PLACEHOLDER_TITLE, PP_PLACEHOLDER_CENTER_TITLE)
+        if ph is None:
+            ph = slide.Shapes.AddTextbox(1, *_TITLE_BOX)
+        ph.TextFrame.TextRange.Text = text
+        return ph.Id
 
+    @destructive
     def set_body(self, slide_idx: int, lines, doc_id: str | None = None):
         if isinstance(lines, str):
             lines = [lines]
         if not lines:
             raise InvalidArgumentError("set_body: lines 不能为空")
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        ph = slide.Shapes.Placeholders(2)
+        ph = _placeholder_by_type(slide.Shapes, PP_PLACEHOLDER_BODY)
+        if ph is None:
+            ph = slide.Shapes.AddTextbox(1, *_BODY_BOX)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
+        return ph.Id
 
+    @destructive
     def set_notes(self, slide_idx: int, text: str, doc_id: str | None = None):
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text = text
+        shapes = slide.NotesPage.Shapes
+        ph = _placeholder_by_type(shapes, PP_PLACEHOLDER_BODY)
+        if ph is None:
+            ph = shapes.AddTextbox(1, *_BODY_BOX)
+        ph.TextFrame.TextRange.Text = text
+        return ph.Id
 
+    @destructive
     def add_textbox(
         self,
         slide_idx: int,
@@ -245,6 +305,7 @@ class PptApp:
         tb = slide.Shapes.AddTextbox(1, left, top, width, height)
         tb.TextFrame.TextRange.Text = text
 
+    @destructive
     def add_picture(
         self,
         slide_idx: int,
@@ -283,7 +344,16 @@ class PptApp:
             result.append({"index": i, "title": title, "body": body, "notes": notes})
         return result
 
-    def quit(self):
+    def quit(self, force: bool = False):
+        """退出 PowerPoint 会话。
+
+        own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
+        （不夺走用户正用的窗口），确需退出传 force=True。
+        """
         # 库改全局状态（DisplayAlerts），释放前还原原值
         self.app.DisplayAlerts = self._saved_alerts
+        if not self._owned and not force:
+            raise ComOperationError(
+                "连接的是既有 PowerPoint 实例，拒绝退出；确需退出请传 force=True"
+            )
         core.quit_app("ppt")

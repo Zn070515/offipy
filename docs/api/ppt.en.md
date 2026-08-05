@@ -24,7 +24,7 @@ Open an existing .pptx file, set it active, return doc_id.
 
 ### `save`
 
-Save the presentation (doc_id defaults to the active one) and return the absolute path. If path is given, save-as to that path (.pptx); otherwise save back to the original path (a never-saved document auto-saves to the same directory without the Save As dialog); overwrite=True allows overwriting an existing file.
+Save the presentation (doc_id defaults to the active one) and return the absolute path. If path is given, save-as to that path (.pptx); otherwise save back to the original path (a never-saved document auto-saves to the user data directory without the Save As dialog); overwrite=True allows overwriting an existing file.
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `str`
@@ -38,7 +38,7 @@ Export the presentation (doc_id defaults to the active one) to PDF at the given 
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `void`
-- **Flags**: mutates document/app state
+- **Flags**: normal operation
 
 ---
 
@@ -48,7 +48,7 @@ Export each slide of the presentation (doc_id defaults to the active one) as PNG
 
 - **Parameters**: `out_dir: str`, `width: int`, `height: int`, `doc_id: str`
 - **Returns**: `list`
-- **Flags**: mutates document/app state
+- **Flags**: normal operation
 
 ---
 
@@ -64,30 +64,30 @@ Add a slide at the end. layout is {1: Title, 2: Title and Content, 5: Title Only
 
 ### `set_title`
 
-Set the title text of the slide_idx-th slide.
+Set the title text of the slide_idx-th slide; auto-adds a text box when no title placeholder exists. Returns the shape ID actually modified.
 
 - **Parameters**: `slide_idx: int`, `text: str`, `doc_id: str`
-- **Returns**: `void`
+- **Returns**: `int`
 - **Flags**: mutates document/app state
 
 ---
 
 ### `set_body`
 
-Set the body placeholder text of the slide_idx-th slide; lines is a list of strings, one per line.
+Set the body placeholder text of the slide_idx-th slide; lines is a list of strings, one per line. Auto-adds a text box when no body placeholder exists. Returns the shape ID actually modified.
 
 - **Parameters**: `slide_idx: int`, `lines: any`, `doc_id: str`
-- **Returns**: `void`
+- **Returns**: `int`
 - **Flags**: mutates document/app state
 
 ---
 
 ### `set_notes`
 
-Write the speaker notes of the slide_idx-th slide.
+Write the speaker notes of the slide_idx-th slide. Returns the shape ID actually modified.
 
 - **Parameters**: `slide_idx: int`, `text: str`, `doc_id: str`
-- **Returns**: `void`
+- **Returns**: `int`
 - **Flags**: mutates document/app state
 
 ---
@@ -154,8 +154,8 @@ Identity of the active presentation (app/doc_id/name/path); null if none. Pass d
 
 ### `quit`
 
-Quit the PowerPoint session (close the application window).
+Quit the PowerPoint session (close the application window). Refuses by default when attached to an existing Office instance; force=True overrides.
 
-- **Parameters**: _none_
+- **Parameters**: `force: bool`
 - **Returns**: `void`
 - **Flags**: mutates document/app state
