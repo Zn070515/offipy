@@ -104,11 +104,12 @@ def destructive(fn):
 
 
 # GetActiveObject 连不到已运行实例的 HRESULT（有符号 int，与 com_error.hresult 一致）：
-# 仅这两类视为「没有可连实例」→ 返回 None 走 launch；其余（权限/RPC/注册损坏）抛
+# 仅这三类视为「没有可连实例」→ 返回 None 走 launch；其余（权限/RPC/注册损坏）抛
 # ComOperationError，绝不静默拉起——否则权限问题会被掩盖成新建实例。
 _NOT_RUNNING_HRS = {
     -2147221021,  # 0x800401E3 MK_E_UNAVAILABLE：ROT 里没有该 ProgID 的存活对象
     -2147221164,  # 0x80040154 REGDB_E_CLASSNOTREG：类未注册（Office 未安装）
+    -2147221005,  # 0x800401F3 CO_E_CLASSSTRING：类字符串无法映射到 CLSID（Office 未安装）
 }
 
 
