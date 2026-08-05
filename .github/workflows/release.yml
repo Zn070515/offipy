@@ -169,6 +169,7 @@ jobs:
     needs: [quality, office-real]
     permissions:
       id-token: write  # OIDC 联合 TestPyPI
+      attestations: write  # PEP 740 供应链签名（provenance）
       contents: read
     environment: testpypi
     steps:
@@ -181,6 +182,8 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           # 同版本重跑不报错（TestPyPI 不允许重复版本号，skip 让幂等重试安全）
           skip-existing: true
+          # PEP 740 供应链签名：生成 provenance attestation 随文件上传
+          attestations: true
 
   # TestPyPI 精确安装门禁（P0-5）：等 TestPyPI 索引可见后，精确下载 wheel，
   # 与构建产物 sha256 比对（同一内容，防「旧同版本被 skip」），干净 venv 安装 + 冒烟。
@@ -233,6 +236,7 @@ jobs:
     if: github.ref_type == 'tag' && needs.quality.outputs.is_stable == 'true'
     permissions:
       id-token: write  # OIDC 联合 PyPI
+      attestations: write  # PEP 740 供应链签名（provenance）
       contents: read
     environment: pypi
     steps:
@@ -241,3 +245,6 @@ jobs:
           name: offipy-dist
           path: dist
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # release/v1
+        with:
+          # PEP 740 供应链签名：生成 provenance attestation 随文件上传（正式版同样带签名）
+          attestations: true
