@@ -39,6 +39,19 @@ Windows-only 的 Office COM 自动化库（offipy）：会话式驱动 Word/Exce
 - 提交前先 `git status` / `git diff` 确认只含本任务改动，不带无关文件。
 - 当前主干 `main`，但 main 只接受合并结果与紧急修复。
 
+### 文档同步纪律（每次修完代码 / 发布新版本后，必做）
+
+- **代码修复与版本发布都要及时更新文档，不能只改代码**。行为变化（哪怕语义相同）
+  必须同步到 `docs/`、README、CHANGELOG，避免文档与代码脱节。
+- **收尾检查清单**（做完一轮代码改动后逐项过）：
+  - `Glob **/README*` 排查所有 README，核对版本号、特性列表、使用示例、结构图是否跟上；
+  - `Grep` 旧版本号与受影响的关键词（如被改动的 API 名、行为描述、错误码），确认无残留；
+  - 改了 schema（OpSpec）后必须重跑 `scripts/gen_api_stub.py` / `scripts/gen_api_ref.py`，
+    api.pyi 与 docs/api/* 由脚本派生，手改无效；
+  - 破坏性/行为变化 → 更新 `docs/migration.md` 迁移指南；
+  - CHANGELOG 顶部版本必须匹配 `__version__`（`test_changelog_top_version_matches` 兜底）。
+- **文档更新独立成 docs commit**（`docs: <一句话说明>`），不与代码/版本 bump 混在一个 commit。
+
 ### 开发文档不进 git 追踪
 
 - **内部开发产物一律不入库**：本地开发文档统一放 `docs/development/`（研究/审计，如
