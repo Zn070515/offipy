@@ -56,8 +56,9 @@ TypeError: read_slide_texts() missing 1 required positional argument: 'slide_idx
 返回逐页摘要，字段与 0.9 的 `read_slide_texts()` 输出一致：
 `{"index", "title", "body", "notes"}`。
 
-- title：标题/居中标题占位符（type 1/3）优先；否则按稳定阅读顺序回退第一个非豁免文本。
+- title：标题/居中标题占位符（type 1/3）优先；否则按稳定阅读顺序回退第一个**非空**非豁免文本。
 - body：正文占位符（type 2）优先；否则其余文本 shape 按阅读顺序 `"\n"` 拼接。
+- **空文本 shape 一律不进 title/body**（0.10.1 行为修正：title 回退曾漏过滤空文本——header 背景矩形等带空 TextFrame 的 shape 会按阅读顺序排在真标题前抢占 title，导致所有页 title 空串，真实比赛 PPT 实证。0.10.1 起 title/body 都跳过空文本候选，对齐 `read_slide_texts` 的 `include_empty=False` 语义）。
 - **豁免集**：页码/页眉/页脚/日期占位符（type 13/14/15/16）+「页码候选」
   （纯数字 AND 位于页面底部/角落 AND 尺寸较小）不进 title/body。
 - 对标准标题/正文占位符页面与 0.9 行为一致；纯文本框页面为启发式摘要，
