@@ -2,7 +2,7 @@
 
 # offipy
 
-**offipy** (office-kit) is a Windows-only Office COM automation library: session-based
+**offipy** is a Windows-only Office COM automation library: session-based
 driving of Word / Excel / PowerPoint, plus an HTML→editable PPTX conversion pipeline.
 It treats an Office application as a **session**, reuses the same instance across
 processes, and provides three consistent entry points: server / CLI / MCP.

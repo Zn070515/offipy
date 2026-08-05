@@ -17,7 +17,7 @@ complete steps for pre-releasing 0.9.0a* to TestPyPI.
 | Prerequisite | Description |
 |------|------|
 | PyPI / TestPyPI account | Register accounts with the same name on [pypi.org](https://pypi.org) and [test.pypi.org](https://test.pypi.org) |
-| Release method (choose one) | **① Trusted Publishing (OIDC, recommended)**: configure this GitHub repository `Zn070515/office-kit` as a trusted publisher on the PyPI/TestPyPI "Publishing" page (can be restricted to the workflow `release.yml` and the `testpypi`/`pypi` environments); **② API token**: for manual `twine upload`, via `~/.pypirc` or the environment variables `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
+| Release method (choose one) | **① Trusted Publishing (OIDC, recommended)**: configure this GitHub repository `Zn070515/offipy` as a trusted publisher on the PyPI/TestPyPI "Publishing" page (can be restricted to the workflow `release.yml` and the `testpypi`/`pypi` environments); **② API token**: for manual `twine upload`, via `~/.pypirc` or the environment variables `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
 | `twine` | Required for manual releases: `uv tool install twine` or `uvx twine` (CI uses `uvx twine` to avoid installing) |
 
 The CI automated pipeline (`.github/workflows/release.yml`) runs when a `v*` tag is pushed; its
@@ -58,7 +58,7 @@ uv build && uvx twine check dist/*
 uvx twine upload --repository testpypi dist/*
 
 # 3) 冒烟：从 TestPyPI 装到干净 venv，验证 import / 版本 / check 可跑
-uv run python scripts/pypi_smoke.py --index https://test.pypi.org/simple --version 0.9.0a1
+uv run python scripts/pypi_smoke.py --index https://test.pypi.org --version 0.9.0a1
 ```
 
 `pypi_smoke.py` exits non-zero if any verification point fails. Note that it does **not** assert

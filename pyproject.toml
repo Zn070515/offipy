@@ -37,11 +37,11 @@ dependencies = [
 dynamic = ["version"]
 
 [project.urls]
-Homepage = "https://github.com/Zn070515/office-kit"
-Changelog = "https://github.com/Zn070515/office-kit/blob/main/CHANGELOG.md"
-Issues = "https://github.com/Zn070515/office-kit/issues"
-Documentation = "https://github.com/Zn070515/office-kit#readme"
-Source = "https://github.com/Zn070515/office-kit"
+Homepage = "https://github.com/Zn070515/offipy"
+Changelog = "https://github.com/Zn070515/offipy/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Zn070515/offipy/issues"
+Documentation = "https://github.com/Zn070515/offipy#readme"
+Source = "https://github.com/Zn070515/offipy"
 
 [project.optional-dependencies]
 # Windows COM 自动化（Word/Excel/PowerPoint 会话驱动）

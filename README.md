@@ -30,7 +30,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - Python ≥ 3.10（本仓库开发环境为 3.12）
 - `import offipy` 在非 Windows 上可运行；调用 Office API 时抛 `UnsupportedPlatformError`
 - 支持的平台 / Office / Python 组合矩阵见
-  [`docs/compatibility.md`](https://github.com/Zn070515/office-kit/blob/main/docs/compatibility.md)
+  [`docs/compatibility.md`](https://github.com/Zn070515/offipy/blob/main/docs/compatibility.md)
   （Tested / Expected / Unsupported 三栏）
 
 ## 安装
@@ -175,7 +175,7 @@ with RemoteExcel() as x:  # 默认连本地 8890（自动拉起 server）
 未显式定义的 op 经 `__getattr__` 代理到底层 app；offipy 异常（`OffipyError` 家族）原样透传。
 
 **返回契约**：三条入口（Python API / HTTP RPC / MCP）同源但**返回形状不同**，如实对照见
-[`docs/api.md`](https://github.com/Zn070515/office-kit/blob/main/docs/api.md)：
+[`docs/api.md`](https://github.com/Zn070515/offipy/blob/main/docs/api.md)：
 - **Python API** 返回 App 方法原始值（`new_book`→`doc_id` 字符串、`get_cell`→单元值、
   `get_target`→dict …）；void op 返回 `None`；失败抛 `OffipyError` 领域异常。
 - **HTTP RPC `/call`** 返回 `OperationResult`（**HTTP-only 契约**）：
@@ -209,7 +209,7 @@ except client.RemoteCallError:
 
 ## 设计系统（HTML deck）
 
-Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页打 `data-layout`，渲染时注入主题与布局，一份 HTML 换主题即换皮。示例见 [`examples/decks/design-system/deck.html`](https://github.com/Zn070515/office-kit/blob/main/examples/decks/design-system/deck.html)。
+Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页打 `data-layout`，渲染时注入主题与布局，一份 HTML 换主题即换皮。示例见 [`examples/decks/design-system/deck.html`](https://github.com/Zn070515/offipy/blob/main/examples/decks/design-system/deck.html)。
 
 ```html
 <head>
@@ -227,7 +227,7 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   （`# 标题` + 每个 `## 段` = 一页，`- ` 要点、正文、`@layout:` 指令），
   `offipy deck outline --input outline.md --out deck.html` 一键得到 HTML 骨架，
   布局自动推断，再 `offipy deck make --theme <主题> --layouts` 注入主题与布局成稿。
-  示例见 [`examples/outline/quarterly-review.md`](https://github.com/Zn070515/office-kit/blob/main/examples/outline/quarterly-review.md)。
+  示例见 [`examples/outline/quarterly-review.md`](https://github.com/Zn070515/offipy/blob/main/examples/outline/quarterly-review.md)。
 
   ```bash
   offipy deck outline --input examples/outline/quarterly-review.md --out out/quarterly.html
@@ -237,7 +237,7 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   `data-chart-data` JSON 属性或页内 `<script type="application/json" data-chart-target="<选择器>">` 块，
   `deck make --layouts` 后自动替换成 PowerPoint 原生可编辑图表（双击即可改数据），不再是贴图。
   **前提**：图表所在页须引用 chart-dominant 布局（`data-layout="chart-dominant"`），容器才有可测的
-  surface 矩形。示例见 [`examples/decks/charts/chart-demo.html`](https://github.com/Zn070515/office-kit/blob/main/examples/decks/charts/chart-demo.html)。
+  surface 矩形。示例见 [`examples/decks/charts/chart-demo.html`](https://github.com/Zn070515/offipy/blob/main/examples/decks/charts/chart-demo.html)。
 
   ```html
   <div class="chart" data-chart="bar"
@@ -252,7 +252,7 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   图标颜色继承容器的 `color`（HTML 里 `color: var(--accent)` 即上主题色；容器未设色时
   缺省取当前主题的 `--accent`）。Lucide 线形图标按 round 线帽/拐角渲染（对齐源 SVG
   设计，非图片非贴图）。示例见
-  [`examples/decks/icons/icons-demo.html`](https://github.com/Zn070515/office-kit/blob/main/examples/decks/icons/icons-demo.html)。
+  [`examples/decks/icons/icons-demo.html`](https://github.com/Zn070515/offipy/blob/main/examples/decks/icons/icons-demo.html)。
 
   ```html
   <svg class="icon" data-icon="ph:check-circle" viewBox="0 0 256 256" width="72" height="72"></svg>
@@ -260,7 +260,7 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
 
   大纲里用 `@icons: <名字>[:标签]; ...` 声明图标行（默认 `ph:` 前缀），骨架自动落
   `icons-row` 布局（超过 3 个图标自动换行，3 列/行）。示例见
-  [`examples/outline/icons-demo.md`](https://github.com/Zn070515/office-kit/blob/main/examples/outline/icons-demo.md)。
+  [`examples/outline/icons-demo.md`](https://github.com/Zn070515/offipy/blob/main/examples/outline/icons-demo.md)。
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 
 ```python
@@ -360,7 +360,7 @@ MIT AND ISC（SPDX 表达式）——offipy 本体与 vendored 转换器 / Phosp
 
 ## 反馈与问题
 
-- **Bug / 功能请求**：到 [GitHub Issues](https://github.com/Zn070515/office-kit/issues) 提交，
+- **Bug / 功能请求**：到 [GitHub Issues](https://github.com/Zn070515/offipy/issues) 提交，
   附上 `offipy check --json` 输出与最小复现。
 - **预发布版本**：TestPyPI 冒烟用 `scripts/pypi_smoke.py --index https://test.pypi.org --version <预发布号>`
   （从 TestPyPI JSON API 精确下载 wheel 并做双重 sha256 比对，见 CHANGELOG「预发布编号策略」）。
