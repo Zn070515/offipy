@@ -12,13 +12,19 @@ margin 由中央 suppression 处理——全部进 suppressed 带 reason，不�
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
-from .extract import _ShapeRecord
+from .extract import _Paragraph, _ShapeRecord
 from .geometry import Rect, overlap_area, rect_contains, rect_intersection
 from .models import (
+    RULE_AUTOFIT_GROW,
+    RULE_AUTOFIT_SHRINK,
+    RULE_TEXT_FIT_HORIZONTAL,
+    RULE_TEXT_FIT_VERTICAL,
     AuditConfig,
     AuditFinding,
     AuditShapeRef,
@@ -41,6 +47,15 @@ _EDGE_RULE = {
     "bottom": "geometry.margin.bottom",
 }
 _EDGE_CN = {"left": "左", "right": "右", "top": "上", "bottom": "下"}
+
+_MIN_READABLE_PT = 8.0  # 最小可读字号阈值
+_DEFAULT_FONT_SIZE_PT = 18.0  # 文本框默认字号（未显式设置时的估算基准）
+_LINE_HEIGHT_RATIO = 1.2
+_PILLOW_CONF = 0.8  # Pillow 字体度量置信度
+_FALLBACK_CONF = 0.4  # 字符权重回退置信度（消息标注「字符估算低置信」）
+_ASCII_WEIGHT = 0.5  # 相对字号的 ASCII/数字宽度
+_SPACE_WEIGHT = 0.35
+_TEXT_FIT_SKIP_ROLES = ("page_number", "header", "footer")  # 页码/页眉页脚小文本本就紧凑
 
 
 # ---------------------------------------------------------------- 上下文
@@ -488,10 +503,343 @@ def _partial_finding(
     )
 
 
+# ---------------------------------------------------------------- TextFit
+
+
+def _is_wide_char(ch: str) -> bool:
+    """东亚全宽字符近似（East Asian Width W/F）：CJK/全角/谚文等。"""
+    code = ord(ch)
+    return (
+        0x1100 <= code <= 0x115F
+        or 0x2E80 <= code <= 0xA4CF
+        or 0xAC00 <= code <= 0xD7A3
+        or 0xF900 <= code <= 0xFAFF
+        or 0xFE30 <= code <= 0xFE4F
+        or 0xFF00 <= code <= 0xFF60
+        or 0xFFE0 <= code <= 0xFFE6
+    )
+
+
+def _char_width_pt(ch: str, size_pt: float) -> float:
+    if ch == " ":
+        return _SPACE_WEIGHT * size_pt
+    return size_pt if _is_wide_char(ch) else _ASCII_WEIGHT * size_pt
+
+
+def _font_candidates(name: str, bold: bool) -> list[Path]:
+    base = "".join(ch for ch in name if ch.isalnum())
+    files = [f"{base}bd.ttf", f"{base}b.ttf"] if bold else []
+    files.append(f"{base}.ttf")
+    dirs = [
+        Path(r"C:\Windows\Fonts"),
+        Path("/usr/share/fonts/truetype/dejavu"),
+        Path("/usr/share/fonts/truetype/msttcorefonts"),
+        Path("/usr/share/fonts"),
+        Path("/Library/Fonts"),
+    ]
+    cands = [d / f for d in dirs for f in files]
+    if name.lower() in ("arial", "helvetica", "sans", "sans-serif", "calibri"):
+        cands.append(Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+    return cands
+
+
+def _load_font(font_name: str | None, bold: bool, size_pt: float):
+    """定位字体文件加载 PIL 字体；失败返回 None（走字符权重回退）。"""
+    try:
+        from PIL import ImageFont
+    except Exception:
+        return None
+    name = (font_name or "Arial").strip()
+    for path in _font_candidates(name, bold):
+        try:
+            return ImageFont.truetype(str(path), int(size_pt))
+        except Exception:
+            continue
+    try:
+        return ImageFont.truetype(name, int(size_pt))  # 允许 font_name 本身是绝对路径
+    except Exception:
+        return None
+
+
+def _run_width_pt(
+    text: str, size_pt: float, bold: bool | None, font_name: str | None
+) -> tuple[float, bool]:
+    """单个 run 自然宽度（pt）→ (宽度, 是否用 Pillow 度量)。"""
+    font = _load_font(font_name, bool(bold), size_pt)
+    if font is not None:
+        try:
+            return float(font.getlength(text)), True
+        except Exception:
+            pass
+    return sum(_char_width_pt(ch, size_pt) for ch in text), False
+
+
+def _para_width_in(p: _Paragraph, default_size_pt: float) -> tuple[float, bool]:
+    """段落自然宽度（不折行）→ (英寸, 是否用 Pillow 度量)。"""
+    total_pt = 0.0
+    used_pillow = False
+    for run in p.runs:
+        size = run.font_size or default_size_pt
+        w_pt, used = _run_width_pt(run.text, size, run.bold, run.font_name)
+        total_pt += w_pt
+        used_pillow = used_pillow or used
+    return total_pt / 72.0, used_pillow
+
+
+def _para_size_pt(p: _Paragraph, default_size_pt: float) -> float:
+    sizes = [r.font_size for r in p.runs if r.font_size is not None]
+    return max(sizes) if sizes else default_size_pt
+
+
+def _text_height_in(
+    rec: _ShapeRecord, avail_w: float, default_size_pt: float
+) -> tuple[float, bool]:
+    """文本所需高（英寸，含折行）→ (高度, 是否用 Pillow 度量)。"""
+    total_pt = 0.0
+    used_pillow = False
+    for p in rec.paragraphs:
+        pw, used = _para_width_in(p, default_size_pt)
+        used_pillow = used_pillow or used
+        lines = max(1, math.ceil(pw / avail_w)) if rec.word_wrap and avail_w > _MIN_DIM else 1
+        size = _para_size_pt(p, default_size_pt)
+        total_pt += lines * size * _LINE_HEIGHT_RATIO
+    return total_pt / 72.0, used_pillow
+
+
+def _effective_font_size_pt(rec: _ShapeRecord) -> float | None:
+    sizes = [r.font_size for p in rec.paragraphs for r in p.runs if r.font_size is not None]
+    return max(sizes) if sizes else None
+
+
+def _text_overflow(
+    rec: _ShapeRecord, avail_w: float, avail_h: float
+) -> tuple[bool, bool, float, float]:
+    """文本是否超出现有可用区域 → (超宽, 超高, 文本宽, 文本高)。"""
+    widths = [_para_width_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
+    max_w = max((w for w, _ in widths), default=0.0)
+    wrap_w = avail_w if avail_w > _MIN_DIM else 1.0
+    text_h, _ = _text_height_in(rec, wrap_w, _DEFAULT_FONT_SIZE_PT)
+    over_w = (not rec.word_wrap) and max_w > avail_w
+    over_h = text_h > avail_h
+    return over_w, over_h, max_w, text_h
+
+
+class TextFitRule:
+    rule_id = "text_fit"
+
+    def run(self, context: RuleContext) -> list[AuditFinding]:
+        findings: list[AuditFinding] = []
+        for rec in context.records:
+            if rec.is_group or rec.is_connector or rec.is_hidden:
+                continue
+            if (
+                rec.has_table
+                or rec.geometry_unknown
+                or not rec.has_text_frame
+                or not rec.text.strip()
+            ):
+                continue
+            if rec.role in _TEXT_FIT_SKIP_ROLES:
+                continue
+            r = _rect(rec)
+            if r is None:
+                continue
+            avail_w = r.width - (rec.tf_margin_left or 0.0) - (rec.tf_margin_right or 0.0)
+            avail_h = r.height - (rec.tf_margin_top or 0.0) - (rec.tf_margin_bottom or 0.0)
+            if avail_w <= _MIN_DIM or avail_h <= _MIN_DIM:
+                findings.append(
+                    _finding(
+                        rule_id=RULE_TEXT_FIT_HORIZONTAL,
+                        kind="text_fit",
+                        severity=Severity.MID,
+                        message=(
+                            f"文本框无可用空间：可用宽 {max(avail_w, 0.0):.3f}×"
+                            f"高 {max(avail_h, 0.0):.3f} 英寸"
+                            f"（框 {r.width:.3f}×{r.height:.3f} 英寸，内边距吃尽）"
+                        ),
+                        primary=_shape_ref(rec),
+                        details={
+                            "avail_width_in": round(max(avail_w, 0.0), 4),
+                            "avail_height_in": round(max(avail_h, 0.0), 4),
+                        },
+                        confidence=1.0,
+                    )
+                )
+                continue
+            widths = [_para_width_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
+            max_para_w = max((w for w, _ in widths), default=0.0)
+            used_pillow = any(u for _, u in widths)
+            conf = _PILLOW_CONF if used_pillow else _FALLBACK_CONF
+            approx = "" if used_pillow else "（字符估算低置信）"
+            if not rec.word_wrap and max_para_w > avail_w:
+                findings.append(
+                    _finding(
+                        rule_id=RULE_TEXT_FIT_HORIZONTAL,
+                        kind="text_fit",
+                        severity=Severity.LOW,
+                        message=(
+                            f"文本横向超出文本框：自然宽 {max_para_w:.2f} 英寸 > "
+                            f"可用 {avail_w:.2f} 英寸{approx}"
+                        ),
+                        primary=_shape_ref(rec),
+                        details={
+                            "text_width_in": round(max_para_w, 4),
+                            "avail_width_in": round(avail_w, 4),
+                            "word_wrap": bool(rec.word_wrap),
+                        },
+                        confidence=conf,
+                    )
+                )
+            text_h, v_used = _text_height_in(rec, avail_w, _DEFAULT_FONT_SIZE_PT)
+            v_conf = _PILLOW_CONF if (used_pillow or v_used) else _FALLBACK_CONF
+            v_approx = "" if (used_pillow or v_used) else "（字符估算低置信）"
+            if text_h > avail_h:
+                findings.append(
+                    _finding(
+                        rule_id=RULE_TEXT_FIT_VERTICAL,
+                        kind="text_fit",
+                        severity=Severity.LOW,
+                        message=(
+                            f"文本纵向超出文本框：所需高 {text_h:.2f} 英寸 > "
+                            f"可用 {avail_h:.2f} 英寸{v_approx}"
+                        ),
+                        primary=_shape_ref(rec),
+                        details={
+                            "text_height_in": round(text_h, 4),
+                            "avail_height_in": round(avail_h, 4),
+                            "word_wrap": bool(rec.word_wrap),
+                        },
+                        confidence=v_conf,
+                    )
+                )
+        return findings
+
+
+# ---------------------------------------------------------------- AutofitRisk
+
+
+class AutofitRiskRule:
+    rule_id = "autofit"
+
+    def run(self, context: RuleContext) -> list[AuditFinding]:
+        findings: list[AuditFinding] = []
+        for rec in context.records:
+            if rec.is_group or rec.is_connector or rec.is_hidden:
+                continue
+            if (
+                rec.has_table
+                or rec.geometry_unknown
+                or not rec.has_text_frame
+                or not rec.text.strip()
+            ):
+                continue
+            if rec.role in _TEXT_FIT_SKIP_ROLES:
+                continue
+            if rec.autofit_norm_auto_fit:
+                f = _shrink_finding(rec)
+            elif rec.autofit_sp_auto_fit:
+                f = _grow_finding(rec, context)
+            else:
+                continue
+            if f is not None:
+                findings.append(f)
+        return findings
+
+
+def _shrink_finding(rec: _ShapeRecord) -> AuditFinding | None:
+    """normAutofit（缩小字体适应 Shape）：字号过小影响可读性。"""
+    r = _rect(rec)
+    avail_w = avail_h = 0.0
+    if r is not None:
+        avail_w = r.width - (rec.tf_margin_left or 0.0) - (rec.tf_margin_right or 0.0)
+        avail_h = r.height - (rec.tf_margin_top or 0.0) - (rec.tf_margin_bottom or 0.0)
+    over_w, over_h, _, _ = _text_overflow(rec, avail_w, avail_h)
+    scale = rec.autofit_font_scale
+    if scale is None and not (over_w or over_h):
+        return None  # 未实际缩小也无溢出 → 无风险
+    orig = _effective_font_size_pt(rec)
+    est = (orig * scale) if (scale is not None and orig is not None) else None
+    orig_txt = f"原始 {orig:g}pt" if orig is not None else "原始字号未记录"
+    scale_txt = f"fontScale {scale:.0%}" if scale is not None else "fontScale 未记录"
+    est_txt = f"，估算后 {est:.1f}pt" if est is not None else ""
+    if est is not None and est < _MIN_READABLE_PT:
+        severity = Severity.HIGH
+        message = (
+            f"字体缩小到 {est:.1f}pt，低于最小可读 {_MIN_READABLE_PT}pt（{orig_txt}，{scale_txt}）"
+        )
+    else:
+        severity = Severity.MID
+        message = f"文本被缩小字体适应 Shape（normAutofit）：{orig_txt}，{scale_txt}{est_txt}"
+    return _finding(
+        rule_id=RULE_AUTOFIT_SHRINK,
+        kind="autofit",
+        severity=severity,
+        message=message,
+        primary=_shape_ref(rec),
+        details={
+            "original_font_size_pt": orig,
+            "font_scale": scale,
+            "estimated_font_size_pt": est,
+            "min_readable_pt": _MIN_READABLE_PT,
+        },
+        confidence=1.0 if scale is not None else 0.6,
+    )
+
+
+def _grow_finding(rec: _ShapeRecord, context: RuleContext) -> AuditFinding | None:
+    """spAutoFit（扩大 Shape 适应文字）：撑大后越界/撞对象。"""
+    r = _rect(rec)
+    if r is None:
+        return None
+    avail_w = r.width - (rec.tf_margin_left or 0.0) - (rec.tf_margin_right or 0.0)
+    avail_h = r.height - (rec.tf_margin_top or 0.0) - (rec.tf_margin_bottom or 0.0)
+    over_w, over_h, text_w, text_h = _text_overflow(rec, avail_w, avail_h)
+    if not (over_w or over_h):
+        return None  # 现有框能装下 → 不会撑大
+    page = context.page_rect
+    tol = context.config.bounds_tolerance_in
+    grown_right = r.right + max(text_w - avail_w, 0.0)
+    grown_bottom = r.bottom + max(text_h - avail_h, 0.0)
+    off_page = grown_right > page.right + tol or grown_bottom > page.bottom + tol
+    parts = []
+    if over_w:
+        parts.append(f"宽 {text_w:.2f}>可用 {avail_w:.2f}")
+    if over_h:
+        parts.append(f"高 {text_h:.2f}>可用 {avail_h:.2f}")
+    dims = "，".join(parts) + " 英寸"
+    if off_page:
+        severity = Severity.HIGH
+        tail = "撑大后可能越出幻灯片"
+    else:
+        severity = Severity.MID
+        tail = "撑大后可能撞到相邻对象"
+    message = f"文本框按内容自动扩大（spAutoFit）：文本超出现有边界（{dims}），{tail}"
+    return _finding(
+        rule_id=RULE_AUTOFIT_GROW,
+        kind="autofit",
+        severity=severity,
+        message=message,
+        primary=_shape_ref(rec),
+        details={
+            "text_width_in": round(text_w, 4),
+            "text_height_in": round(text_h, 4),
+            "avail_width_in": round(avail_w, 4),
+            "avail_height_in": round(avail_h, 4),
+        },
+        confidence=1.0,
+    )
+
+
 # ---------------------------------------------------------------- 编排
 
 
-DEFAULT_RULES: list[AuditRule] = [BoundsRule(), MarginRule(), OverlapRule()]
+DEFAULT_RULES: list[AuditRule] = [
+    BoundsRule(),
+    MarginRule(),
+    OverlapRule(),
+    TextFitRule(),
+    AutofitRiskRule(),
+]
 
 _ROLE_MARGIN_REASON: dict[str, SuppressionReason] = {
     "background": "full_bleed",

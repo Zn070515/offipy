@@ -63,6 +63,9 @@ class _TextFrameData:
     margin_right: float | None
     margin_top: float | None
     margin_bottom: float | None
+    autofit_font_scale: float | None  # 0-1 分数；None = 无 normAutofit 或未写 fontScale
+    autofit_norm_auto_fit: bool  # a:normAutofit 存在（缩小字体适应 Shape）
+    autofit_sp_auto_fit: bool  # a:spAutoFit 存在（扩大 Shape 适应文字）
 
 
 @dataclass
@@ -115,6 +118,9 @@ class _ShapeRecord:
     # 绝对化阶段填充：累计旋转非轴对齐 → AABB 近似；祖先 group 无 xfrm → 无法精确定位
     is_rotated: bool = False
     geometry_unknown: bool = False
+    autofit_font_scale: float | None = None
+    autofit_norm_auto_fit: bool = False
+    autofit_sp_auto_fit: bool = False
 
 
 @dataclass
@@ -226,6 +232,9 @@ def _build_record(
         tf_margin_right=tf.margin_right if tf else None,
         tf_margin_top=tf.margin_top if tf else None,
         tf_margin_bottom=tf.margin_bottom if tf else None,
+        autofit_font_scale=tf.autofit_font_scale if tf else None,
+        autofit_norm_auto_fit=tf.autofit_norm_auto_fit if tf else False,
+        autofit_sp_auto_fit=tf.autofit_sp_auto_fit if tf else False,
     )
 
 
@@ -244,6 +253,13 @@ def _read_text_frame(shape: object) -> _TextFrameData:
         text_parts.append(p_text)
     auto = tf.auto_size
     autofit = getattr(auto, "name", None) or "UNKNOWN"
+    norm = tf._txBody.xpath("./a:bodyPr/a:normAutofit")
+    sp = tf._txBody.xpath("./a:bodyPr/a:spAutoFit")
+    font_scale = None
+    if norm:
+        raw = norm[0].get("fontScale")
+        if raw:
+            font_scale = float(raw) / 100000.0
     return _TextFrameData(
         text="\n".join(text_parts),
         paragraphs=paragraphs,
@@ -253,6 +269,9 @@ def _read_text_frame(shape: object) -> _TextFrameData:
         margin_right=_to_inches(tf.margin_right),
         margin_top=_to_inches(tf.margin_top),
         margin_bottom=_to_inches(tf.margin_bottom),
+        autofit_font_scale=font_scale,
+        autofit_norm_auto_fit=bool(norm),
+        autofit_sp_auto_fit=bool(sp),
     )
 
 
