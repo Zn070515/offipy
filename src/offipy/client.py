@@ -245,17 +245,17 @@ def _process_start_time(pid: int) -> float | None:
 def _pid_file_matches(pid: int) -> bool:
     """pid 文件 + 端口持有者 + token + 进程创建时间，多重要素才认定是『我们的』server。
 
-    新格式 JSON {port,pid,token_sha256,started_at}：pid 与端口持有者一致、
+    仅接受 JSON 格式 {port,pid,token_sha256,started_at}：pid 与端口持有者一致、
     token_sha256 与本地已知 token 一致、且 started_at 与进程真实创建时间
-    相近才算归属（P0-1 强化 + P1-3 PID 复用防护）；旧格式纯数字退化为仅
-    pid 比对。任一要素对不上 → 拒绝（安全方向：不杀无法证明归属的进程）。
+    相近才算归属（P0-1 强化 + P1-3 PID 复用防护）。旧格式纯数字文件无法
+    证明 token 归属 → 一律拒绝（P0-2：不杀无法证明归属的进程）。
     """
     try:
         raw = _pid_path().read_text(encoding="utf-8").strip()
     except OSError:
         return False
     if raw.isdigit():
-        return int(raw) == pid
+        return False  # P0-2：纯数字 pid 文件不携带 token 证据，不认
     try:
         data = json.loads(raw)
     except (ValueError, TypeError):
@@ -278,23 +278,22 @@ def _pid_file_matches(pid: int) -> bool:
 
 
 def _write_pid_file(pid: int) -> None:
-    """落盘 pid 文件（JSON：port/pid/token_sha256/started_at），供归属验证。
+    """落盘 pid 文件（始终 JSON：port/pid/token_sha256/started_at），供归属验证。
 
     server 进程自身会再覆写一份更权威的记录（含真实 started_at）；这里先写
-    供进程拉起、尚未完成握手前的定位窗口。token 未知（首次启动未生成）则
-    退化为纯数字格式。写失败不致命：netstat 可兜底定位。
+    供进程拉起、尚未完成握手前的定位窗口。token 未知则 token_sha256 置 None
+    ——_pid_file_matches 里 None 与任何本地 token 哈希都不等，绝不误杀（P0-2）。
+    写失败不致命：netstat 可兜底定位。
     """
-    payload: object = str(pid)
     token = _token()
-    if token:
-        payload = json.dumps(
-            {
-                "port": port(),
-                "pid": pid,
-                "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
-                "started_at": time.time(),
-            }
-        )
+    payload = json.dumps(
+        {
+            "port": port(),
+            "pid": pid,
+            "token_sha256": hashlib.sha256(token.encode()).hexdigest() if token else None,
+            "started_at": time.time(),
+        }
+    )
     with contextlib.suppress(OSError):
         _pid_path().write_text(payload, encoding="utf-8")
 
