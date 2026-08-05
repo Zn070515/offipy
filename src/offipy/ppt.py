@@ -27,9 +27,14 @@ PP_LAYOUT_TEXT = 2
 PP_LAYOUT_TITLE_ONLY = 5
 PP_LAYOUT_BLANK = 12
 
+# PpPlaceholderType 官方值（微软 Learn，round-10 探针运行时常量 20/20 核实）
+PP_PLACEHOLDER_TITLE = 1  # ppPlaceholderTitle
 PP_PLACEHOLDER_BODY = 2  # ppPlaceholderBody
-PP_PLACEHOLDER_TITLE = 13  # ppPlaceholderTitle
-PP_PLACEHOLDER_CENTER_TITLE = 14  # ppPlaceholderCenterTitle
+PP_PLACEHOLDER_CENTER_TITLE = 3  # ppPlaceholderCenterTitle
+PP_PLACEHOLDER_SLIDE_NUMBER = 13  # ppPlaceholderSlideNumber
+PP_PLACEHOLDER_HEADER = 14  # ppPlaceholderHeader
+PP_PLACEHOLDER_FOOTER = 15  # ppPlaceholderFooter
+PP_PLACEHOLDER_DATE = 16  # ppPlaceholderDate
 
 # 无对应占位符时自动建文本框的默认位置（磅）：4:3 标准幻灯片
 _TITLE_BOX = (36, 18, 648, 72)
