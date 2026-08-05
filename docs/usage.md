@@ -21,7 +21,7 @@ offipy excel activate --doc_id book1       # 切换活动目标到 book1
 offipy excel set_cell --sheet 1 --cell A1 --value 100
 offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # 显式路由
 offipy excel read_range --sheet 1 --range_addr A1:B1
-offipy excel list_docs                     # {doc_id: {name, path}}
+offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
 ```
 
@@ -62,7 +62,7 @@ MCP server 走 stdio，工具集合从 `schema.py` 自动注册。Claude Desktop
 
 ```bash
 offipy deck make --html deck.html --out deck.pptx --no-open
-offipy deck outline deck.html             # 生成大纲
+offipy deck outline --input outline.md --out deck.html   # markdown 大纲 → HTML 骨架
 ```
 
 `render` 使用**原子替换**：先写同目录临时文件，后处理完成后 `os.replace` 覆盖目标；
@@ -85,5 +85,6 @@ with Excel() as x:
     x.quit()
 ```
 
-所有返回都经 `OperationResult` 统一封装：`{ok, operation, resource_id, message, data}`，
-`data` 是操作的实际返回值。
+Python API 返回 App 方法的**原始值**（`new_book`→`"book1"` 字符串、`read_range`→二维列表）。
+`OperationResult` 是 **HTTP `/call` 的返回契约**（`{ok, operation, resource_id, message, data}`，
+HTTP-only），MCP 返回 `data` 载荷——三入口返回形状不同，如实对照见 [api.md](api.md)。

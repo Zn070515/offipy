@@ -9,7 +9,7 @@
 
 > **预发布编号策略**：正式首发 1.0.0 前，TestPyPI 预发布用 `0.9.0a1` / `0.9.0rc1`
 > 编号；稳定发布时 `__version__`、git tag、CHANGELOG 顶层三者必须一致（对齐测试兜底）。
-> 当前处于 TestPyPI 预发布：round-3（ChatGPT_v3 审核）全量修复后以 `0.9.0a1` 冒烟；
+> 当前处于 TestPyPI 预发布：round-3/round-4（ChatGPT_v3/v4 审核）全量修复后以 `0.9.0a1` 冒烟；
 > 预发布验证通过后转正式首发（`__version__`/CHANGELOG 顶层同步）。
 
 ### Added
@@ -43,6 +43,16 @@
 - CI 矩阵（P1-6）：pure-module（Linux + 覆盖率门槛）/ windows（3.10–3.13）/ wheel-smoke / office-real（自托管真机 COM + deck_render）
 - MCP in-memory 协议层测试（P1-7）：无子进程直连 MCPServer 验证工具注册 / 返回 / 错误映射
 
+#### round-4（ChatGPT_v4 审核，2026-08-05）
+- 目标语义显式化（P0-4/5/6）：`expected_target` **resolve-once**——`doc_id`/`name`/`path` 三键可组合，空对象/未知键直接拒绝，解析出的 doc_id 注入方法参数（杜绝「校验 A 执行 B」）；`activate()` 同步真实 UI（`Workbook.Activate()` / `Document.Activate()` / PPT 窗口），失败回滚抛 `ComOperationError`；`resource_id` 改用 doc_id；`list_docs` 只报已登记句柄并含 `active`；`get_target(doc_id=)` 显式查询
+- 有界资源 + 幂等（§4/5）：client 超时对齐 server 600s；`request_id` 幂等缓存（LRU 512 / TTL 600s，超时重试不重执行）；COM 队列上限 64、并发线程上限 16，满则 503 busy；PID 文件含 `port/pid/token_sha256/started_at` 归属验证；token 落盘权限 0o600
+- deck 原子渲染加固（§7）：`render` 临时文件改 `mkstemp`（同输出目录随机名，并发渲染不互踩）；失败清理临时文件，绝不破坏既有 .pptx；源 HTML 缺失抛 `InvalidArgumentError`
+- 发布门禁（P0-2/3）：`release.yml` 门禁链 quality → office-real（真机必过）→ gh-release → publish-testpypi → publish-pypi（OIDC Trusted Publishing）；`ci.yml` 的 office-real 成为 PR 合并门禁；`docs/release.md` 发布手册
+- CLI / 转换边界收严（§6/11/12）：`offipy mcp` 缺 mcp extra 友好报错（exit 2）；必填参数调用前预校验（exit 2）；`_parse_cell` 收严 `^([A-Za-z]{1,3})(\d{1,7})$` 且越界 XFD/1048576 拒绝；`set_title`/`set_body` 空输入抛 `InvalidArgumentError`；CLI `--port` 子命令 SUPPRESS 继承父级；`/call` args 非 dict → 400；`offipy check --profile`；`install_smoke.py --profile`；`.github/dependabot.yml`
+- License（PEP 639）：`license = "MIT AND ISC"` SPDX 表达式（vendored 转换器 / Phosphor 图标为 MIT，内嵌 Lucide 为 ISC），`license-files` 随产物分发
+- CI 稳定（P0-1）：版本断言改 PEP 440（`packaging.Version`，兼容 a/b/rc 预发布）；`mypy` 固定 `platform=win32` 修复 Linux CI 误报 winreg 常量缺失；envcheck 依赖探测平台感知（非 Windows 不查 pywin32 等）
+- save/close 防弹窗：`save()` / `close_book()` / `close_doc()` 对从未保存的文档自动落盘 `<cwd>/<名字>_<时间戳><ext>` 并返回绝对路径，不再弹「另存为」对话框；`overwrite` 覆盖保护 fail-fast（先于触 COM）
+
 ### Changed
 - 命令行更名：`office` → `offipy`（console script 只留 `offipy`）
 - `mcp` 依赖收窄为 `>=2.0,<3.0`
@@ -64,12 +74,19 @@
 - 品牌统一（P1-9）：对外文案 / 文档 / 示例页脚统一 `offipy`
 - 非 Windows 收集修复（P1-6）：COM 测试模块改 fixture + skipif 短路，Linux 收集不炸
 
+#### round-4（ChatGPT_v4 审核，2026-08-05）
+- 公开文档统一对齐当前技术栈：README / docs/ 按方案 B 如实描述三入口返回形状（`OperationResult` 为 HTTP-only 契约）；`docs/api/` 由 `schema.py` 重新生成（close_book/close_doc/save 返回路径、`get_target` 带 doc_id、`list_docs` 含 active）
+
 ### Fixed
 - PPT DisplayAlerts 常量改正（`ppAlertsNone=1`，原 `=0` 实为 `ppAlertsAll`）
 
 #### round-3（ChatGPT_v3 审核，2026-08-04）
 - HTTP 边界（P0-10）：`do_POST` 非 `/call` / `/shutdown` 路径 404（此前任何路径都当 /call）；负 `Content-Length` 拒绝 400；响应体超上限回 500 不写大 payload
 - deck CLI `--overwrite false` 此前被 `bool("false")` 翻成 True 误覆盖目标文件
+
+#### round-4（ChatGPT_v4 审核，2026-08-05）
+- Linux 纯模块 CI 修复：user_data_dir 路径分隔符跨平台断言、envcheck 依赖平台感知、版本断言改 PEP 440
+- `_parse_cell` 畸形坐标（如 `"A1B2"` 被字母/数字拆分误读）与越界坐标（列 > XFD、行 > 1048576）此前会被误解析，现已收严并抛 `InvalidArgumentError`
 
 ## [0.8.0] - 2026-08-04
 

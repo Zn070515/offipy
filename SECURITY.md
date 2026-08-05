@@ -22,7 +22,7 @@ offipy 通过本机 HTTP server 驱动真实的 Microsoft Office 应用。本文
   `POST` 只接受 `/call` 与 `/shutdown` 两个路径，其余一律 404。
 - **健康端点**：`/ping` 免鉴权（仅握手用），`/status` 需鉴权，返回
   `{version, protocol, pid, python, started_at, targets}`——`targets` 是各 App 当前激活文档的
-  只读身份快照（`{app, name, path}`），由 worker 线程缓存，handler 不触碰 COM。
+  只读身份快照（`{app, doc_id, name, path}`），由 worker 线程缓存，handler 不触碰 COM。
   `/shutdown` 需鉴权——身份由 token 证明，走优雅停机；不依赖 pid 强杀。
 - **回环绑定**：默认只允许 `127.0.0.1` / `localhost` / `::1`；`--host 0.0.0.0` 需显式
   `--unsafe-allow-remote`，否则启动拒绝（`ServerStartError`）。
@@ -38,8 +38,10 @@ offipy 通过本机 HTTP server 驱动真实的 Microsoft Office 应用。本文
 server 保持 Office 窗口与文档存活，op 作用在用户当前激活的文档上。**别把 token 泄漏给不信任的进程**——
 拿到 token 即等于拿到你当前 Office 会话的读写权限。
 
-**目标绑定（`expected_target`）**：破坏性 op 可携带 `expected_target`（`{name, path}`，逐键精确比对）。
-server dispatch 前比对当前激活文档，不匹配抛 `TargetNotFoundError`——op 绑定目标，**不跟随用户焦点**，
+**目标绑定（`expected_target`）**：破坏性 op 可携带 `expected_target`，键取 `doc_id` / `name` / `path`
+（可组合）。server 在 dispatch 时 **resolve-once**：用 `get_target(doc_id=...)` 解析出目标 doc_id，
+校验 `name`/`path` 匹配后把解析结果注入方法参数（杜绝「校验 A 执行 B」）；空对象或含未知键拒绝
+（`InvalidArgumentError`），绑定失败抛 `TargetNotFoundError`。op 绑定目标，**不跟随用户焦点**，
 防止并发脚本切走焦点后被误改到非预期文档。只读 op 不做绑定校验。
 
 ### 数据落盘
