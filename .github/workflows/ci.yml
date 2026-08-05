@@ -86,8 +86,6 @@ jobs:
     env:
       http_proxy: http://127.0.0.1:12334
       https_proxy: http://127.0.0.1:12334
-      HTTP_PROXY: http://127.0.0.1:12334
-      HTTPS_PROXY: http://127.0.0.1:12334
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复自托管 Windows runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
