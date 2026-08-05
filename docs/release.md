@@ -69,7 +69,7 @@ uv build && uvx twine check dist/*
 uvx twine upload --repository testpypi dist/*
 
 # 3) 冒烟：从 TestPyPI 装到干净 venv，验证 import / 版本 / check 可跑
-uv run python scripts/pypi_smoke.py --index https://test.pypi.org --version 0.9.0a1
+uv run python scripts/pypi_smoke.py --index https://test.pypi.org --version 0.9.0
 ```
 
 `pypi_smoke.py` 任一验证点失败即非 0 退出。注意它**不断言 `offipy check` 的退出码**

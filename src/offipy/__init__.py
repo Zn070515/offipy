@@ -22,7 +22,7 @@ from .exceptions import (
     UnsupportedPlatformError,
 )
 
-__version__ = "0.9.0a1"
+__version__ = "0.9.0"
 
 __all__ = [
     "Excel",
