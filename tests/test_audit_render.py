@@ -109,12 +109,8 @@ def test_render_json_diff(tmp_path):
     diff = compare_pptx(base_path, cand_path)
     data = json.loads(diff.to_json())
     assert data["max_new_severity"] == "HIGH"
-    assert [f["rule_id"] for f in data["resolved_findings"]] == [
-        "geometry.margin.right"
-    ]
-    assert [f["rule_id"] for f in data["added_findings"]] == [
-        "geometry.bounds.partial"
-    ]
+    assert [f["rule_id"] for f in data["resolved_findings"]] == ["geometry.margin.right"]
+    assert [f["rule_id"] for f in data["added_findings"]] == ["geometry.bounds.partial"]
     assert data["added_shapes"]
 
 
