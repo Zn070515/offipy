@@ -4,7 +4,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 目标：让 Claude 能独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.9.0（正式首发前的全量发布硬化；首发号 1.0.0）
+- **当前版本**：0.9.0a1（TestPyPI 预发布；正式首发号 1.0.0）
 
 ## 特性
 
@@ -27,6 +27,8 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - Windows + 已安装 Microsoft Office（Word / Excel / PowerPoint）
 - Python ≥ 3.10（本仓库开发环境为 3.12）
 - `import offipy` 在非 Windows 上可运行；调用 Office API 时抛 `UnsupportedPlatformError`
+- 支持的平台 / Office / Python 组合矩阵见 [`docs/compatibility.md`](docs/compatibility.md)
+  （Tested / Expected / Unsupported 三栏）
 
 ## 安装
 
@@ -52,11 +54,16 @@ uv run playwright install chromium    # 转换器依赖 chromium 做 DOM 测量
 - 首次调用自动在后台拉起常驻 server（`127.0.0.1:8890`）；之后所有操作打到同一进程。
 - op 作用在**用户当前激活**的文档上——你在 Excel 里激活哪个工作簿，`set_cell` 就写到哪个。
   **不隐式新建**：没有打开文档时，需要文档的 op 抛 `TargetNotFoundError`，提示先
-  `new_book` / `open_book`（round-3「只读不创建」）。用 `get_target` 查询当前激活目标身份：
-  `offipy excel get_target` → `{"app": "excel", "name": "Book1", "path": "..."}`（无则 `null`）。
-- 破坏性 op 可带 `expected_target`（`{"name": ..., "path": ...}`）做**目标绑定**：server 精确比对
-  当前激活文档，绑定失败抛 `TargetNotFoundError`——防止用户切到别的文档后被误改（Python client /
-  RPC 层可用，绕开按焦点路由）。
+  `new_book` / `open_book`。用 `get_target` 查询当前激活目标身份：
+  `offipy excel get_target` → `{"app": "excel", "doc_id": "book1", "name": "Book1", "path": "..."}`
+  （无则 `null`）。`doc_id` 是会话内稳定标识，跨调用有效，不随改名变化。
+- `activate(doc_id)` 把指定文档设为激活目标并**同步真实 UI**（Excel `Workbook.Activate()`、
+  Word `Document.Activate()`、PPT 激活含该文档的窗口），同步失败回滚并抛 `ComOperationError`；
+  `list_docs` 如实返回已登记句柄的 `{doc_id: {"name", "path", "active"}}`（不隐式枚举未登记的）。
+- 破坏性 op 可带 `expected_target`（`{"doc_id": ...}` / `{"name": ...}` / `{"path": ...}` 可组合）
+  做**目标绑定**：resolve-once——server 先按绑定键解析出目标 doc_id，再用解析结果执行操作；
+  绑定失败抛 `TargetNotFoundError`——杜绝「校验 A 执行 B」，防止切到别的文档后被误改
+  （Python client / RPC 层可用，绕开按焦点路由）。
 - `quit excel` 等命令关掉应用；`__exit__`（Python API）**不**关 Office 窗口，窗口与文档跨调用保持存活。
 - 用户手动关窗后，下次调用自动重建会话（断连自愈）。
 
@@ -110,7 +117,7 @@ offipy ppt set_title --slide_idx 1 --text "标题"
 
 offipy check            # 环境就绪诊断：Python/依赖/Office/浏览器/server（--json 机器可读）
 offipy server status    # 常驻 server 状态（/status 握手，只读不拉起）；stop / restart 同理
-offipy excel get_target # 查询当前激活工作簿身份 {app,name,path}（无则 null）
+offipy excel get_target # 查询当前激活目标身份 {app,doc_id,name,path}（无则 null）
 offipy word read_doc_text            # Agent 只读：全文档文本
 offipy ppt read_slide_texts          # Agent 只读：逐页 title/body/notes
 offipy excel read_range --sheet 1 --range_addr A1:B2   # Agent 只读：区域二维值
@@ -137,10 +144,16 @@ with Ppt() as p:
 
 未显式定义的 op 经 `__getattr__` 代理到底层 app；offipy 异常（`OffipyError` 家族）原样透传。
 
-**返回契约（OperationResult）**：Python client / RPC / MCP 统一返回
-`{ok, operation, resource_id, message, data}`。`operation` 是 `"excel.set_cell"` 式全名；
-`resource_id`（如 `excel:book:Book1`）标识本次操作作用的文档；`data` 是操作结果
-（读 op 的原值，void op 为 `null`）。原始 COM 对象不外泄。
+**返回契约**：三条入口（Python API / HTTP RPC / MCP）同源但**返回形状不同**，如实对照见
+[`docs/api.md`](docs/api.md)：
+- **Python API** 返回 App 方法原始值（`new_book`→`doc_id` 字符串、`get_cell`→单元值、
+  `get_target`→dict …）；void op 返回 `None`；失败抛 `OffipyError` 领域异常。
+- **HTTP RPC `/call`** 返回 `OperationResult`（**HTTP-only 契约**）：
+  `{ok, operation, resource_id, message, data}`（附 `result` 兼容别名）。`operation` 是
+  `"excel.set_cell"` 式全名；`resource_id` 如 `excel:book:book1` 标识本次操作作用的文档
+  （`doc_id` 是会话内稳定标识，不用用户可改的 name）；`data` 是操作结果（读 op 原值，
+  void op 为 `null`）。原始 COM 对象不外泄。
+- **MCP 工具** 返回操作 `data` 载荷（读 op 原值；void op 为 `"ok (<op>)"`）。
 
 **异常契约（error_code）**：失败统一为 `OffipyError` 子类，每个带 `code`：
 `InvalidArgumentError`（`invalid_argument`）/ `TargetNotFoundError`（`target_not_found`）/
@@ -239,7 +252,7 @@ offipy mcp        # 阻塞运行，等待 stdio 客户端接入
 
 ## 发布硬化（ChatGPT 审核修复对照）
 
-0.9.0 按第三方审核全量修复收口，逐项对应：
+0.9.0a1 按第三方审核全量修复收口，逐项对应：
 
 | 审核项 | 修复 |
 |--------|------|
@@ -284,7 +297,7 @@ src/offipy/
   core.py       # COM 生命周期/会话管理 + active_doc/doc_alive 会话语义
   exceptions.py # offipy 异常体系（OffipyError + 10 子类，策略 A 领域异常）
   schema.py     # operation schema 单一来源（OpSpec 表，server/CLI/MCP 三入口派生）
-  result.py     # OperationResult 统一返回契约（ok/operation/resource_id/message/data）
+  result.py     # OperationResult 返回契约（HTTP-only：ok/operation/resource_id/message/data）
   paths.py      # 用户数据目录 / converter 数据目录 / ensure_writable 覆盖保护
   server.py     # 常驻会话 HTTP server（token 鉴权 + worker 队列 + /status + /shutdown）
   cli.py        # `offipy` 命令入口（复杂参数：重复 flag → list / --payload JSON）
@@ -305,7 +318,7 @@ src/offipy/
   outline.py    # 内容工作流：markdown 大纲 → 逐页结构化内容 → HTML 骨架 *
   _vendor/html_to_editable_pptx/  # vendored HTML→PPTX 转换器（外协代码，MIT）*
 tests/        # pytest
-docs/         # 协议（protocol.md）/ 弃用政策（deprecation.md）/ 兼容矩阵（compatibility.md）与调研
+docs/         # 协议（protocol.md）/ 返回契约（api.md）/ 弃用（deprecation.md）/ 兼容矩阵（compatibility.md）/ 发布手册（release.md）
 examples/     # 可运行示例（decks / outline / excel / word）
 ```
 
