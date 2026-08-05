@@ -201,8 +201,15 @@ def active_doc(app: str, attr: str):
 
 
 def doc_alive(obj) -> bool:
-    """缓存文档句柄的 liveness probe：仍连着存活实例才可用。"""
-    com = _com()
+    """缓存文档句柄的 liveness probe：仍连着存活实例才可用。
+
+    COM 不可用（非 Windows / 缺 pywin32）无法探测 → 返回 False，
+    调用方（如 quit 的「已退出」判定）把它当 False 即走安全路径。
+    """
+    try:
+        com = _com()
+    except UnsupportedPlatformError:
+        return False
     try:
         _ = obj.Application.Visible
         return True

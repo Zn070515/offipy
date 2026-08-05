@@ -252,6 +252,15 @@ def test_quit_owned_proceeds(monkeypatch, cls, core_name):
     assert quit_app_calls == []
 
 
+def test_doc_alive_no_com_platform_returns_false(monkeypatch):
+    # 非 Windows（无 COM）：liveness 探针无法探测 → False，不抛异常。
+    # quit() 的「实例已退」判定依赖它：COM 不可用环境走安全路径而非崩溃。
+    from offipy import core
+
+    monkeypatch.setattr(core.sys, "platform", "linux")
+    assert core.doc_alive(object()) is False
+
+
 @pytest.mark.parametrize(
     ("cls", "core_name"),
     [

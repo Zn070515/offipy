@@ -477,18 +477,14 @@ def test_close_mutex_noop_off_windows(monkeypatch):
 
 def test_serve_holds_mutex_until_exit(monkeypatch):
     # P0-1：mutex 句柄存局部变量持有整个 serve 生命周期；serve_forever 运行
-    # 期间不 Close（否则另一进程可重复启动同端口），退出 finally 才释放
-    class FakeMutex:
-        def __init__(self):
-            self.closed = False
-
-        def Close(self):
-            self.closed = True
-
-    mutex = FakeMutex()
-    seen_closed_during_run = []
+    # 期间不释放（否则另一进程可重复启动同端口），退出 finally 才 _close_mutex。
+    # 用 spy 断言 finally 编排，跨平台成立——_close_mutex 本身在非 Windows 为
+    # no-op，由 test_close_mutex_noop_off_windows 单独覆盖。
+    mutex = object()
+    events = []
 
     monkeypatch.setattr(server, "_acquire_startup_lock", lambda port: mutex)
+    monkeypatch.setattr(server, "_close_mutex", lambda handle: events.append("close"))
     monkeypatch.setattr(server, "oplog", types.SimpleNamespace(configure=lambda port: None))
     monkeypatch.setattr(server, "_load_token", lambda port: "t")
     monkeypatch.setattr(server, "_write_pid_file", lambda port, token: None)
@@ -502,7 +498,7 @@ def test_serve_holds_mutex_until_exit(monkeypatch):
             self.addr = addr
 
         def serve_forever(self):
-            seen_closed_during_run.append(mutex.closed)
+            events.append("serve")
             raise RuntimeError("serve 退出")
 
         def server_close(self):
@@ -511,22 +507,18 @@ def test_serve_holds_mutex_until_exit(monkeypatch):
     monkeypatch.setattr(server, "Server", FakeHTTPServer)
     with pytest.raises(RuntimeError, match="serve 退出"):
         server.serve()
-    assert seen_closed_during_run == [False]  # 运行期间锁保持
-    assert mutex.closed is True  # finally 释放
+    assert events == ["serve", "close"]  # 运行期间未释放，退出 finally 才释放
 
 
 def test_serve_bind_failure_no_pid_and_mutex_closed(monkeypatch):
-    # 绑定端口失败：不写 pid 文件（不留假活），mutex 也释放（不泄漏句柄）
-    mutex = types.SimpleNamespace(closed=False)
-
-    def fake_close():
-        mutex.closed = True
-
-    mutex.Close = fake_close
-
+    # 绑定端口失败：不写 pid 文件（不留假活），finally 仍释放 mutex（不泄漏句柄）。
+    # 同 test_serve_holds_mutex_until_exit：用 spy 断言 finally 编排，跨平台成立。
+    mutex = object()
+    events = []
     pid_writes = []
     removes = []
     monkeypatch.setattr(server, "_acquire_startup_lock", lambda port: mutex)
+    monkeypatch.setattr(server, "_close_mutex", lambda handle: events.append("close"))
     monkeypatch.setattr(server, "oplog", types.SimpleNamespace(configure=lambda port: None))
     monkeypatch.setattr(server, "_load_token", lambda port: "t")
     monkeypatch.setattr(
@@ -548,7 +540,7 @@ def test_serve_bind_failure_no_pid_and_mutex_closed(monkeypatch):
         server.serve()
     assert pid_writes == []  # 绑定失败未写 pid 文件（不留假活）
     assert removes == [server.DEFAULT_PORT]  # finally 仍尝试清理（归属校验兜底）
-    assert mutex.closed is True
+    assert events == ["close"]  # finally 释放 mutex（不泄漏句柄）
 
 
 def test_find_server_pid_json_format(monkeypatch, tmp_path):
