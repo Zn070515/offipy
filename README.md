@@ -178,6 +178,22 @@ with RemoteExcel() as x:   # 默认连本地 8890（自动拉起 server）
 `ProtocolError`（`protocol`）。RPC 失败响应的 `error_code` 与异常一一对应，client 按表映射回
 对应领域异常，三入口同源。
 
+**幂等重试（P0-2 方案 A）**：`client.call/request` 默认自动生成 `request_id`。若调用超时
+（`RemoteCallError`）需要重试，务必**复用同一 `request_id`**——server 对同 `request_id` 同
+payload 合并/回放缓存（响应带 `cached: true`），绝不重复执行；同 `request_id` 换了 payload
+则返回 `InvalidArgumentError`（400）。
+
+```python
+import uuid
+from offipy import client
+
+rid = str(uuid.uuid4())  # 调用方持有；超时后用同一 rid 重试，绝不双写
+try:
+    client.call("excel", "set_cell", sheet=1, cell="A1", value=42, doc_id="book1", request_id=rid)
+except client.RemoteCallError:
+    client.call("excel", "set_cell", sheet=1, cell="A1", value=42, doc_id="book1", request_id=rid)
+```
+
 ## 设计系统（HTML deck）
 
 Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页打 `data-layout`，渲染时注入主题与布局，一份 HTML 换主题即换皮。示例见 [`examples/decks/design-system/deck.html`](examples/decks/design-system/deck.html)。
@@ -300,7 +316,7 @@ offipy mcp        # 阻塞运行，等待 stdio 客户端接入
 | 主线 | 修复 |
 |------|------|
 | 目标语义显式化（P0-4/5/6） | `doc_id` 权威；`expected_target` **resolve-once**（`doc_id`/`name`/`path` 三键，空对象/未知键拒绝，解析出的 doc_id 注入参数）；`activate()` 同步真实 UI（失败回滚抛 `ComOperationError`）；`resource_id` 用 doc_id；`list_docs` 只报已登记句柄（含 `active`）；`get_target(doc_id=)` 显式查询 |
-| 有界资源 + 幂等（§4/5） | client 超时 600s 与 server 对齐；`request_id` 幂等缓存（重复重试不重执行）；COM 队列上限 64 + 并发线程上限 16，满则 503；PID 文件含 `port/pid/token_sha256/started_at` 归属验证；token 文件 0o600 |
+| 有界资源 + 幂等（§4/5） | client 超时 600s 与 server 对齐；幂等方案 A——`request_id` + **payload hash 绑定** + **in-flight 合并**（线程锁 + event 唤醒），同 id 同 payload 重试/并发合并回放缓存（`cached: true`），同 id 异 payload 拒绝，owner 超时后 entry 留 inflight 绝不双写；COM 队列上限 64 + 并发线程上限 16，满则 503；PID 文件含 `port/pid/token_sha256/started_at` 归属验证；token 文件 0o600 |
 | deck 原子渲染（§7） | `render` 临时文件改 `mkstemp`（同目录随机名，并发不互踩）；失败清理临时文件，绝不破坏既有 .pptx；源 HTML 缺失抛 `InvalidArgumentError` |
 | 发布门禁（P0-2/3） | `release.yml` 门禁链 quality → office-real（真机必过）→ gh-release → publish-testpypi → publish-pypi（OIDC Trusted Publishing）；`ci.yml` 的 office-real 成为 PR 合并门禁；`docs/release.md` 发布手册 |
 | 转换边界收严（§6/11/12） | `_parse_cell` 收严（越界 XFD/1048576 拒绝）；`set_title`/`set_body` 空输入显式报错；CLI `--port` 子命令 SUPPRESS 继承；`/call` args 非 dict → 400；`offipy check --profile`；`install_smoke.py --profile`；license `MIT AND ISC`；dependabot |

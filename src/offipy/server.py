@@ -26,7 +26,7 @@ import threading
 import time
 import traceback
 import uuid
-from collections import OrderedDict
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -86,10 +86,28 @@ _COM_QUEUE: "queue.Queue[tuple | None]" = queue.Queue(maxsize=_COM_QUEUE_MAX)
 _WORKER: threading.Thread | None = None
 _WORKER_LOCK = threading.Lock()
 
-# request_id 幂等缓存：request_id → (monotonic 时间戳, 响应 dict)。LRU（过
-# 期惰性清理 + 容量封顶）。handler 线程只读，GIL 下 get/set 原子够用；同一
-# id 的并发首投仍可能双双入队（幂等针对「超时后顺序重试」，非分布式锁）。
-_REQUEST_ID_CACHE: "OrderedDict[str, tuple[float, dict]]" = OrderedDict()
+
+@dataclass
+class _IdempotencyEntry:
+    """request_id 幂等 entry（P0-2 方案 A）：payload hash 绑定 + in-flight 合并。
+
+    state 流转：inflight（owner 入队后等待）→ done（worker 完成后缓存）。
+    event 让并发同 ID 的等待线程在 owner 完成时被唤醒——合并等待，不重复执行。
+    """
+
+    request_id: str
+    payload_hash: str
+    state: str = "inflight"
+    result: dict | None = None
+    expiry: float = 0.0  # done 后 = 完成时刻 + TTL；inflight 恒 0（不参与过期）
+    event: threading.Event = field(default_factory=threading.Event)
+
+
+# request_id 幂等缓存（方案 A）：request_id → entry。线程锁保护——_claim 是
+# 复合读改写（get/校验/建/淘汰），GIL 下 get/set 原子不够；并发同 ID 必须
+# 在锁内串行判定 owner/合并。LRU 容量封顶 _REQUEST_ID_MAX，只淘汰 done。
+_REQUEST_ID_CACHE: dict[str, _IdempotencyEntry] = {}
+_REQUEST_LOCK = threading.Lock()
 
 # /status 的目标身份缓存：worker 每次 op 后刷新（worker 线程持有 COM，探测
 # 安全）；handler 线程只读快照，绝不因 status 探测拉起 Office 或触碰 COM。
@@ -304,7 +322,9 @@ def _deprecation_warning(op_name: str) -> str | None:
     return None
 
 
-def _success_result(op_name: str, result, doc_id: str | None = None) -> dict:
+def _success_result(
+    op_name: str, result, doc_id: str | None = None, request_id: str | None = None
+) -> dict:
     """OperationResult 归一化成功响应；data 已 _serialize，另附 result 兼容别名。"""
     data = _serialize(result)
     app_name, _, _ = op_name.partition(".")
@@ -316,13 +336,15 @@ def _success_result(op_name: str, result, doc_id: str | None = None) -> dict:
         data=data,
     ).to_dict()
     res["result"] = data
+    if request_id:
+        res["request_id"] = request_id  # 幂等回显（P0-2）：调用方核对/重试
     w = _deprecation_warning(op_name)
     if w:
         res["warning"] = w
     return res
 
 
-def _error_result(op_name: str, e: Exception) -> dict:
+def _error_result(op_name: str, e: Exception, request_id: str | None = None) -> dict:
     """失败响应：带 error_code（异常 code），client 据此映射回领域异常。"""
     tb = traceback.format_exc().strip().splitlines()
     res = {
@@ -333,6 +355,8 @@ def _error_result(op_name: str, e: Exception) -> dict:
         "error_code": getattr(e, "code", "internal"),
         "trace": tb[-3:],
     }
+    if request_id:
+        res["request_id"] = request_id  # 幂等回显（P0-2）
     if isinstance(e, ComOperationError) and e.hresult is not None:
         res["hresult"] = hex(e.hresult)
     w = _deprecation_warning(op_name)
@@ -355,31 +379,67 @@ def _append_oplog(app_name: str, op: str, kind: str, payload: dict, duration_ms:
         )
 
 
-def _dedupe_hit(request_id: str) -> dict | None:
-    """request_id 幂等命中：已处理返回缓存响应，未处理/缺省返回 None。
+def _payload_hash(app_name: str, op: str, args: dict) -> str:
+    """幂等 payload 指纹：app+op+args 规范化 JSON 的 sha256。
 
-    顺带惰性清理过期项（TTL 窗口外的旧请求让位）。
+    同 request_id 必须对应同一 payload；参数漂移 → hash 不匹配 → 拒绝，
+    杜绝「同 id 重试但内容变化仍返回旧结果」的缓存错配（旧实现只按
+    request_id 去重、不校验 payload——P0-2 漏洞）。
     """
-    if not request_id:
-        return None
+    canonical = json.dumps(
+        {"app": app_name, "op": op, "args": args}, sort_keys=True, ensure_ascii=False
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _claim(request_id: str, payload_hash: str) -> tuple[_IdempotencyEntry, bool]:
+    """登记/复用幂等 entry；返回 (entry, is_owner)。
+
+    - 无 entry → 新建 inflight entry，调用方为 owner（负责入队执行）。
+    - 有 entry 且 hash 匹配：
+      - done 未过期 → 复用缓存（直接回放，不执行）。
+      - done 已过期 → 移除重建，调用方为 owner。
+      - inflight → 合并（等待 owner 完成，不重复入队）。
+    - hash 不匹配 → InvalidArgumentError（同 id 不同 payload 是调用方 bug）。
+    """
     now = time.monotonic()
-    stale = [k for k, (ts, _) in _REQUEST_ID_CACHE.items() if now - ts > _REQUEST_ID_TTL]
-    for k in stale:
-        _REQUEST_ID_CACHE.pop(k, None)
-    item = _REQUEST_ID_CACHE.get(request_id)
-    if item is None:
-        return None
-    _REQUEST_ID_CACHE[request_id] = (now, item[1])  # 刷新 LRU 位置
-    return item[1]
+    with _REQUEST_LOCK:
+        entry = _REQUEST_ID_CACHE.get(request_id)
+        if entry is not None:
+            if entry.payload_hash != payload_hash:
+                raise InvalidArgumentError(
+                    f"request_id {request_id!r} 已用于不同 payload；请改用新 request_id"
+                )
+            if entry.state == "done" and now > entry.expiry:
+                _REQUEST_ID_CACHE.pop(request_id, None)
+                entry = None
+            else:
+                return entry, False
+        entry = _IdempotencyEntry(request_id, payload_hash)
+        _REQUEST_ID_CACHE[request_id] = entry
+        _evict_lru()
+        return entry, True
 
 
-def _dedupe_store(request_id: str, payload: dict) -> None:
-    """记录已处理 request_id 的响应；容量封顶（LRU 丢弃最旧）。"""
-    if not request_id:
-        return
-    _REQUEST_ID_CACHE[request_id] = (time.monotonic(), payload)
-    while len(_REQUEST_ID_CACHE) > _REQUEST_ID_MAX:
-        _REQUEST_ID_CACHE.popitem(last=False)
+def _complete_entry(entry: _IdempotencyEntry, payload: dict) -> None:
+    """worker 完成 entry：写结果、置 done、起 TTL、醒所有等待线程。"""
+    with _REQUEST_LOCK:
+        entry.result = payload
+        entry.state = "done"
+        entry.expiry = time.monotonic() + _REQUEST_ID_TTL
+        entry.event.set()
+
+
+def _evict_lru() -> None:
+    """容量封顶：只淘汰最旧的 done 项，跳过 inflight；全 inflight 则不淘汰。
+
+    必须在持有 _REQUEST_LOCK 时调用（_claim 已持锁）。
+    """
+    for key in list(_REQUEST_ID_CACHE):
+        if len(_REQUEST_ID_CACHE) <= _REQUEST_ID_MAX:
+            return
+        if _REQUEST_ID_CACHE[key].state == "done":
+            _REQUEST_ID_CACHE.pop(key, None)
 
 
 def _ensure_worker() -> None:
@@ -429,23 +489,32 @@ def _worker_loop() -> None:
             item = _COM_QUEUE.get()
             if item is None:
                 break
-            app_name, op, args, resp_q = item
+            app_name, op, args, resp_q, entry = item
             op_name = f"{app_name}.{op}"
             t0 = time.monotonic()
+            rid = entry.request_id if entry is not None else None
             try:
                 app = get_app(app_name)
                 result = dispatch(app, op, args, app_name)
                 # dispatch 可能注入绑定 doc_id（expected_target）或保留调用方 doc_id；
                 # resource_id 用它定位——「操作的是谁，资源 id 就是谁」
-                kind, payload = "ok", _success_result(op_name, result, doc_id=args.get("doc_id"))
+                kind, payload = (
+                    "ok",
+                    _success_result(op_name, result, doc_id=args.get("doc_id"), request_id=rid),
+                )
             except Exception as e:
-                kind, payload = "error", _error_result(op_name, e)
+                kind, payload = "error", _error_result(op_name, e, request_id=rid)
             finally:
                 _refresh_targets()
             duration_ms = int((time.monotonic() - t0) * 1000)
             # 先落日志再回包：响应到达时记录已持久化，调用方 read 无竞态
             _append_oplog(app_name, op, kind, payload, duration_ms)
-            resp_q.put((kind, payload))
+            if entry is not None:
+                # 幂等路径：worker 完成 entry（写结果 + set event），并发同 ID
+                # 的等待线程一并唤醒，owner 也经 event 取回——不重复入队。
+                _complete_entry(entry, payload)
+            else:
+                resp_q.put((kind, payload))
     finally:
         if com_ready:
             pythoncom.CoUninitialize()
@@ -615,17 +684,84 @@ class Handler(BaseHTTPRequestHandler):
         request_id = body.get("request_id")
         if not isinstance(request_id, str) or not request_id:
             request_id = None
-        cached = _dedupe_hit(request_id)
-        if cached is not None:
-            # request_id 幂等（§4）：重复请求返回缓存结果，不重执行
-            self._reply(cached, status=200 if cached.get("ok") else 500)
+
+        def _send(res: dict) -> None:
+            self._reply(res, status=200 if res.get("ok") else 500)
+
+        if request_id is None:
+            # 无 request_id（旧 client / 调用方不要求幂等）：保留原 resp_q 路径，
+            # 不入幂等缓存（不去重、不合并）。
+            _ensure_worker()
+            resp_q: queue.Queue[tuple] = queue.Queue(maxsize=1)
+            try:
+                _COM_QUEUE.put_nowait((app_name, op, raw_args, resp_q, None))
+            except queue.Full:
+                # 有界队列（§4）：满则立即 503，不让调用方无限排队
+                return self._reply(
+                    {
+                        "ok": False,
+                        "error": "server 忙（COM 队列已满），请稍后重试",
+                        "error_code": "busy",
+                    },
+                    status=503,
+                )
+            try:
+                kind, payload = resp_q.get(timeout=_CALL_TIMEOUT)
+            except queue.Empty:
+                return self._reply(
+                    {
+                        "ok": False,
+                        "error": f"操作超时（worker 忙或卡住，>{_CALL_TIMEOUT}s）",
+                        "error_code": "internal",
+                    },
+                    status=504,
+                )
+            _send(payload)
             return
-        _ensure_worker()
-        resp_q: queue.Queue[tuple] = queue.Queue(maxsize=1)
+
+        # 幂等路径（P0-2 方案 A）：request_id + payload hash 绑定 + in-flight 合并
         try:
-            _COM_QUEUE.put_nowait((app_name, op, raw_args, resp_q))
+            entry, is_owner = _claim(request_id, _payload_hash(app_name, op, raw_args))
+        except InvalidArgumentError as e:
+            # 同 request_id 不同 payload：调用方 bug，400 拒绝（不静默返回旧结果）
+            return self._reply(
+                {
+                    "ok": False,
+                    "operation": f"{app_name}.{op}",
+                    "error": str(e),
+                    "error_code": "invalid_argument",
+                },
+                status=400,
+            )
+        if entry.state == "done":
+            # 命中缓存：回放同一响应（不重执行），标注 cached 供调用方区分
+            res = dict(entry.result) if entry.result else {"ok": False, "error": "幂等结果缺失"}
+            res["cached"] = True
+            _send(res)
+            return
+        if not is_owner:
+            # 并发同 ID：合并等待 owner 完成，不重复入队
+            if not entry.event.wait(_CALL_TIMEOUT):
+                return self._reply(
+                    {
+                        "ok": False,
+                        "error": f"操作超时（同 request_id 仍在处理，>{_CALL_TIMEOUT}s）",
+                        "error_code": "internal",
+                    },
+                    status=504,
+                )
+            assert entry.result is not None
+            _send(entry.result)
+            return
+        # owner：入队执行，结果由 worker 写回 entry 并经 event 唤醒
+        _ensure_worker()
+        try:
+            _COM_QUEUE.put_nowait((app_name, op, raw_args, None, entry))
         except queue.Full:
-            # 有界队列（§4）：满则立即 503，不让调用方无限排队
+            # op 未入队：回滚 entry，调用方同 id 重试时重建（不 merge 到永不完成的死锁）
+            with _REQUEST_LOCK:
+                if _REQUEST_ID_CACHE.get(request_id) is entry:
+                    _REQUEST_ID_CACHE.pop(request_id, None)
             return self._reply(
                 {
                     "ok": False,
@@ -634,9 +770,8 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 status=503,
             )
-        try:
-            kind, payload = resp_q.get(timeout=_CALL_TIMEOUT)
-        except queue.Empty:
+        if not entry.event.wait(_CALL_TIMEOUT):
+            # 超时：entry 留 inflight（同 ID 重试仍合并不重执行——绝不双写）
             return self._reply(
                 {
                     "ok": False,
@@ -645,8 +780,8 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 status=504,
             )
-        _dedupe_store(request_id, payload)
-        self._reply(payload, status=200 if kind == "ok" else 500)
+        assert entry.result is not None
+        _send(entry.result)
 
     def _reply(self, obj, status=200):
         status, data = _encode_reply(obj, status)

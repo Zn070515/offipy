@@ -362,21 +362,30 @@ def ensure_server():
 _PATH_KEYS = ("path", "out", "out_dir", "html", "pptx")
 
 
-def request(app: str, op: str, base_url: str | None = None, **args) -> dict:
+def request(
+    app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args
+) -> dict:
     """发一次调用，返回完整响应 dict（{ok, result, error, trace}），不做失败处理。
 
     应用层失败（ok:false）仍以 dict 返回，供 MCP server 等调用方自行处理；
     HTTP 传输层失败（400/401/413/415/500/超时/连不上/坏 JSON）统一转成
     RemoteCallError，不再裸抛 HTTPError。base_url 缺省连本地 8890（P0-4
     Remote* 共享 CLI/MCP 会话）；显式给出可指向其他 offipy server。
+
+    request_id（P0-2 幂等方案 A）：缺省自动生成 uuid4；调用方超时重试应复用
+    同一 request_id——server 对同 id 同 payload 合并/回放缓存，不重复执行。
+    响应带 request_id 回显，可核对。
     """
     if base_url is None:
         ensure_server()
     for k in _PATH_KEYS:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
-    # request_id 幂等标识（§4）：client 重试带同一 id，server 命中缓存不再重执行
-    data = json.dumps({"app": app, "op": op, "args": args, "request_id": str(uuid.uuid4())}).encode(
+    if request_id is None:
+        request_id = str(uuid.uuid4())
+    # request_id 幂等标识（§4/方案 A）：client 重试带同一 id，server 命中缓存
+    # 不再重执行；payload hash 绑定保证同 id 必须同 payload。
+    data = json.dumps({"app": app, "op": op, "args": args, "request_id": request_id}).encode(
         "utf-8"
     )
     req = urllib.request.Request(
@@ -406,8 +415,8 @@ def request(app: str, op: str, base_url: str | None = None, **args) -> dict:
         raise RemoteCallError(f"[{app}::{op}] 响应非 JSON: {e}") from e
 
 
-def call(app: str, op: str, base_url: str | None = None, **args):
-    resp = request(app, op, base_url=base_url, **args)
+def call(app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args):
+    resp = request(app, op, base_url=base_url, request_id=request_id, **args)
     if not resp.get("ok"):
         code = resp.get("error_code")
         exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None
