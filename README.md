@@ -154,8 +154,8 @@ with Ppt() as p:
 ```python
 from offipy import RemoteExcel
 
-with RemoteExcel() as x:   # 默认连本地 8890（自动拉起 server）
-    x.new_book()           # 与 `offipy excel list_docs` 看到同一个 doc_id
+with RemoteExcel() as x:  # 默认连本地 8890（自动拉起 server）
+    x.new_book()  # 与 `offipy excel list_docs` 看到同一个 doc_id
     x.set_cell(1, "A1", 42, follow_active=True)
 ```
 

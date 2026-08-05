@@ -44,3 +44,5 @@ Thumbs.db
 .env
 .env.*
 *.local
+# 发布凭证（PyPI/TestPyPI token 明文，绝不入库）
+.pypirc

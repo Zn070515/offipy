@@ -393,9 +393,9 @@ def build_parser() -> argparse.ArgumentParser:
     ck.add_argument("--json", action="store_true", help="输出 JSON")
     ck.add_argument(
         "--profile",
-        choices=["core", "office", "deck", "mcp"],
+        choices=["core", "office", "deck", "mcp", "all"],
         default=None,
-        help="只检查指定 profile（core 为基线，office/deck/mcp 各叠加对应分组）",
+        help="只检查指定 profile（core 为基线，office/deck/mcp/all 各叠加对应分组）",
     )
     srv = sub.add_parser("server", help="管理常驻 server（status/stop/restart）")
     srv.add_argument(
