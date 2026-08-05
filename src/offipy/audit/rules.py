@@ -319,8 +319,8 @@ class OverlapRule:
         for rec in context.records:
             if rec.is_connector or rec.is_hidden or rec.is_group or rec.geometry_unknown:
                 continue
-            if rec.role == "background":
-                continue  # 全页背景不参与普通 overlap
+            if rec.role == "background" and context.config.ignore_full_bleed_shapes:
+                continue  # 全页背景不参与普通 overlap（--no-full-bleed-ignore 可关闭）
             r = _rect(rec)
             if r is None or r.area() < _TINY_AREA:
                 continue
@@ -639,7 +639,7 @@ class TextFitRule:
                 or not rec.text.strip()
             ):
                 continue
-            if rec.role in _TEXT_FIT_SKIP_ROLES:
+            if rec.role in _TEXT_FIT_SKIP_ROLES and _role_text_fit_ignored(rec.role, context.config):
                 continue
             r = _rect(rec)
             if r is None:
@@ -733,7 +733,7 @@ class AutofitRiskRule:
                 or not rec.text.strip()
             ):
                 continue
-            if rec.role in _TEXT_FIT_SKIP_ROLES:
+            if rec.role in _TEXT_FIT_SKIP_ROLES and _role_text_fit_ignored(rec.role, context.config):
                 continue
             if rec.autofit_norm_auto_fit:
                 f = _shrink_finding(rec)
@@ -841,13 +841,33 @@ DEFAULT_RULES: list[AuditRule] = [
     AutofitRiskRule(),
 ]
 
-_ROLE_MARGIN_REASON: dict[str, SuppressionReason] = {
-    "background": "full_bleed",
-    "page_number": "page_number",
-    "header": "header_footer",
-    "footer": "header_footer",
-    "decoration": "repeated_decoration",
-}
+def _automatic_suppression_reason(
+    record: _ShapeRecord, config: AuditConfig
+) -> SuppressionReason | None:
+    """按对应 ignore 开关决定角色豁免；未豁免返回 None。
+
+    margin finding 的角色豁免唯一入口——角色不再无条件抑制，
+    --no-…-ignore 关闭后同一 finding 恢复为普通 finding。
+    """
+    role = record.role
+    if role == "background" and config.ignore_full_bleed_shapes:
+        return "full_bleed"
+    if role == "page_number" and config.ignore_page_numbers:
+        return "page_number"
+    if role in {"header", "footer"} and config.ignore_headers_footers:
+        return "header_footer"
+    if role == "decoration" and config.ignore_repeated_decorations:
+        return "repeated_decoration"
+    return None
+
+
+def _role_text_fit_ignored(role: str, config: AuditConfig) -> bool:
+    """文本拟合规则（TextFit/Autofit）是否跳过该角色（按对应 ignore 开关）。"""
+    if role == "page_number":
+        return config.ignore_page_numbers
+    if role in {"header", "footer"}:
+        return config.ignore_headers_footers
+    return False
 
 
 def run_rules(
@@ -870,19 +890,24 @@ def run_rules(
 
 
 def _suppression_reason(f: AuditFinding, context: RuleContext) -> SuppressionReason | None:
-    slide_index = f.primary.slide_index
-    shape_id = f.primary.shape_id
+    """用户 ignore（primary/secondary 任一命中）优先；margin 角色豁免按开关门控。"""
     cfg = context.config
-    if cfg.ignored_shapes and (slide_index, shape_id) in cfg.ignored_shapes:
-        return "user_shape"
-    rec = _find_record(context.records, slide_index, shape_id)
-    if rec is not None and cfg.ignored_regions:
-        r = _rect(rec)
-        if r is not None:
-            cx, cy = r.center()
-            for rx, ry, rw, rh in cfg.ignored_regions:
-                if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
-                    return "user_region"
+    refs = [f.primary]
+    if f.secondary is not None:
+        refs.append(f.secondary)
+    for ref in refs:
+        if cfg.ignored_shapes and (ref.slide_index, ref.shape_id) in cfg.ignored_shapes:
+            return "user_shape"
+        if cfg.ignored_regions:
+            rec = _find_record(context.records, ref.slide_index, ref.shape_id)
+            if rec is not None:
+                r = _rect(rec)
+                if r is not None:
+                    cx, cy = r.center()
+                    for rx, ry, rw, rh in cfg.ignored_regions:
+                        if rx <= cx <= rx + rw and ry <= cy <= ry + rh:
+                            return "user_region"
+    rec = _find_record(context.records, f.primary.slide_index, f.primary.shape_id)
     if rec is not None and f.kind == "margin":
-        return _ROLE_MARGIN_REASON.get(rec.role)
+        return _automatic_suppression_reason(rec, cfg)
     return None

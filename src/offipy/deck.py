@@ -277,8 +277,16 @@ def render_with_report(
 
     audit_mode 之外显式重复 render() 的主要参数，不用无限制 **render_kw
     （保 IDE 补全与文档）。
+
+    非法 audit_mode 拼写会在进入渲染前抛 InvalidArgumentError（fail-open 防护：
+    拼错不会静默退化成 report 绕过 strict 门禁）；fail_on 必须是 Severity。
     """
     from .audit import audit_pptx
+
+    if audit_mode not in {"report", "strict"}:
+        raise InvalidArgumentError("audit_mode must be 'report' or 'strict'")
+    if not isinstance(fail_on, Severity):
+        raise InvalidArgumentError("fail_on must be a Severity")
 
     with _render_tmp(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
