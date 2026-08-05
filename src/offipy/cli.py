@@ -237,6 +237,54 @@ def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
             raise SystemExit(2)
 
 
+_TYPE_LABEL = {str: "str", int: "int", float: "num", bool: "bool"}
+
+
+def _required_params(app: str, op: str) -> frozenset[str]:
+    """App 方法签名中无默认值的参数（必填）——schema 未独立声明必填，以此派生。"""
+    cls = _APP_CLASSES.get(app)
+    method = getattr(cls, op, None) if cls else None
+    if method is None:
+        return frozenset()
+    try:
+        sig = inspect.signature(method)
+    except (TypeError, ValueError):
+        return frozenset()
+    return frozenset(
+        p.name
+        for p in sig.parameters.values()
+        if p.name != "self"
+        and p.default is inspect.Parameter.empty
+        and p.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    )
+
+
+def _validate_required(app: str, op: str, kwargs: dict) -> None:
+    """必填参数缺失 → 调用前预校验：stderr 报错 + 用法，exit 2。
+
+    不再等拉起 server / 碰 COM 后才炸；--payload 注入的键也算已提供。
+    """
+    missing = _required_params(app, op) - set(kwargs)
+    if not missing:
+        return
+    sp = schema.spec(app, op)
+    hints = dict(sp.params) if sp is not None and sp.params else {}
+    shown = ", ".join(
+        f"--{m}" + (f" <{_TYPE_LABEL[hints[m]]}>" if hints.get(m) in _TYPE_LABEL else "")
+        for m in sorted(missing)
+    )
+    print(
+        f"offipy: error: {app} {op}: 缺少必填参数 {shown}\n"
+        f"  用法: offipy {app} {op} --<参数> <值> ...",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="offipy", description="offipy CLI")
     # P2-2 多实例：--port 指向指定端口的 server（env OFFIPY_SERVER_PORT 亦可）
@@ -286,8 +334,15 @@ def _main(argv=None):
     if getattr(args, "port", None):
         set_port(args.port)  # P2-2 多实例：后续调用指向该端口
     if args.app == "mcp":
-        from .mcp_server import main as mcp_main
-
+        try:
+            from .mcp_server import main as mcp_main
+        except ImportError as exc:
+            print(
+                "offipy: error: offipy mcp 需要 mcp 扩展：pip install offipy[mcp]\n"
+                f"  缺失依赖: {exc}",
+                file=sys.stderr,
+            )
+            return 2
         mcp_main()
         return
     if args.app == "check":
@@ -371,6 +426,7 @@ def _main(argv=None):
         return
     kw = _parse_kwargs(args.kwargs)
     _validate_kwargs(args.app, args.op, kw)
+    _validate_required(args.app, args.op, kw)
     kw = _coerce_kwargs(args.app, args.op, kw)
     result = call(args.app, args.op, **kw)
     if result is not None:
