@@ -190,7 +190,10 @@ def test_verify_check_report_accepts_nonzero_returncode_with_valid_json():
             }
         ],
     }
-    report = _verify_check_report(_check_report(json.dumps(payload), returncode=1), _VERSION)
+    # 真实 offipy check --json 输出是多行 pretty JSON（indent=2）——曾用
+    # splitlines()[-1] 只取末行 '}' 解析失败，回归由 indent 版本防住。
+    pretty = json.dumps(payload, indent=2, ensure_ascii=False)
+    report = _verify_check_report(_check_report(pretty, returncode=1), _VERSION)
     assert report["version"] == _VERSION
     assert isinstance(report["checks"], list)
     assert report["ok"] is False

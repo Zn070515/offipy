@@ -148,12 +148,17 @@ def _verify_check_report(r: subprocess.CompletedProcess, version: str) -> dict:
     不断言退出码：`offipy check` 返回 1 只代表运行环境某项未就绪
     （如缺 Chromium），仍是合法 JSON——smoke 的目标是证明包可装可跑。
     """
+    raw = r.stdout.strip()
     try:
-        report = json.loads(r.stdout.strip().splitlines()[-1])
-    except (json.JSONDecodeError, IndexError) as exc:
-        raise SystemExit(
-            f"[pypi-smoke] FAIL: offipy check --json 输出不是合法 JSON: {r.stdout!r}"
-        ) from exc
+        report = json.loads(raw)  # offipy check --json 输出整段多行 pretty JSON
+    except json.JSONDecodeError:
+        # 兜底：若 stdout 前面混入非 JSON 行，JSON 在末行（紧凑单行场景）
+        try:
+            report = json.loads(raw.splitlines()[-1])
+        except (json.JSONDecodeError, IndexError) as exc:
+            raise SystemExit(
+                f"[pypi-smoke] FAIL: offipy check --json 输出不是合法 JSON: {r.stdout!r}"
+            ) from exc
     if report.get("version") != version:
         raise SystemExit(
             f"[pypi-smoke] FAIL: check JSON version = {report.get('version')!r} != {version!r}"
