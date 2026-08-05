@@ -10,7 +10,7 @@ from typing import Any
 from . import core
 from ._comguard import guard_com
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
-from .paths import ensure_writable
+from .paths import default_save_path, ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
 PP_FIXED_FORMAT_TYPE_PDF = 2  # ppFixedFormatTypePDF（ExportAsFixedFormat 的 OutputType）
@@ -162,13 +162,25 @@ class PptApp:
         return {"app": "ppt", "doc_id": resolved, "name": name, "path": path}
 
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
-        dest = ensure_writable(path, overwrite) if path else None
-        with self._alerts_scope():
+        """保存演示文稿并返回绝对路径。
+
+        给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
+        自动落盘 <cwd>/<名字>_<时间戳>.pptx（不弹另存为对话框）。
+        """
+        if path:
+            dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
             pres = self._require_pres(doc_id)
-            if dest:
+            with self._alerts_scope():
                 pres.SaveAs(dest)
-            else:
+            return dest
+        pres = self._require_pres(doc_id)
+        with self._alerts_scope():
+            if pres.Path:  # 已有保存路径 → 原位保存
                 pres.Save()
+                return pres.FullName
+            dest = default_save_path(pres.Name, ".pptx")
+            pres.SaveAs(dest)
+            return dest
 
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)

@@ -10,7 +10,7 @@ from typing import Any
 from . import core
 from ._comguard import guard_com
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
-from .paths import ensure_writable
+from .paths import default_save_path, ensure_writable
 
 WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
 WD_EXPORT_FORMAT_PDF = 17  # wdExportFormatPDF（ExportAsFixedFormat 的 ExportFormat）
@@ -258,23 +258,48 @@ class WordApp:
         return {"app": "word", "doc_id": resolved, "name": name, "path": path}
 
     def close_doc(self, save: bool = True, doc_id: str | None = None):
+        """关闭文档（doc_id 缺省为活动）。
+
+        save=True → 先保存（从未保存过则自动落盘同层目录，不弹另存为）并返回
+        保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。
+        """
         doc = self._require_doc(doc_id)
-        with self._alerts_scope():
-            doc.Close(SaveChanges=save)
         did = doc_id if doc_id is not None else self._active_id
+        if save:
+            path = doc.FullName if doc.Path else self.save(doc_id=did)
+            with self._alerts_scope():
+                doc.Close(SaveChanges=-1)
+        else:
+            path = None
+            with self._alerts_scope():
+                doc.Saved = True  # 兜底：确保 Close 不触发保存提示
+                doc.Close(SaveChanges=0)
         if did is not None:
             self._docs.pop(did, None)
             if self._active_id == did:
                 self._active_id = None
+        return path
 
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
-        dest = ensure_writable(path, overwrite) if path else None
-        with self._alerts_scope():
+        """保存文档并返回绝对路径。
+
+        给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
+        自动落盘 <cwd>/<名字>_<时间戳>.docx（不弹另存为对话框）。
+        """
+        if path:
+            dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
             doc = self._require_doc(doc_id)
-            if dest:
+            with self._alerts_scope():
                 doc.SaveAs2(dest)
-            else:
+            return dest
+        doc = self._require_doc(doc_id)
+        with self._alerts_scope():
+            if doc.Path:  # 已有保存路径 → 原位保存
                 doc.Save()
+                return doc.FullName
+            dest = default_save_path(doc.Name, ".docx")
+            doc.SaveAs2(dest)
+            return dest
 
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)

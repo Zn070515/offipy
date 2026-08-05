@@ -11,7 +11,7 @@ from typing import Any
 from . import core
 from ._comguard import guard_com
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
-from .paths import ensure_writable
+from .paths import default_save_path, ensure_writable
 
 # ExportAsFixedFormat 的类型常量
 XL_TYPE_PDF = 0
@@ -278,25 +278,52 @@ class ExcelApp:
         return {"app": "excel", "doc_id": resolved, "name": name, "path": path}
 
     def close_book(self, save: bool = True, doc_id: str | None = None):
+        """关闭工作簿（doc_id 缺省为活动）。
+
+        save=True → 先保存（从未保存过则自动落盘同层目录，不弹另存为）并返回
+        保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。
+        """
         book = self._require_book(doc_id)
-        # Excel 的 xlDoNotSaveChanges=2（不是 False/0；0 不是合法值，会触发保存提示）
-        with self._alerts_scope():
-            book.Close(SaveChanges=-1 if save else 2)
         did = doc_id if doc_id is not None else self._active_id
+        if save:
+            path = book.FullName if book.Path else self.save(doc_id=did)
+            with self._alerts_scope():
+                book.Close(SaveChanges=1)
+        else:
+            path = None
+            with self._alerts_scope():
+                # Excel 对「从未保存过的脏工作簿」Close 会弹另存为，即使
+                # SaveChanges=xlDoNotSaveChanges(2)+DisplayAlerts=False 也一样；
+                # 先标 Saved=True 让 Excel 认为无未保存更改，才能根治不弹窗。
+                book.Saved = True
+                book.Close(SaveChanges=2)
         if did is not None:
             self._docs.pop(did, None)
             if self._active_id == did:
                 self._active_id = None
+        return path
 
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
-        dest = ensure_writable(path, overwrite) if path else None
-        with self._alerts_scope():
+        """保存工作簿并返回绝对路径。
+
+        给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
+        自动落盘 <cwd>/<名字>_<时间戳>.xlsx（不弹另存为对话框）。
+        """
+        if path:
+            dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
             book = self._require_book(doc_id)
-            if dest:
+            with self._alerts_scope():
                 # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
                 book.SaveAs(dest)
-            else:
+            return dest
+        book = self._require_book(doc_id)
+        with self._alerts_scope():
+            if book.Path:  # 已有保存路径 → 原位保存
                 book.Save()
+                return book.FullName
+            dest = default_save_path(book.Name, ".xlsx")
+            book.SaveAs(dest)
+            return dest
 
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
