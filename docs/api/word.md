@@ -1,3 +1,5 @@
+> [English](word.en.md)
+
 # Word API
 
 ### `new_doc`

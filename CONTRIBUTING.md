@@ -1,3 +1,5 @@
+> [English](CONTRIBUTING.en.md)
+
 # Contributing
 
 offipy 是 Windows-only 的 Office COM 自动化库。欢迎提交修复与改进，但请先遵守下面的纪律——

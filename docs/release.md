@@ -1,3 +1,5 @@
+> [English](release.en.md)
+
 # 发布手册
 
 offipy 的发布走 **CI 自动管线**（推荐）或**手动发布**（首次/无 CI 配置时兜底）。

@@ -114,6 +114,10 @@ exclude = ["docs/", "test/", "src/offipy/_vendor/"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# gen_api_ref.py 的 _EN_DESC 是英文翻译数据表，长描述字符串天然超 100 列
+"scripts/gen_api_ref.py" = ["E501"]
+
 [tool.ruff.format]
 quote-style = "double"
 

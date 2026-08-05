@@ -75,7 +75,7 @@
 - 非 Windows 收集修复（P1-6）：COM 测试模块改 fixture + skipif 短路，Linux 收集不炸
 
 #### round-4（ChatGPT_v4 审核，2026-08-05）
-- 公开文档统一对齐当前技术栈：README / docs/ 按方案 B 如实描述三入口返回形状（`OperationResult` 为 HTTP-only 契约）；`docs/api/` 由 `schema.py` 重新生成（close_book/close_doc/save 返回路径、`get_target` 带 doc_id、`list_docs` 含 active）
+- 公开文档统一对齐当前技术栈：README / docs/ 按方案 B 如实描述三入口返回形状（`OperationResult` 为 HTTP-only 契约）；`docs/api/` 由 `schema.py` 重新生成（close_book/close_doc/save 返回路径、`get_target` 带 doc_id、`list_docs` 含 active）；公开文档新增英文版（`README.en.md` / `SECURITY.en.md` / `CONTRIBUTING.en.md` / `docs/*.en.md` / `docs/api/*.en.md`，docs/api 英文由 `gen_api_ref.py` 翻译层生成，MCP/CLI 描述保持中文单源；mkdocs 导航补 English 区段 + 中英互链）
 
 ### Fixed
 - PPT DisplayAlerts 常量改正（`ppAlertsNone=1`，原 `=0` 实为 `ppAlertsAll`）

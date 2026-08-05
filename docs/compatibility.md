@@ -1,3 +1,5 @@
+> [English](compatibility.en.md)
+
 # 兼容矩阵（P2-1）
 
 offipy 是 Windows-only 的 Office COM 自动化库。核心包零平台依赖，能力按

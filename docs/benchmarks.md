@@ -1,3 +1,5 @@
+> [English](benchmarks.en.md)
+
 # 性能基准
 
 基准脚本在 `scripts/bench/`，数据是本机快照，**非跨机器承诺**——用于相对比较与

@@ -1,3 +1,5 @@
+> [English](exceptions.en.md)
+
 # 异常契约
 
 库层失败一律抛可捕获的 `OffipyError` 子类（策略 A：完整领域异常），绝不抛 `SystemExit`。

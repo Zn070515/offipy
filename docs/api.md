@@ -1,3 +1,5 @@
+> [English](api.en.md)
+
 # 返回契约与三入口对照
 
 offipy 同一批操作经三条入口暴露：**Python API**（`offipy.api` 的 `Excel()/Word()/Ppt()`
