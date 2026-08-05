@@ -80,6 +80,14 @@ jobs:
   office-real:
     if: (github.event_name == 'push' || github.event_name == 'schedule') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, windows, office]
+    # 自托管 runner 直连 github.com 主站被墙（api.github.com 能通、主站超时），
+    # git fetch / setup-uv 下载 / uv sync 全部经本机 VPN 本地代理 127.0.0.1:12334。
+    # 代理地址是这台 runner 宿主机 VPN 的端口，换 VPN/端口时需同步。
+    env:
+      http_proxy: http://127.0.0.1:12334
+      https_proxy: http://127.0.0.1:12334
+      HTTP_PROXY: http://127.0.0.1:12334
+      HTTPS_PROXY: http://127.0.0.1:12334
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复自托管 Windows runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
