@@ -72,7 +72,10 @@ offipy deck outline --input outline.md --out deck.html   # markdown 大纲 → H
 ```
 
 `render` 使用**原子替换**：先写同目录临时文件，后处理完成后 `os.replace` 覆盖目标；
-任何失败不会破坏已存在的 `.pptx`。转换管线需要 `offipy[deck]` 与 chromium：
+任何失败不会破坏已存在的 `.pptx`。首次转换会在源 HTML 旁生成 `.audited.html` 工作副本，
+后续 audit 修复改副本、原 HTML 不动；**0.10.2 起源 HTML 比副本新时自动重建副本**（改源即刻
+生效，不再静默复用旧副本）。HTML 中本地 `<img src>` 引用文件缺失时转换**直接报错**并列出
+缺失文件（0.10.2 起，不再静默嵌入空白占位图）。转换管线需要 `offipy[deck]` 与 chromium：
 
 ```bash
 pip install "offipy[deck]"

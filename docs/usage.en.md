@@ -80,8 +80,13 @@ offipy deck outline --input outline.md --out deck.html   # markdown outline → 
 
 `render` uses **atomic replacement**: it first writes a temporary file in the same
 directory, then `os.replace`s it over the target after post-processing completes; any
-failure will not corrupt an existing `.pptx`. The conversion pipeline requires
-`offipy[deck]` and chromium:
+failure will not corrupt an existing `.pptx`. On first conversion a `.audited.html`
+working copy is created next to the source HTML; later audit fixes edit the copy, never
+the original. **As of 0.10.2 the copy is rebuilt automatically whenever the source HTML
+is newer** (edits to the source take effect immediately instead of silently reusing a
+stale copy). A local `<img src>` referencing a missing file now fails the conversion
+with the missing paths listed (0.10.2+; no more silent blank placeholder images). The
+conversion pipeline requires `offipy[deck]` and chromium:
 
 ```bash
 pip install "offipy[deck]"
