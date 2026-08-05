@@ -114,7 +114,7 @@ def test_operation_result_failure_adds_error():
 
 
 def test_success_result_shape(monkeypatch):
-    monkeypatch.setattr(server, "_resource_id", lambda app: "excel:book:Book1")
+    monkeypatch.setattr(server, "_resource_id", lambda app, doc_id=None: "excel:book:Book1")
     res = server._success_result("excel.new_book", 3)
     assert res["ok"] is True
     assert res["operation"] == "excel.new_book"
@@ -152,7 +152,7 @@ def test_error_result_plain_exception_internal():
 def test_resource_id_format(monkeypatch):
     class FakeApp:
         def get_target(self):
-            return {"app": "excel", "name": "Book1", "path": "C:/tmp/book.xlsx"}
+            return {"app": "excel", "doc_id": "book1", "name": "Book1", "path": "C:/tmp/book.xlsx"}
 
     class NoTarget:
         def get_target(self):
@@ -160,7 +160,8 @@ def test_resource_id_format(monkeypatch):
 
     monkeypatch.setitem(server._APPS, "excel", FakeApp())
     monkeypatch.setitem(server._APPS, "word", NoTarget())
-    assert server._resource_id("excel") == "excel:book:Book1"
+    assert server._resource_id("excel") == "excel:book:book1"  # P0-6：用 doc_id 而非 name
+    assert server._resource_id("excel", "book1") == "excel:book:book1"  # 显式 doc_id 优先
     assert server._resource_id("ppt") is None  # 未初始化的 App → None
     assert server._resource_id("word") is None  # 有 App 但无目标 → None
 

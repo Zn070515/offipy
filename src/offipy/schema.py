@@ -244,9 +244,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
         ),
         "get_target": OpSpec(
-            description="当前活动工作簿身份（app/name/path）；无则返回 null。",
+            description=(
+                "当前活动工作簿身份（app/doc_id/name/path）；无则返回 null。"
+                "可传 doc_id 查询指定工作簿。"
+            ),
             readonly=True,
             returns="dict",
+            params={"doc_id": str},
         ),
         "quit": OpSpec(description="退出 Excel 会话（关闭应用窗口）。", destructive=True),
     },
@@ -490,9 +494,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
         ),
         "get_target": OpSpec(
-            description="当前活动文档身份（app/name/path）；无则返回 null。",
+            description=(
+                "当前活动文档身份（app/doc_id/name/path）；无则返回 null。"
+                "可传 doc_id 查询指定文档。"
+            ),
             readonly=True,
             returns="dict",
+            params={"doc_id": str},
         ),
         "quit": OpSpec(description="退出 Word 会话（关闭应用窗口）。", destructive=True),
     },
@@ -601,9 +609,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
         ),
         "get_target": OpSpec(
-            description="当前活动演示文稿身份（app/name/path）；无则返回 null。",
+            description=(
+                "当前活动演示文稿身份（app/doc_id/name/path）；无则返回 null。"
+                "可传 doc_id 查询指定演示文稿。"
+            ),
             readonly=True,
             returns="dict",
+            params={"doc_id": str},
         ),
         "quit": OpSpec(description="退出 PowerPoint 会话（关闭应用窗口）。", destructive=True),
     },

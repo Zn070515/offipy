@@ -29,7 +29,12 @@ from typing import Any
 
 from . import __version__, oplog, schema
 from .excel import ExcelApp
-from .exceptions import ComOperationError, ServerStartError, TargetNotFoundError
+from .exceptions import (
+    ComOperationError,
+    InvalidArgumentError,
+    ServerStartError,
+    TargetNotFoundError,
+)
 from .paths import user_data_dir
 from .ppt import PptApp
 from .result import OperationResult
@@ -172,11 +177,32 @@ def _rebuild(app):
     return get_app(name)
 
 
-def _target_matches(target: dict, expected) -> bool:
-    """expected_target 绑定：name/path 逐键精确比对，全部提供则全部须匹配。"""
+_TARGET_KEYS = ("doc_id", "name", "path")
+
+
+def _resolve_expected_target(app, expected) -> str:
+    """expected_target 绑定：resolve-once，返回校验通过后的 doc_id。
+
+    P0-4/5：校验与执行用同一个 doc_id（校验时解析、注入方法调用参数），
+    杜绝「校验 A 执行 B」；未知键/空对象直接拒绝，堵死旧 _target_matches({})
+    恒真绕过。绑定失败抛 TargetNotFoundError / InvalidArgumentError。
+    """
     if not isinstance(expected, dict):
-        return False
-    return all(target.get(key) == expected[key] for key in ("name", "path") if key in expected)
+        raise InvalidArgumentError(f"expected_target 必须是对象，收到 {type(expected).__name__}")
+    unknown = [k for k in expected if k not in _TARGET_KEYS]
+    if unknown:
+        raise InvalidArgumentError(f"expected_target 含未知键: {unknown}（可选: doc_id/name/path）")
+    if not any(k in expected for k in _TARGET_KEYS):
+        raise InvalidArgumentError("expected_target 必须至少包含 doc_id/name/path 之一")
+    target = app.get_target(doc_id=expected.get("doc_id"))
+    if target is None:
+        raise TargetNotFoundError("没有可绑定的目标文档")
+    for key in ("name", "path"):
+        if key in expected and target.get(key) != expected[key]:
+            raise TargetNotFoundError(
+                f"目标绑定失败: 期望 {key}={expected[key]!r}，实际 {target.get(key)!r}"
+            )
+    return target["doc_id"]
 
 
 def _current_targets() -> dict[str, dict | None]:
@@ -201,8 +227,14 @@ def _refresh_targets() -> None:
         _LAST_TARGETS = _current_targets()
 
 
-def _resource_id(app_name: str) -> str | None:
-    """当前目标身份 → "app:kind:name"；无目标/探测失败返回 None。"""
+def _resource_id(app_name: str, doc_id: str | None = None) -> str | None:
+    """目标身份 → "app:kind:doc_id"；无目标/探测失败返回 None。
+
+    P0-6：resource_id 用 doc_id（会话内稳定标识）而非 name（用户可改的文件名）。
+    显式 doc_id 优先（dispatch 注入的绑定/调用方 doc_id）；否则取当前活动目标的 doc_id。
+    """
+    if doc_id:
+        return f"{app_name}:{_KINDS.get(app_name, 'doc')}:{doc_id}"
     app = _APPS.get(app_name)
     if app is None:
         return None
@@ -210,9 +242,9 @@ def _resource_id(app_name: str) -> str | None:
         target = app.get_target()
     except Exception:
         return None
-    if not target or not target.get("name"):
+    if not target or not target.get("doc_id"):
         return None
-    return f"{app_name}:{_KINDS.get(app_name, 'doc')}:{target['name']}"
+    return f"{app_name}:{_KINDS.get(app_name, 'doc')}:{target['doc_id']}"
 
 
 def _deprecation_warning(op_name: str) -> str | None:
@@ -224,14 +256,14 @@ def _deprecation_warning(op_name: str) -> str | None:
     return None
 
 
-def _success_result(op_name: str, result) -> dict:
+def _success_result(op_name: str, result, doc_id: str | None = None) -> dict:
     """OperationResult 归一化成功响应；data 已 _serialize，另附 result 兼容别名。"""
     data = _serialize(result)
     app_name, _, _ = op_name.partition(".")
     res = OperationResult(
         ok=True,
         operation=op_name,
-        resource_id=_resource_id(app_name),
+        resource_id=_resource_id(app_name, doc_id),
         message="ok",
         data=data,
     ).to_dict()
@@ -322,7 +354,9 @@ def _worker_loop() -> None:
             try:
                 app = get_app(app_name)
                 result = dispatch(app, op, args, app_name)
-                kind, payload = "ok", _success_result(op_name, result)
+                # dispatch 可能注入绑定 doc_id（expected_target）或保留调用方 doc_id；
+                # resource_id 用它定位——「操作的是谁，资源 id 就是谁」
+                kind, payload = "ok", _success_result(op_name, result, doc_id=args.get("doc_id"))
             except Exception as e:
                 kind, payload = "error", _error_result(op_name, e)
             finally:
@@ -345,15 +379,11 @@ def dispatch(app, op: str, args: dict, app_name: str):
         app = _rebuild(app)
     expected = args.pop("expected_target", None)
     if expected is not None and op in _DESTRUCTIVE_OPS.get(app_name, frozenset()):
-        # P0-7：破坏性 op 绑定目标——不跟随用户焦点。绑定失败直接拒绝，
-        # 避免用户切到别的文档后被误改。
-        target = app.get_target()
-        if target is None:
-            raise TargetNotFoundError("没有可绑定的目标文档")
-        if not _target_matches(target, expected):
-            raise TargetNotFoundError(
-                f"目标绑定失败: 期望 {expected}，当前目标 {target.get('name')!r}"
-            )
+        # P0-4/5：破坏性 op 绑定目标——不跟随用户焦点。resolve-once：校验用
+        # 解析出的 doc_id 直接注入方法参数，杜绝「校验 A 执行 B」；未知键/空
+        # 对象在 _resolve_expected_target 内拒绝（旧 _target_matches({}) 恒真
+        # 绕过已堵死）。只读 op 上的 expected_target 无意义：pop 掉忽略。
+        args["doc_id"] = _resolve_expected_target(app, expected)
     method = getattr(app, op, None)
     if method is None:
         raise AttributeError(f"未知操作: {op}")

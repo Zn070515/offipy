@@ -9,7 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .exceptions import InvalidArgumentError, TargetNotFoundError
+from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
@@ -198,15 +198,24 @@ class WordApp:
         return doc
 
     def activate(self, doc_id: str) -> str:
-        """把指定文档设为活动目标；未知句柄抛 TargetNotFoundError。"""
+        """把指定文档设为活动目标并同步真实 UI（Document.Activate）。
+
+        未知句柄抛 TargetNotFoundError。
+        """
         doc = self._docs.get(doc_id)
         if doc is None or not core.doc_alive(doc):
             raise TargetNotFoundError(f"未知文档句柄: {doc_id!r}（用 list_docs 查看当前打开的）")
+        old = self._active_id
         self._active_id = doc_id
+        try:
+            doc.Activate()  # 同步 Word 真实活动文档，防止用户焦点漂移
+        except Exception as e:
+            self._active_id = old  # 同步不上则回滚，不静默假活
+            raise ComOperationError(f"激活文档 {doc_id} 失败: {e}") from e
         return doc_id
 
     def list_docs(self) -> dict:
-        """当前打开的文档表：{doc_id: {"name", "path"}}。只读，过滤失效句柄。"""
+        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。"""
         out = {}
         for did, doc in self._docs.items():
             if not core.doc_alive(doc):
@@ -219,14 +228,25 @@ class WordApp:
                 path = doc.FullName
             except Exception:
                 path = None
-            out[did] = {"name": name, "path": path}
+            out[did] = {"name": name, "path": path, "active": did == self._active_id}
         return out
 
-    def get_target(self):
-        """当前活动文档身份（app/name/path）；无则返回 None。只读探测。"""
-        doc = self.active_doc()
-        if doc is None:
-            return None
+    def get_target(self, doc_id: str | None = None):
+        """目标身份 {app, doc_id, name, path}；无目标返回 None。只读探测。
+
+        显式 doc_id：只查文档表，未注册/失效抛 TargetNotFoundError；
+        缺省：当前活动目标。
+        """
+        if doc_id is not None:
+            doc = self.active_doc(doc_id)
+            resolved = doc_id
+        else:
+            doc = self.active_doc()
+            if doc is None:
+                return None
+            active_id = self._active_id
+            assert active_id is not None  # active_doc 非 None 时活动 id 必已同步
+            resolved = active_id
         try:
             name = doc.Name
         except Exception:
@@ -235,7 +255,7 @@ class WordApp:
             path = doc.FullName
         except Exception:
             path = None
-        return {"app": "word", "name": name, "path": path}
+        return {"app": "word", "doc_id": resolved, "name": name, "path": path}
 
     def close_doc(self, save: bool = True, doc_id: str | None = None):
         doc = self._require_doc(doc_id)
