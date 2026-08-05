@@ -87,7 +87,8 @@ def test_extract_autoshape_inherited_font_size(tmp_path):
 # ---------------------------------------------------------------- group 嵌套
 
 
-def test_extract_group_nesting_local_coords(tmp_path):
+def test_extract_group_nesting_absolutized(tmp_path):
+    # group off=0 且 ext==chExt（恒等缩放）时，子元素绝对坐标 = 局部坐标
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     g = slide.shapes.add_group_shape()
@@ -108,14 +109,58 @@ def test_extract_group_nesting_local_coords(tmp_path):
     c1_rec = next(s for s in ext.slides[0].shapes if s.shape_id == c1.shape_id)
     assert c1_rec.parent_shape_id == g.shape_id
     assert c1_rec.group_path == (g.shape_id,)
-    assert c1_rec.left == pytest.approx(0.5)  # 局部坐标
+    # 已绝对化到幻灯片坐标（本用例 ext==chExt，故 = 局部坐标）
+    assert c1_rec.left == pytest.approx(0.5)
     assert c1_rec.top == pytest.approx(0.25)
+    assert c1_rec.is_rotated is False
+    assert c1_rec.geometry_unknown is False
 
     g2_rec = next(s for s in ext.slides[0].shapes if s.shape_id == g2.shape_id)
     assert g2_rec.group_path == (g.shape_id,)
     c2_rec = next(s for s in ext.slides[0].shapes if s.shape_id == c2.shape_id)
     assert c2_rec.group_path == (g.shape_id, g2.shape_id)
     assert c2_rec.text == "deep"
+
+
+def test_group_scale_absolutizes_child(tmp_path):
+    # group off=(1,0) ext=(2,2)，子 1×1 局部 (0,0) → 绝对 (1,0) 2×2
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    g = slide.shapes.add_group_shape()
+    c = g.shapes.add_shape(1, Inches(0), Inches(0), Inches(1), Inches(1))
+    c.text = "child"
+    g.left, g.top = Inches(1), Inches(0)
+    g.width, g.height = Inches(2), Inches(2)
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_id == c.shape_id)
+    assert rec.left == pytest.approx(1.0)
+    assert rec.top == pytest.approx(0.0)
+    assert rec.width == pytest.approx(2.0)
+    assert rec.height == pytest.approx(2.0)
+
+
+def test_group_fliph_mirrors_child_about_center(tmp_path):
+    # group off=(2,3) ext=(1,1)，chExt=(1,1)，子左半 (0,0)-(0.5,1) 占坐标空间左半
+    # flipH 绕组中心 x=2.5 镜像 → 子移入右半 [2.5,3]
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    g = slide.shapes.add_group_shape()
+    c = g.shapes.add_shape(1, Inches(0), Inches(0), Inches(0.5), Inches(1))
+    c.text = "child"
+    g.left, g.top = Inches(2), Inches(3)
+    g.width, g.height = Inches(1), Inches(1)
+    xfrm = g._element.xpath(".//a:xfrm")[0]
+    xfrm.set("flipH", "1")
+    # 强制 chExt=(1,1)：子只占坐标空间左半，flipH 才有可观察位移
+    ch_ext = xfrm.find("{http://schemas.openxmlformats.org/drawingml/2006/main}chExt")
+    ch_ext.set("cx", str(int(1.0 * 914400)))
+    ch_ext.set("cy", str(int(1.0 * 914400)))
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_id == c.shape_id)
+    assert rec.left == pytest.approx(2.5)
+    assert rec.top == pytest.approx(3.0)
+    assert rec.width == pytest.approx(0.5)
+    assert rec.height == pytest.approx(1.0)
 
 
 def test_group_children_z_order_scoped(tmp_path):
