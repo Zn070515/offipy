@@ -139,6 +139,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if [ "${{ needs.quality.outputs.is_stable }}" = "true" ]; then
             gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag

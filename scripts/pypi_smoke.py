@@ -1,16 +1,21 @@
-"""TestPyPI 精确安装门禁（P0-5）：从 index 精确下载 wheel → sha256 比对 → 干净 venv 安装 → 冒烟。
+"""TestPyPI 精确安装门禁（P0-5）：JSON API 精确下载 wheel → 双重 sha256 比对 → 干净 venv 安装冒烟。
 
 任一断言失败 → 非 0 退出。验证点：
-- `uv pip download` 从 index 精确拿到 offipy==<version> 的 wheel（无 --no-deps 重解析，
-  下载产物与构建 artifact 由 --expected-sha256 比对兜底，防「旧同版本被 skip」）
-- 新建干净 venv：`--no-deps` 装下载的 wheel，再从正式 PyPI 解析 [deck,mcp] extras
-  运行时依赖（Linux 上 pywin32 因 platform_system marker 自动跳过）
+- GET {index}/pypi/offipy/<version>/json（TestPyPI JSON API，精确到版本）
+- 从 urls 精确选择 .whl，下载后双重 sha256 比对：
+    1) TestPyPI 索引声明的 digests.sha256
+    2) --expected-sha256（构建 artifact 的 sha，门禁用）
+  两者都必须等于本地下载 sha——证明「TestPyPI 上的就是本轮构建产物」
+  （防「旧同版本被 skip」后拿旧文件蒙混）
+- 新建干净 venv：装下载的 wheel，[deck,mcp] extras 运行时依赖从正式 PyPI 解析
+  （Linux 上 pywin32 因 platform_system marker 自动跳过）
 - `import offipy` / __version__ == --version / `offipy --help` /
   `offipy check --profile all --json`（合法 JSON 且 version 匹配）/
   `offipy mcp --help`
 
 CLI:
-    --version 必填；--index 默认 https://test.pypi.org/simple；
+    --version 必填；--index 为 JSON API base，默认 https://test.pypi.org，
+    实际请求 {index}/pypi/offipy/<version>/json；
     --expected-sha256 给了才比对（构建 artifact 的 sha，门禁用）。
 
 注：不断言 check 的退出码——Chromium/Office 是否就绪是运行环境问题，
@@ -20,16 +25,17 @@ CLI:
 from __future__ import annotations
 
 import argparse
-import glob
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
-_DEFAULT_INDEX = "https://test.pypi.org/simple"
+_DEFAULT_INDEX = "https://test.pypi.org"
 
 
 def _venv_python(venv: Path) -> str:
@@ -58,11 +64,76 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _find_wheel(download_dir: Path) -> Path:
-    wheels = sorted(glob.glob(str(download_dir / "offipy-*.whl")))
+def _fetch_json(url: str) -> dict:
+    """GET JSON；HTTP/URL/网络错误一律 SystemExit（门禁脚本不做半开）。"""
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
+        raise SystemExit(f"[pypi-smoke] FAIL: 无法获取 {url}: {exc}") from exc
+
+
+def _download_wheel(url: str, dest: Path) -> None:
+    try:
+        with urllib.request.urlopen(url, timeout=120) as resp, open(dest, "wb") as fh:
+            shutil.copyfileobj(resp, fh)
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
+        raise SystemExit(f"[pypi-smoke] FAIL: 无法下载 wheel {url}: {exc}") from exc
+
+
+def _pick_wheel_url(data: dict, version: str) -> tuple[str, str]:
+    """从 TestPyPI JSON 的 urls 里选 .whl，多个按上传时间取最新；返回 (url, digests.sha256)。"""
+    wheels = [u for u in data.get("urls", []) if u.get("filename", "").endswith(".whl")]
     if not wheels:
-        raise SystemExit(f"[pypi-smoke] index 下载目录里没有 wheel: {download_dir}")
-    return Path(wheels[-1])
+        raise SystemExit(
+            f"[pypi-smoke] FAIL: offipy=={version} JSON 里没有 wheel"
+            f"（urls 共 {len(data.get('urls', []))} 个文件）"
+        )
+    wheels.sort(key=lambda u: u.get("upload_time_iso_8601", ""), reverse=True)
+    chosen = wheels[0]
+    sha = chosen.get("digests", {}).get("sha256")
+    if not sha:
+        raise SystemExit(f"[pypi-smoke] FAIL: {chosen['filename']} 缺 digests.sha256")
+    return chosen["url"], sha
+
+
+def _download_and_verify(
+    index: str,
+    version: str,
+    download_dir: Path,
+    expected_sha256: str | None,
+) -> Path:
+    """从 index JSON API 精确下载 wheel 并做双重 sha256 比对，返回 wheel 路径。
+
+    比对 1：本地下载 sha == TestPyPI 索引声明的 digests.sha256；
+    比对 2：若给了 expected_sha256（构建 artifact），本地 sha == expected。
+    """
+    json_url = f"{index}/pypi/offipy/{version}/json"
+    print(f"[pypi-smoke] GET {json_url}（TestPyPI JSON API 精确查询）...")
+    data = _fetch_json(json_url)
+    wheel_url, index_sha = _pick_wheel_url(data, version)
+    wheel = download_dir / Path(wheel_url.split("/")[-1])
+    print(f"[pypi-smoke] 下载 {wheel.name} ...")
+    _download_wheel(wheel_url, wheel)
+
+    sha = _sha256(wheel)
+    if sha != index_sha:
+        raise SystemExit(
+            f"[pypi-smoke] FAIL: 本地下载 sha256 {sha} != TestPyPI digests.sha256 "
+            f"{index_sha}（索引声明与下载内容不符）"
+        )
+    print("[pypi-smoke] sha256 == TestPyPI digests.sha256 ✓")
+
+    if expected_sha256:
+        if sha != expected_sha256.lower():
+            raise SystemExit(
+                f"[pypi-smoke] FAIL: wheel sha256 {sha} != 构建产物 "
+                f"{expected_sha256}（TestPyPI 上不是本轮构建内容）"
+            )
+        print("[pypi-smoke] sha256 == 构建产物 ✓")
+    else:
+        print(f"[pypi-smoke] sha256 = {sha}（未给 --expected-sha256，跳过构建产物比对）")
+    return wheel
 
 
 def main() -> int:
@@ -71,7 +142,7 @@ def main() -> int:
     parser.add_argument(
         "--index",
         default=_DEFAULT_INDEX,
-        help=f"index 根 URL（默认 {_DEFAULT_INDEX}）",
+        help=f"JSON API base（默认 {_DEFAULT_INDEX}），请求 {{index}}/pypi/offipy/<version>/json",
     )
     parser.add_argument(
         "--expected-sha256",
@@ -89,41 +160,9 @@ def main() -> int:
         _run(["uv", "venv", str(venv)])
         py = _venv_python(venv)
 
-        print(f"[pypi-smoke] uv pip download offipy=={args.version}（精确下载）...")
-        _run(
-            [
-                "uv",
-                "pip",
-                "download",
-                "--python",
-                py,
-                "--index-url",
-                args.index,
-                "--no-deps",
-                "--no-binary",
-                ":none:",
-                "-d",
-                str(download),
-                f"offipy=={args.version}",
-            ]
-        )
-        wheel = _find_wheel(download)
-        print(f"[pypi-smoke] 下载到 {wheel.name}")
+        wheel = _download_and_verify(args.index, args.version, download, args.expected_sha256)
 
-        sha = _sha256(wheel)
-        if args.expected_sha256:
-            if sha != args.expected_sha256.lower():
-                raise SystemExit(
-                    f"[pypi-smoke] FAIL: wheel sha256 {sha} != 构建产物 "
-                    f"{args.expected_sha256}（TestPyPI 上不是本轮构建内容）"
-                )
-            print("[pypi-smoke] sha256 == 构建产物 ✓")
-        else:
-            print(f"[pypi-smoke] sha256 = {sha}（未给 --expected-sha256，跳过比对）")
-
-        print("[pypi-smoke] 干净 venv：--no-deps 装 wheel + PyPI 解析 [deck,mcp] extras ...")
-        # offipy[deck,mcp] 的运行时依赖从正式 PyPI 装；pywin32 由
-        # platform_system=='Windows' marker 在 Linux 上自动跳过
+        print("[pypi-smoke] 干净 venv：装 wheel + PyPI 解析 [deck,mcp] extras ...")
         _run(
             [
                 "uv",
@@ -172,7 +211,7 @@ def main() -> int:
         if "usage" not in r.stdout.lower():
             raise SystemExit("[pypi-smoke] FAIL: offipy mcp --help 无 usage 输出")
 
-        print(f"[pypi-smoke] OK — {args.version} 从 index 精确下载 + 干净安装冒烟通过")
+        print(f"[pypi-smoke] OK — {args.version} 从 TestPyPI 精确下载 + 干净安装冒烟通过")
         return 0
     finally:
         print(f"[pypi-smoke] 清理 {tmp}")

@@ -362,6 +362,6 @@ MIT AND ISC（SPDX 表达式）——offipy 本体与 vendored 转换器 / Phosp
 
 - **Bug / 功能请求**：到 [GitHub Issues](https://github.com/Zn070515/office-kit/issues) 提交，
   附上 `offipy check --json` 输出与最小复现。
-- **预发布版本**：TestPyPI 冒烟用 `scripts/pypi_smoke.py --index https://test.pypi.org/simple --version <预发布号>`
-  （见 CHANGELOG「预发布编号策略」）。预发布版本仅供验证，稳定首发前 `__version__` / tag / CHANGELOG
-  顶层三者保持一致。
+- **预发布版本**：TestPyPI 冒烟用 `scripts/pypi_smoke.py --index https://test.pypi.org --version <预发布号>`
+  （从 TestPyPI JSON API 精确下载 wheel 并做双重 sha256 比对，见 CHANGELOG「预发布编号策略」）。
+  预发布版本仅供验证，稳定首发前 `__version__` / tag / CHANGELOG 顶层三者保持一致。

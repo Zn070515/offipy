@@ -345,6 +345,7 @@ the embedded Lucide icons are ISC. The license texts are distributed with the ar
 
 - **Bugs / feature requests**: file them at [GitHub Issues](https://github.com/Zn070515/office-kit/issues),
   attaching `offipy check --json` output and a minimal repro.
-- **Pre-release versions**: smoke-test TestPyPI with `scripts/pypi_smoke.py --index https://test.pypi.org/simple --version <pre-release version>`
-  (see "Pre-release numbering policy" in the CHANGELOG). Pre-release versions are for validation only; before the initial stable release,
+- **Pre-release versions**: smoke-test TestPyPI with `scripts/pypi_smoke.py --index https://test.pypi.org --version <pre-release version>`
+  (downloads the wheel via the TestPyPI JSON API with a dual sha256 check; see "Pre-release numbering policy" in the CHANGELOG).
+  Pre-release versions are for validation only; before the initial stable release,
   the top three — `__version__` / tag / CHANGELOG — must stay consistent.

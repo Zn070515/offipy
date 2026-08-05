@@ -60,14 +60,22 @@ jobs:
           name: ${{ inputs.dist_artifact }}
           path: dist
 
-      # 装 wheel 用 bash：`"dist"/*.whl` 的 glob + `[office,deck,mcp]` extras 拼接
-      # 依赖 bash 把两者拼成一个参数（PowerShell 不展开原生命令的通配符）。
+      # 装 wheel 用 bash。P0-2：`"dist"/*.whl"[office,deck,mcp]"` 会把 extras 拼进
+      # glob pattern 变字面量（`*.whl[office,...]` 匹配不到文件），须先单独展开 wheel
+      # 到变量、`test -f` + 单 wheel 断言，再拼 extras（PowerShell 不展开原生通配符）。
       - name: Install final wheel into clean venv
         if: inputs.install_from_wheel
         shell: bash
         run: |
           uv venv .venv-wheel
-          uv pip install --python .venv-wheel "dist"/*.whl"[office,deck,mcp]" pytest
+          if [ -f ".venv-wheel/Scripts/python.exe" ]; then
+            _py=".venv-wheel/Scripts/python.exe"
+          else
+            _py=".venv-wheel/bin/python"
+          fi
+          wheel="$("$_py" -c 'import glob; w=glob.glob("dist/offipy-*.whl"); assert len(w)==1, w; print(w[0])')"
+          test -f "$wheel"
+          uv pip install --python .venv-wheel "${wheel}[office,deck,mcp]" pytest
 
       - name: Sync dependencies (source mode)
         if: ${{ !inputs.install_from_wheel }}
