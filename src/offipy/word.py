@@ -9,7 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .core import destructive
+from .core import destructive, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -329,6 +329,7 @@ class WordApp:
             doc.SaveAs2(dest)
             return dest
 
+    @requires_target
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():

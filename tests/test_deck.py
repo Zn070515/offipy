@@ -196,6 +196,39 @@ def test_make_passes_overwrite_to_render(tmp_path, monkeypatch):
     assert pptx.endswith("deck.pptx")
 
 
+def test_make_feedback_binds_export_to_rendered_doc(tmp_path, monkeypatch):
+    # P0-2：feedback_dir 导出必须绑定本次渲染的 deck（open_live 返回的 doc_id），
+    # overwrite 透传；绝不依赖「当前活动焦点」（防中途切到别的文稿）。
+    calls = {}
+
+    def fake_render(html, out=None, **kw):
+        return str(tmp_path / "deck.pptx")
+
+    def fake_open_live(pptx):
+        calls["open_pptx"] = pptx
+        return "pres7"
+
+    def fake_export_slides(out_dir, width=1920, height=1080, doc_id=None, overwrite=False):
+        calls["export"] = {"out_dir": out_dir, "doc_id": doc_id, "overwrite": overwrite}
+        return []
+
+    monkeypatch.setattr(deck, "render", fake_render)
+    monkeypatch.setattr(deck, "open_live", fake_open_live)
+    monkeypatch.setattr(deck, "export_slides", fake_export_slides)
+
+    feedback = tmp_path / "fb"
+    deck.make(
+        str(tmp_path / "deck.html"),
+        open_live_flag=False,
+        feedback_dir=str(feedback),
+        overwrite=True,
+    )
+    assert calls["open_pptx"] == str(tmp_path / "deck.pptx")
+    assert calls["export"]["doc_id"] == "pres7"
+    assert calls["export"]["overwrite"] is True
+    assert calls["export"]["out_dir"] == str(feedback)
+
+
 # --- P0-6 原子替换：失败不破坏已存在 .pptx，临时文件清理 ---
 
 

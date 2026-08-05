@@ -76,12 +76,13 @@ def _progid(app: str) -> str:
     return PROGIDS[key]
 
 
-def destructive(fn):
-    """破坏性操作守卫（P0-3 doc_id 权威）：强制「显式 doc_id 或 follow_active=True」。
+def _target_guard(fn, msg: str):
+    """目标绑定守卫工厂（P0-3 doc_id 权威）：强制「显式 doc_id 或 follow_active=True」。
 
-    拦截破坏性 App 方法：doc_id 缺失且未开 follow_active → InvalidArgumentError，
-    绝不静默落到「当前活动文档」（防止用户看到 B、Agent 改 A）。follow_active
-    开启时用 self.get_target() 实时解析真实活动目标并注入 doc_id。
+    destructive 与 requires_target 共用同一逻辑：doc_id 缺失且未开 follow_active
+    → InvalidArgumentError，绝不静默落到「当前活动文档」（防止用户看到 B、Agent
+    改 A）。follow_active 开启时用 self.get_target() 实时解析真实活动目标并注入
+    doc_id。差异只在报错文案（msg）：破坏性=改文档，requires_target=写文件/导出。
     """
     sig = inspect.signature(fn)
 
@@ -97,10 +98,20 @@ def destructive(fn):
                 did = tgt["doc_id"]
                 bound.arguments["doc_id"] = did
             else:
-                raise InvalidArgumentError("破坏性操作需要显式 doc_id 或 follow_active=True")
+                raise InvalidArgumentError(msg)
         return fn(*bound.args, **bound.kwargs)
 
     return wrapper
+
+
+def destructive(fn):
+    """破坏性操作守卫：强制「显式 doc_id 或 follow_active=True」（改源文档）。"""
+    return _target_guard(fn, "破坏性操作需要显式 doc_id 或 follow_active=True")
+
+
+def requires_target(fn):
+    """导出/写文件操作守卫：不修改源文档但写文件系统，同样强制绑定目标。"""
+    return _target_guard(fn, "导出/写文件操作需要显式 doc_id 或 follow_active=True")
 
 
 # GetActiveObject 连不到已运行实例的 HRESULT（有符号 int，与 com_error.hresult 一致）：

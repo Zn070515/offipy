@@ -4,13 +4,20 @@
 """
 
 import os
+import shutil
+import tempfile
 from contextlib import contextmanager, suppress
 from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .core import destructive
-from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
+from .core import destructive, requires_target
+from .exceptions import (
+    ComOperationError,
+    FileConflictError,
+    InvalidArgumentError,
+    TargetNotFoundError,
+)
 from .paths import default_save_path, ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -228,6 +235,7 @@ class PptApp:
             pres.SaveAs(dest)
             return dest
 
+    @requires_target
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         # ExportAsFixedFormat 第 2 参数是必填的 FixedFormatType（PDF=2）；Intent
@@ -239,19 +247,41 @@ class PptApp:
                 dest, FixedFormatType=PP_FIXED_FORMAT_TYPE_PDF, Intent=2, PrintRange=None
             )
 
+    @requires_target
     def export_slides(
-        self, out_dir: str, width: int = 1920, height: int = 1080, doc_id: str | None = None
+        self,
+        out_dir: str,
+        width: int = 1920,
+        height: int = 1080,
+        overwrite: bool = False,
+        doc_id: str | None = None,
     ):
-        """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。"""
+        """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。
+
+        默认拒绝覆盖已有输出；overwrite=True 时先导出到同卷 staging 临时目录，
+        全部成功后 os.replace 原子替换，中途失败不留半成品。
+        """
         out_dir = os.path.abspath(out_dir)
         pres = self._require_pres(doc_id)
+        count = pres.Slides.Count
+        targets = [os.path.join(out_dir, f"slide_{i:02d}.png") for i in range(1, count + 1)]
+        if not overwrite:
+            existing = [p for p in targets if os.path.exists(p)]
+            if existing:
+                raise FileConflictError(f"导出目标已存在: {existing[0]}（overwrite=True 覆盖）")
         os.makedirs(out_dir, exist_ok=True)
-        paths = []
-        for i in range(1, pres.Slides.Count + 1):
-            out = os.path.join(out_dir, f"slide_{i:02d}.png")
-            pres.Slides(i).Export(out, "PNG", width, height)
-            paths.append(out)
-        return paths
+        staging = tempfile.mkdtemp(prefix=".offipy-slides-", dir=os.path.dirname(out_dir) or ".")
+        try:
+            tmp_paths = []
+            for i in range(1, count + 1):
+                tmp = os.path.join(staging, f"slide_{i:02d}.png")
+                pres.Slides(i).Export(tmp, "PNG", width, height)
+                tmp_paths.append(tmp)
+            for tmp, final in zip(tmp_paths, targets, strict=True):
+                os.replace(tmp, final)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        return targets
 
     # --- 幻灯片 ---
     @destructive

@@ -581,7 +581,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
             returns="list",
-            params={"out_dir": str, "width": int, "height": int, "doc_id": str},
+            params={
+                "out_dir": str,
+                "width": int,
+                "height": int,
+                "overwrite": bool,
+                "doc_id": str,
+            },
         ),
         "add_slide": OpSpec(
             description=(

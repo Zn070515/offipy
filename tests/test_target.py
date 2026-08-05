@@ -312,13 +312,27 @@ def test_dispatch_follow_active_ignored_on_quit():
 
 
 def test_dispatch_no_target_leaf_to_app_guard():
-    # 破坏性 op 无 doc_id/expected_target/follow_active → dispatch 不注入任何
-    # doc_id，原样传给方法，由 App 层 @destructive 守卫抛 InvalidArgumentError
-    # （此处 fake app 无守卫，方法收到 doc_id=None）。
+    # 破坏性 op 无 doc_id/expected_target/follow_active → dispatch 层直接拒绝，
+    # 错误在碰 COM 前抛出；App 层守卫（@destructive/@requires_target）不再有机会。
     app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "B", "path": None})
-    result = server.dispatch(app, "close_book", {}, "excel")
-    assert result == "closed"
-    assert app.close_calls == [None]
+    with pytest.raises(InvalidArgumentError):
+        server.dispatch(app, "close_book", {}, "excel")
+    assert app.close_calls == []
+
+
+def test_dispatch_no_target_meta_all_binding_ops_rejected():
+    # P0-1 meta-test：schema 里所有绑定目标的 op（destructive ∪ requires_target ∪
+    # supports_expected_target，除 quit）无任何目标绑定 → dispatch 统一抛
+    # InvalidArgumentError，绝不静默落到「当前活动文档」。
+    from offipy import schema
+
+    for app_name in schema.apps():
+        for op in schema.OPS[app_name]:
+            if not schema.supports_expected_target(app_name, op) or op == "quit":
+                continue
+            app = _TargetApp(None)
+            with pytest.raises(InvalidArgumentError):
+                server.dispatch(app, op, {}, app_name)
 
 
 # --- App 层 @destructive 守卫（P0-3 doc_id 权威） ---
@@ -388,6 +402,75 @@ def test_destructive_decorator_explicit_doc_id_passes():
             return "ok"
 
     assert _Stub().mutate(doc_id="b7") == "ok"
+    assert calls["doc_id"] == "b7"
+
+
+# --- App 层 @requires_target 守卫（P0-3 导出/写文件） ---
+
+
+def test_requires_target_decorator_requires_doc_id():
+    # 导出类 op（不破坏源文档但写文件系统）无 doc_id 且未 follow_active →
+    # InvalidArgumentError；绝不静默导出「当前活动文档」。
+    from offipy import core
+
+    calls = {}
+
+    class _Stub:
+        @core.requires_target
+        def export(self, path, doc_id=None):
+            calls["doc_id"] = doc_id
+            return "ok"
+
+    with pytest.raises(InvalidArgumentError):
+        _Stub().export("/tmp/x.pdf")
+    assert calls == {}
+
+
+def test_requires_target_decorator_follow_active_injects():
+    from offipy import core
+
+    calls = {}
+
+    class _Stub:
+        def get_target(self, doc_id=None):
+            return {"app": "excel", "doc_id": "b1", "name": "N", "path": None}
+
+        @core.requires_target
+        def export(self, path, doc_id=None):
+            calls["doc_id"] = doc_id
+            return "ok"
+
+    assert _Stub().export("/tmp/x.pdf", follow_active=True) == "ok"
+    assert calls["doc_id"] == "b1"
+
+
+def test_requires_target_decorator_follow_active_no_target():
+    from offipy import core
+
+    class _Stub:
+        def get_target(self, doc_id=None):
+            return None
+
+        @core.requires_target
+        def export(self, path, doc_id=None):
+            raise AssertionError("不该执行")
+
+    with pytest.raises(TargetNotFoundError):
+        _Stub().export("/tmp/x.pdf", follow_active=True)
+
+
+def test_requires_target_decorator_explicit_doc_id_passes():
+    from offipy import core
+
+    calls = {}
+
+    class _Stub:
+        @core.requires_target
+        def export(self, path, doc_id=None):
+            calls["doc_id"] = doc_id
+            return "ok"
+
+    assert _Stub().export("/tmp/x.pdf", doc_id="b7") == "ok"
     assert calls["doc_id"] == "b7"
 
 
