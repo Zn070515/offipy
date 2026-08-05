@@ -644,7 +644,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "read_slide_texts": OpSpec(
             description=(
-                "读取第 slide_idx 页全部具有文本能力的 shape（含 group 内文本），返回"
+                "读取第 slide_idx 页全部具有文本能力的 shape（含 group 内文本），返回 "
                 "SlideTextRecord（shape_id/name/text/坐标/占位符/group 路径）。"
                 "include_empty=True 连空文本 shape 也返回；recursive=False 不递归 group。"
             ),

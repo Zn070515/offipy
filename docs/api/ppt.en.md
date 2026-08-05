@@ -46,7 +46,7 @@ Export the presentation (doc_id defaults to the active one) to PDF at the given 
 
 Export each slide of the presentation (doc_id defaults to the active one) as PNG into out_dir (slide_01.png…), for visual inspection/iteration. Default 1920x1080. Returns the list of file paths.
 
-- **Parameters**: `out_dir: str`, `width: int`, `height: int`, `doc_id: str`
+- **Parameters**: `out_dir: str`, `width: int`, `height: int`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `list`
 - **Flags**: normal operation
 
@@ -114,7 +114,17 @@ Insert an image on the slide_idx-th slide (coordinates in points).
 
 ### `read_slide_texts`
 
-Read the title/body/notes text of each slide of the presentation (doc_id defaults to the active one) (read-only), returning [{index, title, body, notes}].
+Read every text-capable shape on the slide_idx-th slide (including text inside groups), returning SlideTextRecord entries (shape_id/name/text/coordinates/placeholder/group path). include_empty=True also returns text shapes with empty text; recursive=False skips groups.
+
+- **Parameters**: `slide_idx: int`, `include_empty: bool`, `recursive: bool`, `doc_id: str`
+- **Returns**: `list[SlideTextRecord]`
+- **Flags**: read-only
+
+---
+
+### `read_slide_summary`
+
+Read the title/body/notes summary of each slide of the presentation (doc_id defaults to the active one) (read-only), returning [{index, title, body, notes}].
 
 - **Parameters**: `doc_id: str`
 - **Returns**: `list`

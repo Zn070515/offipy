@@ -8,7 +8,7 @@
 same Office instance through the server on port 8890. The target document is resolved
 by op type:
 
-- **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …):
+- **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target` …):
   default to the **currently active** document — an explicit `doc_id` takes priority, then the
   active target set by `activate` or `new_*/open_*`, then a real-time probe of
   `ActiveWorkbook` / `ActiveDocument` / `ActivePresentation` registered into the document table
@@ -67,7 +67,7 @@ The MCP server uses stdio, and the tool set is registered automatically from
 }
 ```
 
-Read operations (`read_range` / `read_doc_text` / `read_slide_texts` / `list_docs`) are
+Read operations (`read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `list_docs`) are
 marked read-only; write operations are marked as modifying state; `save` / `save_pdf`
 expose the `overwrite` parameter.
 
@@ -105,3 +105,17 @@ string, `read_range` → a 2D list). `OperationResult` is the **return contract 
 HTTP `/call`** (`{ok, operation, resource_id, message, data}`, HTTP-only); MCP returns
 the `data` payload — the three entry points have different return shapes; see the
 honest comparison in [api.en.md](api.en.md).
+
+## Capability boundary: create/append vs incremental edit
+
+offipy is strongest **from a blank slate**: creating documents, appending
+paragraphs/cells/slides (`new_*` / `add_*` / `set_*`), and reading the text layer
+back (`read_*`). **Incremental edits to an existing document** — moving/resizing/
+deleting existing shapes, fine-tuning a textbox's position/size — are not in the
+library yet: `read_slide_texts` is a read-only op; its records exist so an agent
+can understand the current page's text and coordinates. To change appearance, use
+the "read back → rebuild/append in a new document" flow (the HTML→PPTX pipeline
+rebuilds from HTML the same way). Incremental shape editing (`read_shapes` /
+`set_shape_position` / `set_shape_size` / `delete_shape`) is on the roadmap, not
+yet released; when it lands, `read_shapes`'s `shape_id` will share the same data
+model lineage as `read_slide_texts`.

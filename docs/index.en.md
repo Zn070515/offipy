@@ -52,6 +52,7 @@ pointing at `offipy mcp`.
 - [Protocol](protocol.en.md): HTTP protocol, token, `/shutdown`, protocol version handshake.
 - [Compatibility matrix](compatibility.en.md): Windows / Office / Python / extras support.
 - [Deprecation policy](deprecation.en.md): deprecation workflow and the response `warning` field.
+- [Migration guide](migration.md): 0.9 → 0.10 breaking changes and migration steps.
 
 ## Building the docs
 

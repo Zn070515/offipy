@@ -82,6 +82,7 @@ def _method_sig(app: str, op: str, remote: bool) -> str:
     assert spec is not None, f"{app}.{op} 未在 schema 登记"
     sig = inspect.signature(method)
     parts = []
+    has_star = False
     has_doc_id = False
     for name, p in sig.parameters.items():
         if name == "self" or p.kind in (
@@ -89,6 +90,11 @@ def _method_sig(app: str, op: str, remote: bool) -> str:
             inspect.Parameter.VAR_KEYWORD,
         ):
             continue
+        # 忠实保留 App 方法签名的 keyword-only 分隔符（如 read_slide_texts 的
+        # include_empty/recursive/doc_id），IDE/mypy 补全才能对上调用约定
+        if p.kind == inspect.Parameter.KEYWORD_ONLY and not has_star:
+            parts.append("*")
+            has_star = True
         if name == "doc_id":
             has_doc_id = True
             if p.default is inspect.Parameter.empty:
@@ -107,14 +113,17 @@ def _method_sig(app: str, op: str, remote: bool) -> str:
                 ann_str = f"{ann_str} | None"
             parts.append(f"{name}: {ann_str} = {p.default!r}")
     if has_doc_id and schema.supports_expected_target(app, op):
-        parts.append("*")
+        if not has_star:
+            parts.append("*")
+            has_star = True
         if remote:
             parts.append("expected_target: dict | None = None")
         parts.append("follow_active: bool = False")
     if remote:
         # P1-4：远程 facade 额外暴露 request_id（幂等标识，keyword-only）
-        if not (has_doc_id and schema.supports_expected_target(app, op)):
+        if not has_star:
             parts.append("*")
+            has_star = True
         parts.append("request_id: str | None = None")
     params_str = f", {', '.join(parts)}" if parts else ""
     return f"    def {op}(self{params_str}) -> {_returns(spec.returns)}: ..."

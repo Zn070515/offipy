@@ -20,7 +20,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
 - **环境诊断**：`offipy check` 一键检查 Python / 依赖 / Office 三件套 / 浏览器 / server 是否就绪（`--json` 机器可读，失败退出码非 0）
 - **server 进程管理**：`offipy server status|stop|restart` 用 `/status` 真实握手 + PID 文件 / netstat 探测管理常驻进程
-- **Agent 只读回读**：`word read_doc_text` / `ppt read_slide_texts` / `excel read_range`
+- **Agent 只读回读**：`word read_doc_text` / `ppt read_slide_summary`（逐页标题/正文/备注）`ppt read_slide_texts --slide_idx N`（单页逐 shape 文本）/ `excel read_range`
   把文档文本层读回（供 Agent 迭代），经 CLI / RPC / MCP 三路暴露
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
 
@@ -59,7 +59,7 @@ offipy check --profile all            # 一键检查环境就绪（Python/依赖
   会话内稳定、跨调用有效、不随改名变化。`get_target` 查询当前激活目标身份：
   `offipy excel get_target` → `{"app": "excel", "doc_id": "book1", "name": "Book1", "path": "..."}`
   （无则 `null`）。
-- **读 op**（`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …）
+- **读 op**（`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target` …）
   默认作用在用户**当前激活**的文档上（ActiveDocument / ActiveWorkbook / ActivePresentation），
   实时解析，绝不用陈旧的内部缓存。没有文档时抛 `TargetNotFoundError`，提示先 `new_*` / `open_*`。
 - **破坏性 op**（写入 / 格式 / 保存 / 关闭等）默认**拒绝执行**，必须三选一：
@@ -131,13 +131,14 @@ offipy check            # 环境就绪诊断：Python/依赖/Office/浏览器/se
 offipy server status    # 常驻 server 状态（/status 握手，只读不拉起）；stop / restart 同理
 offipy excel get_target # 查询当前激活目标身份 {app,doc_id,name,path}（无则 null）
 offipy word read_doc_text            # Agent 只读：全文档文本
-offipy ppt read_slide_texts          # Agent 只读：逐页 title/body/notes
+offipy ppt read_slide_summary        # Agent 只读：逐页 title/body/notes 摘要
+offipy ppt read_slide_texts --slide_idx 1   # Agent 只读：单页逐 shape 文本（v0.10）
 offipy excel read_range --sheet 1 --range_addr A1:B2   # Agent 只读：区域二维值
 offipy quit excel
 ```
 
 复杂参数用 `--payload '<json>'` 透传（覆盖同名 kwargs）；重复 `--key` 会聚合成 list。
-读 op（`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target`）不需要目标参数。
+读 op（`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target`）不需要目标参数。
 
 ## Python API
 

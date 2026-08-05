@@ -7,7 +7,7 @@
 `offipy` 把 Office 应用当成一个**会话**：每次调用通过 8890 端口的 server 重连同一个
 Office 实例。目标文档按 op 类型解析：
 
-- **读 op**（`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …）：
+- **读 op**（`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target` …）：
   缺省作用在**当前激活**文档上——优先显式 `doc_id`，其次 `activate` 或 `new_*/open_*` 设定的
   活动目标，再次实时探测 `ActiveWorkbook` / `ActiveDocument` / `ActivePresentation` 并入文档表
   （纯探测，绝不隐式创建）。未知或已失效句柄抛 `TargetNotFoundError`。
@@ -61,7 +61,7 @@ MCP server 走 stdio，工具集合从 `schema.py` 自动注册。Claude Desktop
 }
 ```
 
-读操作（`read_range` / `read_doc_text` / `read_slide_texts` / `list_docs`）标记只读，
+读操作（`read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `list_docs`）标记只读，
 写操作标记会改动状态；`save` / `save_pdf` 暴露 `overwrite` 参数。
 
 ## HTML→PPTX 管线（deck）
@@ -99,3 +99,14 @@ HTTP-only），MCP 返回 `data` 载荷——三入口返回形状不同，如�
 同一实例须在创建线程内使用；跨线程各自建 facade 时用 `offipy.direct.com_apartment()`
 包一层（线程各自 CoInitialize/Uninitialize）。连到既有实例默认不改其可见性；
 确需改传 `modify_existing_visibility=True`。
+
+## 能力边界：创建/追加 vs 增量修改
+
+offipy 擅长**从无到有**：新建文档、追加段落/单元格/页（`new_*` / `add_*` / `set_*`），
+以及把文本层读回（`read_*`）。对**既有文档的增量修改**——移动/缩放/删除已存在的
+shape、精修某个文本框的位置尺寸——目前不在库内：`read_slide_texts` 是只读操作，
+返回结构只用于 Agent 了解当前页的文本与坐标；要改外观时请走「读回 → 在新文档上
+重建/追加」的流程（HTML→PPTX 管线从 HTML 重建也是同一思路）。增量 shape 编辑
+（`read_shapes` / `set_shape_position` / `set_shape_size` / `delete_shape`）已列入
+路线图，尚未发布；届时 `read_shapes` 的 shape_id 与 `read_slide_texts` 的数据模型
+一脉相承。
