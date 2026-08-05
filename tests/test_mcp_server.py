@@ -267,19 +267,68 @@ def _run_inmemory(assert_fn):
 def test_inmemory_structured_return_passthrough(monkeypatch):
     from offipy import mcp_server
 
+    # 真实 SlideTextRecord（0.10 契约）：list[SlideTextRecord] 而非 0.9 摘要 dict
     monkeypatch.setattr(
         mcp_server,
         "_call",
-        lambda app, op, **kw: [{"index": 1, "title": "T", "body": ["a"], "notes": ""}],
+        lambda app, op, **kw: [
+            {
+                "shape_id": 2,
+                "name": "Title 1",
+                "text": "增长概览",
+                "left": 36.0,
+                "top": 21.6,
+                "width": 648.0,
+                "height": 90.0,
+                "coordinate_space": "slide",
+                "coordinate_unit": "pt",
+                "is_placeholder": True,
+                "placeholder_type": 1,
+                "placeholder_type_name": "title",
+                "parent_shape_id": None,
+                "group_path": [],
+            }
+        ],
     )
 
     async def check(session):
         r = await session.call_tool("ppt_read_slide_texts", {"slide_idx": 1})
         assert r.is_error is False
         text = r.content[0].text
-        assert '"index": 1' in text and '"title": "T"' in text
+        assert '"shape_id": 2' in text and '"text": "增长概览"' in text
+        assert '"placeholder_type_name": "title"' in text
 
     _run_inmemory(check)
+
+
+def test_inmemory_read_slide_summary_passthrough(monkeypatch):
+    from offipy import mcp_server
+
+    # read_slide_summary 承接 0.9 摘要语义：返回 [{index, title, body, notes}]
+    monkeypatch.setattr(
+        mcp_server,
+        "_call",
+        lambda app, op, **kw: [{"index": 1, "title": "增长概览", "body": "MAU +18%", "notes": ""}],
+    )
+
+    async def check(session):
+        r = await session.call_tool("ppt_read_slide_summary", {})
+        assert r.is_error is False
+        text = r.content[0].text
+        assert '"index": 1' in text and '"title": "增长概览"' in text
+
+    _run_inmemory(check)
+
+
+def test_ppt_read_slide_texts_mcp_return_annotation():
+    # P0：schema.returns="list[SlideTextRecord]" 必须映射到 list，
+    # 否则 _RETURN_ANNOTATION.get 回退 object，MCP 结构化输出契约退化。
+    import inspect
+
+    from offipy import mcp_server
+
+    annotation = inspect.signature(mcp_server.ppt_read_slide_texts).return_annotation
+    assert annotation is list
 
 
 def test_inmemory_int_and_void_and_args(monkeypatch):
