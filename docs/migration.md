@@ -92,8 +92,16 @@ class SlideTextRecord(TypedDict):
     placeholder_type: int | None            # PpPlaceholderType 数值
     placeholder_type_name: str | None       # 完整映射 + "unknown_{n}" 兜底
     parent_shape_id: int | None
-    group_path: list[int]                   # 多层 group 祖先 shape_id 链（外层→内层）
+    group_path: list[int]                   # group 祖先 shape_id 链（外层→内层）
 ```
+
+> **真机行为（探针实证）**：PowerPoint COM 会**拍平嵌套 group**——打开含「外层
+> grpSp 包内层 grpSp」的文件时，内层 group 不出现在对象模型中，其子元素直接成为
+> 外层 `GroupItems` 成员，且 `Left/Top/Width/Height` 已换算为**幻灯片绝对坐标**。
+> 因此 `group_path` 反映 COM 对象模型的实际结构，通常为**单层**（如 `[300]`）；
+> `parent_shape_id` 指向直接父 group。「多层祖先链」仅在 COM 真提供嵌套 group
+> 时出现（`_iter_shapes` 会正确递归），真实 PowerPoint 生成的嵌套 group 一律拍平。
+> `coordinate_space="slide"` 对所有 group 子元素成立（坐标本就是幻灯片绝对坐标）。
 
 类型可从 `from offipy import SlideTextRecord` / `PLACEHOLDER_TYPE_NAMES` 导入，
 mypy 能推导字段类型（见 `tests/test_api_stub.py::test_mypy_user_example_reveals_sliderecord_types`）。
