@@ -87,7 +87,7 @@ def test_display_alerts_constants():
 
 
 def _ensure_app_returning(app):
-    def _ensure(app_name, visible=True):
+    def _ensure(app_name, visible=True, modify_existing_visibility=False):
         return app, True
 
     return _ensure
@@ -206,7 +206,7 @@ def test_word_save_pdf_uses_export_as_fixed_format(tmp_path):
 
 
 def _ensure_app_attached(app):
-    def _ensure(app_name, visible=True):
+    def _ensure(app_name, visible=True, modify_existing_visibility=False):
         return app, False  # created=False → attached，非本库启动
 
     return _ensure
@@ -221,14 +221,14 @@ def _ensure_app_attached(app):
     ],
 )
 def test_quit_attached_refuses_without_force(monkeypatch, cls, core_name):
-    app = types.SimpleNamespace(DisplayAlerts=0)
+    app = types.SimpleNamespace(DisplayAlerts=0, Quit=lambda: None)
     monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_attached(app))
     monkeypatch.setattr("offipy.core.quit_app", lambda n: True)
     obj = cls()
     assert obj._owned is False
     with pytest.raises(ComOperationError, match="既有"):
         obj.quit(force=False)
-    assert obj.quit(force=True) is None  # force 放行，own 句柄才直接退
+    assert obj.quit(force=True) is None  # force 放行，直接退自持句柄
 
 
 @pytest.mark.parametrize(
@@ -240,11 +240,32 @@ def test_quit_attached_refuses_without_force(monkeypatch, cls, core_name):
     ],
 )
 def test_quit_owned_proceeds(monkeypatch, cls, core_name):
-    app = types.SimpleNamespace(DisplayAlerts=0)
     calls = []
+    app = types.SimpleNamespace(DisplayAlerts=0, Quit=lambda: calls.append("quit"))
     monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_returning(app))  # created=True
-    monkeypatch.setattr("offipy.core.quit_app", lambda n: calls.append(n) or True)
+    quit_app_calls = []
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: quit_app_calls.append(n) or True)
     obj = cls()
     assert obj._owned is True
-    obj.quit()
-    assert calls == [core_name]
+    assert obj.quit() is None
+    assert calls == ["quit"]  # P1-3：直接退自持句柄，不再经 core.quit_app
+    assert quit_app_calls == []
+
+
+@pytest.mark.parametrize(
+    ("cls", "core_name"),
+    [
+        (excel.ExcelApp, "excel"),
+        (word.WordApp, "word"),
+        (ppt.PptApp, "ppt"),
+    ],
+)
+def test_quit_dead_instance_returns_true(monkeypatch, cls, core_name):
+    # P1-3：实例已退（Quit 抛 COM 错 + liveness 探针证实进程已结束）→ 视为已退出返回 True
+    app = types.SimpleNamespace(
+        DisplayAlerts=0, Quit=lambda: (_ for _ in ()).throw(ComOperationError("RPC_E_DISCONNECTED"))
+    )
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_returning(app))  # created=True
+    monkeypatch.setattr("offipy.core.doc_alive", lambda obj: False)
+    obj = cls()
+    assert obj.quit() is True

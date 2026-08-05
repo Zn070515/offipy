@@ -156,7 +156,9 @@ with Ppt() as p:
 
 **两种会话模型（P0-4）**：
 - `Excel() / Word() / Ppt()`（等价 `offipy.direct.*`）——**本地直连 COM**，
-  doc_id/线程/会话状态与 CLI/MCP 完全隔离。
+  doc_id/线程/会话状态与 CLI/MCP 完全隔离。direct facade 绑定创建它的线程
+  （STA COM），**非线程安全**：同一实例须在创建线程内使用；跨线程各自建
+  facade 时用 `offipy.direct.com_apartment()` 包一层（线程各自 CoInitialize）。
 - `RemoteExcel() / RemoteWord() / RemotePpt()`——经常驻 server 的**远程会话**，
   与 CLI/MCP 共享同一会话（同 doc_id），适合 Agent 需要「CLI/Python/工具同
   一个 Office 会话」的场景：

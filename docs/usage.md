@@ -94,3 +94,8 @@ with Excel() as x:
 Python API 返回 App 方法的**原始值**（`new_book`→`"book1"` 字符串、`read_range`→二维列表）。
 `OperationResult` 是 **HTTP `/call` 的返回契约**（`{ok, operation, resource_id, message, data}`，
 HTTP-only），MCP 返回 `data` 载荷——三入口返回形状不同，如实对照见 [api.md](api.md)。
+
+`Excel()/Word()/Ppt()` 本地直连 COM 对象绑定创建它的线程（STA），**非线程安全**——
+同一实例须在创建线程内使用；跨线程各自建 facade 时用 `offipy.direct.com_apartment()`
+包一层（线程各自 CoInitialize/Uninitialize）。连到既有实例默认不改其可见性；
+确需改传 `modify_existing_visibility=True`。

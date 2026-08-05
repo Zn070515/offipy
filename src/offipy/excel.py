@@ -5,7 +5,7 @@ ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那�
 """
 
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Any
 
 from . import core
@@ -142,8 +142,10 @@ def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
 
 @guard_com
 class ExcelApp:
-    def __init__(self, visible: bool = True):
-        self.app, self.created = core.ensure_app("excel", visible=visible)
+    def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
+        self.app, self.created = core.ensure_app(
+            "excel", visible=visible, modify_existing_visibility=modify_existing_visibility
+        )
         # _owned：本库启动的实例才允许 quit() 直接退出；连到既有实例默认拒绝
         self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
@@ -604,10 +606,19 @@ class ExcelApp:
         """退出 Excel 会话。
 
         own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
-        （不夺走用户正用的窗口），确需退出传 force=True。
+        （不夺走用户正用的窗口），确需退出传 force=True。实例已退（进程
+        结束）视为已退出返回 True，不误报失败。
         """
         # 库改全局状态（DisplayAlerts），释放前还原原值
-        self.app.DisplayAlerts = self._saved_alerts
         if not self._owned and not force:
+            with suppress(Exception):  # 仅兜底还原，失败不掩盖拒绝语义
+                self.app.DisplayAlerts = self._saved_alerts
             raise ComOperationError("连接的是既有 Excel 实例，拒绝退出；确需退出请传 force=True")
-        core.quit_app("excel")
+        try:
+            # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
+            self.app.DisplayAlerts = self._saved_alerts
+            self.app.Quit()
+        except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
+            if not core.doc_alive(self.app):
+                return True  # 已退出：liveness 探针证实进程已结束
+            raise ComOperationError(f"退出 Excel 失败: {e}") from e

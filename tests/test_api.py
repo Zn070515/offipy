@@ -20,7 +20,9 @@ def test_facade_context_manager_proxies_op(monkeypatch):
             captured["called"] = True
             return "book"
 
-    monkeypatch.setattr("offipy.api.ExcelApp", lambda visible=True: FakeApp())
+    monkeypatch.setattr(
+        "offipy.api.ExcelApp", lambda visible=True, modify_existing_visibility=False: FakeApp()
+    )
     with api.Excel() as x:
         assert x.new_book() == "book"
     assert captured["called"]
@@ -33,13 +35,17 @@ def test_facade_quit_proxies(monkeypatch):
         def quit(self):
             captured["quit"] = True
 
-    monkeypatch.setattr("offipy.api.WordApp", lambda visible=True: FakeApp())
+    monkeypatch.setattr(
+        "offipy.api.WordApp", lambda visible=True, modify_existing_visibility=False: FakeApp()
+    )
     api.Word().quit()
     assert captured["quit"]
 
 
 def test_facade_enter_exit_no_com(monkeypatch):
-    monkeypatch.setattr("offipy.api.PptApp", lambda visible=True: object())
+    monkeypatch.setattr(
+        "offipy.api.PptApp", lambda visible=True, modify_existing_visibility=False: object()
+    )
     with api.Ppt() as p:
         assert p._app is not None
 
@@ -49,7 +55,9 @@ def test_facade_propagates_offipy_exception(monkeypatch):
         def add_slide(self):
             raise exceptions.ConversionError("boom")
 
-    monkeypatch.setattr("offipy.api.PptApp", lambda visible=True: Boom())
+    monkeypatch.setattr(
+        "offipy.api.PptApp", lambda visible=True, modify_existing_visibility=False: Boom()
+    )
     with pytest.raises(exceptions.ConversionError, match="boom"), api.Ppt() as p:
         p.add_slide()
 
@@ -58,7 +66,9 @@ def test_facade_missing_op_raises_attribute_error(monkeypatch):
     class FakeApp:
         pass
 
-    monkeypatch.setattr("offipy.api.ExcelApp", lambda visible=True: FakeApp())
+    monkeypatch.setattr(
+        "offipy.api.ExcelApp", lambda visible=True, modify_existing_visibility=False: FakeApp()
+    )
     with pytest.raises(AttributeError):
         api.Excel().no_such_op()
 

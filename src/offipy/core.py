@@ -146,14 +146,19 @@ def launch(app: str, visible: bool = True):
     return obj
 
 
-def ensure_app(app: str, visible: bool = True):
+def ensure_app(app: str, visible: bool = True, modify_existing_visibility: bool = False):
     """优先重连已运行实例，否则新建。返回 (obj, created)。
+
+    连到既有实例时默认不改其可见性（P1-2：用户正在用的窗口不被抢改）；
+    modify_existing_visibility=True 才 _set_visible。_set_usercontrol 始终
+    保留（移交用户控制，避免实例随 Python 进程退出）。
 
     COM/Office 运行时不可用时抛 OfficeUnavailableError。
     """
     obj = connect(app)
     if obj is not None:
-        _set_visible(obj, visible)
+        if modify_existing_visibility:
+            _set_visible(obj, visible)
         _set_usercontrol(obj)
         return obj, False
     try:
