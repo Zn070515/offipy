@@ -9,13 +9,18 @@ Claude 写 16:9 HTML 幻灯片 → vendored 的 vector-first 转换器（Playwri
 CSS；同一份 HTML 换主题即换皮，内容与视觉解耦。
 """
 
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
+from .audit import AuditConfig, PptxAuditReport, Severity
 from .client import call, ensure_server
 from .design import inject_theme
 from .exceptions import ConversionError, FileConflictError, InvalidArgumentError
@@ -79,27 +84,23 @@ def _postprocess(label: str, fn, html: str, pptx: str) -> None:
         raise ConversionError(f"{label}后处理失败: {e}") from e
 
 
-def render(
+@contextlib.contextmanager
+def _render_tmp(
     html: str,
-    out: str | None = None,
-    only_slides: list[int] | None = None,
-    no_visual_audit: bool = False,
-    timeout: int = 600,
-    theme: str | None = None,
-    apply_layouts: bool = False,
-    overwrite: bool = False,
-) -> str:
-    """跑完整转换管线，返回产出 .pptx 的绝对路径。
+    out: str | None,
+    only_slides: list[int] | None,
+    no_visual_audit: bool,
+    timeout: int,
+    theme: str | None,
+    apply_layouts: bool,
+    overwrite: bool,
+) -> Iterator[tuple[str, str]]:
+    """生成到临时 .pptx 的上下文：前置检查 → mkstemp → convert → 图表/图标后处理。
 
-    theme 给定时把内置主题 CSS 注入 HTML 再转换（见 design.inject_theme）；
-    apply_layouts 给定时把 HTML 里 data-layout 引用的布局 CSS 注入
-    （见 layouts.inject_layouts）。两者可叠加，输出路径仍基于原 html 名。
-    注入副本是临时文件，转换后删除。overwrite=False 时若输出 .pptx 已存在
-    抛 FileExistsError（fail-fast，不浪费一次渲染）。
-
-    原子替换（P0-6）：转换先写同目录临时 .pptx，图表/图标后处理作用于
-    临时文件，全部成功后才 os.replace 一步替换目标。任何失败/异常都会
-    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。
+    yield (tmp_pptx, final_out)。调用方在 with 内负责最终 os.replace 到 final_out
+    （render），或先对 tmp_pptx 审计再决定替换/拒绝（render_with_report）。
+    __exit__ 无论成功失败都清理临时 .pptx、注入副本与孤儿审计目录——已存在的
+    final_out 绝不被一次失败的渲染破坏。
 
     临时文件用 mkstemp（§7）：与最终输出同目录（同卷保证 os.replace 原子），
     随机后缀天然避开旧确定性名（`.x.tmp.pptx`）在并发渲染时的互踩竞态。
@@ -114,7 +115,6 @@ def render(
             f"输出 .pptx 已存在（overwrite=False，可传 overwrite=True 覆盖）: {final_out}"
         )
     target = html
-    tmp_html = None
     tmp_html_dir = None
     if no_visual_audit:
         # 图表/图标注入依赖 visual audit 的 measurements.json；no_visual_audit 不产出
@@ -189,8 +189,7 @@ def render(
         from .icons import postprocess_icons
 
         _postprocess("图标", postprocess_icons, html, tmp_pptx)
-        os.replace(tmp_pptx, final_out)
-        return final_out
+        yield tmp_pptx, final_out
     finally:
         # 任何路径（成功或失败）都清理临时文件；已存在的 final_out 不受影响。
         # convert 的 <out>_audit 审计目录跟着临时 .pptx 名字走，tmp 被替换/删除后
@@ -203,6 +202,98 @@ def render(
             tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
             if os.path.isdir(tmp_audit):
                 shutil.rmtree(tmp_audit, ignore_errors=True)
+
+
+def render(
+    html: str,
+    out: str | None = None,
+    only_slides: list[int] | None = None,
+    no_visual_audit: bool = False,
+    timeout: int = 600,
+    theme: str | None = None,
+    apply_layouts: bool = False,
+    overwrite: bool = False,
+) -> str:
+    """跑完整转换管线，返回产出 .pptx 的绝对路径。
+
+    theme 给定时把内置主题 CSS 注入 HTML 再转换（见 design.inject_theme）；
+    apply_layouts 给定时把 HTML 里 data-layout 引用的布局 CSS 注入
+    （见 layouts.inject_layouts）。两者可叠加，输出路径仍基于原 html 名。
+    注入副本是临时文件，转换后删除。overwrite=False 时若输出 .pptx 已存在
+    抛 FileExistsError（fail-fast，不浪费一次渲染）。
+
+    原子替换（P0-6）：转换先写同目录临时 .pptx，图表/图标后处理作用于
+    临时文件，全部成功后才 os.replace 一步替换目标。任何失败/异常都会
+    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。
+    """
+    with _render_tmp(
+        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+    ) as (tmp_pptx, final_out):
+        os.replace(tmp_pptx, final_out)
+    return final_out
+
+
+@dataclass
+class RenderResult:
+    """render_with_report 的产出：生成的 .pptx 路径 + 完整审计报告。"""
+
+    output_path: str
+    audit_report: PptxAuditReport
+
+    def to_dict(self) -> dict:
+        return {"output_path": self.output_path, "audit": self.audit_report.to_dict()}
+
+
+class AuditGateError(ConversionError):
+    """Deck strict 门禁未通过：审计报告保留在异常上，供调用方落盘/展示。
+
+    ConversionError 子类 → CLI 侧既有错误处理路径（exit 1）原样生效。
+    """
+
+    def __init__(self, message: str, report: PptxAuditReport, fail_on: Severity):
+        super().__init__(message)
+        self.report = report
+        self.fail_on = fail_on
+
+
+def render_with_report(
+    html: str,
+    out: str | None = None,
+    only_slides: list[int] | None = None,
+    no_visual_audit: bool = False,
+    timeout: int = 600,
+    theme: str | None = None,
+    apply_layouts: bool = False,
+    overwrite: bool = False,
+    audit_mode: Literal["report", "strict"] = "report",
+    fail_on: Severity = Severity.HIGH,
+    audit_config: AuditConfig | None = None,
+) -> RenderResult:
+    """render + 静态质量审计，按 audit_mode 决定放行策略。
+
+    report（默认）：生成 → 审计 → 替换 → 返回 RenderResult（产出路径 + 报告）；
+    strict：生成 → 审计 → 最高严重度 ≥ fail_on → 抛 AuditGateError（报告在异常上、
+    临时文件已清理、旧目标不动）；未达门槛 → 替换 → 返回 RenderResult。
+
+    audit_mode 之外显式重复 render() 的主要参数，不用无限制 **render_kw
+    （保 IDE 补全与文档）。
+    """
+    from .audit import audit_pptx
+
+    with _render_tmp(
+        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+    ) as (tmp_pptx, final_out):
+        audit_report = audit_pptx(tmp_pptx, audit_config)
+        gate = audit_report.max_severity
+        if audit_mode == "strict" and gate is not None and gate >= fail_on:
+            raise AuditGateError(
+                f"审计门槛未通过：最高严重度 {gate.name} ≥ fail_on={fail_on.name}，"
+                f"{final_out} 未替换（旧文件保留）",
+                report=audit_report,
+                fail_on=fail_on,
+            )
+        os.replace(tmp_pptx, final_out)
+    return RenderResult(output_path=final_out, audit_report=audit_report)
 
 
 def open_live(pptx: str) -> str:

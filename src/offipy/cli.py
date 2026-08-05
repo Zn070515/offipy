@@ -392,6 +392,21 @@ def build_parser() -> argparse.ArgumentParser:
     deck.add_argument("--theme", help="注入内置主题名（make/outline）")
     deck.add_argument("--layouts", action=_BoolAction, help="注入 data-layout 布局 CSS（make）")
     deck.add_argument("--overwrite", action=_BoolAction, help="覆盖已存在的 .pptx（make）")
+    deck.add_argument(
+        "--audit-mode",
+        choices=["report", "strict"],
+        help="make 渲染后跑质量审计：report 产出报告并替换；strict 达 --fail-on 拒绝替换（make）",
+    )
+    deck.add_argument(
+        "--fail-on",
+        choices=["HIGH", "MID", "LOW"],
+        default="HIGH",
+        help="strict 门禁严重度阈值，默认 HIGH（make，需 --audit-mode）",
+    )
+    deck.add_argument(
+        "--audit-report",
+        help="审计报告输出路径（扩展名定格式：.md/.json/.html，否则 text；make，需 --audit-mode）",
+    )
     deck.add_argument("--input", help="大纲 markdown 源文件（outline）")
     deck.add_argument("--md", help="大纲 markdown 源文件别名（outline）")
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
@@ -529,6 +544,8 @@ def _main(argv=None):
         return
     if args.app == "deck":
         if args.action == "make":
+            if args.audit_mode:
+                return _deck_make_with_audit(args)
             from .deck import make as deck_make
 
             if not args.html:
@@ -624,6 +641,74 @@ def _audit_render(report, args) -> str:
     if fmt == "json":
         return report.to_json()
     return render_html(report, slides_dir=args.slides_dir)
+
+
+def _write_audit_report(path: str, report) -> None:
+    """按扩展名定格式落盘审计报告（.md/.json/.html，否则 text）。"""
+    from .audit import render_html, render_markdown, render_text
+
+    ext = Path(path).suffix.lower()
+    if ext == ".md":
+        text = render_markdown(report)
+    elif ext == ".json":
+        text = report.to_json()
+    elif ext == ".html":
+        text = render_html(report)
+    else:
+        text = render_text(report)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"offipy: 审计报告已写入 {path}")
+
+
+def _deck_make_with_audit(args) -> int | None:
+    """offipy deck make --audit-mode：渲染 + 静态审计门禁。
+
+    report：审计后替换，报告（若有 --audit-report）落盘；
+    strict：达 --fail-on → 先写报告再 exit 1（旧目标不动），未达 → 替换。
+    """
+    from .audit import Severity
+    from .deck import AuditGateError, export_slides, open_live, render_with_report
+
+    if not args.html:
+        raise SystemExit(
+            "用法: offipy deck make --html <deck.html> "
+            "[--audit-mode report|strict] [--fail-on HIGH|MID|LOW] "
+            "[--audit-report <path>] [--out <x.pptx>] [--no-open] "
+            "[--feedback <dir>] [--theme <name>] [--layouts] [--overwrite]"
+        )
+    fail_on = {"HIGH": Severity.HIGH, "MID": Severity.MID, "LOW": Severity.LOW}[args.fail_on]
+    try:
+        result = render_with_report(
+            args.html,
+            out=args.out,
+            theme=args.theme,
+            apply_layouts=args.layouts,
+            overwrite=args.overwrite,
+            audit_mode=args.audit_mode,
+            fail_on=fail_on,
+        )
+    except AuditGateError as e:
+        # strict 未通过：先落盘报告（若指定路径），再以 exit 1 收场（旧目标未动）。
+        if args.audit_report:
+            _write_audit_report(args.audit_report, e.report)
+        sev = e.report.max_severity
+        sev_name = sev.name if sev is not None else "?"
+        print(
+            f"offipy: 审计门槛未通过（最高 {sev_name} ≥ {args.fail_on}），未替换输出",
+            file=sys.stderr,
+        )
+        return 1
+    pptx = result.output_path
+    if args.audit_report:
+        _write_audit_report(args.audit_report, result.audit_report)
+    if args.feedback:
+        doc_id = open_live(pptx)
+        export_slides(args.feedback, doc_id=doc_id, overwrite=args.overwrite)
+    elif not args.no_open:
+        open_live(pptx)
+    print(json.dumps({"pptx": pptx}, ensure_ascii=False))
+    return None
 
 
 def _audit_main(args) -> int:
