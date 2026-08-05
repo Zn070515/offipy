@@ -71,7 +71,8 @@ uv run python scripts/pypi_smoke.py --index https://test.pypi.org/simple --versi
 3. 手动确认 CHANGELOG / README / `__version__` / tag 四方一致，无残留旧版本号。
 
 CI 路径：`git push origin v<版本>` 后由 `release.yml` 全自动完成
-（quality → office-real → gh-release → publish-testpypi → publish-pypi）。
+（quality → office-real → TestPyPI 发布 → TestPyPI 冒烟 → GitHub Release / PyPI 正式版）。
+Release 不先于发布门禁——GitHub Release 与 PyPI 正式版都等 TestPyPI 精确安装冒烟通过后触发。
 
 手动兜底（无 OIDC 时）：第 2 节的命令把 `--repository testpypi` 换成 PyPI 即可。
 

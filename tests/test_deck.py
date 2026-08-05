@@ -196,6 +196,39 @@ def test_make_passes_overwrite_to_render(tmp_path, monkeypatch):
     assert pptx.endswith("deck.pptx")
 
 
+def test_make_feedback_binds_export_to_rendered_doc(tmp_path, monkeypatch):
+    # P0-2：feedback_dir 导出必须绑定本次渲染的 deck（open_live 返回的 doc_id），
+    # overwrite 透传；绝不依赖「当前活动焦点」（防中途切到别的文稿）。
+    calls = {}
+
+    def fake_render(html, out=None, **kw):
+        return str(tmp_path / "deck.pptx")
+
+    def fake_open_live(pptx):
+        calls["open_pptx"] = pptx
+        return "pres7"
+
+    def fake_export_slides(out_dir, width=1920, height=1080, doc_id=None, overwrite=False):
+        calls["export"] = {"out_dir": out_dir, "doc_id": doc_id, "overwrite": overwrite}
+        return []
+
+    monkeypatch.setattr(deck, "render", fake_render)
+    monkeypatch.setattr(deck, "open_live", fake_open_live)
+    monkeypatch.setattr(deck, "export_slides", fake_export_slides)
+
+    feedback = tmp_path / "fb"
+    deck.make(
+        str(tmp_path / "deck.html"),
+        open_live_flag=False,
+        feedback_dir=str(feedback),
+        overwrite=True,
+    )
+    assert calls["open_pptx"] == str(tmp_path / "deck.pptx")
+    assert calls["export"]["doc_id"] == "pres7"
+    assert calls["export"]["overwrite"] is True
+    assert calls["export"]["out_dir"] == str(feedback)
+
+
 # --- P0-6 原子替换：失败不破坏已存在 .pptx，临时文件清理 ---
 
 
@@ -471,3 +504,53 @@ def test_render_concurrent_same_output_no_clash(tmp_path, monkeypatch):
     assert results["pptx"] is not None  # 第一个并发者正常完成
     assert Path(results["pptx"]).read_bytes() == b"fake pptx"
     assert _hidden_pptx(tmp_path) == []  # 两轮临时文件都清理干净
+
+
+def test_render_concurrent_same_final_path_one_conflicts(tmp_path, monkeypatch):
+    # review L605：并发渲染同一最终输出 → 先到者成功落盘，后到者的 fail-fast
+    # preflight（overwrite=False 时 os.path.exists(final_out)）看到已存在输出 →
+    # FileConflictError，绝不同时双写同一目标。
+    # 线程命名 + Event 门控让交错确定性：B 的 preflight 阻塞到 A 完成 os.replace
+    # 之后才判定，必然复现「一成功一冲突」；若 A 先于 B 到达 preflight（门未设），
+    # B 直接看到已存在输出同样走冲突分支——两种时序都收敛到同一断言。
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    out = tmp_path / "deck.pptx"
+
+    a_done = threading.Event()
+    real_exists = os.path.exists
+
+    def exists_gated(path):
+        if os.path.abspath(path) == os.path.abspath(str(out)):
+            if threading.current_thread().name == "render-B" and not a_done.is_set():
+                a_done.wait(timeout=30)
+            return real_exists(path)
+        return real_exists(path)
+
+    monkeypatch.setattr(os.path, "exists", exists_gated)
+
+    def fake_run(cmd, **kw):
+        out_arg = cmd[cmd.index("--out") + 1]
+        Path(out_arg).write_bytes(b"fake pptx")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(deck.subprocess, "run", fake_run)
+
+    results = {}
+
+    def do_render_b():
+        try:
+            deck.render(str(html), out=str(out))
+        except deck.FileConflictError as e:
+            results["conflict"] = str(e)
+
+    t2 = threading.Thread(target=do_render_b, name="render-B")
+    t2.start()
+    pptx = deck.render(str(html), out=str(out))  # A 主线程先完成落盘
+    a_done.set()
+    t2.join(timeout=30)
+
+    assert pptx == os.path.abspath(str(out))
+    assert Path(out).read_bytes() == b"fake pptx"
+    assert "conflict" in results  # B 的 preflight 拒绝已存在输出
+    assert _hidden_pptx(tmp_path) == []  # 双方临时文件都清理干净

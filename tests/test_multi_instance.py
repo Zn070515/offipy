@@ -1,7 +1,5 @@
 """P2-2 多实例：client 端口路由 / token·pid·oplog 按端口隔离 / server --port。"""
 
-import json
-
 import pytest
 
 from offipy import client, oplog, server
@@ -32,14 +30,14 @@ def test_base_url_follows_port():
 def test_token_and_pid_paths_isolated_by_port(monkeypatch, tmp_path):
     monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
     client.set_port(8891)
-    assert client._token_path() == tmp_path / "token-8891"
-    assert client._pid_path() == tmp_path / "server-8891.pid"
+    assert client._token_path(8891) == tmp_path / "token-8891"
+    assert client._pid_path(8891) == tmp_path / "server-8891.pid"
     client.set_port(client.PORT)
-    assert client._token_path() == tmp_path / "token"  # 默认端口沿用旧文件名
-    assert client._pid_path() == tmp_path / "server.pid"
+    assert client._token_path(client.PORT) == tmp_path / "token"  # 默认端口沿用旧文件名
+    assert client._pid_path(client.PORT) == tmp_path / "server.pid"
 
 
-def test_ensure_server_passes_port_and_writes_scoped_pid(monkeypatch, tmp_path):
+def test_ensure_server_passes_port_and_no_client_pid_write(monkeypatch, tmp_path):
     monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
     monkeypatch.setattr(client, "_probe", lambda: "down")
     monkeypatch.setattr(client.time, "sleep", lambda s: None)
@@ -59,10 +57,9 @@ def test_ensure_server_passes_port_and_writes_scoped_pid(monkeypatch, tmp_path):
     with pytest.raises(server.ServerStartError):
         client.ensure_server()  # 握手恒 down → 超时抛错，但进程已按端口拉起
     assert popen["p"].cmd[-2:] == ["--port", "8891"]
-    # P0-2：pid 文件始终 JSON；token 未定则 token_sha256 为 null（不误杀）
-    data = json.loads((tmp_path / "server-8891.pid").read_text(encoding="utf-8"))
-    assert data["pid"] == 4242 and data["port"] == 8891
-    assert data["token_sha256"] is None
+    # P1-3：client 不抢写 pid 文件（server 绑定成功后自写权威记录）；进程未
+    # 拉起成功时不残留任何 pid 文件。
+    assert not (tmp_path / "server-8891.pid").exists()
     assert not (tmp_path / "server.pid").exists()
 
 

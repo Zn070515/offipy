@@ -205,17 +205,32 @@ def render(
                 shutil.rmtree(tmp_audit, ignore_errors=True)
 
 
-def open_live(pptx: str) -> None:
-    """在真实 PowerPoint 里打开生成的 .pptx（实况展示）。"""
+def open_live(pptx: str) -> str:
+    """在真实 PowerPoint 里打开生成的 .pptx（实况展示），返回 doc_id 供后续绑定。"""
     ensure_server()
-    call("ppt", "open_pres", path=os.path.abspath(pptx))
+    return call("ppt", "open_pres", path=os.path.abspath(pptx))
 
 
-def export_slides(out_dir: str, width: int = 1920, height: int = 1080) -> list[str]:
-    """把当前实况演示文稿逐页导出 PNG，供 Claude 视觉迭代（每次重新导出全部页，允许覆盖）。"""
+def export_slides(
+    out_dir: str,
+    width: int = 1920,
+    height: int = 1080,
+    doc_id: str | None = None,
+    overwrite: bool = False,
+) -> list[str]:
+    """把 doc_id 指定（缺省活动）的演示文稿逐页导出 PNG，供 Claude 视觉迭代。
+
+    overwrite=False（默认）拒绝覆盖已有输出；True 时原子替换（不残留半成品）。
+    """
     ensure_server()
     return call(
-        "ppt", "export_slides", out_dir=os.path.abspath(out_dir), width=width, height=height
+        "ppt",
+        "export_slides",
+        out_dir=os.path.abspath(out_dir),
+        width=width,
+        height=height,
+        doc_id=doc_id,
+        overwrite=overwrite,
     )
 
 
@@ -235,9 +250,10 @@ def make(
     """
     pptx = render(html, out, theme=theme, apply_layouts=apply_layouts, overwrite=overwrite)
     if feedback_dir:
-        # 导出必须基于本次渲染的 deck：先确保打开它，再逐页导出
-        open_live(pptx)
-        export_slides(feedback_dir)
+        # 导出必须绑定本次渲染的 deck（P0-2）：open_live 返回其 doc_id，逐页导出
+        # 显式传给它，绝不依赖「当前活动焦点」——防用户中途切到别的文稿。
+        doc_id = open_live(pptx)
+        export_slides(feedback_dir, doc_id=doc_id, overwrite=overwrite)
     elif open_live_flag:
         open_live(pptx)
     return pptx

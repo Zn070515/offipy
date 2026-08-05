@@ -593,6 +593,18 @@ def dispatch(app, op: str, args: dict, app_name: str):
         # 不绑定目标的 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
         # 实际 op 不作用于文档）——严格拒绝，不再静默忽略。
         raise InvalidArgumentError(f"该操作不接受 expected_target: {app_name}.{op}")
+    # P0-1：绑定目标的 op 无任何目标绑定（doc_id/expected_target/follow_active）
+    # 一律拒绝，错误在碰 COM 前抛出——绝不静默落到「当前活动文档」。
+    if (
+        binds_target
+        and op != "quit"
+        and args.get("doc_id") in (None, "")
+        and expected is None
+        and not follow_active
+    ):
+        raise InvalidArgumentError(
+            f"{app_name}.{op} 需要显式 doc_id、expected_target 或 follow_active"
+        )
     # follow_active 已在上面 pop；非破坏性 op 上出现则静默忽略。
     method = getattr(app, op, None)
     if method is None:

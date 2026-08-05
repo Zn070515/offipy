@@ -9,7 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .core import destructive
+from .core import destructive, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -241,7 +241,13 @@ class WordApp:
         return doc_id
 
     def list_docs(self) -> dict:
-        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。"""
+        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。
+
+        P1-5：先并入真实活动焦点（active_doc 解析 ActiveDocument 进文档表、
+        刷新 _active_id），active 标记跟随用户当前看到的文档，不报陈旧焦点。
+        """
+        with suppress(Exception):
+            self.active_doc()
         out = {}
         for did, doc in self._docs.items():
             if not core.doc_alive(doc):
@@ -329,6 +335,7 @@ class WordApp:
             doc.SaveAs2(dest)
             return dest
 
+    @requires_target
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():

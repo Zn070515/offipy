@@ -193,7 +193,7 @@ def test_save_tools_pass_overwrite_to_call(monkeypatch):
 
     captured = {}
 
-    def fake_call(app, op, **kw):
+    def fake_call(app, op, request_id=None, **kw):
         captured[op] = kw
         return None
 
@@ -204,6 +204,29 @@ def test_save_tools_pass_overwrite_to_call(monkeypatch):
     assert captured["save_pdf"] == {"path": "b.pdf", "overwrite": False, "doc_id": None}
     mcp_server.excel_save()
     assert captured["save"] == {"path": None, "overwrite": False, "doc_id": None}
+
+
+def test_tool_fn_passes_ctx_request_id(monkeypatch):
+    # P1-4：MCP 框架注入 ctx，tool_fn 取其 request_id 透传 server（不出现在
+    # tool schema）；无 ctx（测试直调）时 request_id=None。
+    from offipy import mcp_server
+
+    captured = {}
+
+    def fake_call(app, op, request_id=None, **kw):
+        captured["request_id"] = request_id
+        return None
+
+    monkeypatch.setattr(mcp_server, "_call", fake_call)
+
+    class _Ctx:
+        request_id = "rid-ctx-7"
+
+    mcp_server.ppt_add_slide(ctx=_Ctx())
+    assert captured["request_id"] == "rid-ctx-7"
+
+    mcp_server.ppt_add_slide()
+    assert captured["request_id"] is None
 
 
 # --- in-memory ClientSession（不起子进程，直连 MCPServer 协议层，P1-7） ---
@@ -264,7 +287,7 @@ def test_inmemory_int_and_void_and_args(monkeypatch):
 
     calls = {}
 
-    def fake_call(app, op, **kw):
+    def fake_call(app, op, request_id=None, **kw):
         calls[op] = kw
         if op == "add_slide":
             return 5

@@ -41,3 +41,18 @@ def test_default_out_name(tmp_path):
 
     assert _default_out(str(tmp_path / "deck.html")) == str(tmp_path / "deck.pptx")
     assert _default_out(str(tmp_path / "deck.audited.html")) == str(tmp_path / "deck.pptx")
+
+
+def test_render_unzip_slide1_contains_title_text(tmp_path):
+    # review L592-603 e2e 契约：render 产出的 .pptx 解包后，slide1 的 XML 里真实
+    # 落盘了源 HTML 的标题文本（不是空白/占位）。标题含 <br> 会拆成两个 a:t run，
+    # 断言子串「产品增长报告」落在 slide1.xml 即可跨 run 边界成立。
+    import zipfile
+
+    from offipy.deck import render
+
+    out = tmp_path / "deck.pptx"
+    render(str(STARTER), out=str(out), no_visual_audit=True)
+    with zipfile.ZipFile(out) as z:
+        slide1 = z.read("ppt/slides/slide1.xml").decode("utf-8")
+    assert "产品增长报告" in slide1

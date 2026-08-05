@@ -46,14 +46,15 @@ Source = "https://github.com/Zn070515/office-kit"
 [project.optional-dependencies]
 # Windows COM 自动化（Word/Excel/PowerPoint 会话驱动）
 office = [
-    "pywin32; platform_system == 'Windows'",
+    "pywin32>=310; platform_system == 'Windows'",
 ]
 # HTML→可编辑 PPTX 管线（deck render / make）
+# P1-6：下限保证 API 基线，上限防重大版本破坏性变更未经验证就随升级上线
 deck = [
-    "python-pptx>=1.0.2",
+    "python-pptx>=1.0.2,<2",
     "lxml>=5.0",
     "fonttools>=4.0",
-    "playwright>=1.40",
+    "playwright>=1.40,<2",
     "Pillow>=10.0",
 ]
 # MCP server（offipy mcp，Claude Desktop 等接入）

@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import urllib.error
 
 import pytest
@@ -243,6 +244,70 @@ def test_request_wraps_bad_json(monkeypatch):
     with pytest.raises(RemoteCallError) as exc:
         request("ppt", "save")
     assert "非 JSON" in str(exc.value)
+
+
+# --- P1-1 端口感知 token / P1-2 expected_target.path 绝对化 ---
+
+
+def test_port_from_url(monkeypatch):
+    monkeypatch.setattr("offipy.client.port", lambda: 8890)
+    assert client._port_from_url("http://127.0.0.1:8901") == 8901
+    assert client._port_from_url("http://127.0.0.1:8890") == 8890
+    assert client._port_from_url("https://example.com/x") == 443
+    assert client._port_from_url("http://example.com/x") == 80
+    assert client._port_from_url(None) == 8890
+
+
+def test_token_reads_per_port_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
+    monkeypatch.delenv("OFFIPY_SERVER_TOKEN", raising=False)
+    (tmp_path / "token-8901").write_text("port-token", encoding="utf-8")
+    (tmp_path / "token").write_text("default-token", encoding="utf-8")
+    assert client._token(8901) == "port-token"
+    assert client._token(client.PORT) == "default-token"
+    assert client._token(9999) is None
+
+
+def test_request_uses_per_port_token_and_absolutizes_paths(monkeypatch, tmp_path):
+    captured = {}
+
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return b'{"ok": true, "result": null}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_open(req, timeout=None):
+        captured["auth"] = req.get_header("Authorization")
+        captured["url"] = req.full_url
+        captured["data"] = json.loads(req.data.decode("utf-8"))
+        return _Resp()
+
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+    monkeypatch.setattr("offipy.client._OPENER.open", fake_open)
+    monkeypatch.delenv("OFFIPY_SERVER_TOKEN", raising=False)
+    (tmp_path / "token-8901").write_text("p8901", encoding="utf-8")
+    monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
+
+    request(
+        "ppt",
+        "export_slides",
+        base_url="http://127.0.0.1:8901",
+        out_dir="rel/out",
+        expected_target={"doc_id": "p1", "path": "rel/notes.docx"},
+    )
+    args = captured["data"]["args"]
+    assert args["out_dir"] == os.path.abspath("rel/out")
+    assert args["expected_target"]["path"] == os.path.abspath("rel/notes.docx")
+    assert args["expected_target"]["doc_id"] == "p1"  # 其余字段保留
+    assert captured["url"] == "http://127.0.0.1:8901/call"
+    assert captured["auth"] == "Bearer p8901"  # P1-1：token 按 base_url 端口取
 
 
 # --- pid 定位 / stop ---
