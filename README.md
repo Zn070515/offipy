@@ -22,10 +22,10 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - **server 进程管理**：`offipy server status|stop|restart` 用 `/status` 真实握手 + PID 文件 / netstat 探测管理常驻进程
 - **Agent 只读回读**：`word read_doc_text` / `ppt read_slide_summary`（逐页标题/正文/备注）`ppt read_slide_texts --slide_idx N`（单页逐 shape 文本）/ `excel read_range`
   把文档文本层读回（供 Agent 迭代），经 CLI / RPC / MCP 三路暴露
-- **PPTX 静态质量门禁**：`offipy audit`（见 [docs/audit.md](docs/audit.md)）不开 PowerPoint、不依赖 Microsoft Office，
+- **PPTX 静态质量门禁**：`offipy audit`（见 [`docs/audit.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit.md)）不开 PowerPoint、不依赖 Microsoft Office，
   纯解析 `.pptx` 检查越界 / 贴边 / 重叠 / 文本溢出 / autofit 风险，输出 text / json / markdown / html 报告，
   按严重度门槛阻断不合格产物（`--fail-on`）；`compare_pptx` 基线回归（见
-  [docs/audit-baseline.md](docs/audit-baseline.md)）只阻断候选**新增/恶化**的问题；`deck render_with_report`
+  [`docs/audit-baseline.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit-baseline.md)）只阻断候选**新增/恶化**的问题；`deck render_with_report`
   让 HTML→PPTX 生成即门禁
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
 

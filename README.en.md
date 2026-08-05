@@ -22,11 +22,11 @@ Built for Python developers and AI agents to independently produce **polished, a
 - **Server process management**: `offipy server status|stop|restart` uses a real `/status` handshake plus PID file / netstat probing to manage the resident process
 - **Agent read-back (read-only)**: `word read_doc_text` / `ppt read_slide_summary` (per-slide title/body/notes) `ppt read_slide_texts --slide_idx N` (per-slide per-shape text) / `excel read_range`
   read the document's text layer back (for the agent to iterate on), exposed via CLI / RPC / MCP
-- **PPTX static quality gate**: `offipy audit` (see [docs/audit.en.md](docs/audit.en.md)) — no PowerPoint, no
+- **PPTX static quality gate**: `offipy audit` (see [`docs/audit.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit.en.md)) — no PowerPoint, no
   Microsoft Office; parses `.pptx` directly to check out-of-bounds / edge-adjacent / overlap / text overflow /
   autofit risks, emits text / json / markdown / html reports, and blocks non-conforming artifacts by severity
   threshold (`--fail-on`); `compare_pptx` baseline regression (see
-  [docs/audit-baseline.en.md](docs/audit-baseline.en.md)) only blocks candidate **added/worsened** issues;
+  [`docs/audit-baseline.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit-baseline.en.md)) only blocks candidate **added/worsened** issues;
   `deck render_with_report` turns HTML→PPTX generation into a gate
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
 
