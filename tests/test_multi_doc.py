@@ -189,6 +189,17 @@ def test_excel_unknown_doc_id_raises(monkeypatch):
         app.save(doc_id="nope")
 
 
+def test_unknown_doc_id_message_notes_session_boundary(monkeypatch):
+    # 0.10.2：未知 doc_id 报错说明「当前会话」+ 跨会话 doc_id 不互通——此前
+    # 写「用 list_docs 查看当前打开的」，但本地直连 Ppt()/Excel()/Word() 的
+    # doc_id 与会话式 Remote*/CLI/HTTP 互不相通，list_docs 显示在也不代表
+    # 本会话能查到，误导排查方向。
+    app = _new_excel(monkeypatch)
+    app.new_book()
+    with pytest.raises(TargetNotFoundError, match="会话"):
+        app.read_range(1, "A1", doc_id="nope")
+
+
 # --- doc_id 稳定身份（P0-4）：同底层文档重开/重连复用同 doc_id ---
 
 

@@ -32,6 +32,45 @@ from font_paths import CACHE_DIR as FONT_CACHE_DIR
 from text_utils import is_cjk_text
 
 
+def _work_copy_target(in_path: Path) -> Path:
+    """work-copy 决策：源 HTML 切换到 .audited.html 工作副本路径并返回。
+
+    原 HTML 永远不动，所有 audit 修复改 .audited.html。首次自动 cp 创建；
+    副本已存在但**源比副本新**（源 mtime 更大）→ 重建副本，让改源即刻生效，
+    不静默复用旧副本（否则 agent 改源 HTML 后转换仍用旧副本，改而不见）。
+    非 .html / .audited.html 结尾 → 原样返回。
+    """
+    if (in_path.suffix.lower() == ".html"
+            and not in_path.name.endswith(".audited.html")
+            and in_path.exists()):
+        audited = in_path.with_name(in_path.stem + ".audited.html")
+        if not audited.exists():
+            shutil.copy2(in_path, audited)
+            print(f"[work-copy] 已创建工作副本：{audited.name}")
+        elif in_path.stat().st_mtime > audited.stat().st_mtime:
+            shutil.copy2(in_path, audited)
+            print(f"[work-copy] 源文件比副本新，已重建工作副本：{audited.name}")
+        else:
+            print(f"[work-copy] 复用已有工作副本：{audited.name}")
+        print("[work-copy] audit 修复改这个文件；下一轮 convert input 用此路径")
+        return audited
+    return in_path
+
+
+def _collect_broken_images(meas: dict) -> list[dict]:
+    """收集 meas 里加载失败的 <img> record（naturalWidth/Height 为 0 = 破图）。
+
+    本地文件缺失 / 路径错误 / 远端 404 都算。返回这些 record 列表（空 = 全部正常）。
+    """
+    slides = meas.get("slides") or ([meas] if meas.get("records") else [])
+    return [
+        rec
+        for s in slides
+        for rec in (s.get("records") or [])
+        if rec.get("kind") == "img" and rec.get("imgBroken")
+    ]
+
+
 def _has_cjk_chars(meas: dict) -> bool:
     """measurement 里任何文字 run 包含 CJK 字符？CJK 范围定义见 text_utils.CJK_RE。"""
     for s in meas.get("slides") or []:
@@ -173,6 +212,18 @@ def convert(html_path: Path, out_path: Path, keep_screenshots: bool, embed_fonts
             meas, only_indices = _run_measure_with_incremental(
                 html_path, anchor_json, only_indices,
                 measure_needs_screenshots, measure, page=deck_page)
+
+            # 破图 fail-fast：任何 <img> 加载失败（本地文件缺失/路径错误/远端 404）
+            # 都立即报错退出，绝不「静默嵌入空白占位图」——占位图过几何审计/肉眼
+            # 无差别，只能靠 ppt/media 文件大小事后暴露。
+            broken = _collect_broken_images(meas)
+            if broken:
+                lines = "\n  ".join(b.get("src") or "?" for b in broken)
+                print(
+                    f"[error] {len(broken)} 张 <img> 加载失败（本地文件缺失/路径错误/"
+                    f"远端 404），PPTX 将嵌入空白占位图：\n  {lines}\n请补齐图片后重跑。"
+                )
+                sys.exit(1)
 
         # 1.5) auto-resolve fonts（按需从 GF 拉，CJK 走 variable 直链）
         # FONT_PLAN 启动为空，所有字体都在这里按需解析。HTML 含 CJK 字符就强制种子
@@ -390,19 +441,7 @@ def main():
 
     in_path = Path(args.input)
 
-    # 工作副本：原 HTML 永远不动，所有 audit 修复改 .audited.html
-    # 首次跑 convert 自动 cp；agent 后续轮 input 用 audited.html；误传源 HTML 也被内部切回 audited
-    if (in_path.suffix.lower() == ".html"
-            and not in_path.name.endswith(".audited.html")
-            and in_path.exists()):
-        audited = in_path.with_name(in_path.stem + ".audited.html")
-        if not audited.exists():
-            shutil.copy2(in_path, audited)
-            print(f"[work-copy] 已创建工作副本：{audited.name}")
-        else:
-            print(f"[work-copy] 复用已有工作副本：{audited.name}")
-        print("[work-copy] audit 修复改这个文件；下一轮 convert input 用此路径")
-        in_path = audited
+    in_path = _work_copy_target(in_path)
 
     if args.out:
         out_path = Path(args.out)

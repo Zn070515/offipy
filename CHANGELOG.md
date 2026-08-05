@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-08-05
+
+### Fixed
+- `quit(force=True)` 传不进（真实使用反馈）：`_Facade.quit` 硬编码无参版本遮蔽了 `PptApp/WordApp/ExcelApp` 的 `quit(force)`——连到既有 Office 实例时错误消息引导用户传 `force=True` 却抛 `TypeError`（死路）。现在 `quit(force=False)` 显式透传，`Excel()/Word()/Ppt()` 三 facade 一并修复
+- 误导性报错：未知 `doc_id` 的 `TargetNotFoundError` 不再写「用 list_docs 查看当前打开的」——`doc_id` 是**会话内**标识，本地直连 `Ppt()/Excel()/Word()` 与会话式 `Remote*/CLI/HTTP` 互不相通，`list_docs()` 显示在也不代表本会话能查到（真实使用：`Ppt().open_pres` 的句柄喂给 `deck.export_slides` 误导排查）。报错现在点明「当前会话」+ 跨会话边界
+- work-copy 静默切换（真实使用）：`render()` 首次生成 `.audited.html` 副本后改源 HTML 不生效——convert 静默复用旧副本。现在源 HTML 比副本新（mtime 更大）时自动重建副本，改源即刻生效
+- 图片缺失静默占位图（真实使用）：`<img src="fig/xxx.png">` 引用文件缺失时不报错，converter 静默嵌入 3-4KB 空白占位图（几何审计无差别，只能靠 ppt/media 文件大小暴露）。现在 measure 检测 `naturalWidth/Height=0` 破图，convert fail-fast 报错列出缺失文件
+
 ## [0.10.1] - 2026-08-05
 
 ### Fixed
