@@ -119,6 +119,9 @@ quote-style = "double"
 
 [tool.mypy]
 python_version = "3.10"
+# offipy 是 Windows-only 库（COM/winreg 专用），Linux CI 上也按 win32 平台
+# 做类型检查，否则 typeshed 会把 winreg 常量/函数当非 Windows 隐藏而误报
+platform = "win32"
 files = ["src/offipy"]
 # vendored 转换器是外协代码，不进类型检查（与 ruff exclude 一致）
 exclude = ["src/offipy/_vendor/"]
