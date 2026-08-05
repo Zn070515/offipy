@@ -77,17 +77,21 @@ def test_active_doc_prefers_live(monkeypatch):
     assert live in app._docs.values()  # 实时句柄并入文档表并设为活动
 
 
-def test_active_doc_falls_back_to_live_cache(monkeypatch):
+def test_active_doc_stale_registry_not_used_without_real_active(monkeypatch):
+    # P0-3 doc_id 权威：缺省解析一律实时读真实 Active，绝不静默回退到陈旧的
+    # _active_id 登记——实时解析不到就是 None（防「用户看到 B、Agent 以为 A」）。
     from offipy import core
     from offipy.excel import ExcelApp
 
     cached = object()
+    fake_app = type("F", (), {"ActiveWorkbook": None})()
     app = ExcelApp.__new__(ExcelApp)
     app._docs = {"book1": cached}
     app._active_id = "book1"
+    app.app = fake_app
     monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
     monkeypatch.setattr(core, "doc_alive", lambda obj: True)
-    assert app.active_book() is cached
+    assert app.active_book() is None
 
 
 def test_active_doc_dead_cache_falls_through(monkeypatch):

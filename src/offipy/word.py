@@ -9,6 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
+from .core import destructive
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -166,8 +167,8 @@ class WordApp:
 
     def active_doc(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
-        # 缺省 active：优先 app 登记的活动句柄（new_doc/open_doc/activate 切换）；
-        # 无登记或失效时实时解析 ActiveDocument 并并入文档表（重连既有会话场景）。
+        # 缺省 active：实时解析 ActiveDocument（doc_id 权威——绝不静默用陈旧的
+        # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
         # P0-8：全程纯探测，绝不隐式 Documents.Add()。
         if doc_id is not None:
             doc = self._docs.get(doc_id)
@@ -176,10 +177,6 @@ class WordApp:
                     f"未知文档句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
                 )
             return doc
-        if self._active_id is not None:
-            doc = self._docs.get(self._active_id)
-            if doc is not None and core.doc_alive(doc):
-                return doc
         doc = core.active_doc("word", "ActiveDocument")
         if doc is not None:
             self._sync_registered(doc)
@@ -257,6 +254,7 @@ class WordApp:
             path = None
         return {"app": "word", "doc_id": resolved, "name": name, "path": path}
 
+    @destructive
     def close_doc(self, save: bool = True, doc_id: str | None = None):
         """关闭文档（doc_id 缺省为活动）。
 
@@ -280,6 +278,7 @@ class WordApp:
                 self._active_id = None
         return path
 
+    @destructive
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         """保存文档并返回绝对路径。
 
@@ -301,18 +300,22 @@ class WordApp:
             doc.SaveAs2(dest)
             return dest
 
+    @destructive
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():
             self._require_doc(doc_id).ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
 
     # --- 内容 ---
+    @destructive
     def write(self, text: str, doc_id: str | None = None):
         self._require_doc(doc_id).Content.InsertAfter(text)
 
+    @destructive
     def write_line(self, text: str, doc_id: str | None = None):
         self._require_doc(doc_id).Content.InsertAfter(text + "\r\n")
 
+    @destructive
     def add_heading(self, text: str, level: int = 1, doc_id: str | None = None):
         self.write_line(text, doc_id)
         doc = self._require_doc(doc_id)
@@ -322,6 +325,7 @@ class WordApp:
         # 目录（按标题样式收集）为空。
         doc.Paragraphs(doc.Paragraphs.Count - 1).Style = style
 
+    @destructive
     def add_table(self, rows: int, cols: int, doc_id: str | None = None):
         doc = self._require_doc(doc_id)
         rng = doc.Content
@@ -329,12 +333,14 @@ class WordApp:
         doc.Tables.Add(rng, rows, cols)
         return doc.Tables.Count
 
+    @destructive
     def set_table_cell(
         self, table_idx: int, row: int, col: int, text: str, doc_id: str | None = None
     ):
         self._require_doc(doc_id).Tables(table_idx).Cell(row, col).Range.Text = text
 
     # --- 样式系统：文字格式 ---
+    @destructive
     def format_text(
         self,
         paragraph: int,
@@ -364,6 +370,7 @@ class WordApp:
             font.HighlightColorIndex = _resolve_style(highlight, _HIGHLIGHT, "高亮色")
 
     # --- 样式系统：段落格式 ---
+    @destructive
     def format_paragraph(
         self,
         paragraph: int,
@@ -390,12 +397,15 @@ class WordApp:
             fmt.FirstLineIndent = first_line_indent
 
     # --- 页面结构：页眉页脚 / 页码 / 页面设置 ---
+    @destructive
     def set_header_text(self, text: str, section: int = 1, doc_id: str | None = None):
         self._require_doc(doc_id).Sections(section).Headers(1).Range.Text = text
 
+    @destructive
     def set_footer_text(self, text: str, section: int = 1, doc_id: str | None = None):
         self._require_doc(doc_id).Sections(section).Footers(1).Range.Text = text
 
+    @destructive
     def add_page_number(
         self,
         alignment: str = "right",
@@ -416,6 +426,7 @@ class WordApp:
             hf.Range.Font.Size = size
         return hf.Range.Text
 
+    @destructive
     def page_setup(
         self,
         orientation: str | None = None,
@@ -444,6 +455,7 @@ class WordApp:
             ps.Gutter = gutter
 
     # --- 页面结构：目录 ---
+    @destructive
     def insert_toc(self, levels: int = 3, doc_id: str | None = None):
         doc = self._require_doc(doc_id)
         doc.TablesOfContents.Add(
@@ -451,12 +463,14 @@ class WordApp:
         )
         return doc.TablesOfContents.Count
 
+    @destructive
     def update_toc(self, doc_id: str | None = None):
         doc = self._require_doc(doc_id)
         doc.TablesOfContents(1).Update()
         return doc.TablesOfContents.Count
 
     # --- 列表 ---
+    @destructive
     def add_list(self, lines: list[str], style: str = "bullet", doc_id: str | None = None):
         doc = self._require_doc(doc_id)
         start = doc.Paragraphs.Count + 1  # 第一个新段落的序号
@@ -473,6 +487,7 @@ class WordApp:
         return len(lines)
 
     # --- 表格增强 ---
+    @destructive
     def merge_table_cells(
         self,
         table_idx: int,
@@ -485,6 +500,7 @@ class WordApp:
         t = self._require_doc(doc_id).Tables(table_idx)
         t.Cell(start_row, start_col).Merge(t.Cell(end_row, end_col))
 
+    @destructive
     def set_table_border(
         self,
         table_idx: int,
@@ -504,11 +520,13 @@ class WordApp:
             if color is not None:
                 b.Color = _rgb(color)
 
+    @destructive
     def set_table_col_width(
         self, table_idx: int, col: int, width: float, doc_id: str | None = None
     ):
         self._require_doc(doc_id).Tables(table_idx).Columns(col).Width = width
 
+    @destructive
     def set_table_row_height(
         self,
         table_idx: int,
@@ -521,12 +539,14 @@ class WordApp:
         r.Height = height
         r.HeightRule = _resolve_style(rule, _ROW_HEIGHT_RULE, "行高规则")
 
+    @destructive
     def autofit_table(self, table_idx: int, behavior: str = "content", doc_id: str | None = None):
         self._require_doc(doc_id).Tables(table_idx).AutoFitBehavior(
             _resolve_style(behavior, _AUTOFIT, "自动调整")
         )
 
     # --- 文档辅助 ---
+    @destructive
     def find_replace(
         self,
         find: str,
@@ -546,6 +566,7 @@ class WordApp:
             MatchWholeWord=whole_word,
         )
 
+    @destructive
     def insert_image(
         self,
         path: str,
@@ -561,6 +582,7 @@ class WordApp:
             shape.Height = height
         return doc.InlineShapes.Count
 
+    @destructive
     def insert_page_break(self, doc_id: str | None = None):
         _end_range(self._require_doc(doc_id)).InsertBreak(7)  # wdPageBreak
 

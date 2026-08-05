@@ -459,12 +459,26 @@ def dispatch(app, op: str, args: dict, app_name: str):
         # quit 例外：目标就是退出，app 已死时应直接成功，不反拉起新实例。
         app = _rebuild(app)
     expected = args.pop("expected_target", None)
-    if expected is not None and op in _DESTRUCTIVE_OPS.get(app_name, frozenset()):
+    follow_active = bool(args.pop("follow_active", False))
+    destructive = op in _DESTRUCTIVE_OPS.get(app_name, frozenset())
+    if expected is not None and destructive and op != "quit":
         # P0-4/5：破坏性 op 绑定目标——不跟随用户焦点。resolve-once：校验用
         # 解析出的 doc_id 直接注入方法参数，杜绝「校验 A 执行 B」；未知键/空
         # 对象在 _resolve_expected_target 内拒绝（旧 _target_matches({}) 恒真
-        # 绕过已堵死）。只读 op 上的 expected_target 无意义：pop 掉忽略。
+        # 绕过已堵死）。
         args["doc_id"] = _resolve_expected_target(app, expected)
+    elif follow_active and destructive and op != "quit":
+        # follow_active：显式声明「跟随当前活动文档」。实时解析并注入其 doc_id，
+        # 无活动目标抛 TargetNotFoundError（绝不静默落到任何文档）。
+        target = app.get_target()
+        if target is None:
+            raise TargetNotFoundError("没有活动文档；请先 new_book/open_book 或显式 doc_id")
+        args["doc_id"] = target["doc_id"]
+    elif expected is not None:
+        # 非破坏性 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
+        # 实际 op 不作用于文档）——严格拒绝，不再静默忽略。
+        raise InvalidArgumentError(f"expected_target 只对破坏性操作有意义，{app_name}.{op} 不接受")
+    # follow_active 已在上面 pop；非破坏性 op 上出现则静默忽略。
     method = getattr(app, op, None)
     if method is None:
         raise AttributeError(f"未知操作: {op}")

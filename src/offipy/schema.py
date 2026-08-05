@@ -25,6 +25,7 @@ class OpSpec:
     description: str = ""
     readonly: bool = False  # 只读：不改任何文档/应用状态
     destructive: bool = False  # 会改动文档内容/状态（expected_target 绑定对象）
+    supports_expected_target: bool = False  # 传输层额外支持 expected_target 绑定
     deprecated: bool = False  # P2-9 预留：已弃用 op，响应带 warning
     returns: str = "void"  # void/int/str/bool/list/dict/any（文档化用）
     params: dict[str, Any] = field(default_factory=dict)  # 参数类型（与 App 方法签名一致）
@@ -53,6 +54,16 @@ def destructive_ops(app: str) -> frozenset[str]:
 def readonly_ops(app: str) -> frozenset[str]:
     """某应用的所有只读 op。"""
     return frozenset(op for op, s in OPS.get(app, {}).items() if s.readonly)
+
+
+def supports_expected_target(app: str, op: str) -> bool:
+    """该 op 是否暴露 expected_target 传输参数（P0-1）。
+
+    destructive 自动继承（expected_target 用于防目标漂移）；个别非破坏性但
+    可绑定目标的 op 可显式置 supports_expected_target=True。
+    """
+    s = spec(app, op)
+    return bool(s and (s.destructive or s.supports_expected_target))
 
 
 # =================================================================== Excel

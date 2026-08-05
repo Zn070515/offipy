@@ -47,12 +47,13 @@ class _FakeBook:
 
     def Activate(self):
         self.activated += 1  # 真实 UI 同步桩：activate() 必须触达
-
-    def Worksheets(self, *a):
-        return self  # 工作表对象：Cells 代理把写入记到 self._cells
+        self.app.active = self  # P0-3：激活即成为真实 ActiveWorkbook
 
     def Cells(self, row, col):
         return _FakeCell(self, row, col)
+
+    def Worksheets(self, sheet):
+        return self  # 单工作表假体：sheet 名/序号忽略，单元格落同一 _cells
 
     def Save(self):
         self.save_calls += 1
@@ -81,6 +82,7 @@ class _FakeExcelApp:
 
     def Add(self):
         book = _FakeBook(f"Book{len(self._created) + 1}")
+        book.app = self
         self._created.append(book)
         self.active = book
         return book
@@ -136,7 +138,7 @@ def test_excel_multi_doc_flow(monkeypatch):
     # activate 切换后续缺省操作的目标 → 写 A
     app.activate(a)
     assert app._docs[a].activated == 1  # P0-6：activate 同步真实 UI（Workbook.Activate）
-    app.set_cell(1, "A1", 100)
+    app.set_cell(1, "A1", 100, follow_active=True)
     assert app._docs[a]._cells[(1, 1)] == 100
     assert (1, 1) not in app._docs[b]._cells
     # 显式 doc_id 路由到指定工作簿，不受活动目标影响
@@ -169,7 +171,7 @@ def test_excel_close_doc_removes_from_table(monkeypatch):
 def test_excel_close_active_clears_until_new(monkeypatch):
     app = _new_excel(monkeypatch)
     app.new_book()
-    app.close_book(save=False)  # 关闭活动工作簿
+    app.close_book(save=False, follow_active=True)  # 关闭活动工作簿
     app.app.active = None  # Excel 侧也无活动工作簿
     assert app.active_book() is None
     with pytest.raises(TargetNotFoundError):
@@ -193,7 +195,7 @@ def test_excel_unknown_doc_id_raises(monkeypatch):
 def test_excel_close_discard_sets_saved_true_no_dialog(monkeypatch):
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
-    assert app.close_book(save=False) is None
+    assert app.close_book(save=False, follow_active=True) is None
     assert book.Saved is True  # 先标 Saved=True 才不弹另存为（Excel unsaved 特例）
     assert book.closed
     assert book.close_calls[-1]["SaveChanges"] == 2  # xlDoNotSaveChanges
@@ -205,7 +207,7 @@ def test_excel_close_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]  # Path="" → 从未保存
-    path = app.close_book(save=True)
+    path = app.close_book(save=True, follow_active=True)
     assert book.saveas_calls  # 自动落盘，不弹另存为
     assert path == book.saveas_calls[-1]
     assert os.path.dirname(path) == str(tmp_path)  # 同层目录 = cwd
@@ -218,7 +220,7 @@ def test_excel_close_save_saved_returns_fullname(monkeypatch):
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
     book.Path = "C:/x"  # 已有保存路径 → 原位，不再额外 Save
-    path = app.close_book(save=True)
+    path = app.close_book(save=True, follow_active=True)
     assert path == book.FullName
     assert book.close_calls[-1]["SaveChanges"] == 1
     assert book.save_calls == 0
@@ -229,7 +231,7 @@ def test_excel_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
-    path = app.save()
+    path = app.save(follow_active=True)
     assert book.saveas_calls
     assert path == book.saveas_calls[-1]
     assert os.path.dirname(path) == str(tmp_path)
@@ -240,7 +242,7 @@ def test_excel_save_saved_uses_in_place(monkeypatch):
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
     book.Path = "C:/x"
-    path = app.save()
+    path = app.save(follow_active=True)
     assert book.save_calls == 1
     assert path == book.FullName
     assert book.saveas_calls == []
@@ -250,13 +252,13 @@ def test_excel_save_explicit_path_overwrite_protection(monkeypatch, tmp_path):
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
     dest = os.path.join(str(tmp_path), "out.xlsx")
-    assert app.save(dest) == dest
+    assert app.save(dest, follow_active=True) == dest
     assert book.saveas_calls == [dest]
     Path(dest).write_text("x")  # 真实落盘，ensure_writable 才判定已存在
     with pytest.raises(FileConflictError):
-        app.save(dest)
+        app.save(dest, follow_active=True)
     assert book.saveas_calls == [dest]  # 未覆盖 → 不重复 SaveAs
-    assert app.save(dest, overwrite=True) == dest
+    assert app.save(dest, overwrite=True, follow_active=True) == dest
     assert book.saveas_calls == [dest, dest]
 
 
@@ -289,6 +291,7 @@ class _FakeWordDoc:
 
     def Activate(self):
         self.activated += 1
+        self.app.active = self  # P0-3：激活即成为真实 ActiveDocument
 
     def Save(self):
         self.save_calls += 1
@@ -316,6 +319,7 @@ class _FakeWordApp:
 
     def Add(self):
         d = _FakeWordDoc(f"Doc{len(self._created) + 1}")
+        d.app = self
         self._created.append(d)
         self.active = d
         return d
@@ -335,7 +339,7 @@ def test_word_multi_doc_route(monkeypatch):
     d1 = app.new_doc()  # doc1
     d2 = app.new_doc()  # doc2
     app.activate(d1)
-    app.write_line("hello")
+    app.write_line("hello", follow_active=True)
     assert app._docs[d1].Content.text == "hello\r\n"
     assert app._docs[d2].Content.text == ""
     app.write_line("world", doc_id=d2)
@@ -347,7 +351,7 @@ def test_word_multi_doc_route(monkeypatch):
 def test_word_close_discard_sets_saved_true_no_dialog(monkeypatch):
     app = _new_word(monkeypatch)
     doc = app._docs[app.new_doc()]
-    assert app.close_doc(save=False) is None
+    assert app.close_doc(save=False, follow_active=True) is None
     assert doc.Saved is True
     assert doc.close_calls[-1]["SaveChanges"] == 0  # wdDoNotSaveChanges
     assert doc.save_calls == 0
@@ -358,7 +362,7 @@ def test_word_close_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app = _new_word(monkeypatch)
     doc = app._docs[app.new_doc()]
-    path = app.close_doc(save=True)
+    path = app.close_doc(save=True, follow_active=True)
     assert doc.saveas_calls
     assert path == doc.saveas_calls[-1]
     assert os.path.dirname(path) == str(tmp_path)
@@ -370,7 +374,7 @@ def test_word_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app = _new_word(monkeypatch)
     doc = app._docs[app.new_doc()]
-    path = app.save()
+    path = app.save(follow_active=True)
     assert doc.saveas_calls
     assert path == doc.saveas_calls[-1]
     assert os.path.dirname(path) == str(tmp_path)
@@ -389,6 +393,7 @@ class _FakePres:
 
     def Activate(self):
         self.activated += 1
+        self.app.active = self  # P0-3：激活即成为真实 ActivePresentation
 
     def Save(self):
         self.save_calls += 1
@@ -413,6 +418,7 @@ class _FakePptApp:
 
     def Add(self):
         p = _FakePres(f"Pres{len(self._created) + 1}")
+        p.app = self
         self._created.append(p)
         self.active = p
         return p
@@ -443,7 +449,7 @@ def test_ppt_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     app = _new_ppt(monkeypatch)
     pres = app._docs[app.new_pres()]
-    path = app.save()
+    path = app.save(follow_active=True)
     assert pres.saveas_calls
     assert path == pres.saveas_calls[-1]
     assert os.path.dirname(path) == str(tmp_path)
@@ -454,7 +460,7 @@ def test_ppt_save_saved_uses_in_place(monkeypatch):
     app = _new_ppt(monkeypatch)
     pres = app._docs[app.new_pres()]
     pres.Path = "C:/x"
-    path = app.save()
+    path = app.save(follow_active=True)
     assert pres.save_calls == 1
     assert path == pres.FullName
     assert pres.saveas_calls == []

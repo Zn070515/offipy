@@ -161,8 +161,10 @@ def test_read_range_no_doc_raises(monkeypatch):
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
-        app.read_range(1, "A1")
-    with pytest.raises(TargetNotFoundError):
+        app.read_range(1, "A1")  # 只读 op：无目标 → TargetNotFoundError
+    # save 是破坏性 op：@destructive 守卫先于 _require_book 拦截（无 doc_id 且
+    # 未 follow_active → InvalidArgumentError，而非 TargetNotFoundError）
+    with pytest.raises(InvalidArgumentError):
         app.save()
 
 
@@ -260,13 +262,130 @@ def test_dispatch_expected_target_doc_id_binding():
     assert app.close_calls == ["book2"]
 
 
-def test_dispatch_expected_target_ignored_on_readonly():
-    # 只读 op 不做绑定校验，expected_target 仅被消费（不传给方法）
+def test_dispatch_expected_target_on_readonly_rejected():
+    # P0-1 严格：只读 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
+    # 实际 op 不作用于文档）——直接拒绝，不再静默忽略。
+    app = _TargetApp(None)
+    with pytest.raises(InvalidArgumentError):
+        server.dispatch(
+            app,
+            "read_range",
+            {"sheet": 1, "range_addr": "A1", "expected_target": {"name": "x"}},
+            "excel",
+        )
+
+
+# --- follow_active：显式跟随当前活动文档（P0-1/P0-3，server dispatch 层） ---
+
+
+def test_dispatch_follow_active_injects_active_doc_id():
+    # follow_active 显式声明跟随当前活动文档：实时解析并注入其 doc_id 再执行
+    app = _TargetApp({"app": "excel", "doc_id": "book9", "name": "Book9", "path": None})
+    result = server.dispatch(app, "close_book", {"follow_active": True}, "excel")
+    assert result == "closed"
+    assert app.close_calls == ["book9"]
+
+
+def test_dispatch_follow_active_no_target_raises():
+    # follow_active 但无活动目标 → TargetNotFoundError，绝不静默落到任何文档
+    app = _TargetApp(None)
+    with pytest.raises(TargetNotFoundError):
+        server.dispatch(app, "close_book", {"follow_active": True}, "excel")
+    assert app.close_calls == []
+
+
+def test_dispatch_follow_active_ignored_on_readonly():
+    # 只读 op 上的 follow_active 无意义：pop 掉，不注入 doc_id，正常执行
     app = _TargetApp(None)
     result = server.dispatch(
-        app,
-        "read_range",
-        {"sheet": 1, "range_addr": "A1", "expected_target": {"name": "x"}},
-        "excel",
+        app, "read_range", {"sheet": 1, "range_addr": "A1", "follow_active": True}, "excel"
     )
     assert result == [[1]]
+
+
+def test_dispatch_follow_active_ignored_on_quit():
+    # quit 无 doc_id 参数：follow_active 被消费但不注入，正常放行
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "B", "path": None})
+    app.quit = lambda: "quitting"
+    result = server.dispatch(app, "quit", {"follow_active": True}, "excel")
+    assert result == "quitting"
+
+
+def test_dispatch_no_target_leaf_to_app_guard():
+    # 破坏性 op 无 doc_id/expected_target/follow_active → dispatch 不注入任何
+    # doc_id，原样传给方法，由 App 层 @destructive 守卫抛 InvalidArgumentError
+    # （此处 fake app 无守卫，方法收到 doc_id=None）。
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "B", "path": None})
+    result = server.dispatch(app, "close_book", {}, "excel")
+    assert result == "closed"
+    assert app.close_calls == [None]
+
+
+# --- App 层 @destructive 守卫（P0-3 doc_id 权威） ---
+
+
+def test_destructive_decorator_requires_doc_id():
+    # 破坏性 App 方法无 doc_id 且未 follow_active → InvalidArgumentError，绝不
+    # 静默落到「当前活动文档」（防用户看到 B、Agent 改 A）。
+    from offipy import core
+
+    calls = {}
+
+    class _Stub:
+        @core.destructive
+        def mutate(self, doc_id=None):
+            calls["doc_id"] = doc_id
+            return "ok"
+
+    with pytest.raises(InvalidArgumentError):
+        _Stub().mutate()
+    assert calls == {}
+
+
+def test_destructive_decorator_follow_active_injects():
+    from offipy import core
+
+    calls = {}
+
+    class _Stub:
+        def get_target(self, doc_id=None):
+            return {"app": "excel", "doc_id": "b1", "name": "N", "path": None}
+
+        @core.destructive
+        def mutate(self, doc_id=None):
+            calls["doc_id"] = doc_id
+            return "ok"
+
+    assert _Stub().mutate(follow_active=True) == "ok"
+    assert calls["doc_id"] == "b1"
+
+
+def test_destructive_decorator_follow_active_no_target():
+    from offipy import core
+
+    class _Stub:
+        def get_target(self, doc_id=None):
+            return None
+
+        @core.destructive
+        def mutate(self, doc_id=None):
+            raise AssertionError("不该执行")
+
+    with pytest.raises(TargetNotFoundError):
+        _Stub().mutate(follow_active=True)
+
+
+def test_destructive_decorator_explicit_doc_id_passes():
+    # 显式 doc_id：不需要 follow_active，直接放行
+    from offipy import core
+
+    calls = {}
+
+    class _Stub:
+        @core.destructive
+        def mutate(self, doc_id=None):
+            calls["doc_id"] = doc_id
+            return "ok"
+
+    assert _Stub().mutate(doc_id="b7") == "ok"
+    assert calls["doc_id"] == "b7"

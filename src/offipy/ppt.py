@@ -9,6 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
+from .core import destructive
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -67,8 +68,8 @@ class PptApp:
 
     def active_pres(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
-        # 缺省 active：优先 app 登记的活动句柄（new_pres/open_pres/activate 切换）；
-        # 无登记或失效时实时解析 ActivePresentation 并并入文档表（重连既有会话场景）。
+        # 缺省 active：实时解析 ActivePresentation（doc_id 权威——绝不静默用陈旧的
+        # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
         # P0-8：全程纯探测，绝不隐式 Presentations.Add()。
         if doc_id is not None:
             pres = self._docs.get(doc_id)
@@ -77,10 +78,6 @@ class PptApp:
                     f"未知演示文稿句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
                 )
             return pres
-        if self._active_id is not None:
-            pres = self._docs.get(self._active_id)
-            if pres is not None and core.doc_alive(pres):
-                return pres
         pres = core.active_doc("ppt", "ActivePresentation")
         if pres is not None:
             self._sync_registered(pres)
@@ -161,6 +158,7 @@ class PptApp:
             path = None
         return {"app": "ppt", "doc_id": resolved, "name": name, "path": path}
 
+    @destructive
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         """保存演示文稿并返回绝对路径。
 
@@ -182,6 +180,7 @@ class PptApp:
             pres.SaveAs(dest)
             return dest
 
+    @destructive
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         # ExportAsFixedFormat 第二位置参数是 Intent（打印=2），OutputType 才是
@@ -191,6 +190,7 @@ class PptApp:
                 dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF
             )
 
+    @destructive
     def export_slides(
         self, out_dir: str, width: int = 1920, height: int = 1080, doc_id: str | None = None
     ):
@@ -206,11 +206,13 @@ class PptApp:
         return paths
 
     # --- 幻灯片 ---
+    @destructive
     def add_slide(self, layout: int = PP_LAYOUT_TEXT, doc_id: str | None = None):
         pres = self._require_pres(doc_id)
         pres.Slides.Add(pres.Slides.Count + 1, layout)
         return pres.Slides.Count
 
+    @destructive
     def set_title(self, slide_idx: int, text: str, doc_id: str | None = None):
         if not text:
             raise InvalidArgumentError("set_title: text 不能为空")
@@ -218,6 +220,7 @@ class PptApp:
         if slide.Shapes.HasTitle:
             slide.Shapes.Title.TextFrame.TextRange.Text = text
 
+    @destructive
     def set_body(self, slide_idx: int, lines, doc_id: str | None = None):
         if isinstance(lines, str):
             lines = [lines]
@@ -227,10 +230,12 @@ class PptApp:
         ph = slide.Shapes.Placeholders(2)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
 
+    @destructive
     def set_notes(self, slide_idx: int, text: str, doc_id: str | None = None):
         slide = self._require_pres(doc_id).Slides(slide_idx)
         slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text = text
 
+    @destructive
     def add_textbox(
         self,
         slide_idx: int,
@@ -245,6 +250,7 @@ class PptApp:
         tb = slide.Shapes.AddTextbox(1, left, top, width, height)
         tb.TextFrame.TextRange.Text = text
 
+    @destructive
     def add_picture(
         self,
         slide_idx: int,

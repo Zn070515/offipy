@@ -10,11 +10,18 @@ GetActiveObject 重连同一个已运行的 Office 实例，实现跨调用保�
 """
 
 import contextlib
+import functools
+import inspect
 import sys
 from dataclasses import dataclass
 from typing import Any
 
-from .exceptions import OfficeUnavailableError, UnsupportedPlatformError
+from .exceptions import (
+    InvalidArgumentError,
+    OfficeUnavailableError,
+    TargetNotFoundError,
+    UnsupportedPlatformError,
+)
 
 PROGIDS = {
     "word": "Word.Application",
@@ -66,6 +73,33 @@ def _progid(app: str) -> str:
     if key not in PROGIDS:
         raise ValueError(f"不支持的应用: {app}，可选 {list(PROGIDS)}")
     return PROGIDS[key]
+
+
+def destructive(fn):
+    """破坏性操作守卫（P0-3 doc_id 权威）：强制「显式 doc_id 或 follow_active=True」。
+
+    拦截破坏性 App 方法：doc_id 缺失且未开 follow_active → InvalidArgumentError，
+    绝不静默落到「当前活动文档」（防止用户看到 B、Agent 改 A）。follow_active
+    开启时用 self.get_target() 实时解析真实活动目标并注入 doc_id。
+    """
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, follow_active=False, **kw):
+        bound = sig.bind_partial(self, *args, **kw)
+        did = bound.arguments.get("doc_id")
+        if did is None:
+            if follow_active:
+                tgt = self.get_target()
+                if tgt is None:
+                    raise TargetNotFoundError("没有活动文档；请先 new_book/open_book 或显式 doc_id")
+                did = tgt["doc_id"]
+                bound.arguments["doc_id"] = did
+            else:
+                raise InvalidArgumentError("破坏性操作需要显式 doc_id 或 follow_active=True")
+        return fn(*bound.args, **bound.kwargs)
+
+    return wrapper
 
 
 def connect(app: str):

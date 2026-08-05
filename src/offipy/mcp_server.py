@@ -108,11 +108,36 @@ def _build_tool(app: str, op: str) -> None:
     method = getattr(_APP_CLASSES[app], op)
     params = [p for p in inspect.signature(method).parameters.values() if p.name != "self"]
     defaults = {p.name: p.default for p in params if p.default is not inspect.Parameter.empty}
+    # 传输层参数（P0-1/P0-3）：破坏性 op 额外暴露 expected_target（JSON 对象绑定）
+    # 与 follow_active（显式跟随活动文档），随 args 透传给 server dispatch。
+    if schema.supports_expected_target(app, op):
+        params = params + [
+            inspect.Parameter(
+                "expected_target",
+                inspect.Parameter.KEYWORD_ONLY,
+                annotation=dict,
+                default=None,
+            ),
+            inspect.Parameter(
+                "follow_active",
+                inspect.Parameter.KEYWORD_ONLY,
+                annotation=bool,
+                default=False,
+            ),
+        ]
+        defaults["expected_target"] = None
+        defaults["follow_active"] = False
     return_ann = _RETURN_ANNOTATION.get(spec.returns, object)
 
     def tool_fn(**kwargs: Any) -> Any:
         args = dict(defaults)
         args.update(kwargs)
+        # 传输层参数（P0-1/P0-3）未给时不下发（None/False 语义等于缺省），
+        # 避免请求 payload 噪音；给定了则透传，server dispatch 消费。
+        if not args.get("expected_target"):
+            args.pop("expected_target", None)
+        if not args.get("follow_active"):
+            args.pop("follow_active", None)
         return _invoke(app, op, **args)
 
     fn = cast(Any, tool_fn)

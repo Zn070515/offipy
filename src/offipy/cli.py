@@ -66,6 +66,35 @@ def _parse_kwargs(tokens):
             else:
                 kwargs[tok[2:]] = True
                 i += 1
+        elif tok in ("--expected-target", "--expected_target"):
+            # P0-1/P0-3 传输层参数：目标绑定（JSON 对象），解析后存进 expected_target。
+            # 值必须是对象（doc_id/name/path 之一），具体校验在 server 侧统一做。
+            if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                try:
+                    value = json.loads(tokens[i + 1])
+                except (ValueError, TypeError) as e:
+                    raise SystemExit(f"{tok} JSON 解析失败: {e}") from None
+                if not isinstance(value, dict):
+                    raise SystemExit(
+                        f'{tok} 必须是 JSON 对象（如 --expected-target \'{{"doc_id":"book1"}}\'）'
+                    )
+                kwargs["expected_target"] = value
+                i += 2
+            else:
+                raise SystemExit(f"{tok} 需要一个 JSON 对象值")
+        elif tok in ("--follow-active", "--follow_active"):
+            # P0-1/P0-3 传输层参数：显式声明跟随当前活动文档（裸用为 True，
+            # 也接受 `--follow-active false`）。
+            if (
+                i + 1 < len(tokens)
+                and not tokens[i + 1].startswith("--")
+                and tokens[i + 1].strip().lower() in _BOOL_TOKENS
+            ):
+                kwargs["follow_active"] = _BOOL_TOKENS[tokens[i + 1].strip().lower()]
+                i += 2
+            else:
+                kwargs["follow_active"] = True
+                i += 1
         elif tok.startswith("--"):
             key = tok[2:]
             if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
@@ -231,6 +260,11 @@ def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
                 inspect.Parameter.POSITIONAL_ONLY,
             )
         }
+    # 传输层参数（P0-1/P0-3）：破坏性 op 可显式绑定 expected_target / follow_active。
+    # 非破坏性 op 上放行也无妨——server 侧对 expected_target 严格拒绝、follow_active
+    # 静默忽略，语义一致。
+    if schema.supports_expected_target(app, op):
+        known |= {"expected_target", "follow_active"}
     for key in kwargs:
         if key not in known:
             print(f"offipy: error: {app} {op}: unrecognized arguments: --{key}", file=sys.stderr)
@@ -280,6 +314,48 @@ def _validate_required(app: str, op: str, kwargs: dict) -> None:
     print(
         f"offipy: error: {app} {op}: 缺少必填参数 {shown}\n"
         f"  用法: offipy {app} {op} --<参数> <值> ...",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
+def _has_doc_id_param(app: str, op: str) -> bool:
+    """op 是否接受 doc_id 参数（schema 声明或 App 方法签名）。quit 等无目标 op 返回 False。"""
+    sp = schema.spec(app, op)
+    if sp is not None and sp.params:
+        return "doc_id" in sp.params
+    cls = _APP_CLASSES.get(app)
+    method = getattr(cls, op, None) if cls else None
+    if method is None:
+        return False
+    try:
+        sig = inspect.signature(method)
+    except (TypeError, ValueError):
+        return False
+    return "doc_id" in sig.parameters
+
+
+def _validate_destructive_target(app: str, op: str, kwargs: dict) -> None:
+    """破坏性 op 缺目标（doc_id/expected_target/follow_active 均无）→ 提前友好报错。
+
+    P0-3 doc_id 权威：与 server 的 InvalidArgumentError 同语义，但 CLI 先给
+    usage 提示（exit 2），不等到拉起 server/碰 COM 后才炸。
+    """
+    if op == "quit" or not schema.supports_expected_target(app, op):
+        return
+    if not _has_doc_id_param(app, op):
+        return  # 无 doc_id 参数的 op（理论上只有 quit）不需要目标
+    if kwargs.get("doc_id") not in (None, ""):
+        return
+    if "expected_target" in kwargs:
+        return
+    if kwargs.get("follow_active"):
+        return
+    print(
+        f"offipy: error: {app} {op}: 破坏性操作必须显式指定目标文档\n"
+        f"  用法: offipy {app} {op} --doc_id <id> ...\n"
+        f"        或 --expected-target '<json>' 绑定目标（如 '{{\"doc_id\":\"book1\"}}'）\n"
+        f"        或 --follow-active 跟随当前活动文档",
         file=sys.stderr,
     )
     raise SystemExit(2)
@@ -439,6 +515,7 @@ def _main(argv=None):
     kw = _parse_kwargs(args.kwargs)
     _validate_kwargs(args.app, args.op, kw)
     _validate_required(args.app, args.op, kw)
+    _validate_destructive_target(args.app, args.op, kw)
     kw = _coerce_kwargs(args.app, args.op, kw)
     result = call(args.app, args.op, **kw)
     if result is not None:
