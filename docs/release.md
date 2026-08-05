@@ -24,6 +24,18 @@ offipy 的发布走 **CI 自动管线**（推荐）或**手动发布**（首次/
 CI 自动管线（`.github/workflows/release.yml`）在推 `v*` tag 时运行，其发布 job 依赖
 TestPyPI/PyPI 的 OIDC 信任配置——**未配置前发布 job 会失败**，此时走下面的手动发布。
 
+### OIDC（Trusted Publisher）核验清单
+
+在 PyPI/TestPyPI 的「Publishing」页配置可信发布者后，逐项核验**与 release.yml 完全一致**：
+
+- [ ] 仓库：`Zn070515/offipy`（本仓库已由 `office-kit` 更名——PyPI 保存的旧名**不跟随**，须用新名重配）
+- [ ] workflow 文件名：`release.yml`（精确匹配，不是 `release.yaml`）
+- [ ] environment：与发布 job 完全一致——TestPyPI 发布 job 用 `testpypi`、PyPI 发布 job 用 `pypi`
+- [ ] `pypi` Environment 建议加 **required reviewers**（Settings → Environments → `pypi` → Required
+      reviewers）——正式版发布多一道人工审批，防意外推正式版
+- [ ] 配置保存后，推一次 `v*` tag 实测 publish job 的 OIDC token 交换；失败多为仓库名 /
+      workflow 文件名 / environment 拼写不一致
+
 ---
 
 ## 1. 本地质量门禁（发布前必跑，全绿才发）

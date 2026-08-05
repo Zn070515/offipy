@@ -3,7 +3,7 @@
 # offipy
 
 Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编辑 PPTX 管线。
-目标：让 Claude 能独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
+面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
 - **当前版本**：0.9.0a1（TestPyPI 发布候选；正式首发 0.9.0，外部用户验证后再 1.0.0）
