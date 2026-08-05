@@ -1,0 +1,274 @@
+"""PPTX Shape 提取：递归遍历 + 文本/XML 属性读取。
+
+硬约束：只有读文件的函数内部才 `from pptx import Presentation`；
+`import offipy.audit.extract` 本身不触发 python-pptx。
+
+`_ShapeRecord` 是内部结构（不作稳定公共 API）。坐标语义：
+- 顶层 shape：left/top/width/height 已是幻灯片绝对英寸；
+- group 内子 shape：是**局部坐标**（相对 group 坐标空间），
+  绝对化由 geometry.absolutize_shapes 完成（见 audit/geometry.py）。
+
+形状类型判定（python-pptx 1.0.2 实证）：
+- 隐藏：`p:cNvPr[@hidden='1'|'true']` 必须用 `.//` 后代搜索（cNvPr 嵌套在
+  nvSpPr/nvPicPr/nvGrpSpPr 下，不是 shape 元素的直接子元素）；
+- 连接线：`shape_type == MSO_SHAPE_TYPE.LINE` 优先，`}cxnSp` 标签兜底；
+  不能靠 width/height==0（斜线/肘形连接线可能宽高非零）；
+- group：`shape_type == MSO_SHAPE_TYPE.GROUP`（python-pptx 的 GroupShape
+  没有 `.is_group` 属性）。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+_EMU_PER_INCH = 914400.0
+
+
+def _to_inches(value: Any) -> float | None:
+    """Length(EMU int) 或 None → 英寸；非 None 时必定返回 float。"""
+    if value is None:
+        return None
+    return float(value) / _EMU_PER_INCH
+
+
+# ---------------------------------------------------------------- 内部记录
+
+
+@dataclass
+class _TextRun:
+    text: str
+    font_size: float | None  # pt；None = 继承默认
+    bold: bool | None
+    font_name: str | None
+
+
+@dataclass
+class _Paragraph:
+    text: str  # 段落全部文本（runs + 软换行语义，可能含 \v）
+    runs: list[_TextRun]
+
+
+@dataclass
+class _TextFrameData:
+    text: str
+    paragraphs: list[_Paragraph]
+    word_wrap: bool | None
+    autofit_mode: str  # NONE / SHAPE_TO_FIT_TEXT / TEXT_TO_FIT_SHAPE / UNKNOWN
+    margin_left: float | None  # in
+    margin_right: float | None
+    margin_top: float | None
+    margin_bottom: float | None
+
+
+@dataclass
+class _GroupTransform:
+    """p:grpSpPr/a:xfrm 的原始几何（单位英寸 / 度 / 布尔）。"""
+
+    off_x: float
+    off_y: float
+    ext_cx: float
+    ext_cy: float
+    ch_off_x: float
+    ch_off_y: float
+    ch_ext_cx: float
+    ch_ext_cy: float
+    rotation_deg: float
+    flip_h: bool
+    flip_v: bool
+
+
+@dataclass
+class _ShapeRecord:
+    slide_index: int  # 1-based
+    shape_id: int
+    name: str
+    shape_type: str  # MSO_SHAPE_TYPE.name 或 "UNKNOWN"
+    left: float | None  # 见模块 docstring：局部或绝对（inches）
+    top: float | None
+    width: float | None
+    height: float | None
+    rotation: float  # 度
+    z_order: int  # 所在容器（slide/group）内从底到顶的序号
+    text: str
+    has_text_frame: bool
+    word_wrap: bool | None
+    autofit_mode: str
+    is_group: bool
+    is_connector: bool
+    is_hidden: bool
+    has_table: bool
+    placeholder_type: str | None
+    parent_shape_id: int | None  # None = 顶层
+    group_path: tuple[int, ...]  # 祖先 group 的 shape_id 链
+    transform: _GroupTransform | None = None  # 仅 group 有
+    paragraphs: list[_Paragraph] = field(default_factory=list)
+    tf_margin_left: float | None = None
+    tf_margin_right: float | None = None
+    tf_margin_top: float | None = None
+    tf_margin_bottom: float | None = None
+    role: str = "unknown"
+
+
+@dataclass
+class _SlideExtract:
+    slide_index: int  # 1-based
+    shapes: list[_ShapeRecord]
+
+
+@dataclass
+class _PresentationExtract:
+    slide_size: tuple[float, float]  # (宽, 高) 英寸
+    slides: list[_SlideExtract]
+
+
+# ---------------------------------------------------------------- 提取
+
+
+def extract_presentation(path: str | Path) -> _PresentationExtract:
+    """打开 PPTX，逐页递归提取 shape 记录（惰性加载 python-pptx）。"""
+    from pptx import Presentation
+
+    prs = Presentation(str(path))
+    slide_w = _to_inches(prs.slide_width) or 0.0
+    slide_h = _to_inches(prs.slide_height) or 0.0
+    slides = []
+    for index, slide in enumerate(prs.slides, start=1):
+        records: list[_ShapeRecord] = []
+        for z_order, shape in enumerate(slide.shapes):
+            records.extend(_flatten(shape, index, z_order, parent=None, group_path=()))
+        slides.append(_SlideExtract(slide_index=index, shapes=records))
+    return _PresentationExtract(slide_size=(slide_w, slide_h), slides=slides)
+
+
+def _flatten(
+    shape: object,
+    slide_index: int,
+    z_order: int,
+    parent: int | None,
+    group_path: tuple[int, ...],
+) -> list[_ShapeRecord]:
+    rec = _build_record(shape, slide_index, z_order, parent, group_path)
+    if rec.is_group:
+        child_path = group_path + (rec.shape_id,)
+        children: list[_ShapeRecord] = []
+        for c_z, child in enumerate(shape.shapes):  # type: ignore[attr-defined]
+            children.extend(
+                _flatten(child, slide_index, c_z, parent=rec.shape_id, group_path=child_path)
+            )
+        return [rec, *children]
+    return [rec]
+
+
+def _build_record(
+    shape: object,
+    slide_index: int,
+    z_order: int,
+    parent: int | None,
+    group_path: tuple[int, ...],
+) -> _ShapeRecord:
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    shape_type = getattr(shape.shape_type, "name", None) or "UNKNOWN"  # type: ignore[attr-defined]
+    is_group = shape.shape_type == MSO_SHAPE_TYPE.GROUP or shape._element.tag.endswith("}grpSp")  # type: ignore[attr-defined]
+    is_connector = shape.shape_type == MSO_SHAPE_TYPE.LINE or shape._element.tag.endswith("}cxnSp")  # type: ignore[attr-defined]
+    is_hidden = bool(shape._element.xpath('.//p:cNvPr[@hidden="1" or @hidden="true"]'))  # type: ignore[attr-defined]
+
+    has_tf = bool(getattr(shape, "has_text_frame", False))
+    tf = _read_text_frame(shape) if has_tf else None
+
+    placeholder_type = None
+    if getattr(shape, "is_placeholder", False):
+        ph_type = getattr(shape.placeholder_format.type, "name", None)  # type: ignore[attr-defined]
+        placeholder_type = ph_type or "PLACEHOLDER"
+
+    transform = _read_group_transform(shape) if is_group else None
+
+    return _ShapeRecord(
+        slide_index=slide_index,
+        shape_id=int(shape.shape_id),  # type: ignore[attr-defined]
+        name=str(shape.name),  # type: ignore[attr-defined]
+        shape_type=shape_type,
+        left=_to_inches(shape.left),  # type: ignore[attr-defined]
+        top=_to_inches(shape.top),  # type: ignore[attr-defined]
+        width=_to_inches(shape.width),  # type: ignore[attr-defined]
+        height=_to_inches(shape.height),  # type: ignore[attr-defined]
+        rotation=float(shape.rotation or 0.0),  # type: ignore[attr-defined]
+        z_order=z_order,
+        text=tf.text if tf else "",
+        has_text_frame=has_tf,
+        word_wrap=tf.word_wrap if tf else None,
+        autofit_mode=tf.autofit_mode if tf else "NONE",
+        is_group=is_group,
+        is_connector=is_connector,
+        is_hidden=is_hidden,
+        has_table=bool(getattr(shape, "has_table", False)),
+        placeholder_type=placeholder_type,
+        parent_shape_id=parent,
+        group_path=group_path,
+        transform=transform,
+        paragraphs=tf.paragraphs if tf else [],
+        tf_margin_left=tf.margin_left if tf else None,
+        tf_margin_right=tf.margin_right if tf else None,
+        tf_margin_top=tf.margin_top if tf else None,
+        tf_margin_bottom=tf.margin_bottom if tf else None,
+    )
+
+
+def _read_text_frame(shape: object) -> _TextFrameData:
+    tf = shape.text_frame  # type: ignore[attr-defined]
+    paragraphs: list[_Paragraph] = []
+    text_parts: list[str] = []
+    for para in tf.paragraphs:
+        runs = []
+        for run in para.runs:
+            font = run.font
+            size = font.size.pt if font.size is not None else None
+            runs.append(_TextRun(run.text, size, font.bold, font.name))
+        p_text = para.text
+        paragraphs.append(_Paragraph(text=p_text, runs=runs))
+        text_parts.append(p_text)
+    auto = tf.auto_size
+    autofit = getattr(auto, "name", None) or "UNKNOWN"
+    return _TextFrameData(
+        text="\n".join(text_parts),
+        paragraphs=paragraphs,
+        word_wrap=tf.word_wrap,
+        autofit_mode=autofit,
+        margin_left=_to_inches(tf.margin_left),
+        margin_right=_to_inches(tf.margin_right),
+        margin_top=_to_inches(tf.margin_top),
+        margin_bottom=_to_inches(tf.margin_bottom),
+    )
+
+
+def _read_group_transform(shape: object) -> _GroupTransform | None:
+    from pptx.oxml.ns import qn
+
+    xfrm = shape._element.xpath("./p:grpSpPr/a:xfrm")  # type: ignore[attr-defined]
+    if not xfrm:
+        return None
+    el = xfrm[0]
+
+    def _attr(tag: str, attr: str, default: float = 0.0) -> float:
+        node = el.find(qn(tag))
+        if node is None or node.get(attr) is None:
+            return default
+        return float(node.get(attr)) / _EMU_PER_INCH
+
+    rot_raw = el.get("rot")
+    rotation_deg = float(rot_raw) / 60000.0 if rot_raw else 0.0
+    return _GroupTransform(
+        off_x=_attr("a:off", "x"),
+        off_y=_attr("a:off", "y"),
+        ext_cx=_attr("a:ext", "cx"),
+        ext_cy=_attr("a:ext", "cy"),
+        ch_off_x=_attr("a:chOff", "x"),
+        ch_off_y=_attr("a:chOff", "y"),
+        ch_ext_cx=_attr("a:chExt", "cx"),
+        ch_ext_cy=_attr("a:chExt", "cy"),
+        rotation_deg=rotation_deg,
+        flip_h=el.get("flipH") in ("1", "true"),
+        flip_v=el.get("flipV") in ("1", "true"),
+    )
