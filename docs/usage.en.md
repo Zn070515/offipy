@@ -31,12 +31,20 @@ offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # explicit
 offipy excel read_range --sheet 1 --range_addr A1:B1   # read ops default to the active target
 offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
+
+# PPTX static quality audit & baseline regression (pure parsing, no PowerPoint, no Office dependency)
+offipy audit deck.pptx                     # text report (default)
+offipy audit deck.pptx --fail-on HIGH      # exit code 1 at HIGH (CI gate)
+offipy audit deck.pptx --format html --out audit.html --slides-dir export/   # SVG canvas report
+offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID      # baseline regression: only block added/worsened
 ```
 
 Destructive ops need a target: `--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`.
 Boolean parameters use `--key true/false`: `--overwrite true`. Structured values can be
 passed with `--payload '{"...": ...}'`. Parameter names use underscores (e.g.
 `--range_addr`, `--doc_id`); types are declared in `schema.py` and converted automatically.
+For the audit flags, exit codes, and Python API see [docs/audit.en.md](audit.en.md) (audit) and
+[docs/audit-baseline.en.md](audit-baseline.en.md) (baseline regression).
 
 ## Server lifecycle
 
@@ -110,6 +118,21 @@ string, `read_range` → a 2D list). `OperationResult` is the **return contract 
 HTTP `/call`** (`{ok, operation, resource_id, message, data}`, HTTP-only); MCP returns
 the `data` payload — the three entry points have different return shapes; see the
 honest comparison in [api.en.md](api.en.md).
+
+PPTX quality audit needs no Office and never opens PowerPoint:
+
+```python
+from offipy import audit_pptx, compare_pptx, Severity
+
+report = audit_pptx("deck.pptx")
+if report.max_severity is not None and report.max_severity >= Severity.HIGH:
+    print("HIGH issues found; refusing to ship")
+print(report.to_markdown())
+
+diff = compare_pptx("baseline.pptx", "candidate.pptx")
+if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
+    print("candidate adds/worsens MID+ issues vs baseline")
+```
 
 ## Capability boundary: create/append vs incremental edit
 

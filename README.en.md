@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.10.2 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.11.0 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -22,6 +22,12 @@ Built for Python developers and AI agents to independently produce **polished, a
 - **Server process management**: `offipy server status|stop|restart` uses a real `/status` handshake plus PID file / netstat probing to manage the resident process
 - **Agent read-back (read-only)**: `word read_doc_text` / `ppt read_slide_summary` (per-slide title/body/notes) `ppt read_slide_texts --slide_idx N` (per-slide per-shape text) / `excel read_range`
   read the document's text layer back (for the agent to iterate on), exposed via CLI / RPC / MCP
+- **PPTX static quality gate**: `offipy audit` (see [docs/audit.en.md](docs/audit.en.md)) — no PowerPoint, no
+  Microsoft Office; parses `.pptx` directly to check out-of-bounds / edge-adjacent / overlap / text overflow /
+  autofit risks, emits text / json / markdown / html reports, and blocks non-conforming artifacts by severity
+  threshold (`--fail-on`); `compare_pptx` baseline regression (see
+  [docs/audit-baseline.en.md](docs/audit-baseline.en.md)) only blocks candidate **added/worsened** issues;
+  `deck render_with_report` turns HTML→PPTX generation into a gate
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
 
 ## Requirements
@@ -136,6 +142,13 @@ offipy ppt read_slide_summary        # agent read-back: per-slide title/body/not
 offipy ppt read_slide_texts --slide_idx 1   # agent read-back: per-shape text on one slide (v0.10)
 offipy excel read_range --sheet 1 --range_addr A1:B2   # agent read-back: 2D range values
 offipy quit excel
+
+offipy audit deck.pptx                    # PPTX static quality audit (text report)
+offipy audit deck.pptx --fail-on HIGH     # exit code 1 at HIGH (CI gate)
+offipy audit deck.pptx --format html --out audit.html --slides-dir export/  # SVG canvas report
+offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID     # baseline regression: only block added/worsened
+offipy deck make --html deck.html --out deck.pptx --no-open \
+  --audit-mode strict --fail-on HIGH --audit-report deck.audit.json        # HTML→PPTX generate-and-gate
 ```
 
 Complex parameters are passed through with `--payload '<json>'` (overriding same-named kwargs); repeating `--key` aggregates into a list.
@@ -313,6 +326,7 @@ src/offipy/
   server.py     # resident session HTTP server (token auth + worker queue + /status + /shutdown)
   cli.py        # `offipy` command entry point (complex args: repeated flag → list / --payload JSON)
   api.py        # high-level API facade: Excel() / Word() / Ppt() context managers
+  audit/        # PPTX static quality audit & baseline regression (models/extract/geometry/roles/rules/compare/render/pptx, pure parsing, no COM)
   mcp_server.py # MCP stdio server (three-suite operations → MCP tools)
   excel.py / word.py / ppt.py   # three-suite atomic operations
   client.py     # HTTP client for the server (reused by the HTML pipeline) *
