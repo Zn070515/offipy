@@ -8,6 +8,7 @@
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from .exceptions import FileConflictError
@@ -58,3 +59,16 @@ def ensure_writable(path: str, overwrite: bool = False) -> str:
     if not overwrite and os.path.exists(abs_path):
         raise FileConflictError(f"目标文件已存在: {abs_path}（如确要覆盖请传 overwrite=True）")
     return abs_path
+
+
+def default_save_path(doc_name: str, ext: str) -> str:
+    """未保存文档的默认落盘路径：<cwd>/<名字>_<时间戳><ext>（同层目录）。
+
+    save()/close() 未给 path 时用自动路径直接 SaveAs，不触发 Office 的
+    「另存为」对话框——保证无人值守自动化可跑通。时间戳后缀天然唯一，
+    不会与既有文件冲突。doc_name 通常是不含扩展名的默认文档名
+    （工作簿1/文档1/演示文稿1），转义文件系统非法字符兜底。
+    """
+    safe = "".join(c for c in doc_name if c not in '\\/:*?"<>|').strip() or "document"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.abspath(os.path.join(os.getcwd(), f"{safe}_{stamp}{ext}"))

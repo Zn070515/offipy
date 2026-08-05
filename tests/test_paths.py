@@ -1,9 +1,11 @@
-"""用户数据路径测试：env 覆盖 + 各平台回退。"""
+"""用户数据路径测试：env 覆盖 + 各平台回退 + 默认落盘路径。"""
 
+import os
 import sys
+from datetime import datetime as _real_datetime
 from pathlib import Path
 
-from offipy.paths import converter_data_dir, user_data_dir
+from offipy.paths import converter_data_dir, default_save_path, user_data_dir
 
 
 def test_user_data_dir_windows_uses_localappdata(monkeypatch):
@@ -40,3 +42,25 @@ def test_converter_data_dir_default_under_user_data(monkeypatch, tmp_path):
     monkeypatch.delenv("OFFIPY_CONVERTER_DATA_DIR", raising=False)
     monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
     assert converter_data_dir() == tmp_path / "converter"
+
+
+class _FixedDatetime:
+    """钉住 default_save_path 的时间戳，让断言确定。"""
+
+    @classmethod
+    def now(cls):
+        return _real_datetime(2026, 8, 5, 9, 15, 30)
+
+
+def test_default_save_path_sanitizes_name_and_stamps(monkeypatch):
+    monkeypatch.setattr("offipy.paths.datetime", _FixedDatetime)
+    monkeypatch.setattr("offipy.paths.os.getcwd", lambda: "C:/work")
+    expected = os.path.abspath(os.path.join("C:/work", "工作簿1测试文档_20260805_091530.xlsx"))
+    assert default_save_path('工作簿1"测试/文档', ".xlsx") == expected
+
+
+def test_default_save_path_fully_sanitized_falls_back_document(monkeypatch):
+    monkeypatch.setattr("offipy.paths.datetime", _FixedDatetime)
+    monkeypatch.setattr("offipy.paths.os.getcwd", lambda: "C:/work")
+    expected = os.path.abspath(os.path.join("C:/work", "document_20260805_091530.xlsx"))
+    assert default_save_path("//\\\\", ".xlsx") == expected
