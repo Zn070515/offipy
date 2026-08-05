@@ -389,3 +389,80 @@ def test_destructive_decorator_explicit_doc_id_passes():
 
     assert _Stub().mutate(doc_id="b7") == "ok"
     assert calls["doc_id"] == "b7"
+
+
+# --- P1-1 expected_target 规范化比较（name casefold / path normcase+abspath） ---
+
+
+def _norm_paths(monkeypatch):
+    # 模拟 Windows 路径语义（normcase 小写化、abspath 恒等），保证测试跨平台可跑
+    monkeypatch.setattr(server.os.path, "normcase", lambda p: str(p).lower())
+    monkeypatch.setattr(server.os.path, "abspath", lambda p: p)
+
+
+def test_expected_target_path_normalized_match(monkeypatch):
+    # P1-1：path 大小写/写法差异经 normcase+abspath 归一后命中同一文件
+    _norm_paths(monkeypatch)
+    app = _TargetApp(
+        {"app": "excel", "doc_id": "book1", "name": "Book1", "path": r"C:\X\Book1.XLSX"}
+    )
+    result = server.dispatch(
+        app, "close_book", {"expected_target": {"path": r"c:\x\book1.xlsx"}}, "excel"
+    )
+    assert result == "closed"
+    assert app.close_calls == ["book1"]
+
+
+def test_expected_target_path_mismatch_rejected(monkeypatch):
+    _norm_paths(monkeypatch)
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "Book1", "path": r"C:\x\a.xlsx"})
+    with pytest.raises(TargetNotFoundError):
+        server.dispatch(app, "close_book", {"expected_target": {"path": r"C:\x\b.xlsx"}}, "excel")
+    assert app.close_calls == []
+
+
+def test_expected_target_path_none_target_rejected():
+    # 目标无已保存路径 + 期望 path → 视为不匹配（保守方向，不误命中空串/None）
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "Book1", "path": None})
+    with pytest.raises(TargetNotFoundError):
+        server.dispatch(
+            app, "close_book", {"expected_target": {"path": r"C:\x\Book1.xlsx"}}, "excel"
+        )
+    assert app.close_calls == []
+
+
+def test_expected_target_name_casefold_match():
+    # P1-1：name 按 casefold 对碰，忽略大小写
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "Book1", "path": None})
+    result = server.dispatch(app, "close_book", {"expected_target": {"name": "book1"}}, "excel")
+    assert result == "closed"
+    assert app.close_calls == ["book1"]
+
+
+# --- P0-3 导出 op（requires_target）目标绑定 ---
+
+
+def test_dispatch_export_op_follow_active_injects():
+    # 导出 op 跟随活动文档：实时解析并注入活动 doc_id 再执行
+    app = _TargetApp({"app": "ppt", "doc_id": "pres1", "name": "P1", "path": None})
+    app.export_slides = lambda **kw: f"exported:{kw.get('doc_id')}"
+    result = server.dispatch(app, "export_slides", {"out_dir": "x", "follow_active": True}, "ppt")
+    assert result == "exported:pres1"
+
+
+def test_dispatch_export_op_expected_target_binds():
+    # 导出 op 传 expected_target → resolve-once 注入绑定 doc_id
+    app = _TargetApp({"app": "ppt", "doc_id": "pres2", "name": "P2", "path": None})
+    app.export_slides = lambda **kw: f"exported:{kw.get('doc_id')}"
+    result = server.dispatch(
+        app, "export_slides", {"out_dir": "x", "expected_target": {"doc_id": "pres2"}}, "ppt"
+    )
+    assert result == "exported:pres2"
+
+
+def test_dispatch_export_op_follow_active_no_target_raises():
+    # 导出 op follow_active 但无活动目标 → TargetNotFoundError，不静默导出
+    app = _TargetApp(None)
+    app.export_slides = lambda **kw: "should-not-run"
+    with pytest.raises(TargetNotFoundError):
+        server.dispatch(app, "export_slides", {"out_dir": "x", "follow_active": True}, "ppt")

@@ -149,7 +149,8 @@ def _build_tool(app: str, op: str) -> None:
     if spec.readonly:
         annotations = ToolAnnotations(read_only_hint=True)
     else:
-        annotations = ToolAnnotations(destructive_hint=spec.destructive)
+        # P0-3：导出 op 写文件系统，同样标记破坏性提示（requires_target ∪ destructive）
+        annotations = ToolAnnotations(destructive_hint=spec.destructive or spec.requires_target)
 
     server.tool(name=fn_name, description=spec.description, annotations=annotations)(tool_fn)
     globals()[fn_name] = tool_fn

@@ -352,7 +352,7 @@ def _validate_destructive_target(app: str, op: str, kwargs: dict) -> None:
     if kwargs.get("follow_active"):
         return
     print(
-        f"offipy: error: {app} {op}: 破坏性操作必须显式指定目标文档\n"
+        f"offipy: error: {app} {op}: 该操作必须显式指定目标文档\n"
         f"  用法: offipy {app} {op} --doc_id <id> ...\n"
         f"        或 --expected-target '<json>' 绑定目标（如 '{{\"doc_id\":\"book1\"}}'）\n"
         f"        或 --follow-active 跟随当前活动文档",

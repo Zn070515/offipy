@@ -553,6 +553,26 @@ def test_validate_destructive_target_skips_quit():
     _validate_destructive_target("excel", "quit", {})  # quit 无 doc_id，不拦截
 
 
+def test_validate_destructive_target_export_op_missing_exits_2(capsys):
+    # P0-3：导出 op（requires_target）缺目标同样被拦截——防导出错文档
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._validate_destructive_target("ppt", "export_slides", {"out_dir": "x"})
+    assert exc.value.code == 2
+    assert "必须显式指定目标文档" in capsys.readouterr().err
+
+
+def test_validate_destructive_target_export_op_with_target_passes():
+    from offipy.cli import _validate_destructive_target
+
+    _validate_destructive_target("ppt", "export_slides", {"out_dir": "x", "doc_id": "p1"})
+    _validate_destructive_target("ppt", "save_pdf", {"path": "x.pdf", "follow_active": True})
+    _validate_destructive_target(
+        "excel", "save_pdf", {"path": "x.pdf", "expected_target": {"doc_id": "b1"}}
+    )
+
+
 def test_main_destructive_without_target_exits_2(monkeypatch, capsys):
     # 破坏性 op 缺目标 → 调用前 exit 2，不拉起 server/碰 COM
     from offipy import cli

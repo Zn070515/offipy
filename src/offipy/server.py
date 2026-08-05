@@ -76,10 +76,6 @@ _APPS_CLASSES = {
 # `_` 前缀 guard 在 dispatch 保留为纵深防御（防 dir() 反射类内部方法）。
 _OPS = {app: frozenset(schema.ops(app)) for app in schema.apps()}
 
-# 破坏性 op 集合（会改动文档内容/状态）：由 schema 的 destructive 标志派生。
-# expected_target 绑定只对这类 op 生效，防止用户焦点漂移后误改到非预期的文档。
-_DESTRUCTIVE_OPS = {app: frozenset(schema.destructive_ops(app)) for app in schema.apps()}
-
 # 单 COM worker（P1-1）：COM 对象只允许在创建它的线程里访问，所有 App
 # 实例都绑定 worker 线程；HTTP handler 线程只入队/取回结果，慢 op 不阻塞
 # /ping /status /shutdown。队列与 worker 均为模块级（与 _APPS 同级共享）。
@@ -261,6 +257,9 @@ def _resolve_expected_target(app, expected) -> str:
     P0-4/5：校验与执行用同一个 doc_id（校验时解析、注入方法调用参数），
     杜绝「校验 A 执行 B」；未知键/空对象直接拒绝，堵死旧 _target_matches({})
     恒真绕过。绑定失败抛 TargetNotFoundError / InvalidArgumentError。
+    P1-1：name/path 用规范化比较（name casefold、path normcase+abspath），
+    同目标因大小写/反斜杠/相对绝对写法不同也能命中。无 doc_id 时校验的是
+    当前活动目标；要定位指定已打开文档请传 doc_id。
     """
     if not isinstance(expected, dict):
         raise InvalidArgumentError(f"expected_target 必须是对象，收到 {type(expected).__name__}")
@@ -273,10 +272,23 @@ def _resolve_expected_target(app, expected) -> str:
     if target is None:
         raise TargetNotFoundError("没有可绑定的目标文档")
     for key in ("name", "path"):
-        if key in expected and target.get(key) != expected[key]:
-            raise TargetNotFoundError(
-                f"目标绑定失败: 期望 {key}={expected[key]!r}，实际 {target.get(key)!r}"
-            )
+        if key not in expected or expected[key] is None:
+            continue
+        want = expected[key]
+        have = target.get(key)
+        if key == "path":
+            # 路径规范化比较（大小写/反斜杠/相对绝对），防同文件写法不同误判；
+            # 目标无已保存路径视为不匹配（保守方向，空串/None 不误命中）
+            if not have:
+                raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际无已保存路径")
+            if os.path.normcase(os.path.abspath(str(have))) != os.path.normcase(
+                os.path.abspath(str(want))
+            ):
+                raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际 {have!r}")
+        else:
+            # name 按 casefold 对碰，忽略大小写差异
+            if str(have).casefold() != str(want).casefold():
+                raise TargetNotFoundError(f"目标绑定失败: 期望 {key}={want!r}，实际 {have!r}")
     return target["doc_id"]
 
 
@@ -563,14 +575,14 @@ def dispatch(app, op: str, args: dict, app_name: str):
         app = _rebuild(app)
     expected = args.pop("expected_target", None)
     follow_active = bool(args.pop("follow_active", False))
-    destructive = op in _DESTRUCTIVE_OPS.get(app_name, frozenset())
-    if expected is not None and destructive and op != "quit":
-        # P0-4/5：破坏性 op 绑定目标——不跟随用户焦点。resolve-once：校验用
-        # 解析出的 doc_id 直接注入方法参数，杜绝「校验 A 执行 B」；未知键/空
-        # 对象在 _resolve_expected_target 内拒绝（旧 _target_matches({}) 恒真
+    binds_target = schema.supports_expected_target(app_name, op)  # destructive ∪ requires_target
+    if expected is not None and binds_target and op != "quit":
+        # P0-4/5 + P0-3：破坏性/导出 op 绑定目标——不跟随用户焦点。resolve-once：
+        # 校验用解析出的 doc_id 直接注入方法参数，杜绝「校验 A 执行 B」；未知键/
+        # 空对象在 _resolve_expected_target 内拒绝（旧 _target_matches({}) 恒真
         # 绕过已堵死）。
         args["doc_id"] = _resolve_expected_target(app, expected)
-    elif follow_active and destructive and op != "quit":
+    elif follow_active and binds_target and op != "quit":
         # follow_active：显式声明「跟随当前活动文档」。实时解析并注入其 doc_id，
         # 无活动目标抛 TargetNotFoundError（绝不静默落到任何文档）。
         target = app.get_target()
@@ -578,9 +590,9 @@ def dispatch(app, op: str, args: dict, app_name: str):
             raise TargetNotFoundError("没有活动文档；请先 new_book/open_book 或显式 doc_id")
         args["doc_id"] = target["doc_id"]
     elif expected is not None:
-        # 非破坏性 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
+        # 不绑定目标的 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
         # 实际 op 不作用于文档）——严格拒绝，不再静默忽略。
-        raise InvalidArgumentError(f"expected_target 只对破坏性操作有意义，{app_name}.{op} 不接受")
+        raise InvalidArgumentError(f"该操作不接受 expected_target: {app_name}.{op}")
     # follow_active 已在上面 pop；非破坏性 op 上出现则静默忽略。
     method = getattr(app, op, None)
     if method is None:

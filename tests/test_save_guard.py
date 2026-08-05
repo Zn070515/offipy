@@ -184,8 +184,10 @@ def test_ppt_save_pdf_uses_export_as_fixed_format(tmp_path):
     p.save_pdf(str(target), doc_id="pres1")
     path, args, kwargs = fake.calls[0]
     assert path == os.path.abspath(str(target))
+    assert kwargs["FixedFormatType"] == ppt.PP_FIXED_FORMAT_TYPE_PDF  # PDF 格式
     assert kwargs["Intent"] == 2  # ppFixedFormatIntentPrint
-    assert kwargs["OutputType"] == ppt.PP_FIXED_FORMAT_TYPE_PDF
+    # PrintRange 是 VT_DISPATCH 槽位，必须显式 None（makepy 默认 0 会转换失败）
+    assert kwargs["PrintRange"] is None
 
 
 def test_word_save_pdf_uses_export_as_fixed_format(tmp_path):

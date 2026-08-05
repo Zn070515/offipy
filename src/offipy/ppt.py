@@ -228,11 +228,13 @@ class PptApp:
 
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
-        # ExportAsFixedFormat 第二位置参数是 Intent（打印=2），OutputType 才是
-        # 输出格式——必须显式指定 PDF，不能只传一个 2 了事。
+        # ExportAsFixedFormat 第 2 参数是必填的 FixedFormatType（PDF=2）；Intent
+        # 是打印品质（打印=2）；OutputType 默认 Slides=1（导出全部幻灯片）。
+        # PrintRange 是 VT_DISPATCH 槽位，必须显式 None——makepy 生成的默认值
+        # 0 是 int，直接塞进 dispatch 槽会 COM 转换失败。
         with self._alerts_scope():
             self._require_pres(doc_id).ExportAsFixedFormat(
-                dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF
+                dest, FixedFormatType=PP_FIXED_FORMAT_TYPE_PDF, Intent=2, PrintRange=None
             )
 
     def export_slides(
