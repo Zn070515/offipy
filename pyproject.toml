@@ -7,12 +7,14 @@ name = "offipy"
 description = "Live Microsoft Office automation via COM (session-based) + HTML-first slide pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+# PEP 639 SPDX 表达式：本体 + vendored 转换器/Phosphor 为 MIT，内嵌 Lucide 图标为 ISC
+# （两者都随 wheel/sdist 分发，见 THIRD_PARTY_NOTICES.md）
+license = "MIT AND ISC"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "src/offipy/assets/icons/LICENSE-*.txt"]
 authors = [{ name = "XuXin", email = "302025510036@zjut.edu.cn" }]
 keywords = ["office", "automation", "com", "word", "excel", "powerpoint", "pptx", "html-to-pptx", "mcp"]
 classifiers = [
     "Operating System :: Microsoft :: Windows",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",

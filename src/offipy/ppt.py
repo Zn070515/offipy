@@ -9,7 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .exceptions import TargetNotFoundError
+from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -99,17 +99,27 @@ class PptApp:
         return pres
 
     def activate(self, doc_id: str) -> str:
-        """把指定文档设为活动目标；未知句柄抛 TargetNotFoundError。"""
+        """把指定文档设为活动目标并同步真实 UI；未知句柄抛 TargetNotFoundError。"""
         pres = self._docs.get(doc_id)
         if pres is None or not core.doc_alive(pres):
             raise TargetNotFoundError(
                 f"未知演示文稿句柄: {doc_id!r}（用 list_docs 查看当前打开的）"
             )
+        old = self._active_id
         self._active_id = doc_id
+        try:
+            # PowerPoint 的 Presentation 无 Activate：激活其文档窗口；失败兜底
+            try:
+                pres.Windows.Item(1).Activate()
+            except Exception:
+                pres.Activate()
+        except Exception as e:
+            self._active_id = old  # 同步不上则回滚，不静默假活
+            raise ComOperationError(f"激活演示文稿 {doc_id} 失败: {e}") from e
         return doc_id
 
     def list_docs(self) -> dict:
-        """当前打开的文档表：{doc_id: {"name", "path"}}。只读，过滤失效句柄。"""
+        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。"""
         out = {}
         for did, pres in self._docs.items():
             if not core.doc_alive(pres):
@@ -122,14 +132,25 @@ class PptApp:
                 path = pres.FullName
             except Exception:
                 path = None
-            out[did] = {"name": name, "path": path}
+            out[did] = {"name": name, "path": path, "active": did == self._active_id}
         return out
 
-    def get_target(self):
-        """当前活动演示文稿身份（app/name/path）；无则返回 None。只读探测。"""
-        pres = self.active_pres()
-        if pres is None:
-            return None
+    def get_target(self, doc_id: str | None = None):
+        """目标身份 {app, doc_id, name, path}；无目标返回 None。只读探测。
+
+        显式 doc_id：只查文档表，未注册/失效抛 TargetNotFoundError；
+        缺省：当前活动目标。
+        """
+        if doc_id is not None:
+            pres = self.active_pres(doc_id)
+            resolved = doc_id
+        else:
+            pres = self.active_pres()
+            if pres is None:
+                return None
+            active_id = self._active_id
+            assert active_id is not None  # active_pres 非 None 时活动 id 必已同步
+            resolved = active_id
         try:
             name = pres.Name
         except Exception:
@@ -138,7 +159,7 @@ class PptApp:
             path = pres.FullName
         except Exception:
             path = None
-        return {"app": "ppt", "name": name, "path": path}
+        return {"app": "ppt", "doc_id": resolved, "name": name, "path": path}
 
     def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite) if path else None
@@ -179,14 +200,18 @@ class PptApp:
         return pres.Slides.Count
 
     def set_title(self, slide_idx: int, text: str, doc_id: str | None = None):
+        if not text:
+            raise InvalidArgumentError("set_title: text 不能为空")
         slide = self._require_pres(doc_id).Slides(slide_idx)
         if slide.Shapes.HasTitle:
             slide.Shapes.Title.TextFrame.TextRange.Text = text
 
     def set_body(self, slide_idx: int, lines, doc_id: str | None = None):
-        slide = self._require_pres(doc_id).Slides(slide_idx)
         if isinstance(lines, str):
             lines = [lines]
+        if not lines:
+            raise InvalidArgumentError("set_body: lines 不能为空")
+        slide = self._require_pres(doc_id).Slides(slide_idx)
         ph = slide.Shapes.Placeholders(2)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
 

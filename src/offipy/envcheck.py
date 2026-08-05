@@ -18,16 +18,27 @@ from dataclasses import dataclass
 from . import __version__
 from .exceptions import UnsupportedPlatformError
 
-# (dist 名, import 名)：pywin32 dist="pywin32" import="win32com"
+# (dist 名, import 名, 适用 sys.platform 或 None)：pywin32 仅 Windows，
+# 非 Windows 上 win32com import 不存在（Linux 纯模块 CI 不能炸）。
+# 其余依赖跨平台适用。
 _DEPS = [
-    ("pywin32", "win32com"),
-    ("python-pptx", "pptx"),
-    ("lxml", "lxml"),
-    ("fonttools", "fontTools"),  # dist 名小写，import 名大写 T
-    ("playwright", "playwright"),
-    ("Pillow", "PIL"),
-    ("mcp", "mcp"),
+    ("pywin32", "win32com", "win32"),
+    ("python-pptx", "pptx", None),
+    ("lxml", "lxml", None),
+    ("fonttools", "fontTools", None),  # dist 名小写，import 名大写 T
+    ("playwright", "playwright", None),
+    ("Pillow", "PIL", None),
+    ("mcp", "mcp", None),
 ]
+
+
+def _platform_deps() -> list[tuple[str, str]]:
+    """当前平台实际适用的依赖清单（保持声明顺序）。"""
+    return [
+        (dist, mod) for dist, mod, sys_name in _DEPS if sys_name is None or sys.platform == sys_name
+    ]
+
+
 _OFFICE = [
     ("word", "Word.Application"),
     ("excel", "Excel.Application"),
@@ -82,7 +93,7 @@ _EXTRA_HINT = {
 
 def _check_dependencies() -> list[Check]:
     out = []
-    for dist, mod in _DEPS:
+    for dist, mod in _platform_deps():
         try:
             importlib.import_module(mod)
             version = importlib.metadata.version(dist)
@@ -188,11 +199,38 @@ def _check_pdf() -> Check:
     return Check("PDF 可选路径", "LibreOffice/pdf2image", True, detail, warn=True)
 
 
-def run() -> list[Check]:
+# check --profile 过滤表：office/deck/mcp 都以 core 为基线，再叠加各自分组
+_CORE_SECTIONS = {"运行时", "offipy", "本地 server", "PDF 可选路径"}
+_PROFILE_SECTIONS = {
+    "office": {"Office 套件"},
+    "deck": {"浏览器"},
+    "mcp": set(),
+}
+_PROFILE_DEPS = {
+    "office": {"pywin32"},
+    "deck": {"python-pptx", "lxml", "fonttools", "playwright", "Pillow"},
+    "mcp": {"mcp"},
+}
+
+
+def run(profile: str | None = None) -> list[Check]:
     checks = [_check_python(), _check_platform(), _check_offipy()]
-    checks += _check_dependencies()
-    checks += _check_office()
-    checks.append(_check_browser())
+    if profile is None:
+        checks += _check_dependencies()
+        checks += _check_office()
+        checks.append(_check_browser())
+        checks.append(_check_server())
+        checks.append(_check_pdf())
+        return checks
+    # profile 模式按需构建，跳过无关的昂贵检查（如非 deck 不启 chromium）
+    sections = _CORE_SECTIONS | _PROFILE_SECTIONS.get(profile, set())
+    deps = _PROFILE_DEPS.get(profile, set())
+    if deps:
+        checks += [c for c in _check_dependencies() if c.name in deps]
+    if "Office 套件" in sections:
+        checks += _check_office()
+    if "浏览器" in sections:
+        checks.append(_check_browser())
     checks.append(_check_server())
     checks.append(_check_pdf())
     return checks
@@ -247,8 +285,8 @@ def render_json(checks: list[Check]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def main(json_output: bool = False) -> int:
-    checks = run()
+def main(json_output: bool = False, profile: str | None = None) -> int:
+    checks = run(profile)
     if json_output:
         print(render_json(checks))
     else:

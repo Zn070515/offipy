@@ -8,7 +8,7 @@ core.doc_alive 注入假文档：断言 active_* 无文档返回 None 且不调 
 import pytest
 
 from offipy import excel, server, word
-from offipy.exceptions import TargetNotFoundError
+from offipy.exceptions import InvalidArgumentError, TargetNotFoundError
 
 
 class _NoAdd:
@@ -108,7 +108,36 @@ def test_get_target_excel(monkeypatch):
     app._seq = 0
     app.app = _FakeApp(_Book("Book1", r"C:\x\Book1.xlsx"), _NoAdd())
     _no_doc_env(monkeypatch)
-    assert app.get_target() == {"app": "excel", "name": "Book1", "path": r"C:\x\Book1.xlsx"}
+    assert app.get_target() == {
+        "app": "excel",
+        "doc_id": "book1",  # 实时解析的 ActiveWorkbook 并入文档表后分配 doc_id
+        "name": "Book1",
+        "path": r"C:\x\Book1.xlsx",
+    }
+
+
+def test_get_target_explicit_doc_id(monkeypatch):
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    app._docs = {"b1": _Book("Book1", r"C:\x\Book1.xlsx")}
+    app._active_id = None
+    app._seq = 0
+    app.app = _FakeApp(None, _NoAdd())
+    # 显式 doc_id 路由要求句柄存活（与 _no_doc_env 的 doc_alive=False 相反）
+    monkeypatch.setattr("offipy.core.active_doc", lambda *a: None)
+    monkeypatch.setattr("offipy.core.doc_alive", lambda *a: True)
+    assert app.get_target(doc_id="b1")["doc_id"] == "b1"
+    assert app.get_target(doc_id="b1")["name"] == "Book1"
+
+
+def test_get_target_unknown_doc_id_raises(monkeypatch):
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    app._docs = {}
+    app._active_id = None
+    app._seq = 0
+    app.app = _FakeApp(None, _NoAdd())
+    _no_doc_env(monkeypatch)
+    with pytest.raises(TargetNotFoundError):
+        app.get_target(doc_id="nope")
 
 
 def test_get_target_none_without_doc(monkeypatch):
@@ -172,11 +201,13 @@ class _TargetApp:
     def __init__(self, target):
         self.app = _Visible()
         self._target = target
+        self.close_calls = []
 
-    def get_target(self):
+    def get_target(self, doc_id=None):
         return self._target
 
-    def close_book(self):
+    def close_book(self, doc_id=None):
+        self.close_calls.append(doc_id)
         return "closed"
 
     def read_range(self, sheet, range_addr):
@@ -184,21 +215,49 @@ class _TargetApp:
 
 
 def test_dispatch_expected_target_match():
-    app = _TargetApp({"app": "excel", "name": "Book1", "path": r"C:\x\Book1.xlsx"})
+    app = _TargetApp(
+        {"app": "excel", "doc_id": "book1", "name": "Book1", "path": r"C:\x\Book1.xlsx"}
+    )
     result = server.dispatch(app, "close_book", {"expected_target": {"name": "Book1"}}, "excel")
     assert result == "closed"
+    assert app.close_calls == ["book1"]  # resolve-once：校验的 doc_id 注入方法调用
 
 
 def test_dispatch_expected_target_mismatch():
-    app = _TargetApp({"app": "excel", "name": "Other", "path": None})
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "Other", "path": None})
     with pytest.raises(TargetNotFoundError):
         server.dispatch(app, "close_book", {"expected_target": {"name": "Book1"}}, "excel")
+    assert app.close_calls == []  # P0-5：校验失败不得执行（防「校验 A 执行 B」）
 
 
 def test_dispatch_expected_target_no_target():
     app = _TargetApp(None)
     with pytest.raises(TargetNotFoundError):
         server.dispatch(app, "close_book", {"expected_target": {"name": "Book1"}}, "excel")
+    assert app.close_calls == []
+
+
+def test_dispatch_expected_target_empty_dict_rejected():
+    # P0-4：旧 _target_matches({}) 恒真绕过——空对象必须拒绝
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "Book1", "path": None})
+    with pytest.raises(InvalidArgumentError):
+        server.dispatch(app, "close_book", {"expected_target": {}}, "excel")
+    assert app.close_calls == []
+
+
+def test_dispatch_expected_target_unknown_key_rejected():
+    app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "Book1", "path": None})
+    with pytest.raises(InvalidArgumentError):
+        server.dispatch(app, "close_book", {"expected_target": {"bogus": 1}}, "excel")
+    assert app.close_calls == []
+
+
+def test_dispatch_expected_target_doc_id_binding():
+    # 显式 doc_id 绑定：校验用 doc_id 解析目标后直接注入方法参数
+    app = _TargetApp({"app": "excel", "doc_id": "book2", "name": "Book2", "path": None})
+    result = server.dispatch(app, "close_book", {"expected_target": {"doc_id": "book2"}}, "excel")
+    assert result == "closed"
+    assert app.close_calls == ["book2"]
 
 
 def test_dispatch_expected_target_ignored_on_readonly():

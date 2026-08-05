@@ -184,21 +184,39 @@ def test_check_dispatch_passes_json(monkeypatch):
 
     captured = {}
 
-    def fake_check_main(json_output=False):
+    def fake_check_main(json_output=False, profile=None):
         captured["json_output"] = json_output
+        captured["profile"] = profile
         return 0
 
     monkeypatch.setattr("offipy.envcheck.main", fake_check_main)
     assert cli.main(["check"]) == 0
     assert captured["json_output"] is False
+    assert captured["profile"] is None
     assert cli.main(["check", "--json"]) == 0
     assert captured["json_output"] is True
+
+
+def test_check_dispatch_passes_profile(monkeypatch):
+    from offipy import cli
+
+    captured = {}
+
+    def fake_check_main(json_output=False, profile=None):
+        captured["profile"] = profile
+        return 0
+
+    monkeypatch.setattr("offipy.envcheck.main", fake_check_main)
+    assert cli.main(["check", "--profile", "office"]) == 0
+    assert captured["profile"] == "office"
+    assert cli.main(["check", "--profile", "deck"]) == 0
+    assert captured["profile"] == "deck"
 
 
 def test_check_dispatch_propagates_exit_code(monkeypatch):
     from offipy import cli
 
-    monkeypatch.setattr("offipy.envcheck.main", lambda json_output=False: 1)
+    monkeypatch.setattr("offipy.envcheck.main", lambda json_output=False, profile=None: 1)
     assert cli.main(["check"]) == 1
 
 
@@ -211,6 +229,21 @@ def test_server_subcommand_parses():
     assert args.action == "status"  # 缺省 status
     assert build_parser().parse_args(["server", "stop"]).action == "stop"
     assert build_parser().parse_args(["server", "restart"]).action == "restart"
+
+
+def test_server_subcommand_port_inherits_parent():
+    # §11 回归：子解析器 --port 默认 None 曾覆盖顶层值，`--port 8891 server status`
+    # 丢掉端口；SUPPRESS 后未给时不覆盖父级值。
+    args = build_parser().parse_args(["--port", "8891", "server", "status"])
+    assert args.port == 8891
+    assert build_parser().parse_args(["server", "status"]).port is None  # 顶层缺省
+
+
+def test_log_subcommand_port_inherits_or_overrides():
+    args = build_parser().parse_args(["--port", "8891", "log"])
+    assert args.port == 8891  # 顶层传入，子命令继承
+    args = build_parser().parse_args(["log", "--port", "8892"])
+    assert args.port == 8892  # 子命令显式传入覆盖
 
 
 def test_server_status_dispatch(monkeypatch, capsys):
@@ -370,3 +403,84 @@ def test_main_coerces_before_call(monkeypatch):
     monkeypatch.setattr("offipy.cli.call", fake_call)
     cli.main(["ppt", "add_slide", "--layout", "2"])
     assert captured == {"layout": 2}
+
+
+# --- 批次6：必填参数预校验（不碰 COM）+ mcp 缺 extra 友好报错 ---
+
+
+def test_required_arg_missing_exits_2(capsys):
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli._validate_required("excel", "set_cell", {"cell": "A1"})
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "缺少必填参数" in err
+    assert "--sheet" in err and "--value" in err
+
+
+def test_required_arg_present_passes():
+    from offipy import cli
+
+    cli._validate_required("excel", "set_cell", {"sheet": 1, "cell": "A1", "value": 5})
+
+
+def test_required_unknown_op_deferred():
+    # 未知 op 交给 server 侧报错，CLI 不预拦
+    from offipy import cli
+
+    cli._validate_required("ppt", "no_such_op", {})
+
+
+def test_main_missing_required_does_not_call(monkeypatch, capsys):
+    # 必填缺失 → 预校验 exit 2，server 不该被调用（不拉起、不碰 COM）
+    from offipy import cli
+
+    def boom(*a, **kw):
+        raise AssertionError("必填缺失时不该调 server")
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["excel", "set_cell", "--cell", "A1"])
+    assert exc.value.code == 2
+    assert "缺少必填参数" in capsys.readouterr().err
+
+
+def test_required_payload_keys_count_as_provided(monkeypatch):
+    # --payload 注入的键也算已提供：必填齐全则放行到 call
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured.update(kw)
+        return None
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["excel", "set_cell", "--payload", '{"sheet": 1, "cell": "A1", "value": 5}'])
+    assert captured == {"sheet": 1, "cell": "A1", "value": 5}
+
+
+def test_mcp_missing_extra_friendly_error(monkeypatch, capsys):
+    # 缺 mcp extra → 不再裸 ImportError traceback，exit 2 + 安装提示
+    import sys
+
+    from offipy import cli
+
+    monkeypatch.setitem(sys.modules, "offipy.mcp_server", None)
+    assert cli.main(["mcp"]) == 2
+    err = capsys.readouterr().err
+    assert "offipy[mcp]" in err
+
+
+def test_mcp_present_runs(monkeypatch):
+    from offipy import cli
+
+    called = []
+
+    def fake_main():
+        called.append("mcp")
+
+    monkeypatch.setattr("offipy.mcp_server.main", fake_main)
+    assert cli.main(["mcp"]) is None
+    assert called == ["mcp"]

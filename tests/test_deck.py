@@ -1,6 +1,8 @@
 """deck 管线测试：theme 注入（不跑真实转换，拦截子进程）。"""
 
 import os
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -298,3 +300,58 @@ def test_render_atomic_postprocess_failure_preserves_existing(tmp_path, monkeypa
         deck.render(str(html), overwrite=True)
     assert existing.read_bytes() == b"precious"
     assert _hidden_pptx(tmp_path) == []
+
+
+# --- §7：mkstemp 临时文件（并发安全）+ 源缺失映射领域异常 ---
+
+
+def test_render_missing_source_raises_invalid_argument(tmp_path):
+    # 源 HTML 缺失 → offipy 领域异常，不再裸抛 FileNotFoundError
+    with pytest.raises(deck.InvalidArgumentError) as exc:
+        deck.render(str(tmp_path / "nope.html"))
+    assert "nope.html" in str(exc.value)
+
+
+def test_render_concurrent_same_output_no_clash(tmp_path, monkeypatch):
+    # 旧确定性临时名（.deck.tmp.pptx）并发渲染同一输出时会互踩：两个线程写
+    # 同一个临时文件，一方的 finally 会删掉另一方还在用的文件。mkstemp 随机名
+    # 保证两次转换各用各的临时文件。这里故意让第二个并发者转换失败（returncode
+    # 1），只验证临时文件唯一性与清理——不制造两个线程同刻 os.replace 同一目标
+    # 的竞争（Windows 上双写同一目标瞬时锁冲突是固有行为，非本回归点）。
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    seen = []
+    lock = threading.Lock()
+
+    def mock_run(cmd, **kw):
+        out = cmd[cmd.index("--out") + 1]
+        with lock:
+            seen.append(out)
+            idx = len(seen)
+        time.sleep(0.1)  # 拉大并发窗口：两线程同时持有各自的 tmp
+        if idx == 2:
+            return SimpleNamespace(returncode=1, stdout="boom", stderr="")
+        Path(out).write_bytes(b"fake pptx")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(deck.subprocess, "run", mock_run)
+    results = {"err": None, "pptx": None}
+
+    def do_render():
+        try:
+            results["pptx"] = deck.render(str(html), overwrite=True)
+        except deck.ConversionError as e:
+            results["err"] = str(e)
+
+    t1 = threading.Thread(target=do_render)
+    t2 = threading.Thread(target=do_render)
+    t1.start()
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+    assert len(seen) == 2
+    assert len(set(seen)) == 2  # mkstemp 随机临时名，互不覆盖（旧确定性名会撞）
+    assert results["err"] is not None  # 第二个并发者如实失败
+    assert results["pptx"] is not None  # 第一个并发者正常完成
+    assert Path(results["pptx"]).read_bytes() == b"fake pptx"
+    assert _hidden_pptx(tmp_path) == []  # 两轮临时文件都清理干净

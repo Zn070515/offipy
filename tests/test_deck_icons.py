@@ -45,8 +45,9 @@ def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
             tmp_seen[name] = a[1]
             assert a[0] == str(html)
             # P0-6：后处理作用于临时 .pptx，不是最终路径
+            # mkstemp 命名：与最终输出同目录、隐藏前缀、随机名、.pptx 后缀
             assert Path(a[1]).name.startswith(".")
-            assert Path(a[1]).name.endswith(".tmp.pptx")
+            assert Path(a[1]).name.endswith(".pptx")
             assert a[1] != str(pptx)
 
         return f
@@ -60,7 +61,7 @@ def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
     assert calls == ["charts", "icons"]
     assert tmp_seen["icons"] == tmp_seen["charts"]  # 两阶段作用于同一临时文件
     assert pptx.read_bytes() == b"fake pptx"  # 最终路径拿到转换产物
-    assert not list(tmp_path.glob(".d.*.tmp.pptx"))  # 临时文件已清理
+    assert not list(tmp_path.glob(".d.*.pptx"))  # 临时文件已清理（mkstemp 命名）
 
 
 def test_render_charts_error_skips_icons(tmp_path, monkeypatch):
@@ -84,4 +85,4 @@ def test_render_charts_error_skips_icons(tmp_path, monkeypatch):
         deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert calls == ["charts"]  # icons 不该被调用
     assert pptx.read_bytes() == b"placeholder"  # 失败不破坏已存在 .pptx
-    assert not list(tmp_path.glob(".d.*.tmp.pptx"))  # 临时文件清理
+    assert not list(tmp_path.glob(".d.*.pptx"))  # 临时文件清理（mkstemp 命名）

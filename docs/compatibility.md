@@ -3,6 +3,18 @@
 offipy 是 Windows-only 的 Office COM 自动化库。核心包零平台依赖，能力按
 extra 增量安装；各 extra 有各自的平台/版本要求，见下表。
 
+## 三栏总览：Tested / Expected / Unsupported
+
+| 维度 | ✅ Tested（本机实测） | 🟡 Expected（合理预期） | 🚫 Unsupported（明确不支持） |
+|------|------------------------|--------------------------|-------------------------------|
+| 操作系统 | **Windows 11 Pro for Workstations**（build 26200，x64） | Windows 10 x64、Windows Server 2019+（桌面会话） | macOS、Linux（Office COM 无实现；`import offipy` 可，触发 Office 抛 `UnsupportedPlatformError`） |
+| Office | **Microsoft 365**（16.0.20228.20124，三件套 COM 实测） | Office 2016 / 2019 / 2021（对象模型按版本差异以 M365 行为为准） | Office for Mac / 网页版（无 COM） |
+| Python | **3.12**（开发与测试） | 3.10 / 3.11 / 3.13（`requires-python >=3.10`，CI 矩阵覆盖） | < 3.10 |
+| deck 渲染 | **chromium（Playwright）** on Windows | 非 Windows 纯渲染可行 | — |
+
+> 「Tested」= 本仓库 CI / 真机冒烟实跑过的组合；「Expected」= 依赖官方语义与
+> 保守推断，未逐版本实测；「Unsupported」= 架构上不提供。选型以 Tested 列为准。
+
 ## 核心 / 通用
 
 | 维度 | 支持范围 | 说明 |

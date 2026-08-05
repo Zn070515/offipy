@@ -35,6 +35,10 @@ class _FakeBook:
         self.FullName = rf"C:\x\{name}.xlsx"
         self._cells = {}
         self.closed = False
+        self.activated = 0
+
+    def Activate(self):
+        self.activated += 1  # 真实 UI 同步桩：activate() 必须触达
 
     def Worksheets(self, *a):
         return self  # 工作表对象：Cells 代理把写入记到 self._cells
@@ -92,6 +96,7 @@ def test_excel_multi_doc_flow(monkeypatch):
     assert app.get_target()["name"] == "Book2"
     # activate 切换后续缺省操作的目标 → 写 A
     app.activate(a)
+    assert app._docs[a].activated == 1  # P0-6：activate 同步真实 UI（Workbook.Activate）
     app.set_cell(1, "A1", 100)
     assert app._docs[a]._cells[(1, 1)] == 100
     assert (1, 1) not in app._docs[b]._cells
@@ -163,6 +168,10 @@ class _FakeWordDoc:
         self.Name = name
         self.FullName = rf"C:\x\{name}.docx"
         self.Content = _FakeContent()
+        self.activated = 0
+
+    def Activate(self):
+        self.activated += 1
 
     def Close(self, **kw):
         pass
@@ -212,6 +221,10 @@ class _FakePres:
     def __init__(self, name):
         self.Name = name
         self.FullName = rf"C:\x\{name}.pptx"
+        self.activated = 0
+
+    def Activate(self):
+        self.activated += 1
 
     def Close(self, **kw):
         pass

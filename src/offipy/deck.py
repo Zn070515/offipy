@@ -13,11 +13,12 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from .client import call, ensure_server
 from .design import inject_theme
-from .exceptions import ConversionError, FileConflictError
+from .exceptions import ConversionError, FileConflictError, InvalidArgumentError
 from .layouts import inject_layouts
 from .paths import converter_data_dir
 
@@ -80,10 +81,13 @@ def render(
     原子替换（P0-6）：转换先写同目录临时 .pptx，图表/图标后处理作用于
     临时文件，全部成功后才 os.replace 一步替换目标。任何失败/异常都会
     清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。
+
+    临时文件用 mkstemp（§7）：与最终输出同目录（同卷保证 os.replace 原子），
+    随机后缀天然避开旧确定性名（`.x.tmp.pptx`）在并发渲染时的互踩竞态。
     """
     html = os.path.abspath(html)
     if not os.path.exists(html):
-        raise FileNotFoundError(html)
+        raise InvalidArgumentError(f"源 HTML 文件不存在: {html}")
     _preflight_browser()
     final_out = os.path.abspath(out) if out else _default_out(html)
     if not overwrite and os.path.exists(final_out):
@@ -100,18 +104,27 @@ def render(
         if theme:
             content = inject_theme(content, theme)
         # 以 .audited.html 结尾 → convert 跳过 work-copy 分支，不留 .audited 残留。
-        tmp_html = os.path.join(
-            os.path.dirname(html),
-            f".{os.path.basename(html)}.{theme or 'layouts'}.tmp.audited.html",
+        # mkstemp：同目录随机名（前缀带点即隐藏），finally 统一清理。
+        fd, tmp_html = tempfile.mkstemp(
+            prefix=f".{Path(html).stem}.",
+            suffix=".audited.html",
+            dir=os.path.dirname(html),
         )
-        with open(tmp_html, "w", encoding="utf-8") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
         target = tmp_html
-    # 原子替换：与最终输出同目录的临时 .pptx（同卷，保证 os.replace 原子）
-    tmp_pptx = os.path.join(
-        os.path.dirname(final_out), f".{Path(final_out).stem}.{theme or 'deck'}.tmp.pptx"
-    )
+    tmp_pptx = None
     try:
+        # 原子替换：mkstemp 生成与最终输出同目录的临时 .pptx（同卷、随机名）。
+        # 占位文件删掉，让 convert.py 以正常权限全新创建（mkstemp 默认 0600
+        # 不应泄漏给最终产物）；若转换失败没产出，finally 的清理是 no-op。
+        fd, tmp_pptx = tempfile.mkstemp(
+            prefix=f".{Path(final_out).stem}.",
+            suffix=".pptx",
+            dir=os.path.dirname(final_out) or ".",
+        )
+        os.close(fd)
+        os.unlink(tmp_pptx)
         cmd = _convert_cmd(target, tmp_pptx, only_slides, no_visual_audit)
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
@@ -155,9 +168,10 @@ def render(
         for p in (tmp_pptx, tmp_html):
             if p and os.path.exists(p):
                 os.unlink(p)
-        tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
-        if os.path.isdir(tmp_audit):
-            shutil.rmtree(tmp_audit, ignore_errors=True)
+        if tmp_pptx:
+            tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
+            if os.path.isdir(tmp_audit):
+                shutil.rmtree(tmp_audit, ignore_errors=True)
 
 
 def open_live(pptx: str) -> None:

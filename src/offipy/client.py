@@ -1,6 +1,7 @@
 """offipy 客户端：常驻 server 的 HTTP 调用封装。"""
 
 import contextlib
+import hashlib
 import json
 import os
 import subprocess
@@ -8,6 +9,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 from .exceptions import (
     ComOperationError,
@@ -40,6 +42,9 @@ _ERROR_CODE_TO_EXC = {
 HOST = "127.0.0.1"
 PORT = 8890  # 默认端口；多实例时用 set_port()/OFFIPY_SERVER_PORT 指向其他实例
 PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8），server 校验不匹配回 ProtocolError
+# /call 超时与 server._CALL_TIMEOUT 对齐（§4 审计：旧值 120 vs server 600 错配）。
+# 两边各持同名常量、取值一致，测试断言二者相等，防单边漂移。
+_CALL_TIMEOUT = 600
 SERVER_MOD = "offipy.server"
 _TOKEN_FILENAME = "token"
 # 部分机器会把系统代理写进注册表且 ProxyOverride 为空，连 127.0.0.1 回环请求
@@ -155,9 +160,17 @@ def _find_server_pid() -> int | None:
                 return int(pid)
     try:
         raw = _pid_path().read_text(encoding="utf-8").strip()
-        if raw.isdigit():
-            return int(raw)
     except OSError:
+        return None
+    # 新格式 JSON {port,pid,...}；旧格式纯数字
+    if raw.isdigit():
+        return int(raw)
+    try:
+        data = json.loads(raw)
+        pid = data.get("pid")
+        if isinstance(pid, int):
+            return pid
+    except (ValueError, TypeError, AttributeError):
         pass
     return None
 
@@ -188,12 +201,52 @@ def server_status() -> dict | None:
 
 
 def _pid_file_matches(pid: int) -> bool:
-    """pid 文件记录的进程号与端口持有者一致，才认定是『我们的』server。"""
+    """pid 文件 + 端口持有者 + token 归属三重比对，才认定是『我们的』server。
+
+    新格式 JSON {port,pid,token_sha256}：pid 与端口持有者一致、token_sha256
+    与本地已知 token 一致才算归属（P0-1 强化）；旧格式纯数字退化为仅 pid
+    比对。token 拿不到或对不上 → 拒绝（安全方向：不杀无法证明归属的进程）。
+    """
     try:
         raw = _pid_path().read_text(encoding="utf-8").strip()
     except OSError:
         return False
-    return raw.isdigit() and int(raw) == pid
+    if raw.isdigit():
+        return int(raw) == pid
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return False
+    if not isinstance(data, dict) or data.get("pid") != pid:
+        return False
+    if data.get("port") is not None and data.get("port") != port():
+        return False
+    token = _token()
+    if not token:
+        return False
+    return data.get("token_sha256") == hashlib.sha256(token.encode()).hexdigest()
+
+
+def _write_pid_file(pid: int) -> None:
+    """落盘 pid 文件（JSON：port/pid/token_sha256/started_at），供归属验证。
+
+    server 进程自身会再覆写一份更权威的记录（含真实 started_at）；这里先写
+    供进程拉起、尚未完成握手前的定位窗口。token 未知（首次启动未生成）则
+    退化为纯数字格式。写失败不致命：netstat 可兜底定位。
+    """
+    payload: object = str(pid)
+    token = _token()
+    if token:
+        payload = json.dumps(
+            {
+                "port": port(),
+                "pid": pid,
+                "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
+                "started_at": time.time(),
+            }
+        )
+    with contextlib.suppress(OSError):
+        _pid_path().write_text(payload, encoding="utf-8")
 
 
 def stop_server() -> str:
@@ -296,8 +349,7 @@ def ensure_server():
             **popen_kwargs,
         )
     # pid 文件写不了不致命：netstat 可兜底定位
-    with contextlib.suppress(OSError):
-        pid_file.write_text(str(proc.pid), encoding="utf-8")
+    _write_pid_file(proc.pid)
     for _ in range(600):  # 最多等 60 秒（首次 gencache 可能较慢）
         if _server_ok():
             return
@@ -321,10 +373,13 @@ def request(app: str, op: str, **args) -> dict:
     for k in _PATH_KEYS:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
-    data = json.dumps({"app": app, "op": op, "args": args}).encode("utf-8")
+    # request_id 幂等标识（§4）：client 重试带同一 id，server 命中缓存不再重执行
+    data = json.dumps({"app": app, "op": op, "args": args, "request_id": str(uuid.uuid4())}).encode(
+        "utf-8"
+    )
     req = urllib.request.Request(_base_url() + "/call", data=data, headers=_auth_headers())
     try:
-        with _OPENER.open(req, timeout=120) as r:
+        with _OPENER.open(req, timeout=_CALL_TIMEOUT) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:

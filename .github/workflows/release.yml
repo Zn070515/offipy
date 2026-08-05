@@ -1,19 +1,28 @@
 name: Release
 
-# 推送 v* tag 时跑完整发布门禁，全绿后创建 GitHub Release（附 wheel + sdist）。
-# 门禁顺序：ruff check → ruff format --check → mypy → pytest → tag 版本 == __version__
-# → uv build → twine check → 干净 venv 安装冒烟（scripts/install_smoke.py）
-# → gh release create --verify-tag（tag 必须真实存在，防漏打 tag 误发）。
-# PyPI 发布留到工程成熟后再加一步，见 CLAUDE.md 版本号更新规则。
+# 推送 v* tag 时跑完整发布门禁，全绿后按「TestPyPI → PyPI 正式版」次序发布。
+# 门禁链：quality（lint/type/pure-module 测试/wheel 解包实证/twine/tag 对齐）
+# → office-real（自托管真机 COM + deck_render，发布必过）
+# → publish-testpypi（OIDC Trusted Publishing 推 TestPyPI，预发布/正式版都先过）
+# → publish-pypi（仅非预发布 tag 推 PyPI 正式版）。
+#
+# 前置（详见 docs/release.md）：
+#   - TestPyPI / PyPI 项目需配置 Trusted Publishing（OIDC 联合本仓库）；
+#   - `environment: testpypi` / `environment: pypi` 由 GitHub 首次使用自动创建，
+#     可加 required reviewers 保护（此时发布需人工批准）。
 on:
   push:
     tags: ["v*"]
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  quality:
     runs-on: windows-latest
     permissions:
-      contents: write
+      contents: read
     env:
       PYTHONIOENCODING: utf-8
     steps:
@@ -30,9 +39,6 @@ jobs:
       - name: Sync dev deps
         run: uv sync --extra dev
 
-      - name: Install Playwright browser (deck 管线 DOM 测量)
-        run: uv run playwright install chromium
-
       - name: Lint (ruff check)
         run: uv run ruff check .
 
@@ -42,19 +48,25 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/offipy
 
-      - name: Test (pytest)
-        run: uv run pytest tests -q
+      - name: Test (pure-module subset)
+        # COM / deck_render 真机覆盖由 office-real 承担，这里跑纯模块子集。
+        run: uv run pytest tests -m "not com and not deck_render" -q
 
-      - name: Verify tag version == __version__
+      - name: Verify tag version == __version__ (PEP 440)
         shell: bash
         run: |
           tag="${GITHUB_REF_NAME#v}"
           ver="$(uv run python -c 'import offipy; print(offipy.__version__)')"
-          if [ "$tag" != "$ver" ]; then
-            echo "tag '$GITHUB_REF_NAME' != offipy.__version__ '$ver'" >&2
-            exit 1
-          fi
-          echo "tag $GITHUB_REF_NAME matches __version__ $ver"
+          uv run python - <<PY
+          import sys
+          from packaging.version import Version
+          tag, ver = "$tag", "$ver"
+          Version(tag)  # 非法 PEP 440（如漏预发布后缀）在此抛 ValueError
+          Version(ver)
+          if tag != ver:
+              sys.exit(f"tag '$tag' != offipy.__version__ '$ver'")
+          print(f"tag {tag} matches __version__ {ver}")
+          PY
 
       - name: Build sdist + wheel
         run: uv build
@@ -63,13 +75,108 @@ jobs:
         shell: bash
         run: uvx twine check dist/*
 
-      - name: Install smoke (clean venv)
+      - name: Unpack wheel 实证（converter vendored / py.typed / extras 元数据）
         shell: bash
-        run: uv run python scripts/install_smoke.py
+        run: |
+          uv run python - <<'PY'
+          import glob, zipfile
+          whl = glob.glob("dist/*.whl")[0]
+          with zipfile.ZipFile(whl) as z:
+              names = set(z.namelist())
+              for req in (
+                  "offipy/_vendor/html_to_editable_pptx/convert.py",
+                  "offipy/py.typed",
+              ):
+                  assert req in names, f"wheel 缺 {req}"
+              meta_name = [n for n in names if n.endswith(".dist-info/METADATA")][0]
+              meta = z.read(meta_name).decode("utf-8", errors="replace")
+              for extra in ("office", "deck", "mcp"):
+                  assert f"Provides-Extra: {extra}" in meta, f"wheel 缺 extras: {extra}"
+          print("wheel 解包实证通过: converter vendored / py.typed / extras 元数据齐备")
+          PY
 
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: offipy-dist
+          path: dist/
+          if-no-files-found: error
+
+  # 自托管真机门禁：COM + deck_render 集成测试。发布必须过它。
+  office-real:
+    runs-on: [self-hosted, windows, office]
+    needs: quality
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Sync dependencies
+        run: uv sync --extra dev
+
+      - name: Install Playwright browser (deck 管线 DOM 测量)
+        run: uv run playwright install chromium
+
+      - name: Test COM + deck_render (真机)
+        run: uv run pytest tests -m "com or deck_render" -q
+
+  # 创建 GitHub Release（附验证过的 sdist + wheel）。真机门禁过才建。
+  gh-release:
+    runs-on: ubuntu-latest
+    needs: [quality, office-real]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: offipy-dist
+          path: dist
       - name: Create GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --verify-tag
+
+  # 发布到 TestPyPI（Trusted Publishing / OIDC）：预发布与正式版都先过 TestPyPI。
+  publish-testpypi:
+    runs-on: ubuntu-latest
+    needs: [quality, office-real]
+    permissions:
+      id-token: write  # OIDC 联合 TestPyPI
+      contents: read
+    environment: testpypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: offipy-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # 同版本重跑不报错（TestPyPI 不允许重复版本号，skip 让幂等重试安全）
+          skip-existing: true
+
+  # 发布到 PyPI 正式版：仅非预发布 tag（0.9.0a1 这类预发布不推 PyPI 正式版）。
+  publish-pypi:
+    runs-on: ubuntu-latest
+    needs: publish-testpypi
+    if: github.ref_type == 'tag' && !contains(github.ref_name, 'a') && !contains(github.ref_name, 'b') && !contains(github.ref_name, 'rc')
+    permissions:
+      id-token: write  # OIDC 联合 PyPI
+      contents: read
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: offipy-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

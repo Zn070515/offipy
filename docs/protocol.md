@@ -55,17 +55,20 @@ X-Offipy-Protocol: offipy-http/v1
 
 ## /call 响应
 
-统一为 OperationResult 契约（`src/offipy/result.py`）：
+统一为 OperationResult 契约（`src/offipy/result.py`）。**这是 HTTP-only 契约**——
+Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP 返回 `data` 载荷），
+三入口对照见 [`docs/api.md`](api.md)。
 
 成功（HTTP 200）：
 
 ```json
-{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:Book1",
+{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book1",
  "message": "ok", "data": null, "result": null}
 ```
 
-- `resource_id`：`"<app>:<kind>:<name>"` 标识本次操作作用的文档（原始 COM 对象
-  不外泄，由 `resource_id` 替代）；无目标时为 `null`。
+- `resource_id`：`"<app>:<kind>:<doc_id>"` 标识本次操作作用的文档（原始 COM 对象
+  不外泄，由 `resource_id` 替代）；**doc_id 是会话内稳定标识，不用用户可改的 name**；
+  无目标时为 `null`。
 - `data`：操作结果（读 op 的原值；void op 为 `null`）。
 - `result`：`data` 的兼容别名（旧 client 渐进切换）。
 
@@ -96,20 +99,23 @@ X-Offipy-Protocol: offipy-http/v1
   字段（见 `docs/deprecation.md`）。
 - **destructive 确认**：带 `overwrite` 参数的破坏性 op 由 `paths.ensure_writable`
   统一施覆盖保护——目标文件已存在且 `overwrite=false` → `FileConflictError`
-  （`error_code: "file_conflict"`）。`expected_target` 用于破坏性 op 的目标绑定
+  （`error_code: "file_conflict"`）。`expected_target` 用于破坏性 op 的目标绑定：
+  **resolve-once**——`{doc_id}` / `{name}` / `{path}` 三键（可组合），用 `get_target(doc_id=...)`
+  解析目标，校验 name/path 后把解析出的 doc_id 注入方法调用（杜绝「校验 A 执行 B」）；
+  空对象或含未知键直接拒绝 `invalid_argument`，绑定失败 `target_not_found`
   （见 `SECURITY.md`）。
 
 ## /status 响应
 
 ```json
 {"ok": true, "result": {
-  "version": "0.9.0",
+  "version": "0.9.0a1",
   "protocol": "offipy-http/v1",
   "session_id": "<uuid4>",
   "pid": 28776,
   "python": "3.12.10",
   "started_at": 1785858307.49,
-  "targets": {"excel": null, "word": null, "ppt": {"app": "ppt", "name": "...", "path": "..."}}
+  "targets": {"excel": null, "word": null, "ppt": {"app": "ppt", "doc_id": "pres1", "name": "...", "path": "..."}}
 }}
 ```
 
@@ -124,7 +130,7 @@ server 每次 `/call` 后向 `user_data_dir()/oplog.jsonl` 追加一条 JSONL：
 
 ```json
 {"ts": "...", "session_id": "<uuid4>", "app": "excel", "op": "set_cell",
- "ok": true, "error_code": null, "duration_ms": 12, "resource_id": "excel:book:Book1"}
+ "ok": true, "error_code": null, "duration_ms": 12, "resource_id": "excel:book:book1"}
 ```
 
 args 一律不落盘（脱敏）。日志 ~5MB 轮转（保留 `.1` 备份）。读取：`offipy log` /

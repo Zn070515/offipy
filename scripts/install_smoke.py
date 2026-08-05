@@ -1,8 +1,20 @@
-"""安装冒烟：在干净 venv 里安装构建好的 wheel，验证可导入/版本/converter 存在/check 可跑。
+"""安装冒烟：在干净 venv 里安装 offipy，验证可导入/版本/converter 存在/check 可跑。
 
 用法:
-    python scripts/install_smoke.py [path/to/offipy-*.whl]
-    # 缺省时取 dist/ 里最新构建的 wheel
+    python scripts/install_smoke.py [path/to/offipy-*.whl] [--profile all]
+    python scripts/install_smoke.py --index https://test.pypi.org/simple \
+        --version 0.9.0a1 --profile core
+
+来源二选一：
+  - 本地 wheel（缺省）：取第一个位置参数或 dist/ 里最新构建的 wheel；
+  - index（--index + --version）：从指定 index（TestPyPI/PyPI）装 offipy==<version>。
+
+--profile 控制安装哪些 extras（核心依赖始终装）：
+  core   —— 不装任何 extras（纯 `import offipy` 零依赖）
+  office —— offipy[office]（Windows COM）
+  deck   —— offipy[deck]（HTML→PPTX 管线）
+  mcp    —— offipy[mcp]（MCP server）
+  all    —— offipy[all]（默认）
 
 验证点（任一失败 → 非 0 退出，供 CI release 门禁用）：
   1. uv pip install 能解析依赖并装进干净 venv（依赖走 uv 全局缓存，无需重下载）
@@ -16,12 +28,12 @@
 
 from __future__ import annotations
 
+import argparse
 import glob
 import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -35,6 +47,8 @@ CHECK_JSON = (
     "rc = offipy.cli.main(['check', '--json'])\n"
     "print(json.dumps({'rc': rc, 'version': offipy.__version__}))\n"
 )
+
+PROFILES = ("core", "office", "deck", "mcp", "all")
 
 
 def _pick_wheel(explicit: str | None) -> Path:
@@ -68,8 +82,25 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
 
 
 def main() -> int:
-    wheel = _pick_wheel(sys.argv[1] if len(sys.argv) > 1 else None)
-    print(f"[install-smoke] wheel = {wheel}")
+    parser = argparse.ArgumentParser(description="安装冒烟：干净 venv 装 offipy 并验证。")
+    parser.add_argument("wheel", nargs="?", help="本地 wheel 路径（缺省取 dist/ 最新）")
+    parser.add_argument(
+        "--profile",
+        choices=PROFILES,
+        default="all",
+        help="安装的 extras 组合（core 不装任何 extras），默认 all",
+    )
+    parser.add_argument("--index", help="从 index 安装（此时需 --version），如 test.pypi.org")
+    parser.add_argument("--version", help="index 安装的版本号，如 0.9.0a1")
+    args = parser.parse_args()
+
+    if args.index and not args.version:
+        parser.error("--index 需要同时给 --version")
+    if args.version and not args.index:
+        parser.error("--version 只在 --index 模式下有意义")
+
+    extras = f"[{args.profile}]" if args.profile != "core" else ""
+    print(f"[install-smoke] profile = {args.profile} (extras = {extras or '无'})")
 
     tmp = Path(tempfile.mkdtemp(prefix="offipy-smoke-"))
     try:
@@ -78,8 +109,23 @@ def main() -> int:
         _run(["uv", "venv", str(venv)])
         py = _venv_python(venv)
 
-        print("[install-smoke] uv pip install wheel（依赖走 uv 缓存）...")
-        _run(["uv", "pip", "install", "--python", py, str(wheel)])
+        install_cmd = ["uv", "pip", "install", "--python", py]
+        if args.index:
+            install_cmd += [
+                "--index-url",
+                args.index,
+                "--extra-index-url",
+                "https://pypi.org/simple",
+                "--index-strategy",
+                "unsafe-best-match",
+            ]
+            req = f"offipy{extras}=={args.version}"
+            print(f"[install-smoke] uv pip install {req}（index = {args.index}）...")
+        else:
+            wheel = _pick_wheel(args.wheel)
+            req = f"{wheel}{extras}"
+            print(f"[install-smoke] uv pip install {req}（依赖走 uv 缓存）...")
+        _run(install_cmd + [req])
 
         print("[install-smoke] import + 版本 + converter 存在 + check 可跑 ...")
         r = _run([py, "-c", CHECK_JSON])

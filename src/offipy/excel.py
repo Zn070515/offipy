@@ -4,28 +4,43 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
+import re
 from contextlib import contextmanager
 from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .exceptions import InvalidArgumentError, TargetNotFoundError
+from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 # ExportAsFixedFormat 的类型常量
 XL_TYPE_PDF = 0
 
 
+_CELL_RE = re.compile(r"^([A-Za-z]{1,3})(\d{1,7})$")
+# Excel 真实 grid 上限：XFD 列（16384）× 1048576 行
+_MAX_COL = 16384
+_MAX_ROW = 1048576
+
+
 def _parse_cell(cell: str):
-    """把 'A1' 解析成 (row, col)，行列为 1 基；非法格式抛 InvalidArgumentError。"""
-    col_part = "".join(ch for ch in cell if ch.isalpha()).upper()
-    row_part = "".join(ch for ch in cell if not ch.isalpha())
-    if not col_part or not row_part.isdigit() or int(row_part) < 1:
-        raise InvalidArgumentError(f"非法单元格: {cell!r}（期望如 'A1'）")
+    r"""把 'A1' 解析成 (row, col)，行列为 1 基。
+
+    收严为 Excel 真实坐标：`^([A-Za-z]{1,3})(\d{1,7})$`。畸形（如 'A1B2'——
+    不再被字母/数字拆分误读）或越界（列 > XFD、行 > 1048576）抛
+    InvalidArgumentError。
+    """
+    m = _CELL_RE.match(str(cell))
+    if m is None:
+        raise InvalidArgumentError(f"非法单元格: {cell!r}（期望如 'A1'，列 ≤ XFD）")
+    col_part, row_part = m.groups()
     col = 0
-    for ch in col_part:
+    for ch in col_part.upper():
         col = col * 26 + (ord(ch) - ord("A") + 1)
-    return int(row_part), col
+    row = int(row_part)
+    if row < 1 or col > _MAX_COL or row > _MAX_ROW:
+        raise InvalidArgumentError(f"单元格越界: {cell!r}（上限 XFD1048576）")
+    return row, col
 
 
 def _rgb(hex_color: str) -> int:
@@ -203,15 +218,24 @@ class ExcelApp:
         return book
 
     def activate(self, doc_id: str) -> str:
-        """把指定文档设为活动目标；未知句柄抛 TargetNotFoundError。"""
+        """把指定文档设为活动目标并同步真实 UI（Workbook.Activate）。
+
+        未知句柄抛 TargetNotFoundError。
+        """
         book = self._docs.get(doc_id)
         if book is None or not core.doc_alive(book):
             raise TargetNotFoundError(f"未知工作簿句柄: {doc_id!r}（用 list_docs 查看当前打开的）")
+        old = self._active_id
         self._active_id = doc_id
+        try:
+            book.Activate()  # 同步 Excel 真实活动工作簿，防止用户焦点漂移
+        except Exception as e:
+            self._active_id = old  # 同步不上则回滚，不静默假活
+            raise ComOperationError(f"激活工作簿 {doc_id} 失败: {e}") from e
         return doc_id
 
     def list_docs(self) -> dict:
-        """当前打开的文档表：{doc_id: {"name", "path"}}。只读，过滤失效句柄。"""
+        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。"""
         out = {}
         for did, book in self._docs.items():
             if not core.doc_alive(book):
@@ -224,14 +248,25 @@ class ExcelApp:
                 path = book.FullName
             except Exception:
                 path = None
-            out[did] = {"name": name, "path": path}
+            out[did] = {"name": name, "path": path, "active": did == self._active_id}
         return out
 
-    def get_target(self):
-        """当前活动工作簿身份（app/name/path）；无则返回 None。只读探测。"""
-        book = self.active_book()
-        if book is None:
-            return None
+    def get_target(self, doc_id: str | None = None):
+        """目标身份 {app, doc_id, name, path}；无目标返回 None。只读探测。
+
+        显式 doc_id：只查文档表，未注册/失效抛 TargetNotFoundError；
+        缺省：当前活动目标。
+        """
+        if doc_id is not None:
+            book = self.active_book(doc_id)
+            resolved = doc_id
+        else:
+            book = self.active_book()
+            if book is None:
+                return None
+            active_id = self._active_id
+            assert active_id is not None  # active_book 非 None 时活动 id 必已同步
+            resolved = active_id
         try:
             name = book.Name
         except Exception:
@@ -240,7 +275,7 @@ class ExcelApp:
             path = book.FullName
         except Exception:
             path = None
-        return {"app": "excel", "name": name, "path": path}
+        return {"app": "excel", "doc_id": resolved, "name": name, "path": path}
 
     def close_book(self, save: bool = True, doc_id: str | None = None):
         book = self._require_book(doc_id)

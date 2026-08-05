@@ -73,10 +73,12 @@ jobs:
           name: offipy-wheel
           path: dist/*.whl
 
-  # 自托管 Office runner：真机 COM + deck_render 集成测试（仅 push/schedule，
-  # fork PR 无自托管 runner 权限不跑）。
+  # 自托管 Office runner：真机 COM + deck_render 集成测试。
+  # push/schedule 常跑，PR 也跑（合并门禁）；fork PR 无自托管 runner 权限跳过。
+  # 仓库设置里请把本 job 加为 PR 必过 status check（required check）——fork PR
+  # 会因 runner 不可用而跳过，需要在分支保护里豁免（如 paths-ignore 或 allow skip）。
   office-real:
-    if: github.event_name == 'push' || github.event_name == 'schedule'
+    if: (github.event_name == 'push' || github.event_name == 'schedule') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, windows, office]
     steps:
       - uses: actions/checkout@v4
