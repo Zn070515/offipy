@@ -104,7 +104,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把工作簿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
-            destructive=True,
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "add_sheet": OpSpec(
@@ -308,7 +307,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把文档（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
-            destructive=True,
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "write": OpSpec(
@@ -555,7 +553,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把演示文稿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
-            destructive=True,
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "export_slides": OpSpec(
@@ -563,7 +560,6 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir"
                 "（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。"
             ),
-            destructive=True,
             returns="list",
             params={"out_dir": str, "width": int, "height": int, "doc_id": str},
         ),

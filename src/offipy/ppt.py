@@ -205,7 +205,6 @@ class PptApp:
             pres.SaveAs(dest)
             return dest
 
-    @destructive
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         # ExportAsFixedFormat 第二位置参数是 Intent（打印=2），OutputType 才是
@@ -215,7 +214,6 @@ class PptApp:
                 dest, Intent=2, OutputType=PP_FIXED_FORMAT_TYPE_PDF
             )
 
-    @destructive
     def export_slides(
         self, out_dir: str, width: int = 1920, height: int = 1080, doc_id: str | None = None
     ):

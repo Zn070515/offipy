@@ -325,7 +325,6 @@ class WordApp:
             doc.SaveAs2(dest)
             return dest
 
-    @destructive
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():

@@ -38,7 +38,7 @@ Export the presentation (doc_id defaults to the active one) to PDF at the given 
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `void`
-- **Flags**: mutates document/app state
+- **Flags**: normal operation
 
 ---
 
@@ -48,7 +48,7 @@ Export each slide of the presentation (doc_id defaults to the active one) as PNG
 
 - **Parameters**: `out_dir: str`, `width: int`, `height: int`, `doc_id: str`
 - **Returns**: `list`
-- **Flags**: mutates document/app state
+- **Flags**: normal operation
 
 ---
 
