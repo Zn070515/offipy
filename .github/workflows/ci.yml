@@ -83,6 +83,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+        with:
+          # 自托管 runner 上 uv 缓存触发 libuv 断言崩溃（async.c line 94），禁用
+          enable-cache: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
