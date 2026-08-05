@@ -66,11 +66,14 @@ def _sp_xml(
     ph_idx: int | None = None,
 ) -> str:
     """单个 <p:sp> 的 OOXML。ph_type 非 None 时带上占位符属性（type 值见注释）。"""
-    nv_pr = ""
     if ph_type is not None:
         # ph type 官方值（OOXML 小写）：title=1 body=2 sldNum=13 ftr=15 dt=16 ...
         idx = f' idx="{ph_idx}"' if ph_idx is not None else ""
         nv_pr = f'<p:nvPr><p:ph type="{ph_type}"{idx}/></p:nvPr>'
+    else:
+        # p:nvPr 是 p:nvSpPr 的必填子元素：缺失会导致真实 PowerPoint 拒收整份文件
+        # （office-real 真机实证：group 子元素 / 纯文本框无占位符时必须带 <p:nvPr/>）
+        nv_pr = "<p:nvPr/>"
     xfrm = (
         f'<a:xfrm><a:off x="{_emu(left)}" y="{_emu(top)}"/>'
         f'<a:ext cx="{_emu(width)}" cy="{_emu(height)}"/></a:xfrm>'

@@ -85,6 +85,7 @@ _RETURN_ANNOTATION = {
     "str": str,
     "bool": bool,
     "list": list,
+    "list[SlideTextRecord]": list,
     "dict": dict,
     "any": object,
 }

@@ -260,7 +260,7 @@ def _reading_order_key(item: _InternalTextShapeRecord):
 
 
 def _page_size_pt(pres) -> tuple[float, float]:
-    """演示文稿页面尺寸（磅）(width, height)；读不到回 4:3 默认 (960, 540)。"""
+    """演示文稿页面尺寸（磅）(width, height)；读不到回宽屏 16:9 默认 (960, 540)。"""
     try:
         ps = pres.PageSetup
         return float(ps.SlideWidth), float(ps.SlideHeight)

@@ -5,12 +5,6 @@
 
 ## [Unreleased]
 
-### Fixed
-- 连接级 503（`_reply_503`）竞态：`shutdown(SHUT_RD)` 挡不住已进接收缓冲的请求字节，
-  close 时缓冲非空触发 TCP RST，客户端偶发读到 `ConnectionResetError` 而非 503——
-  改为非阻塞 `recv` 读光缓冲再 close（正常 FIN），修复 flaky 的 `test_concurrency_limit_503`
-  （CI windows 3.13 偶发失败）
-
 ## [0.10.0] - 2026-08-05
 
 ### Added
@@ -29,6 +23,10 @@
 ### Fixed
 - P0 占位符常量 Bug（见 Changed）
 - `read_slide_texts` 对纯文本框 deck 返回空（旧实现只读 HasTitle/Placeholders(2)）——现按文本能力读全部 shape，含 group 内文本
+- 连接级 503（`_reply_503`）竞态：`shutdown(SHUT_RD)` 挡不住已进接收缓冲的请求字节，
+  close 时缓冲非空触发 TCP RST，客户端偶发读到 `ConnectionResetError` 而非 503——
+  改为非阻塞 `recv` 读光缓冲再 close（正常 FIN），修复 flaky 的 `test_concurrency_limit_503`
+  （CI windows 3.13 偶发失败）
 
 ## [0.9.0] - 2026-08-05（正式首发）
 

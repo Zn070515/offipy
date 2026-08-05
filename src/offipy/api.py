@@ -38,7 +38,8 @@ class _Facade:
         return getattr(self._app, name)
 
     def __dir__(self):
-        # P1-4：dir() 显示 schema 正式 op（与 CLI/MCP/文档同批），不泄内部辅助属性
+        # P1-4：dir() 补充显示 schema 正式 op（与 CLI/MCP/文档同批）；
+        # super().__dir__() 仍含 _app/_app_name 等内部成员，此处只做并集不隐藏
         return sorted(set(super().__dir__()) | set(schema.ops(self._app_name)) | {"quit"})
 
     def quit(self):
@@ -92,7 +93,7 @@ class _RemoteFacade:
         return False  # 会话式驱动：退出上下文不关 Office 窗口
 
     def __dir__(self):
-        # P1-4：远程 facade 只显式 schema 正式 op + quit，不泄内部辅助属性
+        # P1-4：远程 facade 在 super().__dir__() 基础上补充 schema 正式 op + quit
         return sorted(set(super().__dir__()) | set(schema.ops(self._app_name)) | {"quit"})
 
     def __getattr__(self, name):

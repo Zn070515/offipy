@@ -124,11 +124,29 @@ def test_call_maps_error_code(monkeypatch):
 
 
 def test_call_returns_data_on_ok(monkeypatch):
+    # read_slide_texts 现为按页 per-shape（0.10 契约），必须传 slide_idx；
+    # mock 数据用真实 SlideTextRecord 而非 0.9 摘要 dict。
+    record = {
+        "shape_id": 2,
+        "name": "Title 1",
+        "text": "t",
+        "left": 36.0,
+        "top": 21.6,
+        "width": 648.0,
+        "height": 90.0,
+        "coordinate_space": "slide",
+        "coordinate_unit": "pt",
+        "is_placeholder": True,
+        "placeholder_type": 1,
+        "placeholder_type_name": "title",
+        "parent_shape_id": None,
+        "group_path": [],
+    }
     monkeypatch.setattr(
         "offipy.client.request",
-        lambda app, op, **a: {"ok": True, "data": [{"index": 1, "title": "t"}]},
+        lambda app, op, **a: {"ok": True, "data": [record]},
     )
-    assert client.call("ppt", "read_slide_texts") == [{"index": 1, "title": "t"}]
+    assert client.call("ppt", "read_slide_texts", slide_idx=1) == [record]
 
 
 # --- OperationResult 契约（P1-3） ---
