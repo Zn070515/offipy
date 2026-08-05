@@ -16,7 +16,8 @@ license-files = [
     "src/offipy/assets/icons/LICENSE-*.txt",
     "src/offipy/_vendor/html_to_editable_pptx/LICENSE",
 ]
-authors = [{ name = "XuXin", email = "302025510036@zjut.edu.cn" }]
+# 公开 wheel/sdist 元数据不暴露学校邮箱，用 GitHub noreply（开源联系走 Issues/讨论）
+authors = [{ name = "XuXin", email = "247738477+Zn070515@users.noreply.github.com" }]
 keywords = ["office", "automation", "com", "word", "excel", "powerpoint", "pptx", "html-to-pptx", "mcp"]
 classifiers = [
     "Development Status :: 3 - Alpha",
