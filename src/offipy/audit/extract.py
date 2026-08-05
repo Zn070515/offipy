@@ -20,9 +20,12 @@
 from __future__ import annotations
 
 import hashlib
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from offipy.exceptions import ConversionError
 
 from .geometry import Affine2D, Rect
 from .models import AuditWarning
@@ -149,7 +152,16 @@ def extract_presentation(path: str | Path) -> _PresentationExtract:
     """
     from pptx import Presentation
 
-    prs = Presentation(str(path))
+    try:
+        prs = Presentation(str(path))
+    except Exception as e:
+        # 只把 python-pptx/zip/ValueError 解析错误转 ConversionError；
+        # 未预期异常原样重抛（不伪装成解析错误）。
+        from pptx.exc import PythonPptxError
+
+        if not isinstance(e, (zipfile.BadZipFile, ValueError, PythonPptxError)):
+            raise
+        raise ConversionError(f"PPTX 文件无法解析（ZIP/XML 损坏）: {path} ({e})") from e
     slide_w = _to_inches(prs.slide_width) or 0.0
     slide_h = _to_inches(prs.slide_height) or 0.0
     slides = []
