@@ -33,6 +33,9 @@
 
 ## expected_target
 
-破坏性操作（schema 中 `destructive=True`）支持 `expected_target`（name/path）绑定校验：
-dispatch 前比对活动目标，不符抛 `TargetNotFoundError`。绑定目标是**绑定目标**，不跟随
-用户焦点，防止对错误文档执行破坏性操作。
+破坏性操作（schema 中 `destructive=True`）支持 `expected_target` 目标绑定，键取
+`doc_id` / `name` / `path`（可组合）。server 在 dispatch 时 **resolve-once**：用
+`get_target(doc_id=...)` 解析出目标 doc_id，校验 `name`/`path` 匹配后，把解析结果
+直接注入方法调用参数（杜绝「校验 A 执行 B」）。空对象或含未知键 → `InvalidArgumentError`，
+绑定失败（目标不存在 / name/path 不匹配）→ `TargetNotFoundError`。绑定目标是**绑定目标**，
+不跟随用户焦点，防止对错误文档执行破坏性操作。

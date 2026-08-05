@@ -22,20 +22,20 @@
 
 ### `close_doc`
 
-关闭文档（doc_id 缺省为活动），save=True 则保存。
+关闭文档（doc_id 缺省为活动）。save=True 先保存（从未保存过则自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，返回 null。
 
 - **参数**: `save: bool`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `str|null`
 - **标志**: 会改动文档/应用状态
 
 ---
 
 ### `save`
 
-保存文档（doc_id 缺省为活动）。给 path 则另存到该路径；overwrite=True 允许覆盖已存在文件。
+保存文档（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该路径；未给 path 则存回原路径（从未保存过自动落盘同层目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `str`
 - **标志**: 会改动文档/应用状态
 
 ---
@@ -292,7 +292,7 @@
 
 ### `list_docs`
 
-列出当前打开的文档表：{doc_id: {name, path}}。
+列出当前打开的文档表：{doc_id: {name, path, active}}（只报已登记句柄）。
 
 - **参数**: _无参数_
 - **返回**: `dict`
@@ -302,9 +302,9 @@
 
 ### `get_target`
 
-当前活动文档身份（app/name/path）；无则返回 null。
+当前活动文档身份（app/doc_id/name/path）；无则返回 null。可传 doc_id 查询指定文档。
 
-- **参数**: _无参数_
+- **参数**: `doc_id: str`
 - **返回**: `dict`
 - **标志**: 只读
 

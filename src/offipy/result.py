@@ -19,7 +19,7 @@ class OperationResult:
 
     ok: bool
     operation: str  # "excel.set_cell"
-    resource_id: str | None  # "excel:book:Book1"
+    resource_id: str | None  # "excel:book:book1"（doc_id，会话内稳定标识）
     message: str
     data: Any = None
 

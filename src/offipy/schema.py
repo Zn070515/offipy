@@ -71,10 +71,11 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "close_book": OpSpec(
             description=(
                 "关闭工作簿（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
-                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗。"
+                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
+                "返回 null。"
             ),
             destructive=True,
-            returns="str",
+            returns="str|null",
             params={"save": bool, "doc_id": str},
         ),
         "save": OpSpec(
@@ -245,7 +246,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             params={"doc_id": str},
         ),
         "list_docs": OpSpec(
-            description="列出当前打开的文档表：{doc_id: {name, path}}。",
+            description="列出当前打开的文档表：{doc_id: {name, path, active}}（只报已登记句柄）。",
             readonly=True,
             returns="dict",
         ),
@@ -274,10 +275,11 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "close_doc": OpSpec(
             description=(
                 "关闭文档（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
-                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗。"
+                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
+                "返回 null。"
             ),
             destructive=True,
-            returns="str",
+            returns="str|null",
             params={"save": bool, "doc_id": str},
         ),
         "save": OpSpec(
@@ -501,7 +503,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             params={"doc_id": str},
         ),
         "list_docs": OpSpec(
-            description="列出当前打开的文档表：{doc_id: {name, path}}。",
+            description="列出当前打开的文档表：{doc_id: {name, path, active}}（只报已登记句柄）。",
             readonly=True,
             returns="dict",
         ),
@@ -618,7 +620,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             params={"doc_id": str},
         ),
         "list_docs": OpSpec(
-            description="列出当前打开的文档表：{doc_id: {name, path}}。",
+            description="列出当前打开的文档表：{doc_id: {name, path, active}}（只报已登记句柄）。",
             readonly=True,
             returns="dict",
         ),

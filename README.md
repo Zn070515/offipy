@@ -278,6 +278,17 @@ offipy mcp        # 阻塞运行，等待 stdio 客户端接入
 | extras + 品牌 | `office/deck/mcp/all` 拆分、`py.typed`、统一 `offipy` |
 | CI 矩阵 + 非 Windows | pure-module（覆盖率门槛）/ windows 3.10–3.13 / wheel-smoke / office-real；MCP in-memory 协议层测试 |
 
+**round-4（ChatGPT_v4 审核）**：目标语义显式化 + 有界资源 + 发布门禁 + 转换边界收严：
+
+| 主线 | 修复 |
+|------|------|
+| 目标语义显式化（P0-4/5/6） | `doc_id` 权威；`expected_target` **resolve-once**（`doc_id`/`name`/`path` 三键，空对象/未知键拒绝，解析出的 doc_id 注入参数）；`activate()` 同步真实 UI（失败回滚抛 `ComOperationError`）；`resource_id` 用 doc_id；`list_docs` 只报已登记句柄（含 `active`）；`get_target(doc_id=)` 显式查询 |
+| 有界资源 + 幂等（§4/5） | client 超时 600s 与 server 对齐；`request_id` 幂等缓存（重复重试不重执行）；COM 队列上限 64 + 并发线程上限 16，满则 503；PID 文件含 `port/pid/token_sha256/started_at` 归属验证；token 文件 0o600 |
+| deck 原子渲染（§7） | `render` 临时文件改 `mkstemp`（同目录随机名，并发不互踩）；失败清理临时文件，绝不破坏既有 .pptx；源 HTML 缺失抛 `InvalidArgumentError` |
+| 发布门禁（P0-2/3） | `release.yml` 门禁链 quality → office-real（真机必过）→ gh-release → publish-testpypi → publish-pypi（OIDC Trusted Publishing）；`ci.yml` 的 office-real 成为 PR 合并门禁；`docs/release.md` 发布手册 |
+| 转换边界收严（§6/11/12） | `_parse_cell` 收严（越界 XFD/1048576 拒绝）；`set_title`/`set_body` 空输入显式报错；CLI `--port` 子命令 SUPPRESS 继承；`/call` args 非 dict → 400；`offipy check --profile`；`install_smoke.py --profile`；license `MIT AND ISC`；dependabot |
+| save/close 防弹窗 | `save()`/`close_book()`/`close_doc()` 对从未保存的文档自动落盘同层目录并返回绝对路径，不再弹「另存为」；`overwrite` 覆盖保护 fail-fast |
+
 ## 开发
 
 ```bash
