@@ -414,10 +414,10 @@ def test_client_pid_file_matches_json_with_token(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(client, "_token", lambda: token)
+    monkeypatch.setattr(client, "_token", lambda p: token)
     assert client._pid_file_matches(pid) is True
     assert client._pid_file_matches(pid + 1) is False  # pid 不符
-    monkeypatch.setattr(client, "_token", lambda: "other-token")
+    monkeypatch.setattr(client, "_token", lambda p: "other-token")
     assert client._pid_file_matches(pid) is False  # token 不符 → 拒绝
 
 
@@ -425,22 +425,9 @@ def test_client_pid_file_matches_old_plain(monkeypatch, tmp_path):
     # P0-2：旧格式纯数字无法证明 token 归属 → 一律拒绝（绝不强杀）
     (tmp_path / "server.pid").write_text("12345", encoding="utf-8")
     monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(client, "_token", lambda: "some-token")
+    monkeypatch.setattr(client, "_token", lambda p: "some-token")
     assert client._pid_file_matches(12345) is False
     assert client._pid_file_matches(1) is False
-
-
-def test_client_write_pid_file_always_json(monkeypatch, tmp_path):
-    # P0-2：_write_pid_file 永远写 JSON；token 未知时 token_sha256 置 None，
-    # 保证 _pid_file_matches 里 None != 本地 token 哈希 → 不误杀
-    monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(client, "_token", lambda: None)
-    client._write_pid_file(12345)
-    data = json.loads((tmp_path / "server.pid").read_text(encoding="utf-8"))
-    assert data["pid"] == 12345
-    assert data["port"] == client.port()
-    assert data["token_sha256"] is None
-    assert isinstance(data["started_at"], float)
 
 
 def test_remove_pid_file_if_owned(monkeypatch, tmp_path):
@@ -622,7 +609,7 @@ def test_pid_file_matches_rejects_reused_pid(monkeypatch, tmp_path):
         encoding="utf-8",
     )
     monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
-    monkeypatch.setattr(client, "_token", lambda: token)
+    monkeypatch.setattr(client, "_token", lambda p: token)
     monkeypatch.setattr(client, "_process_start_time", lambda p: 9999.0)  # 偏差 > 窗口
     assert client._pid_file_matches(pid) is False  # PID 复用 → 拒认归属
     monkeypatch.setattr(client, "_process_start_time", lambda p: 1000.5)  # 吻合

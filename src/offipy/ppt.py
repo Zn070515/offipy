@@ -171,7 +171,13 @@ class PptApp:
         return doc_id
 
     def list_docs(self) -> dict:
-        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。"""
+        """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。
+
+        P1-5：先并入真实活动焦点（active_pres 解析 ActivePresentation 进文档表、
+        刷新 _active_id），active 标记跟随用户当前看到的文稿，不报陈旧焦点。
+        """
+        with suppress(Exception):
+            self.active_pres()
         out = {}
         for did, pres in self._docs.items():
             if not core.doc_alive(pres):

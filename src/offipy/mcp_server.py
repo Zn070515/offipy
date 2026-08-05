@@ -18,6 +18,7 @@ import inspect
 from typing import Any, cast
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
 from mcp_types import ToolAnnotations
 
 from . import __version__, schema
@@ -28,10 +29,10 @@ from .ppt import PptApp
 from .word import WordApp
 
 
-def _call(app: str, op: str, **kwargs):
+def _call(app: str, op: str, request_id: str | None = None, **kwargs):
     """转成 8890 server 调用；失败抛 RuntimeError 让模型看到原因。"""
     try:
-        resp = request(app, op, **kwargs)
+        resp = request(app, op, request_id=request_id, **kwargs)
     except OffipyError as e:
         raise RuntimeError(str(e)) from None
     if not resp.get("ok"):
@@ -40,13 +41,13 @@ def _call(app: str, op: str, **kwargs):
     return resp["data"] if "data" in resp else resp.get("result")
 
 
-def _invoke(app: str, op: str, **kwargs):
+def _invoke(app: str, op: str, request_id: str | None = None, **kwargs):
     """统一返回封装：void op 返回 "ok (op)"，有值 op 结构化透传（int/list/str 等）。
 
     COM 对象结果在 server 侧 _serialize 成 null，落到这里就是 None → 返回
     确认串；真实有值的 op（总页数、表格数、文件列表、单元格值…）原样透传。
     """
-    result = _call(app, op, **kwargs)
+    result = _call(app, op, request_id=request_id, **kwargs)
     return result if result is not None else f"ok ({op})"
 
 
@@ -129,7 +130,7 @@ def _build_tool(app: str, op: str) -> None:
         defaults["follow_active"] = False
     return_ann = _RETURN_ANNOTATION.get(spec.returns, object)
 
-    def tool_fn(**kwargs: Any) -> Any:
+    def tool_fn(ctx: Context | None = None, **kwargs: Any) -> Any:
         args = dict(defaults)
         args.update(kwargs)
         # 传输层参数（P0-1/P0-3）未给时不下发（None/False 语义等于缺省），
@@ -138,7 +139,10 @@ def _build_tool(app: str, op: str) -> None:
             args.pop("expected_target", None)
         if not args.get("follow_active"):
             args.pop("follow_active", None)
-        return _invoke(app, op, **args)
+        # P1-4：MCP 框架自动注入 ctx（不出现在 tool schema），取其 request_id
+        # 作幂等标识透传 server；无 ctx（测试直调）则 None。
+        rid = getattr(ctx, "request_id", None) if ctx is not None else None
+        return _invoke(app, op, request_id=rid, **args)
 
     fn = cast(Any, tool_fn)
     fn.__name__ = fn_name

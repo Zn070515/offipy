@@ -105,23 +105,37 @@ class _RemoteFacade:
                     default=False,
                 ),
             ]
+        # P1-4：request_id 作为传输层参数暴露（幂等标识），不进 server 的 op args
+        params = params + [
+            inspect.Parameter(
+                "request_id",
+                inspect.Parameter.KEYWORD_ONLY,
+                annotation=str,
+                default=None,
+            ),
+        ]
         call_sig = sig.replace(parameters=params)
 
         def _call(*args, **kw):
             bound = call_sig.bind(*args, **kw)
             args = dict(bound.arguments)
+            rid = args.pop("request_id", None)
             # 传输层参数缺省不下发（payload 干净；与 MCP tool_fn 同策略）
             if not args.get("expected_target"):
                 args.pop("expected_target", None)
             if not args.get("follow_active"):
                 args.pop("follow_active", None)
-            return client.call(self._app_name, name, base_url=self._base_url, **args)
+            return client.call(
+                self._app_name, name, base_url=self._base_url, request_id=rid, **args
+            )
 
         _call.__signature__ = call_sig
         return _call
 
-    def quit(self, **kw):
-        return client.call(self._app_name, "quit", base_url=self._base_url, **kw)
+    def quit(self, request_id: str | None = None, **kw):
+        return client.call(
+            self._app_name, "quit", base_url=self._base_url, request_id=request_id, **kw
+        )
 
 
 _APP_CLASSES = {"excel": ExcelApp, "word": WordApp, "ppt": PptApp}

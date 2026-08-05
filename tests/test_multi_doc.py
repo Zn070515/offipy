@@ -517,3 +517,45 @@ def test_ppt_save_saved_uses_in_place(monkeypatch):
     assert pres.save_calls == 1
     assert path == pres.FullName
     assert pres.saveas_calls == []
+
+
+# --- P1-5：list_docs 并入真实活动焦点并刷新 _active_id，不报陈旧焦点 ---
+
+
+def test_excel_list_docs_refreshes_real_active(monkeypatch):
+    app = _new_excel(monkeypatch)
+    app.new_book()  # book1 为陈旧 active
+    external = _FakeBook("Book9")  # 用户在真实 Excel 切到的活动工作簿
+    external.app = app.app
+    monkeypatch.setattr(core, "active_doc", lambda app_name, attr: external)
+    docs = app.list_docs()
+    assert app._active_id == "book2"  # 焦点刷新到真实活动工作簿
+    assert docs["book1"]["active"] is False
+    assert docs["book2"]["active"] is True
+    assert docs["book2"]["name"] == "Book9"
+
+
+def test_word_list_docs_refreshes_real_active(monkeypatch):
+    app = _new_word(monkeypatch)
+    app.new_doc()  # doc1 为陈旧 active
+    external = _FakeWordDoc("Doc9")
+    external.app = app.app
+    monkeypatch.setattr(core, "active_doc", lambda app_name, attr: external)
+    docs = app.list_docs()
+    assert app._active_id == "doc2"
+    assert docs["doc1"]["active"] is False
+    assert docs["doc2"]["active"] is True
+    assert docs["doc2"]["name"] == "Doc9"
+
+
+def test_ppt_list_docs_refreshes_real_active(monkeypatch):
+    app = _new_ppt(monkeypatch)
+    app.new_pres()  # pres1 为陈旧 active
+    external = _FakePres("Pres9")
+    external.app = app.app
+    monkeypatch.setattr(core, "active_doc", lambda app_name, attr: external)
+    docs = app.list_docs()
+    assert app._active_id == "pres2"
+    assert docs["pres1"]["active"] is False
+    assert docs["pres2"]["active"] is True
+    assert docs["pres2"]["name"] == "Pres9"

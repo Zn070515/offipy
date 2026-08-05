@@ -4,7 +4,7 @@
 默认值，唯一权威）生成 6 个 facade 类的显式方法签名。破坏性 op 的传输层参数
 按入口区分（与 MCP/CLI 同策略）：
 - 本地直连 Excel()/Word()/Ppt()：App 方法的 @destructive 守卫额外接受 follow_active
-- 远程 Remote*()：额外接受 expected_target + follow_active
+- 远程 Remote*()：额外接受 expected_target + follow_active + request_id
 
 运行：`uv run python scripts/gen_api_stub.py`（纯标准库）。
 tests/test_api_stub.py 兜底断言每个 schema op 都出现在 stub 且再生成无漂移。
@@ -52,7 +52,8 @@ _HEADER = """\
 
 本地直连 Excel()/Word()/Ppt() 与远程 RemoteExcel()/RemoteWord()/RemotePpt()
 的显式 op 签名，供 mypy/IDE。破坏性 op 传输层参数：direct 只走 follow_active，
-remote 额外走 expected_target（与 MCP/CLI 同策略）。doc_id 缺省走当前活动文档。
+remote 额外走 expected_target + request_id（与 MCP/CLI 同策略）。doc_id 缺省走
+当前活动文档。
 direct facade 绑定创建它的线程（STA COM），非线程安全；跨线程各自建 facade
 时用 offipy.direct.com_apartment() 包一层（线程各自 CoInitialize/Uninitialize）。
 \"\"\"
@@ -107,6 +108,11 @@ def _method_sig(app: str, op: str, remote: bool) -> str:
         if remote:
             parts.append("expected_target: dict | None = None")
         parts.append("follow_active: bool = False")
+    if remote:
+        # P1-4：远程 facade 额外暴露 request_id（幂等标识，keyword-only）
+        if not (has_doc_id and schema.supports_expected_target(app, op)):
+            parts.append("*")
+        parts.append("request_id: str | None = None")
     params_str = f", {', '.join(parts)}" if parts else ""
     return f"    def {op}(self{params_str}) -> {_returns(spec.returns)}: ..."
 

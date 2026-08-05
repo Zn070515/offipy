@@ -1,9 +1,9 @@
 """offipy 客户端：常驻 server 的 HTTP 调用封装。"""
 
-import contextlib
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -76,15 +76,29 @@ def _base_url() -> str:
     return f"http://{HOST}:{port()}"
 
 
-def _token_path():
+def _port_from_url(base_url: str | None) -> int:
+    """从 base_url 解析端口（P1-1）；无 base_url → port()。https 缺省 443、http 缺省 80。"""
+    if base_url is None:
+        return port()
+    m = re.search(r":(\d+)\b", base_url)
+    if m:
+        return int(m.group(1))
+    if base_url.startswith("https://"):
+        return 443
+    if base_url.startswith("http://"):
+        return 80
+    return port()
+
+
+def _token_path(p: int):
     # 默认端口沿用旧文件名（token），非默认端口按端口隔离（token-{port}）
-    name = _TOKEN_FILENAME if port() == PORT else f"{_TOKEN_FILENAME}-{port()}"
+    name = _TOKEN_FILENAME if p == PORT else f"{_TOKEN_FILENAME}-{p}"
     return user_data_dir() / name
 
 
-def _pid_path():
+def _pid_path(p: int):
     # 默认端口沿用旧文件名（server.pid），非默认端口按端口隔离（server-{port}.pid）
-    name = "server.pid" if port() == PORT else f"server-{port()}.pid"
+    name = "server.pid" if p == PORT else f"server-{p}.pid"
     return user_data_dir() / name
 
 
@@ -96,9 +110,9 @@ def _ping() -> bool:
         return False
 
 
-def _auth_headers() -> dict:
+def _auth_headers(p: int) -> dict:
     headers = {"Content-Type": "application/json", "X-Offipy-Protocol": PROTOCOL}
-    token = _token()
+    token = _token(p)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
@@ -113,7 +127,7 @@ def _probe() -> str:
     - down：连接失败/超时——无进程
     """
     try:
-        req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers())
+        req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers(port()))
         with _OPENER.open(req, timeout=2) as r:
             if r.status != 200:
                 return "auth_fail" if r.status == 401 else "mismatch"
@@ -163,7 +177,7 @@ def _find_server_pid() -> int | None:
             if pid.isdigit():
                 return int(pid)
     try:
-        raw = _pid_path().read_text(encoding="utf-8").strip()
+        raw = _pid_path(port()).read_text(encoding="utf-8").strip()
     except OSError:
         return None
     # 新格式 JSON {port,pid,...}；旧格式纯数字
@@ -192,7 +206,7 @@ def server_status() -> dict | None:
     if _probe() != "ok":
         return None
     try:
-        req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers())
+        req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers(port()))
         with _OPENER.open(req, timeout=5) as r:
             data = json.loads(r.read().decode("utf-8"))
             if not data.get("ok"):
@@ -252,7 +266,7 @@ def _pid_file_matches(pid: int) -> bool:
     证明 token 归属 → 一律拒绝（P0-2：不杀无法证明归属的进程）。
     """
     try:
-        raw = _pid_path().read_text(encoding="utf-8").strip()
+        raw = _pid_path(port()).read_text(encoding="utf-8").strip()
     except OSError:
         return False
     if raw.isdigit():
@@ -265,7 +279,7 @@ def _pid_file_matches(pid: int) -> bool:
         return False
     if data.get("port") is not None and data.get("port") != port():
         return False
-    token = _token()
+    token = _token(port())
     if not token:
         return False
     if data.get("token_sha256") != hashlib.sha256(token.encode()).hexdigest():
@@ -276,27 +290,6 @@ def _pid_file_matches(pid: int) -> bool:
         if start is not None and abs(start - recorded_start) > _START_WINDOW:
             return False  # PID 复用：文件是旧的，进程不是当年的 server
     return True
-
-
-def _write_pid_file(pid: int) -> None:
-    """落盘 pid 文件（始终 JSON：port/pid/token_sha256/started_at），供归属验证。
-
-    server 进程自身会再覆写一份更权威的记录（含真实 started_at）；这里先写
-    供进程拉起、尚未完成握手前的定位窗口。token 未知则 token_sha256 置 None
-    ——_pid_file_matches 里 None 与任何本地 token 哈希都不等，绝不误杀（P0-2）。
-    写失败不致命：netstat 可兜底定位。
-    """
-    token = _token()
-    payload = json.dumps(
-        {
-            "port": port(),
-            "pid": pid,
-            "token_sha256": hashlib.sha256(token.encode()).hexdigest() if token else None,
-            "started_at": time.time(),
-        }
-    )
-    with contextlib.suppress(OSError):
-        _pid_path().write_text(payload, encoding="utf-8")
 
 
 def stop_server() -> str:
@@ -310,7 +303,7 @@ def stop_server() -> str:
         # 身份由 token 证明，走鉴权 /shutdown 优雅停机（不依赖 pid 强杀）
         try:
             req = urllib.request.Request(
-                f"{_base_url()}/shutdown", data=b"{}", headers=_auth_headers()
+                f"{_base_url()}/shutdown", data=b"{}", headers=_auth_headers(port())
             )
             with _OPENER.open(req, timeout=5):
                 pass
@@ -343,13 +336,13 @@ def stop_server() -> str:
     return "server 未在运行"
 
 
-def _token() -> str | None:
-    """env 优先，其次 server 落盘的持久 token；都拿不到返回 None。"""
+def _token(p: int) -> str | None:
+    """env 优先，其次 server 落盘的持久 token（按端口隔离）；都拿不到返回 None。"""
     env = os.environ.get("OFFIPY_SERVER_TOKEN")
     if env and env.strip():
         return env.strip()
     try:
-        token = _token_path().read_text(encoding="utf-8").strip()
+        token = _token_path(p).read_text(encoding="utf-8").strip()
     except OSError:
         return None
     return token or None
@@ -371,7 +364,7 @@ def ensure_server():
         # P0-2：token 不匹配绝不杀 server——旧 client 连新 server 只报错，不误伤进程
         raise ServerStartError(
             f"{port()} 端口的 offipy server token 不匹配（拒绝强杀）。"
-            f"请设置正确的 OFFIPY_SERVER_TOKEN，或删除 {_token_path()} "
+            f"请设置正确的 OFFIPY_SERVER_TOKEN，或删除 {_token_path(port())} "
             "后运行 `offipy server restart`"
         )
     if state == "mismatch":
@@ -386,20 +379,20 @@ def ensure_server():
     # 日志落盘用户数据目录：server 崩溃时能查根因（首次 gencache 生成类型库可能耗时）
     logpath = user_data_dir() / f".offipy-{port()}.log"
     logpath.parent.mkdir(parents=True, exist_ok=True)
-    pid_file = _pid_path()
+    pid_file = _pid_path(port())
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     popen_kwargs = {}
     if hasattr(subprocess, "CREATE_NO_WINDOW"):
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     with open(logpath, "a", encoding="utf-8") as logfile:
-        proc = subprocess.Popen(
+        subprocess.Popen(
             [sys.executable, "-m", SERVER_MOD, "--port", str(port())],
             stdout=logfile,
             stderr=logfile,
             **popen_kwargs,
         )
-    # pid 文件写不了不致命：netstat 可兜底定位
-    _write_pid_file(proc.pid)
+    # pid 文件由 server 绑定成功后自写权威记录（P1-3），client 不抢写；
+    # 定位兜底 netstat 始终可用。
     for _ in range(600):  # 最多等 60 秒（首次 gencache 可能较慢）
         if _server_ok():
             return
@@ -446,6 +439,11 @@ def request(
     for k in _PATH_KEYS:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
+    # P1-2：expected_target.path 与其它路径参数一致，按调用方 CWD 绝对化——
+    # server 的 path 规范化比较基于 abspath，相对写法在跨 CWD 时语义漂移。
+    et = args.get("expected_target")
+    if isinstance(et, dict) and isinstance(et.get("path"), str):
+        args["expected_target"] = {**et, "path": os.path.abspath(et["path"])}
     if request_id is None:
         request_id = str(uuid.uuid4())
     # request_id 幂等标识（§4/方案 A）：client 重试带同一 id，server 命中缓存
@@ -453,8 +451,10 @@ def request(
     data = json.dumps({"app": app, "op": op, "args": args, "request_id": request_id}).encode(
         "utf-8"
     )
+    # P1-1：token 按 base_url 解析出的端口取（多实例隔离），绝不误用默认端口 token
+    p = _port_from_url(base_url)
     req = urllib.request.Request(
-        (base_url or _base_url()) + "/call", data=data, headers=_auth_headers()
+        (base_url or _base_url()) + "/call", data=data, headers=_auth_headers(p)
     )
     try:
         with _OPENER.open(req, timeout=_CALL_TIMEOUT) as r:

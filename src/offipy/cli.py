@@ -95,6 +95,13 @@ def _parse_kwargs(tokens):
             else:
                 kwargs["follow_active"] = True
                 i += 1
+        elif tok in ("--request-id", "--request_id"):
+            # P1-4 传输层参数：显式幂等 id（重试复用同 id 防重复执行）。
+            if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
+                kwargs["request_id"] = tokens[i + 1]
+                i += 2
+            else:
+                raise SystemExit(f"{tok} 需要一个值")
         elif tok.startswith("--"):
             key = tok[2:]
             if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
@@ -265,6 +272,7 @@ def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
     # 静默忽略，语义一致。
     if schema.supports_expected_target(app, op):
         known |= {"expected_target", "follow_active"}
+    known |= {"request_id"}  # P1-4：所有 op 可用，透明传 server（幂等标识）
     for key in kwargs:
         if key not in known:
             print(f"offipy: error: {app} {op}: unrecognized arguments: --{key}", file=sys.stderr)

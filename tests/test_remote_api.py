@@ -17,10 +17,11 @@ from offipy import api
 def test_remote_excel_ensure_server_and_call(monkeypatch):
     captured = {}
 
-    def fake_call(app, op, base_url=None, **kw):
+    def fake_call(app, op, base_url=None, request_id=None, **kw):
         captured["app"] = app
         captured["op"] = op
         captured["base_url"] = base_url
+        captured["request_id"] = request_id
         captured["kw"] = kw
         return "ok"
 
@@ -33,8 +34,24 @@ def test_remote_excel_ensure_server_and_call(monkeypatch):
         "app": "excel",
         "op": "set_cell",
         "base_url": None,
+        "request_id": None,
         "kw": {"sheet": 1, "cell": "A1", "value": 5, "doc_id": "book1"},
     }
+
+
+def test_remote_request_id_passthrough(monkeypatch):
+    # P1-4：Remote 方法额外暴露 request_id（幂等标识），显式给出时透传 client.call
+    captured = {}
+
+    def fake_call(app, op, base_url=None, request_id=None, **kw):
+        captured["request_id"] = request_id
+        return "ok"
+
+    monkeypatch.setattr("offipy.api.client.ensure_server", lambda: "server-up")
+    monkeypatch.setattr("offipy.api.client.call", fake_call)
+    with api.RemoteWord() as w:
+        w.write("hi", request_id="rid-abc")
+    assert captured["request_id"] == "rid-abc"
 
 
 def test_remote_word_ppt_call(monkeypatch):
