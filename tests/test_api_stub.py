@@ -129,6 +129,8 @@ def test_mypy_user_example_reveals_sliderecord_types(tmp_path):
     except FileNotFoundError:
         pytest.skip("环境无 mypy")
     out = proc.stdout + proc.stderr
+    if "No module named mypy" in out:
+        pytest.skip("环境无 mypy")  # python -m mypy 会正常启动，只是解释器找不到模块
     if "Cannot find implementation or library stub" in out:
         pytest.skip(f"mypy 无法解析 offipy 类型（{out.strip()}）")
     assert "SlideTextRecord" in out, out
