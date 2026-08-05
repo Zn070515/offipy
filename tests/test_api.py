@@ -32,14 +32,34 @@ def test_facade_quit_proxies(monkeypatch):
     captured = {}
 
     class FakeApp:
-        def quit(self):
+        def quit(self, force: bool = False):
             captured["quit"] = True
+            captured["force"] = force
 
     monkeypatch.setattr(
         "offipy.api.WordApp", lambda visible=True, modify_existing_visibility=False: FakeApp()
     )
     api.Word().quit()
     assert captured["quit"]
+    assert captured["force"] is False
+
+
+def test_facade_quit_force_propagates(monkeypatch):
+    # 0.10.2：_Facade.quit 必须透传 force——此前硬编码无参版本遮蔽
+    # PptApp/WordApp/ExcelApp 的 quit(force=True)，而报错消息又引导用户传 force
+    # （「确需退出请传 force=True」），传不进去是死路。三个 facade 共用基类，
+    # 修 _Facade 一处即全部覆盖。
+    captured = {}
+
+    class FakeApp:
+        def quit(self, force: bool = False):
+            captured["force"] = force
+
+    monkeypatch.setattr(
+        "offipy.api.PptApp", lambda visible=True, modify_existing_visibility=False: FakeApp()
+    )
+    api.Ppt().quit(force=True)
+    assert captured["force"] is True
 
 
 def test_facade_enter_exit_no_com(monkeypatch):

@@ -463,6 +463,9 @@ EXTRACT_JS = r"""
         rect: rectRel(r),
         marker: `slide${slideIndex+1}-img${imgIndex+1}`,
         src: el.currentSrc || el.src,
+        // 破图检测：naturalWidth/Height 为 0 = 图片未加载成功（本地文件缺失/
+        // 路径错误/远端 404）。convert.py 据此报错，杜绝「静默嵌入空白占位图」。
+        imgBroken: (el.naturalWidth || 0) === 0 && (el.naturalHeight || 0) === 0,
       });
       return;
     }

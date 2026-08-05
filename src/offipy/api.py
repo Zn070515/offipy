@@ -42,8 +42,11 @@ class _Facade:
         # super().__dir__() 仍含 _app/_app_name 等内部成员，此处只做并集不隐藏
         return sorted(set(super().__dir__()) | set(schema.ops(self._app_name)) | {"quit"})
 
-    def quit(self):
-        return self._app.quit()
+    def quit(self, force: bool = False):
+        # 实例方法优先于 __getattr__ 代理：必须显式透传 force，否则遮蔽
+        # PptApp/WordApp/ExcelApp 的 quit(force)（此前被硬编码无参版本拦住，
+        # 导致 quit(force=True) 抛 TypeError，而错误消息又引导用户传 force）。
+        return self._app.quit(force=force)
 
 
 class Excel(_Facade):
