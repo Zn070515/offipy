@@ -1,16 +1,25 @@
+# 持续依赖升级（P1-6）：pip 与 GitHub Actions 每周批量升级。
+# 升级由 latest-deps 门禁（ci.yml）兜底验证——锁文件测试一条 + 最新依赖一条，
+# 防止范围锁死掩盖上游破坏性变更。
 version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
-    commit-message:
-      prefix: "build(deps)"
+    groups:
+      # 批量开 PR，避免逐个依赖的 PR 噪声；敏感大版本（mcp/playwright/python-pptx）
+      # 仍受依赖上限保护，跨版本需人工审。
+      runtime-deps:
+        patterns: ["*"]
+      dev-deps:
+        patterns: ["*"]
     open-pull-requests-limit: 5
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    commit-message:
-      prefix: "build(deps)"
+    groups:
+      actions:
+        patterns: ["*"]
     open-pull-requests-limit: 5

@@ -30,6 +30,22 @@ jobs:
       - name: Test pure-module subset + coverage gate
         run: uv run pytest tests -m "not com and not deck_render" --cov=offipy --cov-fail-under=70 -q
 
+  # 最新依赖门禁（P1-6）：锁文件测试一条（windows/pure-module）之外，另起一条
+  # `uv sync --upgrade` 解析到依赖上限内的最新版本跑纯模块子集——范围锁死不掩盖
+  # 上游破坏性变更；配合 dependabot 每周批量升级 PR，跨上限大版本需人工审。
+  latest-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7.1.4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Sync dependencies (latest allowed)
+        run: uv sync --extra dev --upgrade
+      - name: Test pure-module subset (latest deps)
+        run: uv run pytest tests -m "not com and not deck_render" -q
+
   # Windows 全量：含 deck_render（安装 chromium），COM 测试无 Office 自动跳过
   windows:
     runs-on: windows-latest

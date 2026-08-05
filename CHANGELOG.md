@@ -7,10 +7,11 @@
 
 ## [0.9.0a1] - 2026-08-05（预发布）
 
-> **预发布编号策略**：正式首发 1.0.0 前，TestPyPI 预发布用 `0.9.0a1` / `0.9.0rc1`
+> **预发布编号策略**：正式首发前，TestPyPI 预发布用 `0.9.0a1` / `0.9.0rc1`
 > 编号；稳定发布时 `__version__`、git tag、CHANGELOG 顶层三者必须一致（对齐测试兜底）。
-> 当前处于 TestPyPI 预发布：round-3/round-4（ChatGPT_v3/v4 审核）全量修复后以 `0.9.0a1` 冒烟；
-> 预发布验证通过后转正式首发（`__version__`/CHANGELOG 顶层同步）。
+> 当前处于 TestPyPI 发布候选：round-7（ChatGPT_v7 审核）全量修复后仍以 `0.9.0a1`；
+> 预发布验证通过后正式首发 **0.9.0**，外部用户验证稳定后再升 **1.0.0**
+> （`__version__`/CHANGELOG 顶层同步）。
 
 ### Added
 - 高层 API facade：`offipy.Excel() / Word() / Ppt()` 上下文管理器，未显式定义的 op 代理到底层 app（`api.py`）
