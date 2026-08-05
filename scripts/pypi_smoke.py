@@ -46,12 +46,18 @@ def _venv_script(venv: Path, name: str) -> str:
     return str(venv / ("Scripts" if os.name == "nt" else "bin") / name)
 
 
-def _run(cmd: list[str]) -> subprocess.CompletedProcess:
-    # 子进程统一 UTF-8：Windows 默认 GBK 会把中文输出打乱/解码失败
+def _run(
+    cmd: list[str],
+    *,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
+    # 子进程统一 UTF-8：Windows 默认 GBK 会把中文输出打乱/解码失败。
+    # check=False 用于「退出码不代表门禁结果」的命令（如 offipy check——
+    # Chromium/Office 是否就绪是运行环境问题，非打包问题）。
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     return subprocess.run(
         cmd,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -136,6 +142,27 @@ def _download_and_verify(
     return wheel
 
 
+def _verify_check_report(r: subprocess.CompletedProcess, version: str) -> dict:
+    """解析 `offipy check --json` 的 stdout 并核对 version/checks。
+
+    不断言退出码：`offipy check` 返回 1 只代表运行环境某项未就绪
+    （如缺 Chromium），仍是合法 JSON——smoke 的目标是证明包可装可跑。
+    """
+    try:
+        report = json.loads(r.stdout.strip().splitlines()[-1])
+    except (json.JSONDecodeError, IndexError) as exc:
+        raise SystemExit(
+            f"[pypi-smoke] FAIL: offipy check --json 输出不是合法 JSON: {r.stdout!r}"
+        ) from exc
+    if report.get("version") != version:
+        raise SystemExit(
+            f"[pypi-smoke] FAIL: check JSON version = {report.get('version')!r} != {version!r}"
+        )
+    if not isinstance(report.get("checks"), list):
+        raise SystemExit("[pypi-smoke] FAIL: check JSON 缺 checks 数组")
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="TestPyPI 精确安装门禁。")
     parser.add_argument("--version", required=True, help="要下载安装验证的版本，如 0.9.0a1")
@@ -192,18 +219,13 @@ def main() -> int:
             raise SystemExit("[pypi-smoke] FAIL: offipy --help 无 usage 输出")
 
         print("[pypi-smoke] offipy check --profile all --json ...")
-        r = _run([script, "check", "--profile", "all", "--json"])
-        report = json.loads(r.stdout.strip().splitlines()[-1])
-        if report.get("version") != args.version:
-            raise SystemExit(
-                f"[pypi-smoke] FAIL: check JSON version = {report.get('version')!r} "
-                f"!= {args.version!r}"
-            )
-        if not isinstance(report.get("checks"), list):
-            raise SystemExit("[pypi-smoke] FAIL: check JSON 缺 checks 数组")
+        # 不断言退出码：Chromium/Office 是否就绪是运行环境问题，非打包问题；
+        # 只要 stdout 是合法 JSON 且 version 匹配即可（环境就绪由 office-real 承担）。
+        r = _run([script, "check", "--profile", "all", "--json"], check=False)
+        report = _verify_check_report(r, args.version)
         print(
             f"[pypi-smoke] check JSON version 匹配，checks = {len(report['checks'])} 项 "
-            f"（rc 不断言，环境就绪由 office-real 承担）"
+            f"（rc={r.returncode} 不断言，环境就绪由 office-real 承担）"
         )
 
         print("[pypi-smoke] offipy mcp --help ...")

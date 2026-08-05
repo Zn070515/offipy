@@ -1,6 +1,7 @@
-"""pypi_smoke 下载 + 双重 sha256 比对的纯单元测试（不触真实 TestPyPI / uv）。"""
+"""pypi_smoke 下载 + 双重 sha256 比对 + 安装冒烟解析的纯单元测试（不触真实 TestPyPI / uv）。"""
 
 import hashlib
+import subprocess
 import urllib.error
 
 import pytest
@@ -9,6 +10,8 @@ from scripts.pypi_smoke import (
     _download_wheel,
     _fetch_json,
     _pick_wheel_url,
+    _run,
+    _verify_check_report,
 )
 
 _INDEX = "https://test.pypi.org"
@@ -138,3 +141,78 @@ def test_download_and_verify_fails_on_expected_sha_mismatch(tmp_path, monkeypatc
 
     with pytest.raises(SystemExit, match="!= 构建产物"):
         _download_and_verify(_INDEX, _VERSION, tmp_path, expected_sha256="e" * 64)
+
+
+# --- _run 的 check 参数透传 ---
+
+
+def test_run_passes_check_param_through(monkeypatch):
+    captured = {}
+
+    def fake_run(cmd, **kwargs):
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr("scripts.pypi_smoke.subprocess.run", fake_run)
+    _run(["echo", "hi"])
+    assert captured["check"] is True
+    _run(["echo", "hi"], check=False)
+    assert captured["check"] is False
+
+
+# --- _verify_check_report：offipy check 非零退出码仍解析合法 JSON ---
+
+
+def _check_report(stdout: str, returncode: int = 1) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(
+        ["offipy", "check", "--profile", "all", "--json"],
+        returncode,
+        stdout=stdout,
+    )
+
+
+def test_verify_check_report_accepts_nonzero_returncode_with_valid_json():
+    import json
+
+    payload = {
+        "version": _VERSION,
+        "ok": False,
+        "fails": 1,
+        "warns": 0,
+        "checks": [
+            {
+                "section": "浏览器",
+                "name": "Chromium",
+                "ok": False,
+                "warn": False,
+                "detail": "无法启动（headless）",
+                "hint": "pip install playwright && playwright install chromium",
+            }
+        ],
+    }
+    report = _verify_check_report(_check_report(json.dumps(payload), returncode=1), _VERSION)
+    assert report["version"] == _VERSION
+    assert isinstance(report["checks"], list)
+    assert report["ok"] is False
+
+
+def test_verify_check_report_rejects_version_mismatch():
+    import json
+
+    r = _check_report(json.dumps({"version": "0.9.0", "checks": []}), returncode=0)
+    with pytest.raises(SystemExit, match=r"!= '0\.9\.0a1'"):
+        _verify_check_report(r, _VERSION)
+
+
+def test_verify_check_report_rejects_missing_checks():
+    import json
+
+    r = _check_report(json.dumps({"version": _VERSION}))
+    with pytest.raises(SystemExit, match="缺 checks"):
+        _verify_check_report(r, _VERSION)
+
+
+def test_verify_check_report_rejects_invalid_json():
+    r = _check_report("usage: offipy [-h] ... not-json-at-all")
+    with pytest.raises(SystemExit, match="不是合法 JSON"):
+        _verify_check_report(r, _VERSION)

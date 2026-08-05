@@ -1,4 +1,4 @@
-# OfficeForClaude 项目说明
+# offipy 项目开发说明
 
 Windows-only 的 Office COM 自动化库（offipy）：会话式驱动 Word/Excel/PowerPoint，外加 HTML→可编辑 PPTX 管线。
 
