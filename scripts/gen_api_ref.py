@@ -318,12 +318,18 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Add a slide at the end. layout is {1: Title, 2: Title and Content, 5: Title Only, "
         "12: Blank}, default 2. Returns the current total slide count."
     ),
-    ("ppt", "set_title"): "Set the title text of the slide_idx-th slide.",
+    (
+        "ppt",
+        "set_title",
+    ): "Set the title text of the slide_idx-th slide; auto-adds a text box when no title placeholder exists. Returns the shape ID actually modified.",
     (
         "ppt",
         "set_body",
-    ): "Set the body placeholder text of the slide_idx-th slide; lines is a list of strings, one per line.",
-    ("ppt", "set_notes"): "Write the speaker notes of the slide_idx-th slide.",
+    ): "Set the body placeholder text of the slide_idx-th slide; lines is a list of strings, one per line. Auto-adds a text box when no body placeholder exists. Returns the shape ID actually modified.",
+    (
+        "ppt",
+        "set_notes",
+    ): "Write the speaker notes of the slide_idx-th slide. Returns the shape ID actually modified.",
     (
         "ppt",
         "add_textbox",

@@ -20,6 +20,25 @@ PP_LAYOUT_TEXT = 2
 PP_LAYOUT_TITLE_ONLY = 5
 PP_LAYOUT_BLANK = 12
 
+PP_PLACEHOLDER_BODY = 2  # ppPlaceholderBody
+PP_PLACEHOLDER_TITLE = 13  # ppPlaceholderTitle
+PP_PLACEHOLDER_CENTER_TITLE = 14  # ppPlaceholderCenterTitle
+
+# 无对应占位符时自动建文本框的默认位置（磅）：4:3 标准幻灯片
+_TITLE_BOX = (36, 18, 648, 72)
+_BODY_BOX = (36, 90, 648, 396)
+
+
+def _placeholder_by_type(shapes, *pp_types):
+    """按占位符类型找 shape（不硬编码 Placeholders(2) 序号）；找不到返回 None。"""
+    placeholders = getattr(shapes, "Placeholders", None)
+    if placeholders is None:
+        return None
+    for i in range(1, placeholders.Count + 1):
+        if placeholders(i).PlaceholderFormat.Type in pp_types:
+            return placeholders(i)
+    return None
+
 
 @guard_com
 class PptApp:
@@ -242,8 +261,11 @@ class PptApp:
         if not text:
             raise InvalidArgumentError("set_title: text 不能为空")
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        if slide.Shapes.HasTitle:
-            slide.Shapes.Title.TextFrame.TextRange.Text = text
+        ph = _placeholder_by_type(slide.Shapes, PP_PLACEHOLDER_TITLE, PP_PLACEHOLDER_CENTER_TITLE)
+        if ph is None:
+            ph = slide.Shapes.AddTextbox(1, *_TITLE_BOX)
+        ph.TextFrame.TextRange.Text = text
+        return ph.Id
 
     @destructive
     def set_body(self, slide_idx: int, lines, doc_id: str | None = None):
@@ -252,13 +274,21 @@ class PptApp:
         if not lines:
             raise InvalidArgumentError("set_body: lines 不能为空")
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        ph = slide.Shapes.Placeholders(2)
+        ph = _placeholder_by_type(slide.Shapes, PP_PLACEHOLDER_BODY)
+        if ph is None:
+            ph = slide.Shapes.AddTextbox(1, *_BODY_BOX)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
+        return ph.Id
 
     @destructive
     def set_notes(self, slide_idx: int, text: str, doc_id: str | None = None):
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        slide.NotesPage.Shapes.Placeholders(2).TextFrame.TextRange.Text = text
+        shapes = slide.NotesPage.Shapes
+        ph = _placeholder_by_type(shapes, PP_PLACEHOLDER_BODY)
+        if ph is None:
+            ph = shapes.AddTextbox(1, *_BODY_BOX)
+        ph.TextFrame.TextRange.Text = text
+        return ph.Id
 
     @destructive
     def add_textbox(

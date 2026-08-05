@@ -353,6 +353,8 @@ class WordApp:
 
     @destructive
     def add_table(self, rows: int, cols: int, doc_id: str | None = None):
+        if rows < 1 or cols < 1:
+            raise InvalidArgumentError(f"add_table: 行列必须 ≥ 1（rows={rows}, cols={cols}）")
         doc = self._require_doc(doc_id)
         rng = doc.Content
         rng.Collapse(0)  # wdCollapseEnd：折叠到文末
@@ -498,6 +500,8 @@ class WordApp:
     # --- 列表 ---
     @destructive
     def add_list(self, lines: list[str], style: str = "bullet", doc_id: str | None = None):
+        if not lines:
+            raise InvalidArgumentError("add_list: lines 不能为空")
         doc = self._require_doc(doc_id)
         start = doc.Paragraphs.Count + 1  # 第一个新段落的序号
         for line in lines:

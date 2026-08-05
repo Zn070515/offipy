@@ -64,30 +64,30 @@
 
 ### `set_title`
 
-设置第 slide_idx 张幻灯片的标题文本。
+设置第 slide_idx 张幻灯片的标题；无标题占位符自动建框，返回 shape ID。
 
 - **参数**: `slide_idx: int`、`text: str`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `int`
 - **标志**: 会改动文档/应用状态
 
 ---
 
 ### `set_body`
 
-设置第 slide_idx 张幻灯片的正文占位符文本；lines 为逐行字符串列表。
+设置第 slide_idx 张幻灯片的正文；无正文占位符自动建框，返回 shape ID。
 
 - **参数**: `slide_idx: int`、`lines: any`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `int`
 - **标志**: 会改动文档/应用状态
 
 ---
 
 ### `set_notes`
 
-写入第 slide_idx 张幻灯片的演讲者备注。
+写入第 slide_idx 张幻灯片的演讲者备注，返回 shape ID。
 
 - **参数**: `slide_idx: int`、`text: str`、`doc_id: str`
-- **返回**: `void`
+- **返回**: `int`
 - **标志**: 会改动文档/应用状态
 
 ---

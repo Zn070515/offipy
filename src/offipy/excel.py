@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from . import core
-from ._comguard import guard_com
+from ._comguard import _COM_ERROR, guard_com
 from .core import destructive
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
@@ -367,8 +367,13 @@ class ExcelApp:
         if isinstance(sheet, str):
             try:
                 return book.Worksheets(sheet)
-            except Exception:
-                return book.Worksheets(int(sheet))
+            except _COM_ERROR:
+                if not sheet.isdigit():
+                    raise ComOperationError(f"工作表不存在: {sheet!r}") from None
+                try:
+                    return book.Worksheets(int(sheet))
+                except (ValueError, _COM_ERROR):
+                    raise ComOperationError(f"工作表不存在: {sheet!r}") from None
         return book.Worksheets(sheet)
 
     @destructive

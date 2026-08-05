@@ -587,18 +587,21 @@ OPS: dict[str, dict[str, OpSpec]] = {
             params={"layout": int, "doc_id": str},
         ),
         "set_title": OpSpec(
-            description="设置第 slide_idx 张幻灯片的标题文本。",
+            description="设置第 slide_idx 张幻灯片的标题；无标题占位符自动建框，返回 shape ID。",
             destructive=True,
+            returns="int",
             params={"slide_idx": int, "text": str, "doc_id": str},
         ),
         "set_body": OpSpec(
-            description="设置第 slide_idx 张幻灯片的正文占位符文本；lines 为逐行字符串列表。",
+            description="设置第 slide_idx 张幻灯片的正文；无正文占位符自动建框，返回 shape ID。",
             destructive=True,
+            returns="int",
             params={"slide_idx": int, "lines": Any, "doc_id": str},
         ),
         "set_notes": OpSpec(
-            description="写入第 slide_idx 张幻灯片的演讲者备注。",
+            description="写入第 slide_idx 张幻灯片的演讲者备注，返回 shape ID。",
             destructive=True,
+            returns="int",
             params={"slide_idx": int, "text": str, "doc_id": str},
         ),
         "add_textbox": OpSpec(

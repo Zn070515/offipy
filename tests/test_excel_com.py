@@ -2,6 +2,9 @@
 
 有 Excel 时，测试进程用 core.connect("excel")（单实例应用 GetActiveObject）
 直连读回断言；读不到就跑不起来 → pytestmark 兜底跳过。
+
+P0-3 doc_id 权威：破坏性 op 需显式 doc_id，故每个测试捕获 new_book 的
+doc_id 并传给后续写入/格式 op。
 """
 
 import sys
@@ -26,19 +29,19 @@ def _excel():
 
 
 def test_merge_cells_keeps_topleft_value():
-    call("excel", "new_book")
-    call("excel", "set_cell", sheet=1, cell="A1", value="merged")
-    call("excel", "merge_cells", sheet=1, range_addr="A1:B2")
+    did = call("excel", "new_book")
+    call("excel", "set_cell", sheet=1, cell="A1", value="merged", doc_id=did)
+    call("excel", "merge_cells", sheet=1, range_addr="A1:B2", doc_id=did)
     assert _excel().ActiveWorkbook.Sheets(1).Range("A1:B2").MergeCells is True
-    assert call("excel", "get_cell", sheet=1, cell="A1") == "merged"
-    call("excel", "unmerge_cells", sheet=1, range_addr="A1:B2")
+    assert call("excel", "get_cell", sheet=1, cell="A1", doc_id=did) == "merged"
+    call("excel", "unmerge_cells", sheet=1, range_addr="A1:B2", doc_id=did)
     # 取消合并后 B2 可写可读
-    call("excel", "set_cell", sheet=1, cell="B2", value="free")
-    assert call("excel", "get_cell", sheet=1, cell="B2") == "free"
+    call("excel", "set_cell", sheet=1, cell="B2", value="free", doc_id=did)
+    assert call("excel", "get_cell", sheet=1, cell="B2", doc_id=did) == "free"
 
 
 def test_set_border_thick_top():
-    call("excel", "new_book")
+    did = call("excel", "new_book")
     call(
         "excel",
         "set_border",
@@ -48,6 +51,7 @@ def test_set_border_thick_top():
         style="continuous",
         weight="thick",
         color="#FF0000",
+        doc_id=did,
     )
     ws = _excel().ActiveWorkbook.Sheets(1)
     b = ws.Range("A1:C3").Borders(8)  # xlEdgeTop
@@ -57,15 +61,15 @@ def test_set_border_thick_top():
 
 
 def test_freeze_panes_freeze_and_clear():
-    call("excel", "new_book")
-    call("excel", "freeze_panes", sheet=1, rows=1, cols=1)
+    did = call("excel", "new_book")
+    call("excel", "freeze_panes", sheet=1, rows=1, cols=1, doc_id=did)
     assert _excel().ActiveWindow.FreezePanes is True
-    call("excel", "freeze_panes", sheet=1, rows=0, cols=0)
+    call("excel", "freeze_panes", sheet=1, rows=0, cols=0, doc_id=did)
     assert _excel().ActiveWindow.FreezePanes is False
 
 
 def test_page_setup_orientation_and_area():
-    call("excel", "new_book")
+    did = call("excel", "new_book")
     call(
         "excel",
         "page_setup",
@@ -74,6 +78,7 @@ def test_page_setup_orientation_and_area():
         fit_to_pages_wide=1,
         center_horizontally=True,
         print_area="A1:C10",
+        doc_id=did,
     )
     ps = _excel().ActiveWorkbook.Sheets(1).PageSetup
     assert ps.Orientation == 2  # xlLandscape
@@ -83,8 +88,8 @@ def test_page_setup_orientation_and_area():
 
 
 def test_conditional_format_cell_rule():
-    call("excel", "new_book")
-    call("excel", "set_cell", sheet=1, cell="A1", value=10)
+    did = call("excel", "new_book")
+    call("excel", "set_cell", sheet=1, cell="A1", value=10, doc_id=did)
     call(
         "excel",
         "add_conditional_format",
@@ -95,6 +100,7 @@ def test_conditional_format_cell_rule():
         value=5,
         bg="#FFC7CE",
         fg="#9C0006",
+        doc_id=did,
     )
     fc = _excel().ActiveWorkbook.Sheets(1).Range("A1:A5").FormatConditions(1)
     assert fc.Type == 1  # xlCellValue
@@ -103,16 +109,22 @@ def test_conditional_format_cell_rule():
 
 
 def test_conditional_format_databar():
-    call("excel", "new_book")
+    did = call("excel", "new_book")
     call(
-        "excel", "add_conditional_format", sheet=1, range_addr="B2:B5", rule="databar", bg="#2251FF"
+        "excel",
+        "add_conditional_format",
+        sheet=1,
+        range_addr="B2:B5",
+        rule="databar",
+        bg="#2251FF",
+        doc_id=did,
     )
     fc = _excel().ActiveWorkbook.Sheets(1).Range("B2:B5").FormatConditions(1)
     assert fc.Type == 4  # xlDatabar
 
 
 def test_conditional_format_colorscale_three():
-    call("excel", "new_book")
+    did = call("excel", "new_book")
     call(
         "excel",
         "add_conditional_format",
@@ -122,6 +134,7 @@ def test_conditional_format_colorscale_three():
         min_color="#F8696B",
         max_color="#63BE7B",
         mid_color="#FFEB84",
+        doc_id=did,
     )
     fc = _excel().ActiveWorkbook.Sheets(1).Range("C2:C5").FormatConditions(1)
     assert fc.Type == 3  # xlColorScale
@@ -131,7 +144,7 @@ def test_conditional_format_colorscale_three():
 
 
 def test_conditional_format_colorscale_two():
-    call("excel", "new_book")
+    did = call("excel", "new_book")
     call(
         "excel",
         "add_conditional_format",
@@ -140,6 +153,7 @@ def test_conditional_format_colorscale_two():
         rule="colorscale",
         min_color="#F8696B",
         max_color="#63BE7B",
+        doc_id=did,
     )
     fc = _excel().ActiveWorkbook.Sheets(1).Range("D2:D5").FormatConditions(1)
     assert fc.Type == 3  # xlColorScale
@@ -147,28 +161,35 @@ def test_conditional_format_colorscale_two():
 
 
 def test_set_row_height():
-    call("excel", "new_book")
-    call("excel", "set_row_height", sheet=1, row=1, height=30)
+    did = call("excel", "new_book")
+    call("excel", "set_row_height", sheet=1, row=1, height=30, doc_id=did)
     assert _excel().ActiveWorkbook.Sheets(1).Rows(1).RowHeight == 30
 
 
 def test_set_number_format():
-    call("excel", "new_book")
-    call("excel", "set_cell", sheet=1, cell="A1", value=1234.5)
-    call("excel", "set_number_format", sheet=1, range_addr="A1:B1", fmt="#,##0.00")
+    did = call("excel", "new_book")
+    call("excel", "set_cell", sheet=1, cell="A1", value=1234.5, doc_id=did)
+    call("excel", "set_number_format", sheet=1, range_addr="A1:B1", fmt="#,##0.00", doc_id=did)
     assert _excel().ActiveWorkbook.Sheets(1).Range("A1").NumberFormat == "#,##0.00"
 
 
 def test_autofit_widens_long_text_column():
-    call("excel", "new_book")
-    call("excel", "set_cell", sheet=1, cell="A1", value="这是一段比较长的文本用于测试自动列宽")
-    call("excel", "autofit", sheet=1, columns=True, rows=False)
+    did = call("excel", "new_book")
+    call(
+        "excel",
+        "set_cell",
+        sheet=1,
+        cell="A1",
+        value="这是一段比较长的文本用于测试自动列宽",
+        doc_id=did,
+    )
+    call("excel", "autofit", sheet=1, columns=True, rows=False, doc_id=did)
     assert _excel().ActiveWorkbook.Sheets(1).Columns(1).ColumnWidth > 10
 
 
 def test_page_setup_margins():
-    call("excel", "new_book")
-    call("excel", "page_setup", sheet=1, margins={"left": 40, "top": 60})
+    did = call("excel", "new_book")
+    call("excel", "page_setup", sheet=1, margins={"left": 40, "top": 60}, doc_id=did)
     ps = _excel().ActiveWorkbook.Sheets(1).PageSetup
     assert ps.LeftMargin == 40
     assert ps.TopMargin == 60

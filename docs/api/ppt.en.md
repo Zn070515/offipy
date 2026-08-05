@@ -64,30 +64,30 @@ Add a slide at the end. layout is {1: Title, 2: Title and Content, 5: Title Only
 
 ### `set_title`
 
-Set the title text of the slide_idx-th slide.
+Set the title text of the slide_idx-th slide; auto-adds a text box when no title placeholder exists. Returns the shape ID actually modified.
 
 - **Parameters**: `slide_idx: int`, `text: str`, `doc_id: str`
-- **Returns**: `void`
+- **Returns**: `int`
 - **Flags**: mutates document/app state
 
 ---
 
 ### `set_body`
 
-Set the body placeholder text of the slide_idx-th slide; lines is a list of strings, one per line.
+Set the body placeholder text of the slide_idx-th slide; lines is a list of strings, one per line. Auto-adds a text box when no body placeholder exists. Returns the shape ID actually modified.
 
 - **Parameters**: `slide_idx: int`, `lines: any`, `doc_id: str`
-- **Returns**: `void`
+- **Returns**: `int`
 - **Flags**: mutates document/app state
 
 ---
 
 ### `set_notes`
 
-Write the speaker notes of the slide_idx-th slide.
+Write the speaker notes of the slide_idx-th slide. Returns the shape ID actually modified.
 
 - **Parameters**: `slide_idx: int`, `text: str`, `doc_id: str`
-- **Returns**: `void`
+- **Returns**: `int`
 - **Flags**: mutates document/app state
 
 ---
