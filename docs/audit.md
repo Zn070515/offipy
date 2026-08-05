@@ -195,15 +195,17 @@ report = audit_pptx(
 | 0.5 | 旋转形状的 AABB 近似（message 标注） |
 | 0.4 | 字符权重回退（message 标注「字符估算低置信」） |
 
-## warnings（解析异常，全部可追溯）
+## warnings（解析异常）
 
 `warnings` 记录解析层无法精确处理的项：`group.no_transform`（group 缺 `a:xfrm` →
 子元素无法精确定位 → 跳过需精确位置的规则）。遇到这些情况**不会**悄悄按零旋转处理。
+这是 v0.11 唯一的 warning 来源。
 
 ## 已知限制与误报控制
 
-- **不支持**：表格单元格 / SmartArt / 图表内部文本 / WordArt / 竖排 / 复杂项目符号
-  与自定义行距——进 warnings 或低置信 finding，不报死。
+- **v0.11 不执行以下结构的 text-fit 检查**（静默跳过、不报死、不误报）：表格单元格 /
+  SmartArt / 图表内部文本 / WordArt / 竖排 / 复杂项目符号与自定义行距。这些结构的
+  结构化 unsupported warning（`textfit.table_unsupported` 等）计划在 0.11.1 补齐。
 - 旋转组 / flip 的 bounds/margin/overlap 用 AABB 近似（几何形状本身占位不变，
   翻转只影响内容朝向）。
 - 不承诺所有 PPT 零误报——固定验收集（`tests/fixtures/audit/`）保证

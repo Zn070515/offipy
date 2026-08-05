@@ -133,8 +133,22 @@ _DECK_REASON = (
 
 @pytest.mark.skipif(not (_FIX / "deck_generated.pptx").exists(), reason=_DECK_REASON)
 def test_deck_generated_audits_clean():
-    """deck 产物可审计、无解析 warning（真实产物，不做过度强断言）。"""
+    """deck 产物可审计、无解析 warning（真实产物，不做过度强断言）。
+
+    已知误报记录（第 3 页，Tag 前打开页面人工复核）：
+    - covered_text MID：#3 "+18%" 是 12×2.222in 的高 textbox，覆盖 #4/#5 两行
+      说明文字的框——三者均为透明 TEXT_BOX（fill=BACKGROUND），视觉上各行独立
+      可见，属 deck 转换器把「大数字 + 两行说明」渲染成高 textbox 的正常排版。
+    - partial MID：同上 #3 与 #5 的框内叠放。
+    不改进 Pair 分类：透明与否需 shape fill 信息（extract 未提取），一刀切降级
+    会漏报真实遮挡；保持现状并在此固定预期，供人工验收。
+    """
     report = audit_pptx(_FIX / "deck_generated.pptx")
     assert report.slide_count >= 1
     assert report.warnings == []
     assert report.shapes
+    mids = [f for f in report.findings if f.severity == Severity.MID]
+    assert mids  # 两条已知误报必须存在，防止被静默改掉后无人复核
+    assert all(
+        f.rule_id in ("geometry.overlap.covered_text", "geometry.overlap.partial") for f in mids
+    )

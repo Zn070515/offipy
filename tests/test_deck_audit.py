@@ -14,6 +14,7 @@ import pytest
 from offipy import deck
 from offipy.audit import Severity
 from offipy.deck import AuditGateError, RenderResult, render_with_report
+from offipy.exceptions import InvalidArgumentError
 
 
 def _fake_audit_factory(severity: Severity | None):
@@ -133,3 +134,24 @@ def test_report_mode_does_not_raise_even_when_gate_hit(tmp_path, monkeypatch, fa
     assert isinstance(result, RenderResult)
     assert result.audit_report.max_severity == Severity.HIGH
     assert fake_tmp["replaced"] is True
+
+
+# ---------------------------------------------------------------- 阻断项 2：audit_mode 校验
+
+
+@pytest.mark.parametrize("bad_mode", ["strcit", "", "Strict", "report "])
+def test_invalid_audit_mode_raises_before_render(tmp_path, fake_tmp, bad_mode):
+    # 拼错 audit_mode 绝不静默退化绕 strict 门禁：进入渲染前抛 InvalidArgumentError
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    with pytest.raises(InvalidArgumentError):
+        render_with_report(str(html), audit_mode=bad_mode)  # type: ignore[arg-type]
+    assert fake_tmp["replaced"] is False  # 非法值绝不执行 os.replace
+
+
+def test_non_severity_fail_on_raises_before_render(tmp_path, fake_tmp):
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    with pytest.raises(InvalidArgumentError):
+        render_with_report(str(html), audit_mode="strict", fail_on="HIGH")  # type: ignore[arg-type]
+    assert fake_tmp["replaced"] is False

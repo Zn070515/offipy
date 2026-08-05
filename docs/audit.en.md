@@ -204,17 +204,19 @@ region count as page numbers.
 | 0.5 | AABB approximation of a rotated shape (message notes it) |
 | 0.4 | character-weight fallback (message notes "low-confidence character estimation") |
 
-## warnings (parse exceptions, all traceable)
+## warnings (parse exceptions)
 
 `warnings` record items the parse layer cannot handle precisely: `group.no_transform`
 (group missing `a:xfrm` → children cannot be precisely positioned → rules requiring exact
 position are skipped). These cases are **not** silently treated as zero rotation.
+This is the only warning source in v0.11.
 
 ## Known limitations & false-positive control
 
-- **Not supported**: table cells / SmartArt / text inside charts / WordArt / vertical text /
-  complex bullets and custom line spacing — they go into warnings or low-confidence findings,
-  never hard-fail.
+- **v0.11 does not run text-fit checks on** table cells / SmartArt / text inside charts /
+  WordArt / vertical text / complex bullets and custom line spacing — they are silently
+  skipped (no hard-fail, no false positive). Structured unsupported warnings
+  (`textfit.table_unsupported` etc.) are planned for 0.11.1.
 - Rotated groups / flips use AABB approximation for bounds/margin/overlap (the geometric shape
   occupies the same place; flipping only affects content orientation).
 - No promise of zero false positives on every PPT — the fixed verification corpus
