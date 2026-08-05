@@ -4,6 +4,7 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
+import re
 from contextlib import contextmanager
 from typing import Any
 
@@ -16,16 +17,30 @@ from .paths import ensure_writable
 XL_TYPE_PDF = 0
 
 
+_CELL_RE = re.compile(r"^([A-Za-z]{1,3})(\d{1,7})$")
+# Excel 真实 grid 上限：XFD 列（16384）× 1048576 行
+_MAX_COL = 16384
+_MAX_ROW = 1048576
+
+
 def _parse_cell(cell: str):
-    """把 'A1' 解析成 (row, col)，行列为 1 基；非法格式抛 InvalidArgumentError。"""
-    col_part = "".join(ch for ch in cell if ch.isalpha()).upper()
-    row_part = "".join(ch for ch in cell if not ch.isalpha())
-    if not col_part or not row_part.isdigit() or int(row_part) < 1:
-        raise InvalidArgumentError(f"非法单元格: {cell!r}（期望如 'A1'）")
+    r"""把 'A1' 解析成 (row, col)，行列为 1 基。
+
+    收严为 Excel 真实坐标：`^([A-Za-z]{1,3})(\d{1,7})$`。畸形（如 'A1B2'——
+    不再被字母/数字拆分误读）或越界（列 > XFD、行 > 1048576）抛
+    InvalidArgumentError。
+    """
+    m = _CELL_RE.match(str(cell))
+    if m is None:
+        raise InvalidArgumentError(f"非法单元格: {cell!r}（期望如 'A1'，列 ≤ XFD）")
+    col_part, row_part = m.groups()
     col = 0
-    for ch in col_part:
+    for ch in col_part.upper():
         col = col * 26 + (ord(ch) - ord("A") + 1)
-    return int(row_part), col
+    row = int(row_part)
+    if row < 1 or col > _MAX_COL or row > _MAX_ROW:
+        raise InvalidArgumentError(f"单元格越界: {cell!r}（上限 XFD1048576）")
+    return row, col
 
 
 def _rgb(hex_color: str) -> int:

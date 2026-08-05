@@ -315,6 +315,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("mcp", help="启动 MCP stdio server（Claude Desktop 等接入）")
     ck = sub.add_parser("check", help="检查环境就绪（Python/依赖/Office/浏览器/server）")
     ck.add_argument("--json", action="store_true", help="输出 JSON")
+    ck.add_argument(
+        "--profile",
+        choices=["core", "office", "deck", "mcp"],
+        default=None,
+        help="只检查指定 profile（core 为基线，office/deck/mcp 各叠加对应分组）",
+    )
     srv = sub.add_parser("server", help="管理常驻 server（status/stop/restart）")
     srv.add_argument(
         "action",
@@ -322,10 +328,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="status",
         choices=["status", "stop", "restart"],
     )
-    srv.add_argument("--port", type=int, help="目标 server 端口（默认 8890）")
+    # 子解析器的 --port 用 SUPPRESS：未给时不覆盖顶层值（否则默认 None 会把
+    # `offipy --port 8891 server status` 的端口冲掉）。
+    srv.add_argument(
+        "--port", type=int, default=argparse.SUPPRESS, help="目标 server 端口（默认 8890）"
+    )
     lg = sub.add_parser("log", help="读取操作日志（oplog.jsonl，P2-3）")
     lg.add_argument("--tail", type=int, help="只显示末尾 N 条")
-    lg.add_argument("--port", type=int, help="目标 server 端口（默认 8890）")
+    lg.add_argument(
+        "--port", type=int, default=argparse.SUPPRESS, help="目标 server 端口（默认 8890）"
+    )
     return p
 
 
@@ -348,7 +360,7 @@ def _main(argv=None):
     if args.app == "check":
         from .envcheck import main as check_main
 
-        return check_main(json_output=args.json)
+        return check_main(json_output=args.json, profile=getattr(args, "profile", None))
     if args.app == "quit":
         ensure_server()
         call(args.target, "quit")

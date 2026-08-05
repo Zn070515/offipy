@@ -9,9 +9,11 @@ from offipy.excel import (
     _LINE_STYLE,
     _ORIENTATION,
     _PAPER_SIZE,
+    _parse_cell,
     _resolve_sides,
     _resolve_style,
 )
+from offipy.exceptions import InvalidArgumentError
 
 
 def test_constants_tables():
@@ -62,3 +64,37 @@ def test_resolve_style_case_insensitive():
 def test_resolve_style_unknown_raises():
     with pytest.raises(ValueError):
         _resolve_style("super-thick", _BORDER_WEIGHT, "线宽")
+
+
+# --- _parse_cell 收严（P0/§11：Excel 真实坐标，越界/畸形一律拒绝） ---
+
+
+def test_parse_cell_valid():
+    assert _parse_cell("A1") == (1, 1)
+    assert _parse_cell("Z26") == (26, 26)
+    assert _parse_cell("AA1") == (1, 27)
+    assert _parse_cell("XFD1048576") == (1048576, 16384)  # 上限值合法
+
+
+def test_parse_cell_col_out_of_bounds():
+    with pytest.raises(InvalidArgumentError):
+        _parse_cell("XFE1")  # XFE > XFD(16384)
+
+
+def test_parse_cell_row_out_of_bounds():
+    with pytest.raises(InvalidArgumentError):
+        _parse_cell("A1048577")  # > 1048576
+    with pytest.raises(InvalidArgumentError):
+        _parse_cell("A0")  # 0 基行非法
+
+
+def test_parse_cell_malformed_rejected():
+    # 回归：'A1B2' 曾按字母/数字拆分被误读成 (12, 28)
+    for bad in ("A1B2", "1A", "A", "123", "", "A1!"):
+        with pytest.raises(InvalidArgumentError):
+            _parse_cell(bad)
+
+
+def test_parse_cell_case_insensitive():
+    assert _parse_cell("a1") == (1, 1)
+    assert _parse_cell("xfd1048576") == (1048576, 16384)

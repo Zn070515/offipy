@@ -588,6 +588,16 @@ class Handler(BaseHTTPRequestHandler):
             )
         # 校验（鉴权/路径/Content-Type/体积/白名单）留在 handler 线程 fail-fast；
         # COM op 入队给单 worker 串行执行，worker 结果经 per-request 队列取回。
+        raw_args = body.get("args", {})
+        if not isinstance(raw_args, dict):
+            return self._reply(
+                {
+                    "ok": False,
+                    "error": "args 必须是 JSON 对象（dict），不接受 list/str",
+                    "error_code": "invalid_argument",
+                },
+                status=400,
+            )
         request_id = body.get("request_id")
         if not isinstance(request_id, str) or not request_id:
             request_id = None
@@ -599,7 +609,7 @@ class Handler(BaseHTTPRequestHandler):
         _ensure_worker()
         resp_q: queue.Queue[tuple] = queue.Queue(maxsize=1)
         try:
-            _COM_QUEUE.put_nowait((app_name, op, body.get("args", {}), resp_q))
+            _COM_QUEUE.put_nowait((app_name, op, raw_args, resp_q))
         except queue.Full:
             # 有界队列（§4）：满则立即 503，不让调用方无限排队
             return self._reply(

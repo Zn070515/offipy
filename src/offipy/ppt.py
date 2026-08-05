@@ -9,7 +9,7 @@ from typing import Any
 
 from . import core
 from ._comguard import guard_com
-from .exceptions import ComOperationError, TargetNotFoundError
+from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -200,14 +200,18 @@ class PptApp:
         return pres.Slides.Count
 
     def set_title(self, slide_idx: int, text: str, doc_id: str | None = None):
+        if not text:
+            raise InvalidArgumentError("set_title: text 不能为空")
         slide = self._require_pres(doc_id).Slides(slide_idx)
         if slide.Shapes.HasTitle:
             slide.Shapes.Title.TextFrame.TextRange.Text = text
 
     def set_body(self, slide_idx: int, lines, doc_id: str | None = None):
-        slide = self._require_pres(doc_id).Slides(slide_idx)
         if isinstance(lines, str):
             lines = [lines]
+        if not lines:
+            raise InvalidArgumentError("set_body: lines 不能为空")
+        slide = self._require_pres(doc_id).Slides(slide_idx)
         ph = slide.Shapes.Placeholders(2)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
 

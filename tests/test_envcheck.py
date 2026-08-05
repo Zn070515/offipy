@@ -309,7 +309,7 @@ def test_render_json_structure():
 
 
 def test_main_exit_one_on_hard_fail(monkeypatch, capsys):
-    monkeypatch.setattr(envcheck, "run", lambda: _checks_fixture())
+    monkeypatch.setattr(envcheck, "run", lambda profile=None: _checks_fixture())
     assert envcheck.main() == 1
     assert "结果:" in capsys.readouterr().out
 
@@ -319,13 +319,66 @@ def test_main_exit_zero_when_only_warns(monkeypatch, capsys):
         envcheck.Check("运行时", "Python", True, "3.12"),
         envcheck.Check("本地 server", "x", False, "未运行", warn=True),
     ]
-    monkeypatch.setattr(envcheck, "run", lambda: only_warns)
+    monkeypatch.setattr(envcheck, "run", lambda profile=None: only_warns)
     assert envcheck.main() == 0
 
 
 def test_main_json_output(monkeypatch, capsys):
     all_ok = [envcheck.Check("运行时", "Python", True, "3.12")]
-    monkeypatch.setattr(envcheck, "run", lambda: all_ok)
+    monkeypatch.setattr(envcheck, "run", lambda profile=None: all_ok)
     assert envcheck.main(json_output=True) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["ok"] is True
+
+
+# --- check --profile 过滤（§11/§12） ---
+
+
+def test_run_profile_filters(monkeypatch):
+    """core 基线 + 各自分组；非相关分组不构建（不启 chromium）。"""
+    monkeypatch.setattr(
+        envcheck,
+        "_check_dependencies",
+        lambda: [
+            envcheck.Check("依赖", "pywin32", True, "1.0"),
+            envcheck.Check("依赖", "playwright", True, "1.0"),
+            envcheck.Check("依赖", "mcp", True, "1.0"),
+        ],
+    )
+    monkeypatch.setattr(
+        envcheck,
+        "_check_office",
+        lambda: [envcheck.Check("Office 套件", "excel", True, "已安装")],
+    )
+    monkeypatch.setattr(
+        envcheck,
+        "_check_server",
+        lambda: envcheck.Check("本地 server", "127.0.0.1:8890", True, "运行中"),
+    )
+    monkeypatch.setattr(
+        envcheck, "_check_pdf", lambda: envcheck.Check("PDF 可选路径", "x", True, "ok")
+    )
+    browser_calls = []
+
+    def fake_browser():
+        browser_calls.append(1)
+        return envcheck.Check("浏览器", "Chromium", True, "ok")
+
+    monkeypatch.setattr(envcheck, "_check_browser", fake_browser)
+
+    names = {c.name for c in envcheck.run("office")}
+    assert "Python" in names  # core 基线
+    assert "excel" in names  # office 分组
+    assert "pywin32" in names  # office 依赖
+    assert "playwright" not in names  # deck 依赖不出现
+    assert "Chromium" not in names  # 非 deck 不构建浏览器检查
+    assert browser_calls == []
+
+    names = {c.name for c in envcheck.run("mcp")}
+    assert "mcp" in names
+    assert browser_calls == []
+
+    names = {c.name for c in envcheck.run("deck")}
+    assert "playwright" in names
+    assert "Chromium" in names
+    assert browser_calls == [1]

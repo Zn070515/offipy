@@ -184,21 +184,39 @@ def test_check_dispatch_passes_json(monkeypatch):
 
     captured = {}
 
-    def fake_check_main(json_output=False):
+    def fake_check_main(json_output=False, profile=None):
         captured["json_output"] = json_output
+        captured["profile"] = profile
         return 0
 
     monkeypatch.setattr("offipy.envcheck.main", fake_check_main)
     assert cli.main(["check"]) == 0
     assert captured["json_output"] is False
+    assert captured["profile"] is None
     assert cli.main(["check", "--json"]) == 0
     assert captured["json_output"] is True
+
+
+def test_check_dispatch_passes_profile(monkeypatch):
+    from offipy import cli
+
+    captured = {}
+
+    def fake_check_main(json_output=False, profile=None):
+        captured["profile"] = profile
+        return 0
+
+    monkeypatch.setattr("offipy.envcheck.main", fake_check_main)
+    assert cli.main(["check", "--profile", "office"]) == 0
+    assert captured["profile"] == "office"
+    assert cli.main(["check", "--profile", "deck"]) == 0
+    assert captured["profile"] == "deck"
 
 
 def test_check_dispatch_propagates_exit_code(monkeypatch):
     from offipy import cli
 
-    monkeypatch.setattr("offipy.envcheck.main", lambda json_output=False: 1)
+    monkeypatch.setattr("offipy.envcheck.main", lambda json_output=False, profile=None: 1)
     assert cli.main(["check"]) == 1
 
 
@@ -211,6 +229,21 @@ def test_server_subcommand_parses():
     assert args.action == "status"  # 缺省 status
     assert build_parser().parse_args(["server", "stop"]).action == "stop"
     assert build_parser().parse_args(["server", "restart"]).action == "restart"
+
+
+def test_server_subcommand_port_inherits_parent():
+    # §11 回归：子解析器 --port 默认 None 曾覆盖顶层值，`--port 8891 server status`
+    # 丢掉端口；SUPPRESS 后未给时不覆盖父级值。
+    args = build_parser().parse_args(["--port", "8891", "server", "status"])
+    assert args.port == 8891
+    assert build_parser().parse_args(["server", "status"]).port is None  # 顶层缺省
+
+
+def test_log_subcommand_port_inherits_or_overrides():
+    args = build_parser().parse_args(["--port", "8891", "log"])
+    assert args.port == 8891  # 顶层传入，子命令继承
+    args = build_parser().parse_args(["log", "--port", "8892"])
+    assert args.port == 8892  # 子命令显式传入覆盖
 
 
 def test_server_status_dispatch(monkeypatch, capsys):

@@ -326,7 +326,10 @@ examples/     # 可运行示例（decks / outline / excel / word）
 
 ## License
 
-MIT
+MIT AND ISC（SPDX 表达式）——offipy 本体与 vendored 转换器 / Phosphor 图标为 MIT，
+内嵌 Lucide 图标为 ISC。许可证原文随产物分发：根目录 `LICENSE` +
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)，图标集各自的 `LICENSE-*.txt` 见
+`src/offipy/assets/icons/`。
 
 ## 反馈与问题
 

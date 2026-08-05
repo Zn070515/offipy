@@ -132,6 +132,24 @@ def test_request_id_no_id_no_dedupe(srv):
     assert len(calls) == 2
 
 
+def test_call_args_must_be_dict(srv):
+    # §11：args 非 dict（list/str）→ 400 invalid_argument，不碰 dispatch
+    port, calls = srv
+    status, body = _post(port, {"app": "ppt", "op": "slow", "args": [1, 2]}, token=TOKEN)
+    assert status == 400
+    assert body["error_code"] == "invalid_argument"
+    assert "args" in body["error"]
+    assert calls == []  # worker 没被调用（fail-fast 在 handler 线程）
+
+
+def test_call_args_string_rejected(srv):
+    port, calls = srv
+    status, body = _post(port, {"app": "ppt", "op": "slow", "args": "A1"}, token=TOKEN)
+    assert status == 400
+    assert body["error_code"] == "invalid_argument"
+    assert calls == []
+
+
 def test_request_id_failure_also_deduped(srv):
     # 失败响应同样缓存：重试不重执行已失败的操作
     port, calls = srv

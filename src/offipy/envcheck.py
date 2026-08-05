@@ -199,11 +199,38 @@ def _check_pdf() -> Check:
     return Check("PDF 可选路径", "LibreOffice/pdf2image", True, detail, warn=True)
 
 
-def run() -> list[Check]:
+# check --profile 过滤表：office/deck/mcp 都以 core 为基线，再叠加各自分组
+_CORE_SECTIONS = {"运行时", "offipy", "本地 server", "PDF 可选路径"}
+_PROFILE_SECTIONS = {
+    "office": {"Office 套件"},
+    "deck": {"浏览器"},
+    "mcp": set(),
+}
+_PROFILE_DEPS = {
+    "office": {"pywin32"},
+    "deck": {"python-pptx", "lxml", "fonttools", "playwright", "Pillow"},
+    "mcp": {"mcp"},
+}
+
+
+def run(profile: str | None = None) -> list[Check]:
     checks = [_check_python(), _check_platform(), _check_offipy()]
-    checks += _check_dependencies()
-    checks += _check_office()
-    checks.append(_check_browser())
+    if profile is None:
+        checks += _check_dependencies()
+        checks += _check_office()
+        checks.append(_check_browser())
+        checks.append(_check_server())
+        checks.append(_check_pdf())
+        return checks
+    # profile 模式按需构建，跳过无关的昂贵检查（如非 deck 不启 chromium）
+    sections = _CORE_SECTIONS | _PROFILE_SECTIONS.get(profile, set())
+    deps = _PROFILE_DEPS.get(profile, set())
+    if deps:
+        checks += [c for c in _check_dependencies() if c.name in deps]
+    if "Office 套件" in sections:
+        checks += _check_office()
+    if "浏览器" in sections:
+        checks.append(_check_browser())
     checks.append(_check_server())
     checks.append(_check_pdf())
     return checks
@@ -258,8 +285,8 @@ def render_json(checks: list[Check]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def main(json_output: bool = False) -> int:
-    checks = run()
+def main(json_output: bool = False, profile: str | None = None) -> int:
+    checks = run(profile)
     if json_output:
         print(render_json(checks))
     else:
