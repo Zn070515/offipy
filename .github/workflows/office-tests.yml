@@ -1,0 +1,92 @@
+# 自托管 Office 真机测试（reusable，P0-5/P0-6）：CI 与 release 共享同一 runner 配置，
+# 防两条 workflow 各自维护导致漂移。
+#
+# 两种来源：
+#   - install_from_wheel: false（CI push/PR）→ uv sync 源码模式跑真机测试
+#   - install_from_wheel: true（release）→ 下载 dist artifact，装最终 wheel 到干净
+#     venv 再跑——真机门禁验证的是「要发布的包」，而非工作区源码。
+#
+# 前置（见 docs/release.md）：
+#   - 自托管 runner labels: [self-hosted, windows, office]
+#   - 仓库需配置 required status check（release 的 office-real 默认必经）
+
+name: Office tests (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      # 装 wheel 跑（release）还是 uv sync 源码跑（CI）
+      install_from_wheel:
+        type: boolean
+        required: false
+        default: false
+      # install_from_wheel 时下载的 dist artifact 名
+      dist_artifact:
+        type: string
+        required: false
+        default: ""
+      # 测试标记子集（默认真机 COM + deck_render）
+      test_marker:
+        type: string
+        required: false
+        default: "com or deck_render"
+
+jobs:
+  office-tests:
+    runs-on: [self-hosted, windows, office]
+    # 自托管 runner 直连 github.com 主站被墙（api.github.com 能通、主站超时），
+    # git fetch / setup-uv 下载 / uv sync 全部经本机 VPN 本地代理 127.0.0.1:12334。
+    # 代理地址是这台 runner 宿主机 VPN 的端口，换 VPN/端口时需同步。
+    # 小写 key（GitHub 对 env key 大小写不敏感，大小写变体共存会导致 schema 失败）。
+    env:
+      http_proxy: http://127.0.0.1:12334
+      https_proxy: http://127.0.0.1:12334
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复自托管 Windows runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
+        with:
+          enable-cache: false
+
+      # 自托管 runner 服务非管理员账户，actions/setup-python 查/清注册表被拒
+      # （SecurityException），故不装系统 Python——uv 按 .python-version(3.12)
+      # 自管/自装解释器，绕开注册表权限。
+
+      - name: Download dist artifact
+        if: inputs.install_from_wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.dist_artifact }}
+          path: dist
+
+      # 装 wheel 用 bash：`"dist"/*.whl` 的 glob + `[office,deck,mcp]` extras 拼接
+      # 依赖 bash 把两者拼成一个参数（PowerShell 不展开原生命令的通配符）。
+      - name: Install final wheel into clean venv
+        if: inputs.install_from_wheel
+        shell: bash
+        run: |
+          uv venv .venv-wheel
+          uv pip install --python .venv-wheel "dist"/*.whl"[office,deck,mcp]" pytest
+
+      - name: Sync dependencies (source mode)
+        if: ${{ !inputs.install_from_wheel }}
+        run: uv sync --extra dev
+
+      - name: Install Playwright browser (deck 管线 DOM 测量)
+        shell: bash
+        run: |
+          if [ "${{ inputs.install_from_wheel }}" = "true" ]; then
+            .venv-wheel/Scripts/python.exe -m playwright install chromium
+          else
+            uv run playwright install chromium
+          fi
+
+      - name: Test COM + deck_render (真机)
+        shell: bash
+        run: |
+          if [ "${{ inputs.install_from_wheel }}" = "true" ]; then
+            .venv-wheel/Scripts/python.exe -m pytest tests -m "${{ inputs.test_marker }}" -q
+          else
+            uv run pytest tests -m "${{ inputs.test_marker }}" -q
+          fi

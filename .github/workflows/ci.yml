@@ -89,30 +89,14 @@ jobs:
           name: offipy-wheel
           path: dist/*.whl
 
-  # 自托管 Office runner：真机 COM + deck_render 集成测试。
+  # 自托管 Office runner：真机 COM + deck_render 集成测试。与 release 共享
+  # reusable office-tests.yml（P0-5），防两处 runner 配置漂移。
   # push/schedule 常跑，PR 也跑（合并门禁）；fork PR 无自托管 runner 权限跳过。
   # 仓库设置里请把本 job 加为 PR 必过 status check（required check）——fork PR
   # 会因 runner 不可用而跳过，需要在分支保护里豁免（如 paths-ignore 或 allow skip）。
   office-real:
     if: (github.event_name == 'push' || github.event_name == 'schedule') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, windows, office]
-    # 自托管 runner 直连 github.com 主站被墙（api.github.com 能通、主站超时），
-    # git fetch / setup-uv 下载 / uv sync 全部经本机 VPN 本地代理 127.0.0.1:12334。
-    # 代理地址是这台 runner 宿主机 VPN 的端口，换 VPN/端口时需同步。
-    env:
-      http_proxy: http://127.0.0.1:12334
-      https_proxy: http://127.0.0.1:12334
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复自托管 Windows runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
-        with:
-          enable-cache: false
-      # 自托管 runner 服务非管理员账户，actions/setup-python 查/清注册表被拒
-      # （SecurityException），故不装系统 Python——uv 按 .python-version(3.12)
-      # 自管/自装解释器，绕开注册表权限。
-      - name: Sync dependencies
-        run: uv sync --extra dev
-      - name: Install Playwright browser (deck 管线 DOM 测量)
-        run: uv run playwright install chromium
-      - name: Test COM + deck_render (真机)
-        run: uv run pytest tests -m "com or deck_render" -q
+    uses: ./.github/workflows/office-tests.yml
+    with:
+      install_from_wheel: false
+    secrets: inherit

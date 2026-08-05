@@ -94,6 +94,10 @@ jobs:
         shell: bash
         run: uv run python scripts/verify_wheel.py
 
+      - name: Verify sdist rebuild（从 sdist 独立重建 wheel 再实证，P0-6）
+        shell: bash
+        run: uv run python scripts/verify_sdist.py
+
       - name: Wheel sha256 output
         id: sha
         shell: bash
@@ -109,32 +113,15 @@ jobs:
           if-no-files-found: error
 
   # 自托管真机门禁：COM + deck_render 集成测试。发布必须过它。
+  # 与 CI 共享 reusable office-tests.yml（P0-5/6），但安装的是最终 wheel
+  # （quality 上传的 offipy-dist artifact）而非工作区源码——门禁验证「要发布的包」。
   office-real:
-    runs-on: [self-hosted, windows, office]
     needs: quality
-    env:
-      PYTHONIOENCODING: utf-8
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复 Windows 自托管 runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
-        with:
-          enable-cache: false
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Sync dependencies
-        run: uv sync --extra dev
-
-      - name: Install Playwright browser (deck 管线 DOM 测量)
-        run: uv run playwright install chromium
-
-      - name: Test COM + deck_render (真机)
-        run: uv run pytest tests -m "com or deck_render" -q
+    uses: ./.github/workflows/office-tests.yml
+    with:
+      install_from_wheel: true
+      dist_artifact: offipy-dist
+    secrets: inherit
 
   # 创建 GitHub Release（附验证过的 sdist + wheel）。在 TestPyPI 发布与精确安装
   # 冒烟之后（P0-6：Release 不先于发布门禁），Alpha/预发布打 prerelease。
