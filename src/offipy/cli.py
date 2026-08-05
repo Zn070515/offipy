@@ -388,6 +388,11 @@ def build_parser() -> argparse.ArgumentParser:
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
     q = sub.add_parser("quit")
     q.add_argument("target", choices=["excel", "word", "ppt"])
+    q.add_argument(
+        "--force",
+        action="store_true",
+        help="即使连接的是既有 Office 实例也强制退出（own 实例缺省即可退）",
+    )
     sub.add_parser("mcp", help="启动 MCP stdio server（Claude Desktop 等接入）")
     ck = sub.add_parser("check", help="检查环境就绪（Python/依赖/Office/浏览器/server）")
     ck.add_argument("--json", action="store_true", help="输出 JSON")
@@ -439,7 +444,7 @@ def _main(argv=None):
         return check_main(json_output=args.json, profile=getattr(args, "profile", None))
     if args.app == "quit":
         ensure_server()
-        call(args.target, "quit")
+        call(args.target, "quit", force=args.force)
         print("quit ok")
         return
     if args.app == "server":

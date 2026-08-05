@@ -144,6 +144,8 @@ def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
 class ExcelApp:
     def __init__(self, visible: bool = True):
         self.app, self.created = core.ensure_app("excel", visible=visible)
+        # _owned：本库启动的实例才允许 quit() 直接退出；连到既有实例默认拒绝
+        self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._docs: dict[str, Any] = {}  # doc_id → 工作簿句柄（P2-2 多文档）
@@ -308,7 +310,7 @@ class ExcelApp:
     def close_book(self, save: bool = True, doc_id: str | None = None):
         """关闭工作簿（doc_id 缺省为活动）。
 
-        save=True → 先保存（从未保存过则自动落盘同层目录，不弹另存为）并返回
+        save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
         保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。
         """
         book = self._require_book(doc_id)
@@ -336,7 +338,7 @@ class ExcelApp:
         """保存工作簿并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
-        自动落盘 <cwd>/<名字>_<时间戳>.xlsx（不弹另存为对话框）。
+        自动落盘 <用户数据目录>/documents/<名字>_<时间戳>.xlsx（不弹另存为对话框）。
         """
         if path:
             dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
@@ -593,7 +595,14 @@ class ExcelApp:
             target.Rows.AutoFit()
 
     # --- 生命周期 ---
-    def quit(self):
+    def quit(self, force: bool = False):
+        """退出 Excel 会话。
+
+        own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
+        （不夺走用户正用的窗口），确需退出传 force=True。
+        """
         # 库改全局状态（DisplayAlerts），释放前还原原值
         self.app.DisplayAlerts = self._saved_alerts
+        if not self._owned and not force:
+            raise ComOperationError("连接的是既有 Excel 实例，拒绝退出；确需退出请传 force=True")
         core.quit_app("excel")

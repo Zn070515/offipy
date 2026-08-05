@@ -20,6 +20,14 @@ def test_quit_target_does_not_shadow_app():
     assert args.target == "ppt"
 
 
+def test_quit_parser_has_force_flag():
+    # P1-5：offipy quit <target> --force 强制退出既有 Office 实例
+    args = build_parser().parse_args(["quit", "excel", "--force"])
+    assert args.force is True
+    args = build_parser().parse_args(["quit", "excel"])
+    assert args.force is False
+
+
 def test_office_subcommand_has_kwargs():
     args = build_parser().parse_args(["ppt", "add_slide", "--layout", "2"])
     assert args.app == "ppt"

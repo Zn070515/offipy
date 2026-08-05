@@ -100,14 +100,14 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("excel", "open_book"): "Open an existing .xlsx/.xls file, set it active, return doc_id.",
     ("excel", "close_book"): (
         "Close the workbook (doc_id defaults to the active one). With save=True it saves "
-        "first (a never-saved document auto-saves to the same directory without the Save As "
+        "first (a never-saved document auto-saves to the user data directory without the Save As "
         "dialog) and returns the save path; with save=False nothing is saved, no dialog, "
         "returns null."
     ),
     ("excel", "save"): (
         "Save the workbook (doc_id defaults to the active one) and return the absolute path. "
         "If path is given, save-as to that path; otherwise save back to the original path "
-        "(a never-saved document auto-saves to the same directory without the Save As dialog); "
+        "(a never-saved document auto-saves to the user data directory without the Save As dialog); "
         "overwrite=True allows overwriting an existing file."
     ),
     ("excel", "save_pdf"): (
@@ -182,20 +182,23 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Identity of the active workbook (app/doc_id/name/path); null if none. "
         "Pass doc_id to query a specific workbook."
     ),
-    ("excel", "quit"): "Quit the Excel session (close the application window).",
+    ("excel", "quit"): (
+        "Quit the Excel session (close the application window). Refuses by default when "
+        "attached to an existing Office instance; force=True overrides."
+    ),
     # --- word ---
     ("word", "new_doc"): "Create a new blank document, set it active, return doc_id.",
     ("word", "open_doc"): "Open an existing .docx/.doc file, set it active, return doc_id.",
     ("word", "close_doc"): (
         "Close the document (doc_id defaults to the active one). With save=True it saves "
-        "first (a never-saved document auto-saves to the same directory without the Save As "
+        "first (a never-saved document auto-saves to the user data directory without the Save As "
         "dialog) and returns the save path; with save=False nothing is saved, no dialog, "
         "returns null."
     ),
     ("word", "save"): (
         "Save the document (doc_id defaults to the active one) and return the absolute path. "
         "If path is given, save-as to that path; otherwise save back to the original path "
-        "(a never-saved document auto-saves to the same directory without the Save As dialog); "
+        "(a never-saved document auto-saves to the user data directory without the Save As dialog); "
         "overwrite=True allows overwriting an existing file."
     ),
     ("word", "save_pdf"): (
@@ -289,14 +292,17 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Identity of the active document (app/doc_id/name/path); null if none. "
         "Pass doc_id to query a specific document."
     ),
-    ("word", "quit"): "Quit the Word session (close the application window).",
+    ("word", "quit"): (
+        "Quit the Word session (close the application window). Refuses by default when "
+        "attached to an existing Office instance; force=True overrides."
+    ),
     # --- ppt ---
     ("ppt", "new_pres"): "Create a new blank presentation, set it active, return doc_id.",
     ("ppt", "open_pres"): "Open an existing .pptx file, set it active, return doc_id.",
     ("ppt", "save"): (
         "Save the presentation (doc_id defaults to the active one) and return the absolute "
         "path. If path is given, save-as to that path (.pptx); otherwise save back to the "
-        "original path (a never-saved document auto-saves to the same directory without the "
+        "original path (a never-saved document auto-saves to the user data directory without the "
         "Save As dialog); overwrite=True allows overwriting an existing file."
     ),
     ("ppt", "save_pdf"): (
@@ -339,7 +345,10 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Identity of the active presentation (app/doc_id/name/path); null if none. "
         "Pass doc_id to query a specific presentation."
     ),
-    ("ppt", "quit"): "Quit the PowerPoint session (close the application window).",
+    ("ppt", "quit"): (
+        "Quit the PowerPoint session (close the application window). Refuses by default when "
+        "attached to an existing Office instance; force=True overrides."
+    ),
 }
 
 

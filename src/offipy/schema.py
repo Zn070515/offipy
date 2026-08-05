@@ -82,7 +82,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "close_book": OpSpec(
             description=(
                 "关闭工作簿（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
-                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
+                "自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
                 "返回 null。"
             ),
             destructive=True,
@@ -92,7 +92,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "save": OpSpec(
             description=(
                 "保存工作簿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该"
-                "路径；未给 path 则存回原路径（从未保存过自动落盘同层目录，不弹另存为）；"
+                "路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
@@ -269,7 +269,14 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
             params={"doc_id": str},
         ),
-        "quit": OpSpec(description="退出 Excel 会话（关闭应用窗口）。", destructive=True),
+        "quit": OpSpec(
+            description=(
+                "退出 Excel 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝"
+                "（不夺走用户正用的窗口），force=True 强制退出。"
+            ),
+            destructive=True,
+            params={"force": bool},
+        ),
     },
     # ================================================================== Word
     "word": {
@@ -285,7 +292,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "close_doc": OpSpec(
             description=(
                 "关闭文档（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
-                "自动落盘同层目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
+                "自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
                 "返回 null。"
             ),
             destructive=True,
@@ -295,7 +302,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "save": OpSpec(
             description=(
                 "保存文档（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该"
-                "路径；未给 path 则存回原路径（从未保存过自动落盘同层目录，不弹另存为）；"
+                "路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
@@ -525,7 +532,14 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
             params={"doc_id": str},
         ),
-        "quit": OpSpec(description="退出 Word 会话（关闭应用窗口）。", destructive=True),
+        "quit": OpSpec(
+            description=(
+                "退出 Word 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝"
+                "（不夺走用户正用的窗口），force=True 强制退出。"
+            ),
+            destructive=True,
+            params={"force": bool},
+        ),
     },
     # ==================================================================== PPT
     "ppt": {
@@ -541,7 +555,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "save": OpSpec(
             description=(
                 "保存演示文稿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到"
-                "该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘同层目录，"
+                "该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，"
                 "不弹另存为）；overwrite=True 允许覆盖已存在文件。"
             ),
             destructive=True,
@@ -640,6 +654,13 @@ OPS: dict[str, dict[str, OpSpec]] = {
             returns="dict",
             params={"doc_id": str},
         ),
-        "quit": OpSpec(description="退出 PowerPoint 会话（关闭应用窗口）。", destructive=True),
+        "quit": OpSpec(
+            description=(
+                "退出 PowerPoint 会话（关闭应用窗口）。连接的是既有 Office 实例时默认拒绝"
+                "（不夺走用户正用的窗口），force=True 强制退出。"
+            ),
+            destructive=True,
+            params={"force": bool},
+        ),
     },
 }

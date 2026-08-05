@@ -22,6 +22,7 @@ import platform
 import queue
 import secrets
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -855,6 +856,27 @@ def _validate_host(host: str, allow_remote: bool) -> None:
         )
 
 
+def _acquire_startup_lock(port: int):
+    """Windows named mutex 防双启（P1-1）：同端口重复 serve 直接拒绝。
+
+    mutex 句柄随进程持有，进程退出（含崩溃）即释放命名——比文件锁天然
+    防 stale，无「旧锁残留需手动清」问题。ERROR_ALREADY_EXISTS(183) 表示
+    该命名已被其他存活 server 持有。非 Windows / 无 pywin32 退化 no-op
+    （Linux 纯模块测试与 WSL 不受影响）。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        import win32event
+        from win32api import GetLastError
+    except ImportError:
+        return None
+    handle = win32event.CreateMutex(None, False, f"Local\\offipy_server_{port}")
+    if GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        raise ServerStartError(f"{port} 端口已有 offipy server 在运行（拒绝重复启动）")
+    return handle
+
+
 def serve(
     port: int = DEFAULT_PORT,
     host: str = "127.0.0.1",
@@ -862,6 +884,7 @@ def serve(
 ):
     global _TOKEN
     _validate_host(host, allow_remote)
+    _acquire_startup_lock(port)  # P1-1 防双启：同端口已有 server → 直接拒绝
     oplog.configure(port)  # P2-2 多实例：日志按端口隔离
     _TOKEN = _load_token(port)
     _write_pid_file(port, _TOKEN)  # §4 启动锁：port+pid+token_sha256 落盘，供归属验证

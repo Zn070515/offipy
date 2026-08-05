@@ -6,7 +6,7 @@ import sys
 import pytest
 
 from offipy import core
-from offipy.exceptions import OfficeUnavailableError, UnsupportedPlatformError
+from offipy.exceptions import ComOperationError, OfficeUnavailableError, UnsupportedPlatformError
 
 
 def test_import_offipy_in_clean_interpreter_pulls_no_pywin32():
@@ -44,16 +44,38 @@ def test_connect_uses_lazy_com_bundle(monkeypatch):
 
 
 def test_connect_none_when_com_missing(monkeypatch):
+    # P1-4 COM HRESULT 分类：仅「未运行/类未注册」两类 HRESULT → None（触发 launch）
+    class FakeComError(Exception):
+        hresult = -2147221021  # MK_E_UNAVAILABLE：ROT 无存活对象
+
     class FakePywintypes:
-        com_error = ValueError
+        com_error = FakeComError
 
     class FakeWin32:
         def GetActiveObject(self, progid):
-            raise FakePywintypes.com_error
+            raise FakePywintypes.com_error()
 
     bundle = core._ComBundle(pywintypes=FakePywintypes(), win32com=FakeWin32(), gencache=None)
     monkeypatch.setattr(core, "_com", lambda: bundle)
     assert core.connect("ppt") is None
+
+
+def test_connect_raises_on_permission_com_error(monkeypatch):
+    # P1-4：非「未运行」HRESULT（如权限拒绝）→ 抛 ComOperationError，绝不静默拉起
+    class FakeComError(Exception):
+        hresult = 0x80070005  # E_ACCESSDENIED
+
+    class FakePywintypes:
+        com_error = FakeComError
+
+    class FakeWin32:
+        def GetActiveObject(self, progid):
+            raise FakePywintypes.com_error()
+
+    bundle = core._ComBundle(pywintypes=FakePywintypes(), win32com=FakeWin32(), gencache=None)
+    monkeypatch.setattr(core, "_com", lambda: bundle)
+    with pytest.raises(ComOperationError):
+        core.connect("ppt")
 
 
 def test_ensure_app_raises_office_unavailable_when_launch_fails(monkeypatch):

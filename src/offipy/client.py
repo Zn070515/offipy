@@ -45,6 +45,9 @@ PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8），server 校验�
 # /call 超时与 server._CALL_TIMEOUT 对齐（§4 审计：旧值 120 vs server 600 错配）。
 # 两边各持同名常量、取值一致，测试断言二者相等，防单边漂移。
 _CALL_TIMEOUT = 600
+# PID 归属时间窗口（P1-3）：pid 文件 started_at 与进程真实创建时间偏差超过
+# 此值即视为 PID 已被复用（旧文件 + 新进程），拒认归属、不杀错目标。
+_START_WINDOW = 60.0
 SERVER_MOD = "offipy.server"
 _TOKEN_FILENAME = "token"
 # 部分机器会把系统代理写进注册表且 ProxyOverride 为空，连 127.0.0.1 回环请求
@@ -200,12 +203,52 @@ def server_status() -> dict | None:
         raise RemoteCallError(f"status 连接失败: {e.reason}") from e
 
 
-def _pid_file_matches(pid: int) -> bool:
-    """pid 文件 + 端口持有者 + token 归属三重比对，才认定是『我们的』server。
+def _process_start_time(pid: int) -> float | None:
+    """进程创建时间（epoch 秒）；Windows 用 PowerShell 查询，失败返回 None。
 
-    新格式 JSON {port,pid,token_sha256}：pid 与端口持有者一致、token_sha256
-    与本地已知 token 一致才算归属（P0-1 强化）；旧格式纯数字退化为仅 pid
-    比对。token 拿不到或对不上 → 拒绝（安全方向：不杀无法证明归属的进程）。
+    PID 复用防护（P1-3）：pid 文件记录的 started_at 必须与进程真实创建时间
+    接近，否则说明该 pid 已被操作系统复用于别的进程——旧文件 + 新进程，
+    归属不可信。非 Windows 返回 None（不校验）。
+    """
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                (
+                    f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue)"
+                    ".StartTime.ToUniversalTime().ToString('o')"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+    except Exception:
+        return None
+    if not out:
+        return None
+    try:
+        from datetime import datetime, timezone
+
+        ts = datetime.fromisoformat(out.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts.timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _pid_file_matches(pid: int) -> bool:
+    """pid 文件 + 端口持有者 + token + 进程创建时间，多重要素才认定是『我们的』server。
+
+    新格式 JSON {port,pid,token_sha256,started_at}：pid 与端口持有者一致、
+    token_sha256 与本地已知 token 一致、且 started_at 与进程真实创建时间
+    相近才算归属（P0-1 强化 + P1-3 PID 复用防护）；旧格式纯数字退化为仅
+    pid 比对。任一要素对不上 → 拒绝（安全方向：不杀无法证明归属的进程）。
     """
     try:
         raw = _pid_path().read_text(encoding="utf-8").strip()
@@ -224,7 +267,14 @@ def _pid_file_matches(pid: int) -> bool:
     token = _token()
     if not token:
         return False
-    return data.get("token_sha256") == hashlib.sha256(token.encode()).hexdigest()
+    if data.get("token_sha256") != hashlib.sha256(token.encode()).hexdigest():
+        return False
+    recorded_start = data.get("started_at")
+    if isinstance(recorded_start, (int, float)) and recorded_start > 0:
+        start = _process_start_time(pid)
+        if start is not None and abs(start - recorded_start) > _START_WINDOW:
+            return False  # PID 复用：文件是旧的，进程不是当年的 server
+    return True
 
 
 def _write_pid_file(pid: int) -> None:

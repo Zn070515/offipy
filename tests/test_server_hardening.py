@@ -14,8 +14,10 @@ import http.client
 import json
 import os
 import queue
+import sys
 import threading
 import time
+import types
 
 import pytest
 
@@ -377,6 +379,83 @@ def test_find_server_pid_json_format(monkeypatch, tmp_path):
         "offipy.client.subprocess.run", lambda *a, **k: type("R", (), {"stdout": ""})()
     )
     assert client._find_server_pid() == 777
+
+
+# --- P1-1 Windows named mutex 防双启 ---
+
+
+def _fake_win32_modules(already_exists: bool):
+    """注入假 win32event/win32api：CreateMutex 按 already_exists 报 GetLastError。"""
+    fake_ev = types.ModuleType("win32event")
+    fake_ev.created_name = None
+
+    def create(parent, initial, name):
+        fake_ev.created_name = name
+        return object()
+
+    fake_ev.CreateMutex = create
+    fake_api = types.ModuleType("win32api")
+    fake_api.GetLastError = lambda: 183 if already_exists else 0  # ERROR_ALREADY_EXISTS
+    return fake_ev, fake_api
+
+
+def test_acquire_startup_lock_returns_handle_when_free(monkeypatch):
+    fake_ev, fake_api = _fake_win32_modules(already_exists=False)
+    monkeypatch.setitem(sys.modules, "win32event", fake_ev)
+    monkeypatch.setitem(sys.modules, "win32api", fake_api)
+    monkeypatch.setattr(server.sys, "platform", "win32")
+    assert server._acquire_startup_lock(8890) is not None
+    assert fake_ev.created_name == "Local\\offipy_server_8890"
+
+
+def test_acquire_startup_lock_rejects_double_start(monkeypatch):
+    fake_ev, fake_api = _fake_win32_modules(already_exists=True)
+    monkeypatch.setitem(sys.modules, "win32event", fake_ev)
+    monkeypatch.setitem(sys.modules, "win32api", fake_api)
+    monkeypatch.setattr(server.sys, "platform", "win32")
+    with pytest.raises(server.ServerStartError, match="在运行"):
+        server._acquire_startup_lock(8890)
+
+
+def test_acquire_startup_lock_noop_off_windows(monkeypatch):
+    monkeypatch.setattr(server.sys, "platform", "linux")
+    assert server._acquire_startup_lock(8890) is None  # 纯模块/WSL 不拉锁
+
+
+# --- P1-3 PID 进程创建时间校验（防 PID 复用误杀） ---
+
+
+def test_process_start_time_noop_off_windows(monkeypatch):
+    monkeypatch.setattr(client.sys, "platform", "linux")
+    assert client._process_start_time(999999) is None
+
+
+def test_process_start_time_parses_powershell_iso(monkeypatch):
+    fake = types.SimpleNamespace(stdout="2026-08-05T01:02:03.0000000+00:00")
+    monkeypatch.setattr(client.sys, "platform", "win32")
+    monkeypatch.setattr("offipy.client.subprocess.run", lambda *a, **k: fake)
+    from datetime import datetime, timezone
+
+    expected = datetime(2026, 8, 5, 1, 2, 3, tzinfo=timezone.utc).timestamp()
+    assert abs(client._process_start_time(1) - expected) < 1
+
+
+def test_pid_file_matches_rejects_reused_pid(monkeypatch, tmp_path):
+    token = "t"
+    pid = 5555
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    (tmp_path / "server.pid").write_text(
+        json.dumps({"port": client.PORT, "pid": pid, "token_sha256": digest, "started_at": 1000.0}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
+    monkeypatch.setattr(client, "_token", lambda: token)
+    monkeypatch.setattr(client, "_process_start_time", lambda p: 9999.0)  # 偏差 > 窗口
+    assert client._pid_file_matches(pid) is False  # PID 复用 → 拒认归属
+    monkeypatch.setattr(client, "_process_start_time", lambda p: 1000.5)  # 吻合
+    assert client._pid_file_matches(pid) is True
+    monkeypatch.setattr(client, "_process_start_time", lambda p: None)  # 查不到 → 不校验
+    assert client._pid_file_matches(pid) is True
 
 
 # --- token 权限（§4） ---

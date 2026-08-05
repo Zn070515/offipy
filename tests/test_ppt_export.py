@@ -16,13 +16,13 @@ pytestmark = [
 
 
 def test_export_slides_pngs(tmp_path):
-    call("ppt", "new_pres")
-    call("ppt", "add_slide", layout=1)  # title
-    call("ppt", "set_title", slide_idx=1, text="Export Test")
-    call("ppt", "add_slide", layout=2)  # title+body
-    call("ppt", "set_title", slide_idx=2, text="Page Two")
+    did = call("ppt", "new_pres")
+    call("ppt", "add_slide", layout=1, doc_id=did)  # title
+    call("ppt", "set_title", slide_idx=1, text="Export Test", doc_id=did)
+    call("ppt", "add_slide", layout=2, doc_id=did)  # title+body
+    call("ppt", "set_title", slide_idx=2, text="Page Two", doc_id=did)
     out_dir = str(tmp_path / "png")
-    paths = call("ppt", "export_slides", out_dir=out_dir, width=1920, height=1080)
+    paths = call("ppt", "export_slides", out_dir=out_dir, width=1920, height=1080, doc_id=did)
     assert len(paths) == 2
     for p in paths:
         assert Path(p).exists()

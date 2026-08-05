@@ -253,12 +253,13 @@ def test_excel_close_discard_sets_saved_true_no_dialog(monkeypatch):
 
 def test_excel_close_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]  # Path="" → 从未保存
     path = app.close_book(save=True, follow_active=True)
     assert book.saveas_calls  # 自动落盘，不弹另存为
     assert path == book.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path)  # 同层目录 = cwd
+    assert os.path.dirname(path) == str(tmp_path / "documents")  # 用户数据目录
     assert path.endswith(".xlsx")
     assert book.close_calls[-1]["SaveChanges"] == 1  # xlSaveChanges
     assert book.closed
@@ -277,12 +278,13 @@ def test_excel_close_save_saved_returns_fullname(monkeypatch):
 
 def test_excel_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
     path = app.save(follow_active=True)
     assert book.saveas_calls
     assert path == book.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path)
+    assert os.path.dirname(path) == str(tmp_path / "documents")
     assert path.endswith(".xlsx")
 
 
@@ -408,24 +410,26 @@ def test_word_close_discard_sets_saved_true_no_dialog(monkeypatch):
 
 def test_word_close_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
     app = _new_word(monkeypatch)
     doc = app._docs[app.new_doc()]
     path = app.close_doc(save=True, follow_active=True)
     assert doc.saveas_calls
     assert path == doc.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path)
+    assert os.path.dirname(path) == str(tmp_path / "documents")
     assert path.endswith(".docx")
     assert doc.close_calls[-1]["SaveChanges"] == -1  # wdSaveChanges
 
 
 def test_word_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
     app = _new_word(monkeypatch)
     doc = app._docs[app.new_doc()]
     path = app.save(follow_active=True)
     assert doc.saveas_calls
     assert path == doc.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path)
+    assert os.path.dirname(path) == str(tmp_path / "documents")
     assert path.endswith(".docx")
 
 
@@ -495,12 +499,13 @@ def test_ppt_multi_doc_ids(monkeypatch):
 
 def test_ppt_save_unsaved_autosaves(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
     app = _new_ppt(monkeypatch)
     pres = app._docs[app.new_pres()]
     path = app.save(follow_active=True)
     assert pres.saveas_calls
     assert path == pres.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path)
+    assert os.path.dirname(path) == str(tmp_path / "documents")
     assert path.endswith(".pptx")
 
 

@@ -10,6 +10,7 @@ import types
 import pytest
 
 from offipy import excel, paths, ppt, word
+from offipy.exceptions import ComOperationError
 
 
 def test_ensure_writable_refuses_existing(tmp_path):
@@ -197,3 +198,51 @@ def test_word_save_pdf_uses_export_as_fixed_format(tmp_path):
     path, args, kwargs = fake.calls[0]
     assert path == os.path.abspath(str(target))
     assert kwargs["ExportFormat"] == word.WD_EXPORT_FORMAT_PDF
+
+
+# --- P1-5：quit 只退 offipy-owned 实例；attached（既有实例）默认拒绝 ---
+
+
+def _ensure_app_attached(app):
+    def _ensure(app_name, visible=True):
+        return app, False  # created=False → attached，非本库启动
+
+    return _ensure
+
+
+@pytest.mark.parametrize(
+    ("cls", "core_name"),
+    [
+        (excel.ExcelApp, "excel"),
+        (word.WordApp, "word"),
+        (ppt.PptApp, "ppt"),
+    ],
+)
+def test_quit_attached_refuses_without_force(monkeypatch, cls, core_name):
+    app = types.SimpleNamespace(DisplayAlerts=0)
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_attached(app))
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: True)
+    obj = cls()
+    assert obj._owned is False
+    with pytest.raises(ComOperationError, match="既有"):
+        obj.quit(force=False)
+    assert obj.quit(force=True) is None  # force 放行，own 句柄才直接退
+
+
+@pytest.mark.parametrize(
+    ("cls", "core_name"),
+    [
+        (excel.ExcelApp, "excel"),
+        (word.WordApp, "word"),
+        (ppt.PptApp, "ppt"),
+    ],
+)
+def test_quit_owned_proceeds(monkeypatch, cls, core_name):
+    app = types.SimpleNamespace(DisplayAlerts=0)
+    calls = []
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_returning(app))  # created=True
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: calls.append(n) or True)
+    obj = cls()
+    assert obj._owned is True
+    obj.quit()
+    assert calls == [core_name]

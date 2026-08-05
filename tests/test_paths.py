@@ -1,6 +1,5 @@
 """用户数据路径测试：env 覆盖 + 各平台回退 + 默认落盘路径。"""
 
-import os
 import sys
 from datetime import datetime as _real_datetime
 from pathlib import Path
@@ -53,14 +52,30 @@ class _FixedDatetime:
 
 
 def test_default_save_path_sanitizes_name_and_stamps(monkeypatch):
+    # P1-3：默认落盘不依赖调用方 CWD，统一写用户数据目录/documents
     monkeypatch.setattr("offipy.paths.datetime", _FixedDatetime)
-    monkeypatch.setattr("offipy.paths.os.getcwd", lambda: "C:/work")
-    expected = os.path.abspath(os.path.join("C:/work", "工作簿1测试文档_20260805_091530.xlsx"))
+    monkeypatch.setattr(
+        "offipy.paths.user_data_dir", lambda: Path("C:/Users/test/AppData/Local/offipy")
+    )
+    docs = Path("C:/Users/test/AppData/Local/offipy") / "documents"
+    expected = str(docs / "工作簿1测试文档_20260805_091530.xlsx")
     assert default_save_path('工作簿1"测试/文档', ".xlsx") == expected
 
 
 def test_default_save_path_fully_sanitized_falls_back_document(monkeypatch):
     monkeypatch.setattr("offipy.paths.datetime", _FixedDatetime)
-    monkeypatch.setattr("offipy.paths.os.getcwd", lambda: "C:/work")
-    expected = os.path.abspath(os.path.join("C:/work", "document_20260805_091530.xlsx"))
+    monkeypatch.setattr(
+        "offipy.paths.user_data_dir", lambda: Path("C:/Users/test/AppData/Local/offipy")
+    )
+    docs = Path("C:/Users/test/AppData/Local/offipy") / "documents"
+    expected = str(docs / "document_20260805_091530.xlsx")
     assert default_save_path("//\\\\", ".xlsx") == expected
+
+
+def test_default_save_path_creates_documents_dir(monkeypatch, tmp_path):
+    # 目录自动创建：用户数据目录/documents 不存在时 mkdir(parents=True)
+    monkeypatch.setattr("offipy.paths.datetime", _FixedDatetime)
+    monkeypatch.setattr("offipy.paths.user_data_dir", lambda: tmp_path)
+    out = default_save_path("报告", ".pptx")
+    assert Path(out).parent == tmp_path / "documents"
+    assert Path(out).exists() is False  # 只建目录，不建文件（SaveAs 时才写）

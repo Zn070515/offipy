@@ -24,7 +24,9 @@ PP_LAYOUT_BLANK = 12
 @guard_com
 class PptApp:
     def __init__(self, visible: bool = True):
-        self.app, _ = core.ensure_app("ppt", visible=visible)
+        self.app, self.created = core.ensure_app("ppt", visible=visible)
+        # _owned：本库启动的实例才允许 quit() 直接退出；连到既有实例默认拒绝
+        self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
         self._docs: dict[str, Any] = {}  # doc_id → 演示文稿句柄（P2-2 多文档）
@@ -188,7 +190,7 @@ class PptApp:
         """保存演示文稿并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
-        自动落盘 <cwd>/<名字>_<时间戳>.pptx（不弹另存为对话框）。
+        自动落盘 <用户数据目录>/documents/<名字>_<时间戳>.pptx（不弹另存为对话框）。
         """
         if path:
             dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
@@ -312,7 +314,16 @@ class PptApp:
             result.append({"index": i, "title": title, "body": body, "notes": notes})
         return result
 
-    def quit(self):
+    def quit(self, force: bool = False):
+        """退出 PowerPoint 会话。
+
+        own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
+        （不夺走用户正用的窗口），确需退出传 force=True。
+        """
         # 库改全局状态（DisplayAlerts），释放前还原原值
         self.app.DisplayAlerts = self._saved_alerts
+        if not self._owned and not force:
+            raise ComOperationError(
+                "连接的是既有 PowerPoint 实例，拒绝退出；确需退出请传 force=True"
+            )
         core.quit_app("ppt")
