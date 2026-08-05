@@ -21,6 +21,7 @@ import os
 import platform
 import queue
 import secrets
+import socket
 import threading
 import time
 import traceback
@@ -675,6 +676,10 @@ class Server(ThreadingHTTPServer):
         try:
             with contextlib.suppress(Exception):
                 request.sendall(resp)
+            # 丢弃客户端已发出但尚未被读取的请求字节再关闭：直接 close 会因接收
+            # 缓冲非空触发 TCP RST，客户端读到 ConnectionResetError 而非 503。
+            with contextlib.suppress(Exception):
+                request.shutdown(socket.SHUT_RD)
         finally:
             with contextlib.suppress(Exception):
                 request.close()
