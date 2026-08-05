@@ -31,6 +31,7 @@ from .models import (
     SuppressedFinding,
 )
 from .pptx import audit_pptx, compare_pptx
+from .render import render_html, render_markdown, render_text
 
 __all__ = [
     "AUDIT_SCHEMA_VERSION",
@@ -60,4 +61,7 @@ __all__ = [
     "SuppressedFinding",
     "audit_pptx",
     "compare_pptx",
+    "render_html",
+    "render_markdown",
+    "render_text",
 ]

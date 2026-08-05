@@ -17,12 +17,13 @@ from pathlib import Path
 from offipy.exceptions import InvalidArgumentError
 
 from .compare import _sha256, build_diff
-from .extract import extract_presentation
+from .extract import _ShapeRecord, extract_presentation
 from .models import (
     AUDIT_SCHEMA_VERSION,
     AuditConfig,
     PptxAuditReport,
     PptxDiffReport,
+    SlideShapeSnapshot,
 )
 from .rules import run_rules
 
@@ -35,6 +36,28 @@ def _validate_pptx_path(path: str | Path, label: str) -> None:
         raise InvalidArgumentError(f"{label} PPTX 文件不存在: {path}")
     if p.suffix.lower() != _PPTX_SUFFIX:
         raise InvalidArgumentError(f"{label} 必须是 .pptx 文件: {path}")
+
+
+def _snapshots(records: list[_ShapeRecord]) -> list[SlideShapeSnapshot]:
+    """把 _ShapeRecord 压平成 HTML/SVG 渲染用的几何快照。"""
+    return [
+        SlideShapeSnapshot(
+            slide_index=r.slide_index,
+            shape_id=r.shape_id,
+            name=r.name,
+            shape_type=r.shape_type,
+            role=r.role,
+            left=r.left,
+            top=r.top,
+            width=r.width,
+            height=r.height,
+            z_order=r.z_order,
+            text=r.text,
+            is_rotated=r.is_rotated,
+            geometry_unknown=r.geometry_unknown,
+        )
+        for r in records
+    ]
 
 
 def audit_pptx(path: str | Path, config: AuditConfig | None = None) -> PptxAuditReport:
@@ -57,6 +80,7 @@ def audit_pptx(path: str | Path, config: AuditConfig | None = None) -> PptxAudit
         findings=findings,
         suppressed=suppressed,
         warnings=ext.warnings,
+        shapes=_snapshots(records),
     )
 
 

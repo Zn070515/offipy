@@ -193,6 +193,45 @@ class AuditWarning:
 # ---------------------------------------------------------------- 报告
 
 
+@dataclass(frozen=True)
+class SlideShapeSnapshot:
+    """每页 Shape 几何快照，供 HTML/SVG 渲染（渲染视图，非 v0.12 ShapeInfo API）。
+
+    尺寸单位为幻灯片绝对英寸；None 表示该维度缺失/无法解析。
+    """
+
+    slide_index: int  # 1-based
+    shape_id: int
+    name: str
+    shape_type: str
+    role: str
+    left: float | None
+    top: float | None
+    width: float | None
+    height: float | None
+    z_order: int
+    text: str
+    is_rotated: bool
+    geometry_unknown: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "slide_index": self.slide_index,
+            "shape_id": self.shape_id,
+            "name": self.name,
+            "shape_type": self.shape_type,
+            "role": self.role,
+            "left": self.left,
+            "top": self.top,
+            "width": self.width,
+            "height": self.height,
+            "z_order": self.z_order,
+            "text": self.text,
+            "is_rotated": self.is_rotated,
+            "geometry_unknown": self.geometry_unknown,
+        }
+
+
 @dataclass
 class PptxAuditReport:
     schema_version: str
@@ -205,6 +244,7 @@ class PptxAuditReport:
     findings: list[AuditFinding] = field(default_factory=list)
     suppressed: list[SuppressedFinding] = field(default_factory=list)
     warnings: list[AuditWarning] = field(default_factory=list)
+    shapes: list[SlideShapeSnapshot] = field(default_factory=list)
 
     @property
     def max_severity(self) -> Severity | None:
@@ -225,11 +265,22 @@ class PptxAuditReport:
             "findings": [f.to_dict() for f in self.findings],
             "suppressed": [s.to_dict() for s in self.suppressed],
             "warnings": [w.to_dict() for w in self.warnings],
+            "shapes": [s.to_dict() for s in self.shapes],
             "max_severity": (self.max_severity.name if self.max_severity is not None else None),
         }
 
     def to_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def to_markdown(self) -> str:
+        from .render import render_markdown
+
+        return render_markdown(self)
+
+    def to_html(self, *, slides_dir: str | None = None) -> str:
+        from .render import render_html
+
+        return render_html(self, slides_dir=slides_dir)
 
 
 # ---------------------------------------------------------------- 基线回归
@@ -375,3 +426,13 @@ class PptxDiffReport:
 
     def to_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def to_markdown(self) -> str:
+        from .render import render_markdown
+
+        return render_markdown(self)
+
+    def to_html(self, *, slides_dir: str | None = None) -> str:
+        from .render import render_html
+
+        return render_html(self, slides_dir=slides_dir)
