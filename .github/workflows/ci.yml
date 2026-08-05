@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7.1.4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -38,7 +38,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7.1.4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -60,7 +60,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7.1.4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -82,9 +82,8 @@ jobs:
     runs-on: [self-hosted, windows, office]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复自托管 Windows runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
         with:
-          # 自托管 runner 上 uv 缓存触发 libuv 断言崩溃（async.c line 94），禁用
           enable-cache: false
       - uses: actions/setup-python@v5
         with:
