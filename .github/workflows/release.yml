@@ -64,17 +64,20 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           ver="$(uv run python -c 'import offipy; print(offipy.__version__)')"
-          uv run python - <<PY
-          import sys
+          # heredoc 必须加引号（<<'PY'）：quality 跑 windows-latest，未加引号时
+          # bash 会把 "$GITHUB_OUTPUT" 展开成 D:\a\_temp\...，Python 把 \a 当转义
+          # 序列 → 路径失效 OSError（Linux 正斜杠路径碰不到）。tag/ver 走 argv 传入。
+          uv run python - "$tag" "$ver" <<'PY'
+          import os, sys
           from packaging.version import Version
-          tag, ver = "$tag", "$ver"
+          tag, ver = sys.argv[1], sys.argv[2]
           Version(tag)  # 非法 PEP 440（如漏预发布后缀）在此抛 ValueError
           Version(ver)
           if tag != ver:
-              sys.exit(f"tag '$tag' != offipy.__version__ '$ver'")
+              sys.exit(f"tag '{tag}' != offipy.__version__ '{ver}'")
           is_stable = not (Version(ver).is_prerelease or Version(ver).is_devrelease)
           print(f"tag {tag} matches __version__ {ver}; is_stable={is_stable}")
-          with open("$GITHUB_OUTPUT", "a", encoding="utf-8") as f:
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
               f.write("is_stable=" + str(is_stable).lower() + "\n")
           PY
 
