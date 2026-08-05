@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from typing import NoReturn
 
 from .exceptions import (
     ComOperationError,
@@ -411,15 +412,30 @@ def ensure_server():
 _PATH_KEYS = ("path", "out", "out_dir", "html", "pptx")
 
 
+def _raise_error(app: str, op: str, code, detail, hresult=None, trace=None) -> NoReturn:
+    """按 server 错误码映射回领域异常；ComOperationError 透传 hresult（契约5）。"""
+    msg = f"[{app}::{op}] 失败: {detail}"
+    if trace:
+        msg += "\n" + "\n".join("  " + line for line in trace)
+    exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None
+    if exc_cls is ComOperationError:
+        hr = int(hresult, 16) if isinstance(hresult, str) else hresult
+        raise ComOperationError(msg, hresult=hr)
+    if exc_cls is not None:
+        raise exc_cls(msg)
+    raise RemoteCallError(msg)
+
+
 def request(
     app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args
 ) -> dict:
-    """发一次调用，返回完整响应 dict（{ok, result, error, trace}），不做失败处理。
+    """发一次调用并返回响应 dict；应用层失败抛对应 OffipyError。
 
-    应用层失败（ok:false）仍以 dict 返回，供 MCP server 等调用方自行处理；
-    HTTP 传输层失败（400/401/413/415/500/超时/连不上/坏 JSON）统一转成
-    RemoteCallError，不再裸抛 HTTPError。base_url 缺省连本地 8890（P0-4
-    Remote* 共享 CLI/MCP 会话）；显式给出可指向其他 offipy server。
+    成功（server 返回 200 + ok:true）→ dict；应用层失败（server 以 HTTP 500
+    返回 ok:false + error_code）→ 按 error_code 映射抛领域异常，com_operation
+    透传 hresult 供断连识别；传输层失败（超时/连不上/坏 JSON/400/401/413/415
+    等）→ RemoteCallError。base_url 缺省连本地 8890（P0-4 Remote* 共享 CLI/
+    MCP 会话）；显式给出可指向其他 offipy server。
 
     request_id（P0-2 幂等方案 A）：缺省自动生成 uuid4；调用方超时重试应复用
     同一 request_id——server 对同 id 同 payload 合并/回放缓存，不重复执行。
@@ -444,6 +460,7 @@ def request(
         with _OPENER.open(req, timeout=_CALL_TIMEOUT) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
+        body = None
         try:
             body = json.loads(e.read().decode("utf-8"))
             detail = body.get("error") or e.reason
@@ -451,11 +468,8 @@ def request(
         except (ValueError, OSError):
             detail = f"HTTP {e.code}: {e.reason}"
             code = None
-        exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None
-        msg = f"[{app}::{op}] 失败: {detail}"
-        if exc_cls is not None:
-            raise exc_cls(msg) from e
-        raise RemoteCallError(msg) from e
+        hresult = body.get("hresult") if isinstance(body, dict) else None
+        _raise_error(app, op, code, detail, hresult=hresult)
     except urllib.error.URLError as e:
         raise RemoteCallError(f"[{app}::{op}] 连接失败: {e.reason}") from e
     except TimeoutError as e:
@@ -467,13 +481,13 @@ def request(
 def call(app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args):
     resp = request(app, op, base_url=base_url, request_id=request_id, **args)
     if not resp.get("ok"):
-        code = resp.get("error_code")
-        exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None
-        msg = f"[{app}::{op}] 失败: {resp.get('error')}"
-        if resp.get("trace"):
-            msg += "\n" + "\n".join("  " + line for line in resp["trace"])
-        if exc_cls is not None:
-            raise exc_cls(msg)
-        raise RemoteCallError(msg)
+        _raise_error(
+            app,
+            op,
+            resp.get("error_code"),
+            resp.get("error"),
+            hresult=resp.get("hresult"),
+            trace=resp.get("trace"),
+        )
     # OperationResult 契约：优先 data，旧 server 无 data 时回退 result
     return resp["data"] if "data" in resp else resp.get("result")

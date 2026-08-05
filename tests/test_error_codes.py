@@ -27,9 +27,12 @@ from offipy.result import OperationResult
 # --- client：HTTP 错误 + error_code → 领域异常 ---
 
 
-def _http_error(req, status, code):
-    body = json.dumps({"ok": False, "error": "boom", "error_code": code}).encode()
-    return urllib.error.HTTPError(req.full_url, status, "Error", {}, io.BytesIO(body))
+def _http_error(req, status, code, hresult=None):
+    body = {"ok": False, "error": "boom", "error_code": code}
+    if hresult is not None:
+        body["hresult"] = hresult
+    data = json.dumps(body).encode()
+    return urllib.error.HTTPError(req.full_url, status, "Error", {}, io.BytesIO(data))
 
 
 @pytest.mark.parametrize(
@@ -63,6 +66,48 @@ def test_request_unknown_code_falls_back_to_remote(monkeypatch):
 
     with pytest.raises(RemoteCallError):
         client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
+
+
+# --- 契约4/5：request 应用层失败抛异常（非返回 dict）+ ComOperationError 透传 hresult ---
+
+
+def test_request_com_error_preserves_hresult(monkeypatch):
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+
+    def raiser(req, timeout=None):
+        raise _http_error(req, 500, "com_operation", hresult="0x80010108")
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    with pytest.raises(ComOperationError) as exc:
+        client.request("excel", "read_range", sheet=1, range_addr="A1")
+    assert exc.value.hresult == 0x80010108
+
+
+def test_request_com_error_without_hresult_is_none(monkeypatch):
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+
+    def raiser(req, timeout=None):
+        raise _http_error(req, 500, "com_operation")
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    with pytest.raises(ComOperationError) as exc:
+        client.request("excel", "read_range", sheet=1, range_addr="A1")
+    assert exc.value.hresult is None
+
+
+def test_call_com_error_preserves_hresult(monkeypatch):
+    monkeypatch.setattr(
+        "offipy.client.request",
+        lambda app, op, **a: {
+            "ok": False,
+            "error": "COM 失败",
+            "error_code": "com_operation",
+            "hresult": "0x80004005",
+        },
+    )
+    with pytest.raises(ComOperationError) as exc:
+        client.call("excel", "set_cell", sheet=1, cell="A1", value=1)
+    assert exc.value.hresult == 0x80004005
 
 
 def test_call_maps_error_code(monkeypatch):
