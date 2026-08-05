@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-08-05
+
+### Fixed
+- `read_slide_summary` title 回退漏过滤空文本 shape（真实比赛 PPT QA 发现）：纯文本框 deck 上 header 背景矩形带空 TextFrame（top=0）按阅读顺序排在真标题前时，title 拿到空串。现在 title 回退与 body 一致，跳过空文本候选（对齐 `read_slide_texts` 的 `include_empty=False` 语义）。
+
 ## [0.10.0] - 2026-08-05
 
 ### Added
