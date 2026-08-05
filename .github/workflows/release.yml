@@ -96,7 +96,7 @@ jobs:
           echo "sha256=$(sha256sum "$whl" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: offipy-dist
           path: dist/

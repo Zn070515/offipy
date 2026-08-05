@@ -68,7 +68,7 @@ jobs:
         run: uv build
       - name: Install smoke (干净 venv 装 wheel)
         run: python scripts/install_smoke.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: offipy-wheel
           path: dist/*.whl
