@@ -46,7 +46,7 @@
 
 把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。
 
-- **参数**: `out_dir: str`、`width: int`、`height: int`、`doc_id: str`
+- **参数**: `out_dir: str`、`width: int`、`height: int`、`overwrite: bool`、`doc_id: str`
 - **返回**: `list`
 - **标志**: 普通操作
 
@@ -114,7 +114,17 @@
 
 ### `read_slide_texts`
 
-逐页读取演示文稿（doc_id 缺省为活动）的标题/正文/备注文本（只读），返回 [{index, title, body, notes}]。
+读取第 slide_idx 页全部具有文本能力的 shape（含 group 内文本），返回 SlideTextRecord（shape_id/name/text/坐标/占位符/group 路径）。include_empty=True 连空文本 shape 也返回；recursive=False 不递归 group。
+
+- **参数**: `slide_idx: int`、`include_empty: bool`、`recursive: bool`、`doc_id: str`
+- **返回**: `list[SlideTextRecord]`
+- **标志**: 只读
+
+---
+
+### `read_slide_summary`
+
+逐页读取演示文稿（doc_id 缺省为活动）的标题/正文/备注摘要（只读），返回 [{index, title, body, notes}]。
 
 - **参数**: `doc_id: str`
 - **返回**: `list`

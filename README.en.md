@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.9.0 (first stable release; then 1.0.0 after external validation)
+- **Current version**: 0.10.0 (first stable release; then 1.0.0 after external validation)
 
 ## Features
 
@@ -20,7 +20,7 @@ Built for Python developers and AI agents to independently produce **polished, a
 - **MCP server**: exposes all three-suite operations as MCP tools, so Claude Desktop and similar can drive real Office directly
 - **Environment diagnostics**: `offipy check` one-shot check of Python / dependencies / the Office three-suite / browser / server readiness (`--json` machine-readable, non-zero exit code on failure)
 - **Server process management**: `offipy server status|stop|restart` uses a real `/status` handshake plus PID file / netstat probing to manage the resident process
-- **Agent read-back (read-only)**: `word read_doc_text` / `ppt read_slide_texts` / `excel read_range`
+- **Agent read-back (read-only)**: `word read_doc_text` / `ppt read_slide_summary` (per-slide title/body/notes) `ppt read_slide_texts --slide_idx N` (per-slide per-shape text) / `excel read_range`
   read the document's text layer back (for the agent to iterate on), exposed via CLI / RPC / MCP
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
 
@@ -59,7 +59,7 @@ The converter itself is vendored into the wheel, so it works right after install
   Use `get_target` to query the current active target identity:
   `offipy excel get_target` → `{"app": "excel", "doc_id": "book1", "name": "Book1", "path": "..."}`
   (`null` if none).
-- **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target` …) default to acting on the
+- **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target` …) default to acting on the
   user's **currently active** document (ActiveDocument / ActiveWorkbook / ActivePresentation), resolved in real time — never from a stale
   internal cache. When no document is open, they raise `TargetNotFoundError`, telling you to run `new_*` / `open_*` first.
 - **Destructive ops** (writes / formatting / save / close, etc.) **refuse to run by default**; you must provide one of three:
@@ -132,13 +132,14 @@ offipy check            # environment readiness diagnostics: Python/deps/Office/
 offipy server status    # resident server status (/status handshake, read-only, doesn't start it); stop / restart likewise
 offipy excel get_target # query current active target identity {app,doc_id,name,path} (null if none)
 offipy word read_doc_text            # agent read-back: full document text
-offipy ppt read_slide_texts          # agent read-back: per-slide title/body/notes
+offipy ppt read_slide_summary        # agent read-back: per-slide title/body/notes summary
+offipy ppt read_slide_texts --slide_idx 1   # agent read-back: per-shape text on one slide (v0.10)
 offipy excel read_range --sheet 1 --range_addr A1:B2   # agent read-back: 2D range values
 offipy quit excel
 ```
 
 Complex parameters are passed through with `--payload '<json>'` (overriding same-named kwargs); repeating `--key` aggregates into a list.
-Read ops (`get_cell` / `read_range` / `read_doc_text` / `read_slide_texts` / `get_target`) need no target parameter.
+Read ops (`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target`) need no target parameter.
 
 ## Python API
 

@@ -274,7 +274,7 @@ def test_inmemory_structured_return_passthrough(monkeypatch):
     )
 
     async def check(session):
-        r = await session.call_tool("ppt_read_slide_texts")
+        r = await session.call_tool("ppt_read_slide_texts", {"slide_idx": 1})
         assert r.is_error is False
         text = r.content[0].text
         assert '"index": 1' in text and '"title": "T"' in text

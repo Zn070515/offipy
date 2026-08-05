@@ -3,7 +3,24 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
-## [Unreleased]
+## [0.10.0] - 2026-08-05
+
+### Added
+- `read_slide_texts` 重构为按页读 shape 文本：`read_slide_texts(slide_idx, *, include_empty=False, recursive=True)` 返回 `list[SlideTextRecord]`（TypedDict：shape_id/name/text/坐标/占位符类型/group_path），递归 group 内文本；`read_slide_summary()` 承接旧的全部页摘要语义
+- 公共数据模型冻结：`SlideTextRecord` + `PLACEHOLDER_TYPE_NAMES`（完整 PpPlaceholderType 映射，`unknown_{n}` 兜底），`from offipy import SlideTextRecord` 可用
+- 发现性：`dir(Excel()/Word()/Ppt()/Remote*)` 显示 schema 全部正式 op + `quit`（与 CLI/MCP/文档同批）
+- 固定 fixture：`tests/fixtures/ppt/minimal_text_shapes.pptx` + 生成脚本入库；P2-2 fixture 结构验证测试（python-pptx 重开，CI 无 python-pptx 时跳过）
+- 迁移指南：`docs/migration.md`（0.9 → 0.10）
+- P1-6 类型门禁：api.pyi stub 生成器保留 keyword-only `*`；read_slide_texts 签名快照测试 + mypy 用户示例 reveal_type 测试
+
+### Changed
+- **Breaking**：`read_slide_texts()` 签名破坏性变更——旧的无参全部页摘要用法改调 `read_slide_summary()`；`slide_idx` 保持必填，缺失抛标准 `TypeError`（方案 A，无运行时拦截，长期签名不被污染）
+- 摘要豁免集（P1-2）：页码/页眉/页脚/日期占位符（type 13/14/15/16）+「页码候选」不进 title/body；纯文本框页面改为稳定阅读顺序的启发式摘要（排序稳定、语义一致，不承诺逐字节与 0.9 相同）
+- 占位符常量修正（P0）：`PP_PLACEHOLDER_TITLE=1`、`PP_PLACEHOLDER_CENTER_TITLE=3`（0.9 错标 13/14，实为 slideNumber/header），新增 `PP_PLACEHOLDER_SLIDE_NUMBER/HEADER/FOOTER/DATE`——`set_title`/`set_body`/`set_notes` 在标准布局上行为更正确
+
+### Fixed
+- P0 占位符常量 Bug（见 Changed）
+- `read_slide_texts` 对纯文本框 deck 返回空（旧实现只读 HasTitle/Placeholders(2)）——现按文本能力读全部 shape，含 group 内文本
 
 ## [0.9.0] - 2026-08-05（正式首发）
 

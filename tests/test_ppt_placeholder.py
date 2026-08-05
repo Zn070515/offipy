@@ -10,12 +10,13 @@ from types import SimpleNamespace
 import pytest
 
 from offipy.exceptions import InvalidArgumentError
-from offipy.ppt import (
-    PP_PLACEHOLDER_BODY,
-    PP_PLACEHOLDER_CENTER_TITLE,
-    PP_PLACEHOLDER_TITLE,
-    PptApp,
-)
+from offipy.ppt import PptApp
+
+# 微软官方 PpPlaceholderType 值（round-10 探针运行时常量 20/20 核实）。
+# fixture 必须用官方值构造，不得用项目自身常量自证（防「错误实现+错误测试彼此一致」）。
+MS_TITLE = 1  # ppPlaceholderTitle
+MS_BODY = 2  # ppPlaceholderBody
+MS_CENTER_TITLE = 3  # ppPlaceholderCenterTitle
 
 DID = "x"
 
@@ -72,21 +73,21 @@ def _app(slide_shapes, notes_shapes=None):
 
 
 def test_set_title_hits_title_placeholder():
-    shape = _FakeShape(PP_PLACEHOLDER_TITLE, 11)
+    shape = _FakeShape(MS_TITLE, 11)
     app = _app([shape])
     assert app.set_title(1, "标题", doc_id=DID) == 11
     assert shape.TextFrame.TextRange.Text == "标题"
 
 
 def test_set_title_hits_center_title_placeholder():
-    shape = _FakeShape(PP_PLACEHOLDER_CENTER_TITLE, 12)
+    shape = _FakeShape(MS_CENTER_TITLE, 12)
     app = _app([shape])
     assert app.set_title(1, "居中标题", doc_id=DID) == 12
     assert shape.TextFrame.TextRange.Text == "居中标题"
 
 
 def test_set_title_auto_adds_textbox_when_missing():
-    body = _FakeShape(PP_PLACEHOLDER_BODY, 2)
+    body = _FakeShape(MS_BODY, 2)
     app = _app([body])
     shapes = app._require_pres().Slides(1).Shapes
     assert app.set_title(1, "自动建框", doc_id=DID) == 900  # 新 AddTextbox 的 Id
@@ -95,14 +96,14 @@ def test_set_title_auto_adds_textbox_when_missing():
 
 
 def test_set_body_hits_body_placeholder():
-    shape = _FakeShape(PP_PLACEHOLDER_BODY, 7)
+    shape = _FakeShape(MS_BODY, 7)
     app = _app([shape])
     assert app.set_body(1, ["a", "b"], doc_id=DID) == 7
     assert shape.TextFrame.TextRange.Text == "a\rb"
 
 
 def test_set_body_auto_adds_textbox_when_missing():
-    title = _FakeShape(PP_PLACEHOLDER_TITLE, 1)
+    title = _FakeShape(MS_TITLE, 1)
     app = _app([title])
     shapes = app._require_pres().Slides(1).Shapes
     assert app.set_body(1, ["x"], doc_id=DID) == 900
@@ -110,7 +111,7 @@ def test_set_body_auto_adds_textbox_when_missing():
 
 
 def test_set_notes_hits_body_placeholder():
-    shape = _FakeShape(PP_PLACEHOLDER_BODY, 5)
+    shape = _FakeShape(MS_BODY, 5)
     app = _app([], notes_shapes=[shape])
     assert app.set_notes(1, "备注", doc_id=DID) == 5
     assert shape.TextFrame.TextRange.Text == "备注"
@@ -133,6 +134,6 @@ def test_set_notes_auto_adds_textbox_when_missing():
     ],
 )
 def test_empty_input_still_rejected(method, args):
-    app = _app([_FakeShape(PP_PLACEHOLDER_TITLE, 1)])
+    app = _app([_FakeShape(MS_TITLE, 1)])
     with pytest.raises(InvalidArgumentError):
         getattr(app, method)(*args, doc_id=DID)

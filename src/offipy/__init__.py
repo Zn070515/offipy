@@ -21,8 +21,9 @@ from .exceptions import (
     TargetNotFoundError,
     UnsupportedPlatformError,
 )
+from .models import PLACEHOLDER_TYPE_NAMES, SlideTextRecord
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 __all__ = [
     "Excel",
@@ -50,4 +51,6 @@ __all__ = [
     "FileConflictError",
     "ComOperationError",
     "ProtocolError",
+    "SlideTextRecord",
+    "PLACEHOLDER_TYPE_NAMES",
 ]

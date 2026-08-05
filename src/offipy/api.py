@@ -23,8 +23,9 @@ from .word import WordApp
 class _Facade:
     """通用 facade：未显式定义的属性/操作代理到底层 app 实例。"""
 
-    def __init__(self, app):
+    def __init__(self, app, app_name):
         self._app = app
+        self._app_name = app_name
 
     def __enter__(self):
         return self
@@ -36,6 +37,10 @@ class _Facade:
     def __getattr__(self, name):
         return getattr(self._app, name)
 
+    def __dir__(self):
+        # P1-4：dir() 显示 schema 正式 op（与 CLI/MCP/文档同批），不泄内部辅助属性
+        return sorted(set(super().__dir__()) | set(schema.ops(self._app_name)) | {"quit"})
+
     def quit(self):
         return self._app.quit()
 
@@ -44,21 +49,27 @@ class Excel(_Facade):
     """Excel 高层 facade（代理 ExcelApp 全部原子操作）。"""
 
     def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
-        super().__init__(ExcelApp(visible, modify_existing_visibility=modify_existing_visibility))
+        super().__init__(
+            ExcelApp(visible, modify_existing_visibility=modify_existing_visibility), "excel"
+        )
 
 
 class Word(_Facade):
     """Word 高层 facade（代理 WordApp 全部原子操作）。"""
 
     def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
-        super().__init__(WordApp(visible, modify_existing_visibility=modify_existing_visibility))
+        super().__init__(
+            WordApp(visible, modify_existing_visibility=modify_existing_visibility), "word"
+        )
 
 
 class Ppt(_Facade):
     """PowerPoint 高层 facade（代理 PptApp 全部原子操作）。"""
 
     def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
-        super().__init__(PptApp(visible, modify_existing_visibility=modify_existing_visibility))
+        super().__init__(
+            PptApp(visible, modify_existing_visibility=modify_existing_visibility), "ppt"
+        )
 
 
 class _RemoteFacade:
@@ -79,6 +90,10 @@ class _RemoteFacade:
 
     def __exit__(self, *exc):
         return False  # 会话式驱动：退出上下文不关 Office 窗口
+
+    def __dir__(self):
+        # P1-4：远程 facade 只显式 schema 正式 op + quit，不泄内部辅助属性
+        return sorted(set(super().__dir__()) | set(schema.ops(self._app_name)) | {"quit"})
 
     def __getattr__(self, name):
         if name.startswith("_"):

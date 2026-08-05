@@ -47,6 +47,7 @@ MCP 接入 Claude Desktop：参考 README 的 MCP 配置段，指向 `offipy mcp
 - [协议](protocol.md)：HTTP 协议、token、`/shutdown`、协议版本握手。
 - [兼容矩阵](compatibility.md)：Windows / Office / Python / extras 支持情况。
 - [弃用政策](deprecation.md)：弃用流程与响应 `warning` 字段。
+- [迁移指南](migration.md)：0.9 → 0.10 破坏性变更与迁移步骤。
 
 ## 构建文档
 
