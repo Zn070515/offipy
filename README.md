@@ -133,7 +133,7 @@ offipy quit excel
 ```python
 from offipy import Excel, Word, Ppt
 
-with Excel() as x:  # 上下文管理器；__exit__ 不关 Office 窗口（会话语义）
+with Excel() as x:  # 本地直连 COM（= offipy.direct.*），独立 doc_id/线程
     x.new_book()
     x.set_cell(1, "A1", 100)
     x.save("out/report.xlsx")
@@ -142,6 +142,21 @@ with Ppt() as p:
     p.new_pres()
     p.add_slide(2)
     p.set_title(1, "标题")
+```
+
+**两种会话模型（P0-4）**：
+- `Excel() / Word() / Ppt()`（等价 `offipy.direct.*`）——**本地直连 COM**，
+  doc_id/线程/会话状态与 CLI/MCP 完全隔离。
+- `RemoteExcel() / RemoteWord() / RemotePpt()`——经常驻 server 的**远程会话**，
+  与 CLI/MCP 共享同一会话（同 doc_id），适合 Agent 需要「CLI/Python/工具同
+  一个 Office 会话」的场景：
+
+```python
+from offipy import RemoteExcel
+
+with RemoteExcel() as x:   # 默认连本地 8890（自动拉起 server）
+    x.new_book()           # 与 `offipy excel list_docs` 看到同一个 doc_id
+    x.set_cell(1, "A1", 42, follow_active=True)
 ```
 
 未显式定义的 op 经 `__getattr__` 代理到底层 app；offipy 异常（`OffipyError` 家族）原样透传。

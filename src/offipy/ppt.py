@@ -41,8 +41,33 @@ class PptApp:
         finally:
             self.app.DisplayAlerts = prev
 
+    def _stable_identity(self, obj):
+        """稳定身份键（P0-4）：已保存 → (FullName.lower(), None)；未保存 → (None, Name.lower())。"""
+        try:
+            fullname = obj.FullName
+        except Exception:
+            fullname = None
+        try:
+            name = obj.Name
+        except Exception:
+            name = None
+        try:
+            path = obj.Path
+        except Exception:
+            path = None
+        if path:
+            return (str(fullname).lower() if fullname else None, None)
+        return (None, name.lower() if name else None)
+
     def _register(self, obj) -> str:
-        """登记一个新文档句柄，分配 doc_id 并设为活动。返回 doc_id。"""
+        """登记新文档句柄，分配 doc_id 并设为活动；同底层文档复用已有 doc_id。"""
+        ident = self._stable_identity(obj)
+        if ident != (None, None):
+            for did, pres in self._docs.items():
+                if self._stable_identity(pres) == ident:
+                    self._docs[did] = obj  # 复用 doc_id，换用实时句柄
+                    self._active_id = did
+                    return did
         self._seq += 1
         did = f"pres{self._seq}"
         self._docs[did] = obj

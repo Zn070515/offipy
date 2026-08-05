@@ -362,14 +362,16 @@ def ensure_server():
 _PATH_KEYS = ("path", "out", "out_dir", "html", "pptx")
 
 
-def request(app: str, op: str, **args) -> dict:
+def request(app: str, op: str, base_url: str | None = None, **args) -> dict:
     """发一次调用，返回完整响应 dict（{ok, result, error, trace}），不做失败处理。
 
     应用层失败（ok:false）仍以 dict 返回，供 MCP server 等调用方自行处理；
     HTTP 传输层失败（400/401/413/415/500/超时/连不上/坏 JSON）统一转成
-    RemoteCallError，不再裸抛 HTTPError。
+    RemoteCallError，不再裸抛 HTTPError。base_url 缺省连本地 8890（P0-4
+    Remote* 共享 CLI/MCP 会话）；显式给出可指向其他 offipy server。
     """
-    ensure_server()
+    if base_url is None:
+        ensure_server()
     for k in _PATH_KEYS:
         if k in args and isinstance(args[k], str):
             args[k] = os.path.abspath(args[k])
@@ -377,7 +379,9 @@ def request(app: str, op: str, **args) -> dict:
     data = json.dumps({"app": app, "op": op, "args": args, "request_id": str(uuid.uuid4())}).encode(
         "utf-8"
     )
-    req = urllib.request.Request(_base_url() + "/call", data=data, headers=_auth_headers())
+    req = urllib.request.Request(
+        (base_url or _base_url()) + "/call", data=data, headers=_auth_headers()
+    )
     try:
         with _OPENER.open(req, timeout=_CALL_TIMEOUT) as r:
             return json.loads(r.read().decode("utf-8"))
@@ -402,8 +406,8 @@ def request(app: str, op: str, **args) -> dict:
         raise RemoteCallError(f"[{app}::{op}] 响应非 JSON: {e}") from e
 
 
-def call(app: str, op: str, **args):
-    resp = request(app, op, **args)
+def call(app: str, op: str, base_url: str | None = None, **args):
+    resp = request(app, op, base_url=base_url, **args)
     if not resp.get("ok"):
         code = resp.get("error_code")
         exc_cls = _ERROR_CODE_TO_EXC.get(code) if code else None

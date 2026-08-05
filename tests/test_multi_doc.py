@@ -189,6 +189,54 @@ def test_excel_unknown_doc_id_raises(monkeypatch):
         app.save(doc_id="nope")
 
 
+# --- doc_id 稳定身份（P0-4）：同底层文档重开/重连复用同 doc_id ---
+
+
+def test_excel_register_reuses_same_fullname(monkeypatch):
+    app = _new_excel(monkeypatch)
+    b1 = _FakeBook("report")
+    b1.Path = "C:/x"  # 已保存 → 稳定身份 = FullName.lower()
+    did = app._register(b1)
+    assert did == "book1"
+    b2 = _FakeBook("report")  # 不同 wrapper，同 FullName
+    b2.Path = "C:/x"
+    assert app._register(b2) == did  # 复用同一 doc_id
+    assert app._docs[did] is b2  # 句柄换成实时对象
+    assert set(app._docs) == {"book1"}
+
+
+def test_excel_register_reuses_same_unsaved_name(monkeypatch):
+    app = _new_excel(monkeypatch)
+    a = app._register(_FakeBook("Book7"))  # 未保存 → 身份 = Name.lower()
+    assert a == "book1"
+    assert app._register(_FakeBook("Book7")) == a
+    assert set(app._docs) == {"book1"}
+
+
+def test_word_register_reuses_same_fullname(monkeypatch):
+    app = _new_word(monkeypatch)
+    d1 = _FakeWordDoc("report")
+    d1.Path = "C:/x"
+    did = app._register(d1)
+    assert did == "doc1"
+    d2 = _FakeWordDoc("report")
+    d2.Path = "C:/x"
+    assert app._register(d2) == did
+    assert set(app._docs) == {"doc1"}
+
+
+def test_ppt_register_reuses_same_fullname(monkeypatch):
+    app = _new_ppt(monkeypatch)
+    p1 = _FakePres("report")
+    p1.Path = "C:/x"
+    did = app._register(p1)
+    assert did == "pres1"
+    p2 = _FakePres("report")
+    p2.Path = "C:/x"
+    assert app._register(p2) == did
+    assert set(app._docs) == {"pres1"}
+
+
 # --- close/save 防弹窗：save=False 不触发另存为；save=True 从未保存自动落盘 ---
 
 
