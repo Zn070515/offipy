@@ -144,7 +144,28 @@ def test_save_tools_schema_exposes_overwrite(module):
         assert "overwrite" not in schema.get("required", [])
 
 
+@pytest.mark.parametrize("module", ["offipy.mcp_server", "offipy.cli"])
+def test_export_tools_expose_transport_params(module):
+    # P0-3：导出 op（requires_target）暴露 expected_target/follow_active 传输参数
+    tools = _list_tools(module)
+    for name in ("ppt_save_pdf", "ppt_export_slides", "word_save_pdf", "excel_save_pdf"):
+        schema = tools[name].input_schema
+        assert "expected_target" in schema["properties"]
+        assert "follow_active" in schema["properties"]
+
+
 # --- _invoke 统一返回封装（mock _call，不需要 Office） ---
+
+
+def test_server_description_mentions_target_binding():
+    # 契约1：模型描述跟上 doc_id/follow_active/expected_target 设计，防焦点漂移
+    from offipy import mcp_server
+
+    desc = mcp_server.server.description
+    assert "只读操作" in desc
+    assert "doc_id" in desc
+    assert "follow_active" in desc
+    assert "expected_target" in desc
 
 
 def test_invoke_void_op_returns_ok_string(monkeypatch):

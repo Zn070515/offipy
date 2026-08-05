@@ -23,9 +23,31 @@ def test_schema_ops_match_server_whitelist():
         assert server._OPS[app] == schema.ops(app)
 
 
-def test_schema_destructive_matches_server():
+def test_schema_requires_target_support_expected_target():
+    # P0-3：导出 op（写文件系统）必须绑定目标——requires_target 自动继承
+    # expected_target 支持（与 destructive 同一条路径）
     for app in schema.apps():
-        assert server._DESTRUCTIVE_OPS[app] == schema.destructive_ops(app)
+        for op in schema.ops(app):
+            spec = schema.spec(app, op)
+            want = bool(spec.destructive or spec.requires_target or spec.supports_expected_target)
+            assert schema.supports_expected_target(app, op) == want, (
+                f"{app}.{op} supports_expected_target 与标志不一致"
+            )
+
+
+def test_export_ops_require_target_binding():
+    # P0-3：4 个导出 op 必须显式绑定目标（supports_expected_target True）；
+    # 普通只读 op（read_range 类）不绑定
+    export_ops = [
+        ("excel", "save_pdf"),
+        ("word", "save_pdf"),
+        ("ppt", "save_pdf"),
+        ("ppt", "export_slides"),
+    ]
+    for app, op in export_ops:
+        assert schema.supports_expected_target(app, op), f"{app}.{op} 应绑定目标"
+        assert schema.spec(app, op).requires_target
+    assert schema.supports_expected_target("excel", "read_range") is False
 
 
 def test_server_ops_are_covered_by_schema():
@@ -60,6 +82,7 @@ def test_schema_flags_internally_consistent():
         for op in schema.ops(app):
             spec = schema.spec(app, op)
             assert not (spec.readonly and spec.destructive), f"{app}.{op} 不能同时只读且破坏性"
+            assert not (spec.readonly and spec.requires_target), f"{app}.{op} 只读但需绑定目标"
             if spec.readonly:
                 assert op not in schema.destructive_ops(app), f"{app}.{op} 只读但被标破坏性"
 
@@ -128,4 +151,5 @@ def test_mcp_tool_annotations_match_schema():
                 assert ann.destructive_hint is None
             else:
                 assert ann.read_only_hint is None
-                assert ann.destructive_hint == spec.destructive
+                # P0-3：导出 op（requires_target）同样标记破坏性提示
+                assert ann.destructive_hint == (spec.destructive or spec.requires_target)

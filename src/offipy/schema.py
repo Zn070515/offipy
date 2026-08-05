@@ -2,8 +2,8 @@
 
 新增一个 RPC 只需两处：① 在 App 类实现方法（签名即参数类型与默认值），
 ② 在此登记一条 OpSpec（readonly/destructive/description/deprecated）。
-server 白名单（_OPS/_DESTRUCTIVE_OPS）、CLI 参数校验/类型转换、MCP 工具
-注册全部从此派生，不再三处手工同步。
+server 白名单（_OPS，目标绑定由 supports_expected_target 派生）、CLI 参数
+校验/类型转换、MCP 工具注册全部从此派生，不再三处手工同步。
 
 参数签名以 App 方法为唯一权威（默认值/必填/类型都来自它）；schema 只声明
 元数据与描述。一致性测试保证 schema 声明的 op 集合与参数名和 App 方法不漂移。
@@ -25,6 +25,7 @@ class OpSpec:
     description: str = ""
     readonly: bool = False  # 只读：不改任何文档/应用状态
     destructive: bool = False  # 会改动文档内容/状态（expected_target 绑定对象）
+    requires_target: bool = False  # 会选中源文档并写文件系统：非破坏性但必须绑定目标（P0-3）
     supports_expected_target: bool = False  # 传输层额外支持 expected_target 绑定
     deprecated: bool = False  # P2-9 预留：已弃用 op，响应带 warning
     returns: str = "void"  # void/int/str/bool/list/dict/any（文档化用）
@@ -57,13 +58,14 @@ def readonly_ops(app: str) -> frozenset[str]:
 
 
 def supports_expected_target(app: str, op: str) -> bool:
-    """该 op 是否暴露 expected_target 传输参数（P0-1）。
+    """该 op 是否暴露 expected_target 传输参数（P0-1/P0-3）。
 
-    destructive 自动继承（expected_target 用于防目标漂移）；个别非破坏性但
-    可绑定目标的 op 可显式置 supports_expected_target=True。
+    destructive 自动继承（expected_target 用于防目标漂移）；requires_target
+    op（导出类：选中源文档 + 写文件系统）同样必须绑定目标，防导出错文档；
+    个别非破坏性但可绑定目标的 op 可显式置 supports_expected_target=True。
     """
     s = spec(app, op)
-    return bool(s and (s.destructive or s.supports_expected_target))
+    return bool(s and (s.destructive or s.requires_target or s.supports_expected_target))
 
 
 # =================================================================== Excel
@@ -104,6 +106,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把工作簿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
+            requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "add_sheet": OpSpec(
@@ -314,6 +317,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把文档（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
+            requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "write": OpSpec(
@@ -567,6 +571,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把演示文稿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
+            requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "export_slides": OpSpec(
@@ -574,6 +579,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir"
                 "（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。"
             ),
+            requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
             returns="list",
             params={"out_dir": str, "width": int, "height": int, "doc_id": str},
         ),

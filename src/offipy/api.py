@@ -43,22 +43,22 @@ class _Facade:
 class Excel(_Facade):
     """Excel 高层 facade（代理 ExcelApp 全部原子操作）。"""
 
-    def __init__(self, visible: bool = True):
-        super().__init__(ExcelApp(visible))
+    def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
+        super().__init__(ExcelApp(visible, modify_existing_visibility=modify_existing_visibility))
 
 
 class Word(_Facade):
     """Word 高层 facade（代理 WordApp 全部原子操作）。"""
 
-    def __init__(self, visible: bool = True):
-        super().__init__(WordApp(visible))
+    def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
+        super().__init__(WordApp(visible, modify_existing_visibility=modify_existing_visibility))
 
 
 class Ppt(_Facade):
     """PowerPoint 高层 facade（代理 PptApp 全部原子操作）。"""
 
-    def __init__(self, visible: bool = True):
-        super().__init__(PptApp(visible))
+    def __init__(self, visible: bool = True, modify_existing_visibility: bool = False):
+        super().__init__(PptApp(visible, modify_existing_visibility=modify_existing_visibility))
 
 
 class _RemoteFacade:

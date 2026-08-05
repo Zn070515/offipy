@@ -6,13 +6,12 @@
   供测试/CI 注入临时目录，也便于用户显式迁移数据。
 """
 
-import contextlib
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from .exceptions import FileConflictError
+from .exceptions import FileConflictError, OffipyError
 
 _APP_DIRNAME = "offipy"
 _CONVERTER_DATA_ENV = "OFFIPY_CONVERTER_DATA_DIR"
@@ -67,13 +66,23 @@ def default_save_path(doc_name: str, ext: str) -> str:
 
     不依赖 server CWD（Agent/服务场景 CWD 不可控），统一落在用户数据目录，
     目录自动创建。save()/close() 未给 path 时用自动路径直接 SaveAs，不触发
-    Office 的「另存为」对话框——保证无人值守自动化可跑通。时间戳后缀天然
-    唯一，不会与既有文件冲突。doc_name 通常是不含扩展名的默认文档名
-    （工作簿1/文档1/演示文稿1），转义文件系统非法字符兜底。
+    Office 的「另存为」对话框——保证无人值守自动化可跑通。微秒时间戳兜底；
+    路径已存在（Windows 时钟 ~1ms 分辨率，同时间戳连续调用）时追加 `_<n>`
+    序号循环检查，保证连续调用也不碰撞。mkdir 失败（目录不可写等）抛
+    OffipyError 报明确错误，不再静默吞掉（否则 SaveAs 报错更隐晦）。
+    doc_name 通常是不含扩展名的默认文档名（工作簿1/文档1/演示文稿1），
+    转义文件系统非法字符兜底。
     """
     safe = "".join(c for c in doc_name if c not in '\\/:*?"<>|').strip() or "document"
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest_dir = user_data_dir() / "documents"
-    with contextlib.suppress(OSError):
+    try:
         dest_dir.mkdir(parents=True, exist_ok=True)
-    return str(dest_dir / f"{safe}_{stamp}{ext}")
+    except OSError as e:
+        raise OffipyError(f"无法创建默认保存目录 {dest_dir}: {e}") from e
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    candidate = dest_dir / f"{safe}_{stamp}{ext}"
+    for n in range(1, 100):
+        if not candidate.exists():
+            return str(candidate)
+        candidate = dest_dir / f"{safe}_{stamp}_{n}{ext}"
+    raise FileConflictError(f"无法为 {doc_name} 生成唯一保存路径")

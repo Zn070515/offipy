@@ -27,6 +27,7 @@ import threading
 import time
 import traceback
 import uuid
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -75,10 +76,6 @@ _APPS_CLASSES = {
 # `_` 前缀 guard 在 dispatch 保留为纵深防御（防 dir() 反射类内部方法）。
 _OPS = {app: frozenset(schema.ops(app)) for app in schema.apps()}
 
-# 破坏性 op 集合（会改动文档内容/状态）：由 schema 的 destructive 标志派生。
-# expected_target 绑定只对这类 op 生效，防止用户焦点漂移后误改到非预期的文档。
-_DESTRUCTIVE_OPS = {app: frozenset(schema.destructive_ops(app)) for app in schema.apps()}
-
 # 单 COM worker（P1-1）：COM 对象只允许在创建它的线程里访问，所有 App
 # 实例都绑定 worker 线程；HTTP handler 线程只入队/取回结果，慢 op 不阻塞
 # /ping /status /shutdown。队列与 worker 均为模块级（与 _APPS 同级共享）。
@@ -107,8 +104,15 @@ class _IdempotencyEntry:
 # request_id 幂等缓存（方案 A）：request_id → entry。线程锁保护——_claim 是
 # 复合读改写（get/校验/建/淘汰），GIL 下 get/set 原子不够；并发同 ID 必须
 # 在锁内串行判定 owner/合并。LRU 容量封顶 _REQUEST_ID_MAX，只淘汰 done。
-_REQUEST_ID_CACHE: dict[str, _IdempotencyEntry] = {}
+# P1-5：OrderedDict 真 LRU——done 命中 move_to_end 刷新新鲜度，淘汰从最旧开始。
+_REQUEST_ID_CACHE: OrderedDict[str, _IdempotencyEntry] = OrderedDict()
 _REQUEST_LOCK = threading.Lock()
+_REQUEST_MAX_INFLIGHT = 64  # P1-5：并发 inflight 上限，超限拒绝新请求（503），防长卡 op 撑爆缓存
+
+
+class _InflightFullError(Exception):
+    """幂等 inflight 数超上限：调用方应稍后重试；不重复执行。"""
+
 
 # /status 的目标身份缓存：worker 每次 op 后刷新（worker 线程持有 COM，探测
 # 安全）；handler 线程只读快照，绝不因 status 探测拉起 Office 或触碰 COM。
@@ -253,6 +257,9 @@ def _resolve_expected_target(app, expected) -> str:
     P0-4/5：校验与执行用同一个 doc_id（校验时解析、注入方法调用参数），
     杜绝「校验 A 执行 B」；未知键/空对象直接拒绝，堵死旧 _target_matches({})
     恒真绕过。绑定失败抛 TargetNotFoundError / InvalidArgumentError。
+    P1-1：name/path 用规范化比较（name casefold、path normcase+abspath），
+    同目标因大小写/反斜杠/相对绝对写法不同也能命中。无 doc_id 时校验的是
+    当前活动目标；要定位指定已打开文档请传 doc_id。
     """
     if not isinstance(expected, dict):
         raise InvalidArgumentError(f"expected_target 必须是对象，收到 {type(expected).__name__}")
@@ -265,10 +272,23 @@ def _resolve_expected_target(app, expected) -> str:
     if target is None:
         raise TargetNotFoundError("没有可绑定的目标文档")
     for key in ("name", "path"):
-        if key in expected and target.get(key) != expected[key]:
-            raise TargetNotFoundError(
-                f"目标绑定失败: 期望 {key}={expected[key]!r}，实际 {target.get(key)!r}"
-            )
+        if key not in expected or expected[key] is None:
+            continue
+        want = expected[key]
+        have = target.get(key)
+        if key == "path":
+            # 路径规范化比较（大小写/反斜杠/相对绝对），防同文件写法不同误判；
+            # 目标无已保存路径视为不匹配（保守方向，空串/None 不误命中）
+            if not have:
+                raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际无已保存路径")
+            if os.path.normcase(os.path.abspath(str(have))) != os.path.normcase(
+                os.path.abspath(str(want))
+            ):
+                raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际 {have!r}")
+        else:
+            # name 按 casefold 对碰，忽略大小写差异
+            if str(have).casefold() != str(want).casefold():
+                raise TargetNotFoundError(f"目标绑定失败: 期望 {key}={want!r}，实际 {have!r}")
     return target["doc_id"]
 
 
@@ -415,7 +435,16 @@ def _claim(request_id: str, payload_hash: str) -> tuple[_IdempotencyEntry, bool]
                 _REQUEST_ID_CACHE.pop(request_id, None)
                 entry = None
             else:
+                if entry.state == "done":
+                    # LRU 命中：刷新新鲜度，淘汰时不被误杀（P1-5）
+                    _REQUEST_ID_CACHE.move_to_end(request_id)
                 return entry, False
+        # P1-5：inflight 上限——全是 inflight 时 _evict_lru 无从淘汰，必须硬限
+        inflight = sum(1 for e in _REQUEST_ID_CACHE.values() if e.state == "inflight")
+        if inflight >= _REQUEST_MAX_INFLIGHT:
+            raise _InflightFullError(
+                f"server 忙（幂等 inflight 已达上限 {_REQUEST_MAX_INFLIGHT}），请稍后重试"
+            )
         entry = _IdempotencyEntry(request_id, payload_hash)
         _REQUEST_ID_CACHE[request_id] = entry
         _evict_lru()
@@ -432,15 +461,31 @@ def _complete_entry(entry: _IdempotencyEntry, payload: dict) -> None:
 
 
 def _evict_lru() -> None:
-    """容量封顶：只淘汰最旧的 done 项，跳过 inflight；全 inflight 则不淘汰。
+    """容量封顶：按插入序（最旧优先）淘汰 done 项，跳过 inflight；全 inflight 不淘汰。
 
-    必须在持有 _REQUEST_LOCK 时调用（_claim 已持锁）。
+    必须在持有 _REQUEST_LOCK 时调用（_claim 已持锁）。done 命中已 move_to_end，
+    故从最旧开始扫描即 LRU 语义。
     """
-    for key in list(_REQUEST_ID_CACHE):
-        if len(_REQUEST_ID_CACHE) <= _REQUEST_ID_MAX:
-            return
-        if _REQUEST_ID_CACHE[key].state == "done":
-            _REQUEST_ID_CACHE.pop(key, None)
+    while len(_REQUEST_ID_CACHE) > _REQUEST_ID_MAX:
+        for key in list(_REQUEST_ID_CACHE):
+            if _REQUEST_ID_CACHE[key].state == "done":
+                _REQUEST_ID_CACHE.pop(key, None)
+                break
+        else:
+            return  # 只剩 inflight：无法淘汰，由 _REQUEST_MAX_INFLIGHT 硬限兜底
+
+
+def _idempotency_stats() -> dict:
+    """幂等缓存运行态统计（/status 暴露，P1-5）。"""
+    with _REQUEST_LOCK:
+        inflight = sum(1 for e in _REQUEST_ID_CACHE.values() if e.state == "inflight")
+        done = sum(1 for e in _REQUEST_ID_CACHE.values() if e.state == "done")
+    return {
+        "inflight": inflight,
+        "done": done,
+        "max": _REQUEST_ID_MAX,
+        "max_inflight": _REQUEST_MAX_INFLIGHT,
+    }
 
 
 def _ensure_worker() -> None:
@@ -530,14 +575,14 @@ def dispatch(app, op: str, args: dict, app_name: str):
         app = _rebuild(app)
     expected = args.pop("expected_target", None)
     follow_active = bool(args.pop("follow_active", False))
-    destructive = op in _DESTRUCTIVE_OPS.get(app_name, frozenset())
-    if expected is not None and destructive and op != "quit":
-        # P0-4/5：破坏性 op 绑定目标——不跟随用户焦点。resolve-once：校验用
-        # 解析出的 doc_id 直接注入方法参数，杜绝「校验 A 执行 B」；未知键/空
-        # 对象在 _resolve_expected_target 内拒绝（旧 _target_matches({}) 恒真
+    binds_target = schema.supports_expected_target(app_name, op)  # destructive ∪ requires_target
+    if expected is not None and binds_target and op != "quit":
+        # P0-4/5 + P0-3：破坏性/导出 op 绑定目标——不跟随用户焦点。resolve-once：
+        # 校验用解析出的 doc_id 直接注入方法参数，杜绝「校验 A 执行 B」；未知键/
+        # 空对象在 _resolve_expected_target 内拒绝（旧 _target_matches({}) 恒真
         # 绕过已堵死）。
         args["doc_id"] = _resolve_expected_target(app, expected)
-    elif follow_active and destructive and op != "quit":
+    elif follow_active and binds_target and op != "quit":
         # follow_active：显式声明「跟随当前活动文档」。实时解析并注入其 doc_id，
         # 无活动目标抛 TargetNotFoundError（绝不静默落到任何文档）。
         target = app.get_target()
@@ -545,9 +590,9 @@ def dispatch(app, op: str, args: dict, app_name: str):
             raise TargetNotFoundError("没有活动文档；请先 new_book/open_book 或显式 doc_id")
         args["doc_id"] = target["doc_id"]
     elif expected is not None:
-        # 非破坏性 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
+        # 不绑定目标的 op 上的 expected_target 无意义且有害（用户以为绑定了目标，
         # 实际 op 不作用于文档）——严格拒绝，不再静默忽略。
-        raise InvalidArgumentError(f"expected_target 只对破坏性操作有意义，{app_name}.{op} 不接受")
+        raise InvalidArgumentError(f"该操作不接受 expected_target: {app_name}.{op}")
     # follow_active 已在上面 pop；非破坏性 op 上出现则静默忽略。
     method = getattr(app, op, None)
     if method is None:
@@ -601,6 +646,8 @@ class Handler(BaseHTTPRequestHandler):
                         "started_at": _STARTED_AT,
                         # 只读缓存快照：worker 线程持有 COM 探测，handler 不触碰
                         "targets": _LAST_TARGETS,
+                        # 幂等缓存运行态（P1-5）：inflight/done 计数与上限
+                        "idempotency": _idempotency_stats(),
                     },
                 }
             )
@@ -734,6 +781,9 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 status=400,
             )
+        except _InflightFullError as e:
+            # P1-5：inflight 超上限快速失败，不排队（调用方同 id 重试不重复执行）
+            return self._reply({"ok": False, "error": str(e), "error_code": "busy"}, status=503)
         if entry.state == "done":
             # 命中缓存：回放同一响应（不重执行），标注 cached 供调用方区分
             res = dict(entry.result) if entry.result else {"ok": False, "error": "幂等结果缺失"}
@@ -877,6 +927,34 @@ def _acquire_startup_lock(port: int):
     return handle
 
 
+def _close_mutex(handle) -> None:
+    """释放启动锁 mutex 句柄；非 Windows / None 为 no-op。
+
+    锁必须持有到 serve() 退出（进程生命周期）：句柄随进程持有才是命名
+    mutex 语义，一旦句柄被 GC/释放，另一进程就能重复启动同一端口（P0-1）。
+    """
+    if handle is None or sys.platform != "win32":
+        return
+    with contextlib.suppress(Exception):
+        handle.Close()
+
+
+def _remove_pid_file_if_owned(port: int, token: str) -> None:
+    """仅当 PID 文件属于本进程（pid+port 双匹配）时删除。
+
+    启动失败 / 被替换 / 非默认实例退出时绝不误删他人 server 的 PID 文件
+    （P0-1/P0-2：PID 强杀权威只在能证明归属时才成立）。
+    """
+    pid_file = _pid_path(port)
+    try:
+        data = json.loads(pid_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if data.get("pid") == os.getpid() and data.get("port") == port:
+        with contextlib.suppress(OSError):
+            pid_file.unlink(missing_ok=True)
+
+
 def serve(
     port: int = DEFAULT_PORT,
     host: str = "127.0.0.1",
@@ -884,18 +962,25 @@ def serve(
 ):
     global _TOKEN
     _validate_host(host, allow_remote)
-    _acquire_startup_lock(port)  # P1-1 防双启：同端口已有 server → 直接拒绝
-    oplog.configure(port)  # P2-2 多实例：日志按端口隔离
-    _TOKEN = _load_token(port)
-    _write_pid_file(port, _TOKEN)  # §4 启动锁：port+pid+token_sha256 落盘，供归属验证
-    print(f"offipy server listening on http://{host}:{port}", flush=True)
-    # COM 初始化移到 worker 线程（P1-1）：HTTP 线程只入队，App 对象只被
-    # worker 触碰，套间安全；/ping /status /shutdown 不碰 COM，不被排队。
-    _ensure_worker()
+    # 防双启锁：句柄存到局部变量，随进程生命周期持有（P0-1），finally 释放
+    mutex_handle = _acquire_startup_lock(port)
+    httpd = None
     try:
-        Server((host, port), Handler).serve_forever()
+        oplog.configure(port)  # P2-2 多实例：日志按端口隔离
+        _TOKEN = _load_token(port)
+        httpd = Server((host, port), Handler)  # 先成功绑定端口
+        _write_pid_file(port, _TOKEN)  # 绑定成功才写 PID 文件（启动失败不留假活）
+        print(f"offipy server listening on http://{host}:{port}", flush=True)
+        # COM 初始化移到 worker 线程（P1-1）：HTTP 线程只入队，App 对象只被
+        # worker 触碰，套间安全；/ping /status /shutdown 不碰 COM，不被排队。
+        _ensure_worker()
+        httpd.serve_forever()
     finally:
         _stop_worker()
+        _remove_pid_file_if_owned(port, _TOKEN)
+        if httpd is not None:
+            httpd.server_close()
+        _close_mutex(mutex_handle)
 
 
 if __name__ == "__main__":

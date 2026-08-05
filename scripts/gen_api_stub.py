@@ -53,6 +53,8 @@ _HEADER = """\
 本地直连 Excel()/Word()/Ppt() 与远程 RemoteExcel()/RemoteWord()/RemotePpt()
 的显式 op 签名，供 mypy/IDE。破坏性 op 传输层参数：direct 只走 follow_active，
 remote 额外走 expected_target（与 MCP/CLI 同策略）。doc_id 缺省走当前活动文档。
+direct facade 绑定创建它的线程（STA COM），非线程安全；跨线程各自建 facade
+时用 offipy.direct.com_apartment() 包一层（线程各自 CoInitialize/Uninitialize）。
 \"\"\"
 
 from typing import Any
@@ -114,7 +116,10 @@ def _render_class(cls: str, app: str, remote: bool) -> list[str]:
     if remote:
         lines.append("    def __init__(self, base_url: str | None = None) -> None: ...")
     else:
-        lines.append("    def __init__(self, visible: bool = True) -> None: ...")
+        lines.append(
+            "    def __init__(self, visible: bool = True, "
+            "modify_existing_visibility: bool = False) -> None: ..."
+        )
     lines.append(f"    def __enter__(self) -> {cls}: ...")
     lines.append("    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool: ...")
     lines.append("")

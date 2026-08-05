@@ -54,10 +54,10 @@ server = MCPServer(
     name="offipy",
     title="offipy Office COM 自动化",
     description=(
-        "会话式驱动真实 Microsoft Word/Excel/PowerPoint。所有操作作用在用户当前"
-        "激活的文档/工作簿/演示文稿上（跨进程按 ActiveDocument/ActiveWorkbook/"
-        "ActivePresentation 定位），窗口实时可见、状态跨调用保持。操作完的产物"
-        "是原生 Office 文件，可继续在 Office 里手改。"
+        "会话式驱动真实 Microsoft Word/Excel/PowerPoint。只读操作作用于当前"
+        "活动文档；改动/导出操作要求 doc_id、follow_active 或 expected_target "
+        "显式绑定目标，防焦点漂移误操作。窗口实时可见、状态跨调用保持，产物"
+        "是原生 Office 文件。"
     ),
     version=__version__,
     log_level="WARNING",
@@ -149,7 +149,8 @@ def _build_tool(app: str, op: str) -> None:
     if spec.readonly:
         annotations = ToolAnnotations(read_only_hint=True)
     else:
-        annotations = ToolAnnotations(destructive_hint=spec.destructive)
+        # P0-3：导出 op 写文件系统，同样标记破坏性提示（requires_target ∪ destructive）
+        annotations = ToolAnnotations(destructive_hint=spec.destructive or spec.requires_target)
 
     server.tool(name=fn_name, description=spec.description, annotations=annotations)(tool_fn)
     globals()[fn_name] = tool_fn

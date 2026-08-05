@@ -1,5 +1,7 @@
 """P2-2 多实例：client 端口路由 / token·pid·oplog 按端口隔离 / server --port。"""
 
+import json
+
 import pytest
 
 from offipy import client, oplog, server
@@ -57,7 +59,10 @@ def test_ensure_server_passes_port_and_writes_scoped_pid(monkeypatch, tmp_path):
     with pytest.raises(server.ServerStartError):
         client.ensure_server()  # 握手恒 down → 超时抛错，但进程已按端口拉起
     assert popen["p"].cmd[-2:] == ["--port", "8891"]
-    assert (tmp_path / "server-8891.pid").read_text(encoding="utf-8") == "4242"
+    # P0-2：pid 文件始终 JSON；token 未定则 token_sha256 为 null（不误杀）
+    data = json.loads((tmp_path / "server-8891.pid").read_text(encoding="utf-8"))
+    assert data["pid"] == 4242 and data["port"] == 8891
+    assert data["token_sha256"] is None
     assert not (tmp_path / "server.pid").exists()
 
 
