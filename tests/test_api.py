@@ -165,3 +165,30 @@ def test_active_word_doc_prefers_live(monkeypatch):
     app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_doc() is live
+
+
+@pytest.mark.parametrize("app_name", ["excel", "word", "ppt"])
+def test_direct_dir_reveals_all_schema_ops(app_name):
+    # P1-4：dir(Ppt()) 等显示 schema 全部正式 op + quit（与 CLI/MCP/文档同批）
+    from offipy import schema
+
+    cls = {"excel": api.Excel, "word": api.Word, "ppt": api.Ppt}[app_name]
+    facade = cls.__new__(cls)  # 跳过 __init__ 的 COM 初始化
+    facade._app = None
+    facade._app_name = app_name
+    names = set(dir(facade))
+    assert schema.ops(app_name) <= names, f"{app_name} 缺正式 op"
+    assert "quit" in names
+    assert "_app" in names  # 实例属性仍在
+
+
+@pytest.mark.parametrize("app_name", ["excel", "word", "ppt"])
+def test_remote_dir_reveals_all_schema_ops(app_name):
+    from offipy import schema
+
+    remote = api._RemoteFacade.__new__(api._RemoteFacade)
+    remote._app_name = app_name
+    remote._base_url = None
+    names = set(dir(remote))
+    assert schema.ops(app_name) <= names, f"{app_name} 远程缺正式 op"
+    assert "quit" in names
