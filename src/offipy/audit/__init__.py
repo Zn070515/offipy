@@ -22,11 +22,15 @@ from .models import (
     AuditFinding,
     AuditShapeRef,
     AuditWarning,
+    ChangedFinding,
+    DiffShapeChange,
     JsonValue,
     PptxAuditReport,
+    PptxDiffReport,
     Severity,
     SuppressedFinding,
 )
+from .pptx import audit_pptx, compare_pptx
 
 __all__ = [
     "AUDIT_SCHEMA_VERSION",
@@ -47,8 +51,13 @@ __all__ = [
     "AuditFinding",
     "AuditShapeRef",
     "AuditWarning",
+    "ChangedFinding",
+    "DiffShapeChange",
     "JsonValue",
     "PptxAuditReport",
+    "PptxDiffReport",
     "Severity",
     "SuppressedFinding",
+    "audit_pptx",
+    "compare_pptx",
 ]

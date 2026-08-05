@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -121,6 +122,7 @@ class _ShapeRecord:
     autofit_font_scale: float | None = None
     autofit_norm_auto_fit: bool = False
     autofit_sp_auto_fit: bool = False
+    image_sha256: str | None = None  # PICTURE 图片内容 hash（compare 匹配用）
 
 
 @dataclass
@@ -194,6 +196,13 @@ def _build_record(
     is_connector = shape.shape_type == MSO_SHAPE_TYPE.LINE or shape._element.tag.endswith("}cxnSp")  # type: ignore[attr-defined]
     is_hidden = bool(shape._element.xpath('.//p:cNvPr[@hidden="1" or @hidden="true"]'))  # type: ignore[attr-defined]
 
+    image_sha256 = None
+    if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:  # type: ignore[attr-defined]
+        try:
+            image_sha256 = hashlib.sha256(shape.image.blob).hexdigest()  # type: ignore[attr-defined]
+        except Exception:
+            image_sha256 = None
+
     has_tf = bool(getattr(shape, "has_text_frame", False))
     tf = _read_text_frame(shape) if has_tf else None
 
@@ -235,6 +244,7 @@ def _build_record(
         autofit_font_scale=tf.autofit_font_scale if tf else None,
         autofit_norm_auto_fit=tf.autofit_norm_auto_fit if tf else False,
         autofit_sp_auto_fit=tf.autofit_sp_auto_fit if tf else False,
+        image_sha256=image_sha256,
     )
 
 

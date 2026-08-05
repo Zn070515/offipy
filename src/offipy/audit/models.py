@@ -230,3 +230,148 @@ class PptxAuditReport:
 
     def to_json(self, *, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+
+# ---------------------------------------------------------------- 基线回归
+
+
+@dataclass(frozen=True)
+class DiffShapeChange:
+    """基线回归中单个形状变化（新增/删除/移动/缩放/文本）。
+
+    details 记录旧/新几何与文本（英寸），完全 JSON 安全。
+    """
+
+    kind: Literal["added", "removed", "moved", "resized", "text"]
+    slide_index: int
+    shape_id: int
+    name: str
+    shape_type: str
+    details: dict[str, JsonValue] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "kind": self.kind,
+            "slide_index": self.slide_index,
+            "shape_id": self.shape_id,
+            "name": self.name,
+            "shape_type": self.shape_type,
+        }
+        if self.details:
+            d["details"] = self.details
+        return d
+
+
+@dataclass(frozen=True)
+class ChangedFinding:
+    """同一 Finding（形状已匹配）的严重度变化。worsened=True 表示候选严重度更高。"""
+
+    rule_id: str
+    kind: FindingKind
+    old_severity: Severity
+    new_severity: Severity
+    primary: AuditShapeRef
+    secondary: AuditShapeRef | None = None
+    details: dict[str, JsonValue] = field(default_factory=dict)
+
+    @property
+    def worsened(self) -> bool:
+        """严重度是否上升（按整数值比较，禁止字符串比较）。"""
+        return self.new_severity > self.old_severity
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "rule_id": self.rule_id,
+            "kind": self.kind,
+            "old_severity": self.old_severity.name,
+            "new_severity": self.new_severity.name,
+            "worsened": self.worsened,
+            "primary": self.primary.to_dict(),
+        }
+        if self.secondary is not None:
+            d["secondary"] = self.secondary.to_dict()
+        if self.details:
+            d["details"] = self.details
+        return d
+
+
+@dataclass
+class PptxDiffReport:
+    """基线 vs 候选 PPTX 回归报告：形状增删/移动/缩放/文本 + Finding 新增/已解决/变化。
+
+    max_severity 语义：候选相对基线**新增或恶化**的最高严重度
+    （`--fail-on-new` 门槛的依据）；无新增/恶化返回 None。
+    """
+
+    schema_version: str
+    offipy_version: str
+    baseline_path: str
+    candidate_path: str
+    baseline_sha256: str
+    candidate_sha256: str
+    baseline_slide_count: int
+    candidate_slide_count: int
+    baseline_findings: list[AuditFinding] = field(default_factory=list)
+    candidate_findings: list[AuditFinding] = field(default_factory=list)
+    added_findings: list[AuditFinding] = field(default_factory=list)
+    resolved_findings: list[AuditFinding] = field(default_factory=list)
+    changed_findings: list[ChangedFinding] = field(default_factory=list)
+    added_shapes: list[DiffShapeChange] = field(default_factory=list)
+    removed_shapes: list[DiffShapeChange] = field(default_factory=list)
+    moved_shapes: list[DiffShapeChange] = field(default_factory=list)
+    resized_shapes: list[DiffShapeChange] = field(default_factory=list)
+    text_changes: list[DiffShapeChange] = field(default_factory=list)
+    unmatched_baseline: list[AuditShapeRef] = field(default_factory=list)
+    unmatched_candidate: list[AuditShapeRef] = field(default_factory=list)
+    warnings: list[AuditWarning] = field(default_factory=list)
+
+    @property
+    def added_slides(self) -> int:
+        return max(0, self.candidate_slide_count - self.baseline_slide_count)
+
+    @property
+    def removed_slides(self) -> int:
+        return max(0, self.baseline_slide_count - self.candidate_slide_count)
+
+    @property
+    def new_or_worsened(self) -> list[AuditFinding | ChangedFinding]:
+        """候选新增或恶化的 Finding（`--fail-on-new` 只看这些）。"""
+        return [*self.added_findings, *(c for c in self.changed_findings if c.worsened)]
+
+    def gate_severity(self) -> Severity | None:
+        """候选新增或恶化的最高严重度；无则 None（门槛不触发）。"""
+        sevs: list[int] = [f.severity for f in self.added_findings]
+        sevs += [c.new_severity for c in self.changed_findings if c.worsened]
+        return Severity(max(sevs)) if sevs else None
+
+    def to_dict(self) -> dict[str, Any]:
+        gate = self.gate_severity()
+        return {
+            "schema_version": self.schema_version,
+            "offipy_version": self.offipy_version,
+            "baseline_path": self.baseline_path,
+            "candidate_path": self.candidate_path,
+            "baseline_sha256": self.baseline_sha256,
+            "candidate_sha256": self.candidate_sha256,
+            "baseline_slide_count": self.baseline_slide_count,
+            "candidate_slide_count": self.candidate_slide_count,
+            "added_slides": self.added_slides,
+            "removed_slides": self.removed_slides,
+            "baseline_findings": [f.to_dict() for f in self.baseline_findings],
+            "candidate_findings": [f.to_dict() for f in self.candidate_findings],
+            "added_findings": [f.to_dict() for f in self.added_findings],
+            "resolved_findings": [f.to_dict() for f in self.resolved_findings],
+            "changed_findings": [c.to_dict() for c in self.changed_findings],
+            "added_shapes": [s.to_dict() for s in self.added_shapes],
+            "removed_shapes": [s.to_dict() for s in self.removed_shapes],
+            "moved_shapes": [s.to_dict() for s in self.moved_shapes],
+            "resized_shapes": [s.to_dict() for s in self.resized_shapes],
+            "text_changes": [s.to_dict() for s in self.text_changes],
+            "unmatched_baseline": [s.to_dict() for s in self.unmatched_baseline],
+            "unmatched_candidate": [s.to_dict() for s in self.unmatched_candidate],
+            "warnings": [w.to_dict() for w in self.warnings],
+            "max_new_severity": (gate.name if gate is not None else None),
+        }
+
+    def to_json(self, *, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
