@@ -1,3 +1,5 @@
+> [English](deprecation.en.md)
+
 # 弃用政策（P2-9）
 
 offipy 对已过时的 RPC 操作（op）采用声明式弃用：在 schema 标一个标志，

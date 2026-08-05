@@ -1,3 +1,5 @@
+> [English](usage.en.md)
+
 # 快速上手
 
 ## 会话模型

@@ -16,6 +16,19 @@ nav:
   - 兼容矩阵: compatibility.md
   - 弃用政策: deprecation.md
   - 性能基准: benchmarks.md
+  - English:
+      - Home: index.en.md
+      - Quick Start: usage.en.md
+      - API Reference:
+          - Overview: api/index.en.md
+          - Excel: api/excel.en.md
+          - Word: api/word.en.md
+          - PowerPoint: api/ppt.en.md
+      - Exception Contract: exceptions.en.md
+      - Protocol: protocol.en.md
+      - Compatibility: compatibility.en.md
+      - Deprecation Policy: deprecation.en.md
+      - Benchmarks: benchmarks.en.md
 
 theme:
   name: material

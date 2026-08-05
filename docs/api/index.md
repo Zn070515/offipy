@@ -1,3 +1,5 @@
+> [English](index.en.md)
+
 # API 参考
 
 本参考由 `scripts/gen_api_ref.py` 从 `schema.py` 单一来源生成，覆盖 server / CLI / MCP 三入口的同一批操作。
