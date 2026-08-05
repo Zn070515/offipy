@@ -91,9 +91,9 @@ jobs:
       - uses: astral-sh/setup-uv@v7.1.4  # ≥7.1.4 修复自托管 Windows runner 的 Node libuv 崩溃（UV_HANDLE_CLOSING，src\win\async.c）
         with:
           enable-cache: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # 自托管 runner 服务非管理员账户，actions/setup-python 查/清注册表被拒
+      # （SecurityException），故不装系统 Python——uv 按 .python-version(3.12)
+      # 自管/自装解释器，绕开注册表权限。
       - name: Sync dependencies
         run: uv sync --extra dev
       - name: Install Playwright browser (deck 管线 DOM 测量)
