@@ -31,29 +31,36 @@ def _norm_text(text: str) -> str:
 
 
 def _match_confidence(primary_el: ArtElement, secondary_el: ArtElement) -> float | None:
-    """匹配置信度：shape_id 精确=1.0；身份=0.8；文本强佐证=0.7；几何=0.5×(1-d/0.2)。"""
+    """匹配置信度：shape_id 精确=1.0；身份=0.8；文本强佐证=0.7；几何=0.5×(1-d/0.2)。
+
+    文本身份分支（0.8/0.7）不设距离门——文本是强信号，跨源几何可能因坐标参考
+    系差异而偏移；纯几何分支（至少一边无文本）受距离门约束以防误并。
+    """
     if primary_el.element_id == secondary_el.element_id:
         return 1.0
     p_text = _norm_text(primary_el.text)
     s_text = _norm_text(secondary_el.text)
     same_text = bool(p_text) and p_text == s_text
     same_role = _norm_role(primary_el.role) == _norm_role(secondary_el.role)
-    pcx, pcy = primary_el.x + primary_el.width / 2, primary_el.y + primary_el.height / 2
-    ecx, ecy = secondary_el.x + secondary_el.width / 2, secondary_el.y + secondary_el.height / 2
-    d = ((pcx - ecx) ** 2 + (pcy - ecy) ** 2) ** 0.5
-    if d > 0.2:
-        return None
     if same_role and same_text:
         return 0.8
     if same_text:
         return 0.7
-    # 双方都有文本但不同 → 非同一元素
+    pcx, pcy = primary_el.x + primary_el.width / 2, primary_el.y + primary_el.height / 2
+    ecx, ecy = secondary_el.x + secondary_el.width / 2, secondary_el.y + secondary_el.height / 2
+    d = ((pcx - ecx) ** 2 + (pcy - ecy) ** 2) ** 0.5
+    # 双方都有文本但不同 → 非同一元素（即使几何接近也不合并）
     if p_text and s_text:
         return None
+    if d > 0.2:
+        return None
+    # 无文本佐证：几何底分先过门槛，role 加分不能救回相距过远的对
     base = 0.5 * (1.0 - d / 0.2)
+    if base <= 0.05:
+        return None
     if same_role:
         base += 0.1
-    return base if base > 0.05 else None
+    return base
 
 
 def _merge_element(

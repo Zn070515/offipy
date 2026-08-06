@@ -335,6 +335,41 @@ def test_merge_empty_shape_matches_by_geometry_with_role_soft():
     assert warnings == []
 
 
+def test_merge_text_identity_not_distance_gated():
+    """文本身份分支不受距离门限制：同文本即使几何偏移 >0.2 仍匹配（跨源坐标参考系可能不同）。"""
+    m_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element(
+                        "m-t", "标题文字", role="title", x=0.1, y=0.1, font_size=48.0
+                    ),
+                ],
+            )
+        ]
+    )
+    p_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element(
+                        "p-t", "标题文字", role="title", x=0.6, y=0.6, font_size=44.0
+                    ),
+                ],
+            )
+        ],
+        width_unit="pt",
+    )
+    merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
+    els = merged.slides[0].elements
+    assert len(els) == 1
+    assert els[0].source == "merged"
+    assert els[0].evidence["match_confidence"] == 0.8  # 身份分支，不受 d 门限制
+    assert warnings == []
+
+
 def test_merge_text_mismatch_guard_blocks_merge():
     """双方都有文本但不同 → 即使几何接近也不合并（避免错误并证）。"""
     m_scene = make_scene(
