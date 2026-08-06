@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from offipy.exceptions import InvalidArgumentError
@@ -46,6 +47,9 @@ _PAGE_ASPECT_TOL = 0.01
 _BG_SAMPLE_MARGIN = 0.04
 _OPAQUE_SENTINEL = (252, 0, 252)
 _ALPHA_MIN = 128
+# 注意：/32 分桶后过滤的是整个桶 (7,0,7)（R∈[224,255], G∈[0,31], B∈[224,255]），
+# 所以真实的热洋红元素（#FF00FF 及其邻近色）也会被一起排除在统计外。
+# 这是冻结契约的取舍，仅记录，不改变行为。
 _SENTINEL_BUCKET = (
     _OPAQUE_SENTINEL[0] // _PALETTE_BUCKET,
     _OPAQUE_SENTINEL[1] // _PALETTE_BUCKET,
@@ -195,8 +199,6 @@ class _BgEstimate:
 
 def _estimate_background(im) -> _BgEstimate:
     """8 采样点（4 角 + 4 边中点）估背景：置信度 + 均匀度 + 背景相似占比。"""
-    from collections import Counter
-
     w, h = im.size
     if w <= 2 or h <= 2:
         return _BgEstimate(None, 0.0, 0.0, 0.0)
@@ -271,7 +273,8 @@ def _text_evidence(region, el: ArtElement, bg: ArtColor | None) -> ElementPixelE
             foreground=fg,
             background=None,
             background_complexity=round(complexity, 3),
-            color_confidence=round(max(0.5, 1.0 - complexity), 3),
+            # complexity>=0.5 here, so 1.0-complexity would be <=0.5 — flat 0.5
+            color_confidence=0.5,
             method="complex_background",
         )
     fg_ratio = _match_ratio(counts, fg)
@@ -346,8 +349,6 @@ def _element_evidence(im, el: ArtElement, bg: ArtColor | None) -> ElementPixelEv
 
 
 def _replace_pixel_evidence(el: ArtElement, im, bg: ArtColor | None) -> ArtElement:
-    from dataclasses import replace
-
     return replace(el, pixel_evidence=_element_evidence(im, el, bg))
 
 
@@ -412,8 +413,8 @@ class PixelEnricher:
         expected_sha256: str | None,
         run_id: str | None,
         scene: ArtScene,
-    ) -> bool:
-        """来源指纹校验；返回 False 表示已决定中止 enrich。"""
+    ) -> None:
+        """来源指纹校验；中止只通过抛 InvalidArgumentError 表达。"""
         if not info:
             scene.warnings.append(
                 ArtWarning(
@@ -421,7 +422,7 @@ class PixelEnricher:
                     message="缺少 _deck_info.json，无法验证像素来源",
                 )
             )
-            return True
+            return
         sha = info.get("pptx_sha256")
         if sha is not None and expected_sha256 is not None:
             if sha != expected_sha256:
@@ -429,7 +430,7 @@ class PixelEnricher:
                     f"slides_dir 指纹与当前 PPTX 不一致（{sha[:8]} ≠ {expected_sha256[:8]}），"
                     "拒绝混合来源分析"
                 )
-            return True
+            return
         if sha is not None:
             info_run = info.get("run_id")
             if info_run is not None and run_id is not None:
@@ -437,21 +438,21 @@ class PixelEnricher:
                     raise InvalidArgumentError(
                         f"slides_dir 的 run_id 与当前 measurements 不一致（{info_run} ≠ {run_id}）"
                     )
-                return True
+                return
             scene.warnings.append(
                 ArtWarning(
                     code="art.pixel.source_unverified",
                     message="slides_dir 指纹缺少可验证 run_id，来源未验证",
                 )
             )
-            return True
+            return
         scene.warnings.append(
             ArtWarning(
                 code="art.pixel.source_unverified",
                 message="slides_dir 指纹缺少 pptx_sha256，来源未验证",
             )
         )
-        return True
+        return
 
     def enrich(
         self,
@@ -481,37 +482,38 @@ class PixelEnricher:
                 continue
             try:
                 with Image.open(path) as im:
-                    try:
-                        im.load()
-                    except Exception as exc:
-                        scene.warnings.append(
-                            ArtWarning(
-                                code="art.pixel.decode_failed",
-                                message=f"页 {slide.index} PNG 解码失败: {exc}",
-                            )
-                        )
-                        continue
-                    if abs(im.width / im.height - slide.width / slide.height) > _PAGE_ASPECT_TOL:
-                        scene.warnings.append(
-                            ArtWarning(
-                                code="art.pixel.aspect_mismatch",
-                                message=f"页 {slide.index} 纵横比与场景不符，跳过",
-                            )
-                        )
-                        continue
-                    slide.pixel_evidence = _page_evidence(im)
-                    slide.elements = [
-                        _replace_pixel_evidence(el, im, slide.pixel_evidence.background)
-                        for el in slide.elements
-                    ]
-                    covered += 1
+                    im.load()
             except Exception as exc:
                 scene.warnings.append(
                     ArtWarning(
                         code="art.pixel.decode_failed",
-                        message=f"页 {slide.index} 读取失败: {exc}",
+                        message=f"页 {slide.index} PNG 解码失败: {exc}",
                     )
                 )
+                continue
+            if abs(im.width / im.height - slide.width / slide.height) > _PAGE_ASPECT_TOL:
+                scene.warnings.append(
+                    ArtWarning(
+                        code="art.pixel.aspect_mismatch",
+                        message=f"页 {slide.index} 纵横比与场景不符，跳过",
+                    )
+                )
+                continue
+            try:
+                slide.pixel_evidence = _page_evidence(im)
+                slide.elements = [
+                    _replace_pixel_evidence(el, im, slide.pixel_evidence.background)
+                    for el in slide.elements
+                ]
+                covered += 1
+            except Exception as exc:
+                scene.warnings.append(
+                    ArtWarning(
+                        code="art.pixel.analysis_failed",
+                        message=f"页 {slide.index} 像素分析失败: {exc}",
+                    )
+                )
+                continue
         scene_indexes = {s.index for s in scene.slides}
         for idx in sorted(set(pages) - scene_indexes):
             scene.warnings.append(

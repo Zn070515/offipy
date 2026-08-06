@@ -183,3 +183,27 @@ def test_enrich_page_extra_and_missing(tmp_path):
     )
     PixelEnricher(d).enrich(scene2)
     assert any(w.code == "art.pixel.page_missing" for w in scene2.warnings)
+
+
+def test_enrich_rgba_transparent_excluded(tmp_path):
+    d = tmp_path / "slides"
+    d.mkdir()
+    _write(d, "slide_1.png", Image.new("RGBA", (100, 100), (0, 0, 0, 0)))  # 全透明
+    el = make_element(
+        "t",
+        kind="text",
+        role="body",
+        x=0.2,
+        y=0.2,
+        w=0.2,
+        h=0.1,
+        foreground=ArtColor(0, 0, 0),
+    )
+    scene = ArtScene(
+        slides=[ArtSlide(index=1, width=100.0, height=100.0, elements=[el])],
+        width_unit="px",
+    )
+    PixelEnricher(d).enrich(scene)
+    pe = scene.slides[0].elements[0].pixel_evidence
+    assert pe.background is None  # 透明像素不进背景估计
+    assert pe.method != "declared_verified"  # 透明像素不当成黑/白验证成功
