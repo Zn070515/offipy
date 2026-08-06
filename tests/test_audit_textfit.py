@@ -206,3 +206,25 @@ def test_msyh_metric_high_confidence_when_available(tmp_path):
     assert len(fits) == 1
     assert fits[0].confidence == 0.8
     assert "字符估算低置信" not in fits[0].message
+
+
+def test_horizontal_overflow_below_floor_not_reported(tmp_path):
+    # 溢出 < 1pt（引擎度量噪声下限）：Pillow(FreeType) 与 PowerPoint(DirectWrite)
+    # 度量 msyh 有亚 pt 级差，低于下限的「超出」在 PowerPoint 渲染刚好放下。
+    # 10 W @18pt 字符权重 = 1.25in；框 1.443in → avail 1.243in，溢出 0.007in(<1pt)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_seg_tb(slide, 1, 1, 1.443, 1.0, ["WWWWWWWWWW"], wrap=False)
+    findings, _, _ = _run(prs, tmp_path)
+    assert _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL) == []
+
+
+def test_horizontal_overflow_above_floor_reported(tmp_path):
+    # 溢出 > 1pt 仍报：框 1.3in → avail 1.1in，溢出 0.15in(10.8pt)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_seg_tb(slide, 1, 1, 1.3, 1.0, ["WWWWWWWWWW"], wrap=False)
+    findings, _, _ = _run(prs, tmp_path)
+    fits = _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL)
+    assert len(fits) == 1
+    assert fits[0].severity == Severity.LOW

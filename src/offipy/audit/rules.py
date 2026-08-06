@@ -54,6 +54,9 @@ _EDGE_CN = {"left": "左", "right": "右", "top": "上", "bottom": "下"}
 
 _MIN_READABLE_PT = 8.0  # 最小可读字号阈值
 _DEFAULT_FONT_SIZE_PT = 18.0  # 文本框默认字号（未显式设置时的估算基准）
+# 溢出噪声下限：Pillow(FreeType) 与 PowerPoint(DirectWrite) 度量 msyh 有亚 pt 级
+# 引擎差。低于 1pt 的「超出」在 PowerPoint 里渲染刚好放下，报了是新的「脱节」。
+_OVERFLOW_FLOOR_IN = 1.0 / 72.0
 _LINE_HEIGHT_RATIO = 1.2
 _PILLOW_CONF = 0.8  # Pillow 字体度量置信度
 _FALLBACK_CONF = 0.4  # 字符权重回退置信度（消息标注「字符估算低置信」）
@@ -753,8 +756,8 @@ def _text_overflow(
     wrap_w = avail_w if avail_w > _MIN_DIM else 1.0
     text_h, _ = _text_height_in(rec, wrap_w, _DEFAULT_FONT_SIZE_PT)
     # 仅显式 wrap=none 会横向溢出：square 自动折行，None(未设) 按 PowerPoint 默认 square
-    over_w = (rec.word_wrap is False) and max_w > avail_w
-    over_h = text_h > avail_h
+    over_w = (rec.word_wrap is False) and max_w > avail_w + _OVERFLOW_FLOOR_IN
+    over_h = text_h > avail_h + _OVERFLOW_FLOOR_IN
     return over_w, over_h, max_w, text_h
 
 
@@ -807,7 +810,7 @@ class TextFitRule:
             used_pillow = any(u for segs in segs_all for _, u in segs)
             conf = _PILLOW_CONF if used_pillow else _FALLBACK_CONF
             approx = "" if used_pillow else "（字符估算低置信）"
-            if rec.word_wrap is False and max_para_w > avail_w:
+            if rec.word_wrap is False and max_para_w > avail_w + _OVERFLOW_FLOOR_IN:
                 findings.append(
                     _finding(
                         rule_id=RULE_TEXT_FIT_HORIZONTAL,
@@ -829,7 +832,7 @@ class TextFitRule:
             text_h, v_used = _text_height_in(rec, avail_w, _DEFAULT_FONT_SIZE_PT)
             v_conf = _PILLOW_CONF if (used_pillow or v_used) else _FALLBACK_CONF
             v_approx = "" if (used_pillow or v_used) else "（字符估算低置信）"
-            if text_h > avail_h:
+            if text_h > avail_h + _OVERFLOW_FLOOR_IN:
                 findings.append(
                     _finding(
                         rule_id=RULE_TEXT_FIT_VERTICAL,
