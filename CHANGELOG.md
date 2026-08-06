@@ -3,6 +3,31 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [Unreleased]
+
+### Added
+- **Ppt `close_pres` 新操作**（#26）：API 补齐 close 语义——`ppt.close_pres(save, doc_id)`
+  关闭演示文稿，配合 `deck.open_live` 释放 PowerPoint 对产物的锁，同路径 re-render
+  不再 PermissionError
+- **只读 op 支持 `follow_active`**（#25）：`get_cell` / `read_range` / `read_doc_text` /
+  `read_slide_texts` / `read_slide_summary` 在会话语义下可跟随活动目标，
+  MCP / CLI / Remote 同步放行
+
+### Fixed
+- **deck 混合 flex/非 flex 布局页**（#21）：naturalDisplay 按 slide 记录，flex 页不再被
+  全局 block 强压成两栏竖排
+- **deck `open_live` 源产物不再被锁**（#22）：打开前复制到 `offipy-live-*` 临时副本，
+  `close_live` 释放；目标被 PowerPoint 占用时给可操作错误（替代裸 PermissionError）
+- **Word 错误路径前置校验**（#23/#28/#30）：`set_table_col_width` / `add_list` /
+  `format_text` / `insert_image` / `open_doc` 非法输入在进入 COM 前转
+  `InvalidArgumentError`，不再裸抛 COM 错误
+- **Excel 错误路径前置校验**（#24/#31）：`set_range` 维度不匹配 / `merge_cells` 非法区域 /
+  `open_book` 源文件缺失同理
+- **Ppt 错误路径前置校验**（#27/#32）：`add_slide` 非法 layout / slide 索引越界 /
+  `add_picture` 源文件缺失同理
+- **CLI 退出码一致**（#29）：`deck make` / `deck outline` 缺必填参数统一 exit 2
+  （对齐 argparse 参数错误语义）
+
 ## [0.11.5] - 2026-08-06
 
 ### Fixed
