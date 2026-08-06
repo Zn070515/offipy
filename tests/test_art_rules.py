@@ -1,5 +1,5 @@
 from offipy.art.models import ArtScene, ArtSlide
-from offipy.art.profiles import get_profile
+from offipy.art.profiles import RULE_TITLE_TOO_SMALL, get_profile
 from offipy.art.rules import (
     RuleContext,
     RuleEvaluation,
@@ -80,7 +80,7 @@ def test_assess_dimension_not_applicable_when_no_rules():
 
 def test_assess_dimension_insufficient_evidence_low_coverage():
     slide = ArtSlide(index=1, width=1920, height=1080)
-    specs = [_rule("a.h", covered=2, eligible=10)]
+    specs = [_rule(RULE_TITLE_TOO_SMALL, covered=2, eligible=10)]
     d = assess_dimension("hierarchy", specs, _ctx(slide))
     assert d.status == "insufficient_evidence"
     assert d.grade is None
@@ -109,7 +109,7 @@ def test_assess_dimension_confidence_override_and_grade():
     slide = ArtSlide(index=1, width=1920, height=1080)
     from offipy.art.profiles import ArtProfile
 
-    prof = ArtProfile(name="x", confidence_overrides={"a.h": 0.1})
+    prof = ArtProfile(name="x", confidence_overrides={RULE_TITLE_TOO_SMALL: 0.1})
     ctx = RuleContext(
         profile=prof,
         slide=slide,
@@ -118,8 +118,8 @@ def test_assess_dimension_confidence_override_and_grade():
         deck=ArtScene(slides=[slide]),
         sources=frozenset({"measurement"}),
     )
-    f = make_finding("a.h", "hierarchy", Severity.MID, "m", 0.6, slide_index=1)
-    specs = [_rule("a.h", findings=[f], covered=5, eligible=5)]
+    f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.MID, "m", 0.6, slide_index=1)
+    specs = [_rule(RULE_TITLE_TOO_SMALL, findings=[f], covered=5, eligible=5)]
     d = assess_dimension("hierarchy", specs, ctx)
     assert d.status == "assessed"
     # override 后 confidence=0.1 → 低于 floor，grade=excellent
@@ -148,7 +148,7 @@ def test_assess_dimension_experimental_caps_confidence():
 
 def test_dimension_confidence_reliability_pptx_only():
     slide = ArtSlide(index=1, width=1920, height=1080)
-    specs = [_rule("a.h", covered=5, eligible=5)]
+    specs = [_rule(RULE_TITLE_TOO_SMALL, covered=5, eligible=5)]
     # 仅 pptx 源 → reliability 0.6
     ctx = _ctx(slide, sources={"pptx"})
     d = assess_dimension("hierarchy", specs, ctx)

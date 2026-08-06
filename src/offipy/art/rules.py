@@ -117,14 +117,8 @@ def grade_from_findings(findings: list[ArtFinding]) -> Grade:
 
 
 def _is_active(spec: RuleSpec, profile: ArtProfile) -> bool:
-    """规则开关：权威负向名单是 disabled_rules。
-
-    enabled_rules 是正向白名单，由上层（analyze 选 spec 时）过滤；
-    assess_dimension 收到的 spec 已经是 enabled 过滤后的，这里只判负向开关，
-    否则不在默认 ALL_RULES 内的合成 rule_id（单元测试）会被误判为 inactive。
-    内置 profile 也只用 disabled_rules 关规则（academic/event 关 off_balance）。
-    """
-    return spec.rule_id not in profile.disabled_rules
+    """规则开关：enabled_rules 正向白名单 + disabled_rules 负向开关，双重过滤。"""
+    return spec.rule_id in profile.enabled_rules and spec.rule_id not in profile.disabled_rules
 
 
 def _apply_profile(
