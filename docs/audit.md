@@ -161,12 +161,14 @@ report = audit_pptx(
 - 可用区域**先减 TextFrame 的 margin**。
 - 横溢**仅对显式 `wrap="none"` 的文本框**报（单行不折行）；`square`（含 bodyPr@wrap
   未设，PowerPoint 默认自动折行）永不报横溢。段落含 `a:br` 软换行时取**最长段**宽，
-  不跨段求和。超高按显式行数×行高。
+  不跨段求和。超高按显式行数×行高；行高读取段落 `a:lnSpc`（`spcPts` 绝对 / `spcPct`
+  百分比），未设时回退 `字号×1.2`；行尾软换行（`a:br`）不计多余空行。
 - 超宽 / 超高需**超过 1pt 噪声下限**才报（Pillow FreeType 与 PowerPoint DirectWrite
   度量引擎存在亚 pt 级差异）。
-- 字体度量：**优先 Pillow**（含 `.ttc` 集合，如微软雅黑 `msyh.ttc` → confidence 0.8）；
-  **找不到字体文件回退字符权重**（CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4，
-  message 标注「字符估算低置信」）。
+- 字体度量：**优先 fontTools 解析字体文件**（`.ttf` / `.ttc`，如微软雅黑
+  `msyh.ttc`/`msyhbd.ttc`），按 hmtx 字宽 + kerning/GPOS 字距求和 → confidence 0.8；
+  失败再回退 **Pillow** 的 `getlength`，最后**字符权重**（CJK=1.0 / ASCII=0.5 /
+  space=0.35 → confidence 0.4，message 标注「字符估算低置信」）。
 - 页码 / 页眉 / 页脚小文本跳过（本就紧凑）。
 
 ### Autofit（自适应风险）
@@ -191,6 +193,7 @@ report = audit_pptx(
 | `decorative_overlay` | 实心小装饰/色条浮有文本容器（尺寸判别）——不遮挡内容 |
 | `text_on_background` | 文字浮无文本背景/容器（非包含）——下方无内容可遮挡 |
 | `transparent_overlay` | 透明（`a:noFill`）无文本上层——视觉上不遮挡任何内容 |
+| `decorative_layering` | 双方无文本的长条装饰分层（短边≥3 倍、较长一维 ≥70% 大者、非包含）——部分重叠但不遮挡内容 |
 | `user_shape` / `user_region` | 用户通过 `ignored_shapes` / `ignored_regions` 显式豁免 |
 
 overlap 遮挡判定按「上层是否真的盖住下层内容」：透明无文本上层不遮挡、
@@ -204,7 +207,7 @@ overlap 遮挡判定按「上层是否真的盖住下层内容」：透明无文
 | confidence | 含义 |
 |------------|------|
 | 1.0 | 精确几何，无启发式 |
-| 0.8 | Pillow 字体度量（含 `.ttc` 集合）参与文本宽度估算 |
+| 0.8 | fontTools 字体度量（hmtx 字宽 + kerning/GPOS 字距，含 `.ttc` 集合） |
 | 0.5 | 旋转形状的 AABB 近似（message 标注） |
 | 0.4 | 字符权重回退（message 标注「字符估算低置信」） |
 

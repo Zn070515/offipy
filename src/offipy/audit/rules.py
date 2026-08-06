@@ -12,13 +12,14 @@ margin 由中央 suppression 处理——全部进 suppressed 带 reason，不�
 
 from __future__ import annotations
 
+import functools
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from .extract import _Paragraph, _ShapeRecord
+from .extract import _Paragraph, _ShapeRecord, _TextRun
 from .geometry import Rect, overlap_area, rect_contains, rect_intersection
 from .models import (
     RULE_AUTOFIT_GROW,
@@ -378,7 +379,7 @@ def _classify_overlap(
 
     reason = _overlay_suppression_reason(on_top, below, contained)
     if reason is not None:
-        if reason == "text_on_background":
+        if reason in ("text_on_background", "decorative_layering"):
             f = _partial_finding(a, b, ratio, context, Severity.LOW, confidence, approx_note)
         else:
             f = _cover_finding(below, on_top, ratio, context, confidence, approx_note)
@@ -426,6 +427,8 @@ def _overlay_suppression_reason(
         return "decorative_overlay"
     if not contained and _has_text(on_top) and not _has_text(below):
         return "text_on_background"
+    if not contained and _is_textless_decorative_layering(on_top, below):
+        return "decorative_layering"
     return None
 
 
@@ -455,6 +458,33 @@ def _is_decorative_overlay(on_top: _ShapeRecord, below: _ShapeRecord) -> bool:
     if r_on is None or r_below is None:
         return False
     return r_on.area() <= r_below.area() * _DECORATIVE_SIZE_FRACTION
+
+
+def _is_strip(r: Rect) -> bool:
+    """长条：长边 ≥ 3 × 短边（宽卡/窄色条/行纹）。"""
+    long_side = max(r.width, r.height)
+    short_side = min(r.width, r.height)
+    return short_side > 0 and long_side >= 3.0 * short_side
+
+
+def _is_textless_decorative_layering(on_top: _ShapeRecord, below: _ShapeRecord) -> bool:
+    """卡片容器 + 行条纹装饰分层（双方无文本）→ 豁免 partial。
+
+    判别：双方无文本、非图片/图表、均为长条（aspect ≥ 3）、小者长边横跨 ≥ 70%
+    大者长边（条纹铺满容器宽、仅边缘越出）。典型：S13 表格页卡片 Rectangle +
+    行条纹 poking 出卡片底边——设计分层被报「部分重叠」。
+    """
+    if _is_picture_chart(on_top) or _is_picture_chart(below):
+        return False
+    if _has_text(on_top) or _has_text(below):
+        return False
+    r_on, r_below = _rect(on_top), _rect(below)
+    if r_on is None or r_below is None:
+        return False
+    if not _is_strip(r_on) or not _is_strip(r_below):
+        return False
+    small, big = (r_on, r_below) if r_on.area() <= r_below.area() else (r_below, r_on)
+    return max(small.width, small.height) >= 0.7 * max(big.width, big.height)
 
 
 def _contained_result(
@@ -685,10 +715,113 @@ def _load_font(font_name: str | None, bold: bool, size_pt: float):
         return None
 
 
+def _pairpos_kerning(sub) -> dict[tuple[str, str], int]:
+    """GPOS PairPos subtable → {(first_glyph, second_glyph): xadvance}。"""
+    kern: dict[tuple[str, str], int] = {}
+    if getattr(sub, "Format", None) == 1:
+        firsts = sub.Coverage.glyphs
+        for i, first in enumerate(firsts):
+            for pv in sub.PairSet[i].PairValueRecord:
+                v1 = pv.Value1
+                xadv = v1.XAdvance if v1 and v1.XAdvance else 0
+                if xadv:
+                    kern[(first, pv.SecondGlyph)] = xadv
+    elif getattr(sub, "Format", None) == 2:
+        firsts = sub.Coverage.glyphs
+        c1map = sub.ClassDef1.classDefs
+        c2map = sub.ClassDef2.classDefs
+        for first in firsts:
+            c1 = c1map.get(first, 0)
+            cr = sub.Class1Record[c1]
+            for c2, rec in enumerate(cr.Class2Record):
+                v1 = rec.Value1
+                xadv = v1.XAdvance if v1 and v1.XAdvance else 0
+                if not xadv:
+                    continue
+                for second, sc in c2map.items():
+                    if sc == c2:
+                        kern[(first, second)] = xadv
+    return kern
+
+
+def _font_kerning_pairs(tt) -> dict[tuple[str, str], int]:
+    """{(left_glyph, right_glyph): xadvance font-units}。优先旧式 kern，无则 GPOS。"""
+    kern: dict[tuple[str, str], int] = {}
+    if "kern" in tt:
+        for st in tt["kern"].kernTables:
+            if st.format == 0 and (getattr(st, "coverage", 0) & 1):
+                kern.update(st.kernTable)
+    elif "GPOS" in tt:
+        g = tt["GPOS"].table
+        lookups = []
+        for feat in g.FeatureList.FeatureRecord:
+            if (feat.FeatureTag or "").lower() == "kern":
+                lookups.extend(feat.Feature.LookupListIndex)
+        if not lookups:
+            lookups = list(range(len(g.LookupList.Lookup)))
+        for idx in lookups:
+            lookup = g.LookupList.Lookup[idx]
+            if lookup.LookupType != 2:
+                continue
+            for sub in lookup.SubTable:
+                kern.update(_pairpos_kerning(sub))
+    return kern
+
+
+@functools.lru_cache(maxsize=64)
+def _font_metrics(
+    path: str,
+) -> tuple[float, dict[str, int], dict[tuple[str, str], int], dict[int, str]] | None:
+    """(upem, {glyph: advance}, {(l, r): kern}, {codepoint: glyph})；失败 → None。"""
+    try:
+        from fontTools.ttLib import TTFont
+    except Exception:
+        return None
+    try:
+        tt = TTFont(path, fontNumber=0)
+        upem = tt["head"].unitsPerEm
+        advances = {gname: m[0] for gname, m in tt["hmtx"].metrics.items()}
+        kern = _font_kerning_pairs(tt)
+        cmap = tt.getBestCmap()
+        return upem, advances, kern, cmap
+    except Exception:
+        return None
+
+
+@functools.lru_cache(maxsize=32)
+def _find_font_metrics(font_name: str, bold: bool):
+    """定位字体文件并读 fontTools 度量；找不到/解析失败 → None。"""
+    for path in _font_candidates(font_name, bold):
+        if path.exists():
+            m = _font_metrics(str(path))
+            if m is not None:
+                return m
+    return _font_metrics(font_name)  # 允许 font_name 本身是绝对路径
+
+
 def _run_width_pt(
     text: str, size_pt: float, bold: bool | None, font_name: str | None
 ) -> tuple[float, bool]:
-    """单个 run 自然宽度（pt）→ (宽度, 是否用 Pillow 度量)。"""
+    """单个 run 自然宽度（pt）→ (宽度, 是否高置信度量)。
+
+    优先 fontTools hmtx+kerning：与 PowerPoint/DirectWrite 度量一致（拉丁/数字的
+    kern 对如 T-e、R-T 会让 Pillow getlength 高估 ~1.3%）；无字体则 Pillow 度量；
+    再失败则字符权重回退。
+    """
+    metrics = _find_font_metrics((font_name or "Arial").strip(), bool(bold))
+    if metrics is not None:
+        upem, advances, kern, cmap = metrics
+        total = 0.0
+        names = [cmap.get(ord(ch)) for ch in text]
+        for name in names:
+            if name is not None:
+                total += advances.get(name, 0)
+        for i in range(len(names) - 1):
+            gl, gr = names[i], names[i + 1]
+            if gl is None or gr is None:
+                continue
+            total += kern.get((gl, gr), 0)
+        return total / upem * size_pt, True
     font = _load_font(font_name, bool(bold), size_pt)
     if font is not None:
         try:
@@ -698,13 +831,21 @@ def _run_width_pt(
     return sum(_char_width_pt(ch, size_pt) for ch in text), False
 
 
+def _visual_segments(p: _Paragraph) -> list[list[_TextRun]]:
+    """a:br 拆出的视觉行，丢弃末尾空段（尾部 <a:br> 不渲染额外一行）。"""
+    segs = p.segments if p.segments else [p.runs]
+    while segs and not segs[-1]:
+        segs = segs[:-1]
+    return segs
+
+
 def _para_segments_in(p: _Paragraph, default_size_pt: float) -> list[tuple[float, bool]]:
     """段落按 a:br 拆成视觉行，每行自然宽度（英寸）→ (宽, 是否用 Pillow 度量)。
 
     同一视觉行内的 run 求和；不同视觉行是独立行（wrap=none 时各自成行，
     wrap 时各自折行），绝不能跨行求和。
     """
-    groups = p.segments if p.segments else [p.runs]
+    groups = _visual_segments(p)
     out = []
     for seg in groups:
         total_pt = 0.0
@@ -723,22 +864,36 @@ def _para_size_pt(p: _Paragraph, default_size_pt: float) -> float:
     return max(sizes) if sizes else default_size_pt
 
 
+def _paragraph_line_height_pt(p: _Paragraph, size_pt: float) -> float:
+    """段落单行行高（pt）：a:lnSpc 优先（spcPts 绝对 / spcPct 百分比），无则字号×1.2。"""
+    if p.line_spacing_pts is not None:
+        return p.line_spacing_pts
+    if p.line_spacing_pct is not None:
+        return size_pt * p.line_spacing_pct / 100.0
+    return size_pt * _LINE_HEIGHT_RATIO
+
+
 def _text_height_in(
     rec: _ShapeRecord, avail_w: float, default_size_pt: float
 ) -> tuple[float, bool]:
-    """文本所需高（英寸，含折行）→ (高度, 是否用 Pillow 度量)。"""
+    """文本所需高（英寸，含折行）→ (高度, 是否用 Pillow 度量)。
+
+    行高读段落 a:lnSpc（spcPts 绝对 / spcPct 百分比），未设则字号×1.2 兜底；
+    wrap 时每段行数 = Σ max(1, ceil(段宽/可用宽))，no-wrap 时 = 视觉段数。
+    """
     total_pt = 0.0
     used_pillow = False
     wraps = rec.word_wrap is not False  # None(未设) 按 PowerPoint 默认 square 折行
     for p in rec.paragraphs:
-        segs = _para_segments_in(p, default_size_pt)
-        used_pillow = used_pillow or any(u for _, u in segs)
+        segs_w = _para_segments_in(p, default_size_pt)
+        used_pillow = used_pillow or any(u for _, u in segs_w)
+        visual = _visual_segments(p)
         if wraps and avail_w > _MIN_DIM:
-            lines = sum(max(1, math.ceil(w / avail_w)) for w, _ in segs)
+            lines = sum(max(1, math.ceil(w / avail_w)) for w, _ in segs_w)
         else:
-            lines = len(segs) if segs else 1
+            lines = len(visual) if visual else 1
         size = _para_size_pt(p, default_size_pt)
-        total_pt += lines * size * _LINE_HEIGHT_RATIO
+        total_pt += lines * _paragraph_line_height_pt(p, size)
     return total_pt / 72.0, used_pillow
 
 

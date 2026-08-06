@@ -73,6 +73,7 @@ SuppressionReason = Literal[
     "decorative_overlay",
     "text_on_background",
     "transparent_overlay",
+    "decorative_layering",
 ]
 
 

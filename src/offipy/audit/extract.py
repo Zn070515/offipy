@@ -57,6 +57,9 @@ class _Paragraph:
     runs: list[_TextRun]
     # a:br 软换行拆出的视觉行分组（每行一组 run）；无 a:br 时 = [runs]
     segments: list[list[_TextRun]] = field(default_factory=list)
+    # a:lnSpc 行距：spcPts 绝对点值（pt）/ spcPct 百分比（%）；None = 未显式设置
+    line_spacing_pts: float | None = None
+    line_spacing_pct: float | None = None
 
 
 @dataclass
@@ -291,7 +294,16 @@ def _read_text_frame(shape: object) -> _TextFrameData:
             elif child.tag == qn("a:br"):
                 segments.append([])
         p_text = para.text
-        paragraphs.append(_Paragraph(text=p_text, runs=runs, segments=segments))
+        spc_pts, spc_pct = _read_line_spacing(para)
+        paragraphs.append(
+            _Paragraph(
+                text=p_text,
+                runs=runs,
+                segments=segments,
+                line_spacing_pts=spc_pts,
+                line_spacing_pct=spc_pct,
+            )
+        )
         text_parts.append(p_text)
     auto = tf.auto_size
     autofit = getattr(auto, "name", None) or "UNKNOWN"
@@ -315,6 +327,29 @@ def _read_text_frame(shape: object) -> _TextFrameData:
         autofit_norm_auto_fit=bool(norm),
         autofit_sp_auto_fit=bool(sp),
     )
+
+
+def _read_line_spacing(para) -> tuple[float | None, float | None]:
+    """段落行距 a:lnSpc → (spcPts 点值, spcPct 百分比)。
+
+    spcPts val 单位 1/100pt（绝对值）；spcPct val 单位 1/1000%（相对单行高）。
+    两者互斥（OOXML 同一 lnSpc 内只有一个子元素）；None = 未显式设置。
+    """
+    from pptx.oxml.ns import qn
+
+    pPr = para._p.find(qn("a:pPr"))
+    if pPr is None:
+        return None, None
+    lnSpc = pPr.find(qn("a:lnSpc"))
+    if lnSpc is None:
+        return None, None
+    spcPts = lnSpc.find(qn("a:spcPts"))
+    if spcPts is not None and spcPts.get("val") is not None:
+        return float(spcPts.get("val")) / 100.0, None
+    spcPct = lnSpc.find(qn("a:spcPct"))
+    if spcPct is not None and spcPct.get("val") is not None:
+        return None, float(spcPct.get("val")) / 1000.0
+    return None, None
 
 
 def _read_fill(shape: object) -> str:
