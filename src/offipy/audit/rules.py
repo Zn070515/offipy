@@ -386,7 +386,7 @@ def _classify_overlap(
         return _contained_result(a, b, ratio, context, same_parent, confidence, approx_note)
     if ratio >= _FULL_COVER_RATIO:
         high = _is_picture_chart(on_top) and bool(below.text.strip())
-        return _cover_finding(below, on_top, ratio, context, confidence, approx_note, high=high)
+        return _covered_or_none(below, on_top, ratio, context, confidence, approx_note, high=high)
     if same_parent and a.parent_shape_id is not None:
         return _partial_finding(a, b, ratio, context, Severity.LOW, confidence, approx_note)
     return _partial_finding(a, b, ratio, context, Severity.MID, confidence, approx_note)
@@ -468,8 +468,8 @@ def _contained_result(
     assert ra is not None and rb is not None
     on_top, below = _on_top_below(a, b, ra.area(), rb.area(), same_parent)
     if _is_picture_chart(on_top):
-        # 图片/图表盖住：下方有文本 → 内容被遮挡 HIGH；否则图片盖图片 MID
-        return _cover_finding(
+        # 图片/图表盖住：下方有文本 → 内容被遮挡 HIGH；下方无文本 → 无内容可遮挡
+        return _covered_or_none(
             below, on_top, ratio, context, confidence, approx_note, high=bool(below.text.strip())
         )
     if on_top.has_text_frame and on_top.text.strip():
@@ -484,11 +484,9 @@ def _contained_result(
             return None
         if _is_picture_chart(below):
             return None  # 文本题注盖在图上 → 正常配图
-        return _cover_finding(below, on_top, ratio, context, confidence, approx_note)
-    if below.has_text_frame and below.text.strip():
-        # 文本在下层被非图片容器盖住 → 内容被遮挡
-        return _cover_finding(below, on_top, ratio, context, confidence, approx_note)
-    return _cover_finding(below, on_top, ratio, context, confidence, approx_note)
+        return _covered_or_none(below, on_top, ratio, context, confidence, approx_note)
+    # 下方有文本 → 内容被遮挡；无文本 → 无内容可遮挡（装饰点浮空卡片不再误报）
+    return _covered_or_none(below, on_top, ratio, context, confidence, approx_note)
 
 
 def _overlap_area(a: _ShapeRecord, b: _ShapeRecord) -> float:
@@ -496,6 +494,21 @@ def _overlap_area(a: _ShapeRecord, b: _ShapeRecord) -> float:
     if ra is None or rb is None:
         return 0.0
     return overlap_area(ra, rb)
+
+
+def _covered_or_none(
+    covered: _ShapeRecord,
+    cover: _ShapeRecord,
+    ratio: float,
+    context: RuleContext,
+    confidence: float,
+    approx_note: str,
+    high: bool = False,
+) -> AuditFinding | None:
+    """covered_text 只在被盖形状有文本时发射；下层无文本就无内容可遮挡。"""
+    if not _has_text(covered):
+        return None
+    return _cover_finding(covered, cover, ratio, context, confidence, approx_note, high=high)
 
 
 def _cover_finding(

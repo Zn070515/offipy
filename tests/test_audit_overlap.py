@@ -154,3 +154,26 @@ def test_tiny_shape_skipped(tmp_path):
     findings, suppressed, _ = _run(prs, tmp_path)
     assert findings == []
     assert suppressed == []
+
+
+def test_decorative_dot_in_empty_card_no_covered(tmp_path):
+    # 装饰点浮空卡片（双方都无文本）→ 无内容可遮挡，不报 covered_text
+    # （回归：0.083×0.083 点在 5.972×4.444 空卡片内 ratio=1.0 被误报 MED）
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_rect(slide, 1, 1, 5.972, 4.444)  # 空卡片
+    _add_rect(slide, 2, 2, 0.083, 0.083)  # 装饰点（面积 0.0069 > 极小阈值）
+    findings, suppressed, _ = _run(prs, tmp_path)
+    assert findings == []
+    assert suppressed == []
+
+
+def test_empty_box_fully_covers_empty_box_no_covered(tmp_path):
+    # 空框完全盖住另一个空框 → 双方都无文本 → 无 covered_text
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_rect(slide, 1, 1, 4, 3)
+    _add_rect(slide, 1, 1, 2, 2)
+    findings, suppressed, _ = _run(prs, tmp_path)
+    assert findings == []
+    assert suppressed == []
