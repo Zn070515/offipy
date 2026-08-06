@@ -134,3 +134,21 @@ def test_analyze_deck_dual_source_no_double_audit(tmp_path, monkeypatch):
 def test_analyze_deck_no_source_raises():
     with pytest.raises(InvalidArgumentError):
         analyze_deck()
+
+
+def test_analyze_deck_slides_dir_empty_dir_raises(tmp_path):
+    with pytest.raises(InvalidArgumentError):
+        analyze_deck(slides_dir=str(tmp_path / "nope"))
+
+
+def test_analyze_deck_slides_dir_only(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    d = tmp_path / "slides"
+    d.mkdir()
+    Image.new("RGB", (100, 100), (255, 255, 255)).save(d / "slide_1.png")
+    result = analyze_deck(slides_dir=str(d))
+    assert result.geometry is None
+    assert result.art is not None
+    assert result.art.slides[0].slide_index == 1

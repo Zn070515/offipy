@@ -98,24 +98,25 @@ def analyze_deck(
     *,
     pptx: str | None = None,
     measurements: str | dict | None = None,
+    slides_dir: str | None = None,
     profile: str | ArtProfile | None = None,
     include_experimental_score: bool = False,
 ) -> DeckQualityReport:
-    """组合入口：几何审计（可选）+ 艺术分析（可选）。slides_dir 明确不支持。"""
-    if measurements is None and pptx is None:
-        raise InvalidArgumentError("analyze_deck requires measurements or pptx")
+    """组合入口：几何审计（可选）+ 像素（可选）+ 艺术分析（可选）。"""
+    if measurements is None and pptx is None and slides_dir is None:
+        raise InvalidArgumentError("analyze_deck requires measurements, pptx, or slides_dir")
     geometry = None
     if pptx:
         geometry = audit_pptx(pptx)
     art = None
     warnings: list[ArtWarning] = []
-    if measurements is not None or pptx is not None:
-        scene = build_scene(measurements=measurements, pptx_report=geometry)
+    if measurements is not None or pptx is not None or slides_dir is not None:
+        scene = build_scene(measurements=measurements, pptx_report=geometry, slides_dir=slides_dir)
         art = analyze_scene(
             scene, profile=profile, include_experimental_score=include_experimental_score
         )
         warnings = list(scene.warnings)
-        if pptx is not None and measurements is None:
+        if pptx is not None and measurements is None and slides_dir is None:
             warnings.append(
                 ArtWarning(
                     code="art.evidence.limited",
