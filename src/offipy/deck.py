@@ -12,6 +12,7 @@ CSS；同一份 HTML 换主题即换皮，内容与视觉解耦。
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import subprocess
@@ -447,16 +448,15 @@ def render_with_report(
 
 
 def _run_art_analysis(
-    measurements: dict | str, profile: str, pptx_report: object | None = None
+    measurements: dict | str,
+    profile: str,
+    pptx_report: object | None = None,
+    slides_dir: str | None = None,
 ) -> ArtReport:
-    """从保留的 measurements +（可选）几何审计建场景并分析。惰性 import art。
-
-    pptx_report 传入时 build_scene 双源融合：measurement 为主场景，
-    pptx 几何审计作 secondary 对照（合并字号/角色证据，coverage 更完整）。
-    """
+    """从保留的 measurements +（可选）几何审计 +（可选）像素 slides_dir 建场景并分析。"""
     from .art import analyze_scene, build_scene
 
-    scene = build_scene(measurements=measurements, pptx_report=pptx_report)
+    scene = build_scene(measurements=measurements, pptx_report=pptx_report, slides_dir=slides_dir)
     return analyze_scene(scene, profile=profile)
 
 
@@ -478,6 +478,9 @@ def render_with_quality_report(
     fail_on: Severity = Severity.HIGH,
     audit_config: AuditConfig | None = None,
     profile: str = "balanced",
+    pixel_analysis: Literal["off", "best_effort", "required"] = "off",
+    preserve_pixel_slides: bool = False,
+    slides_output_dir: str | None = None,
 ) -> QualityRenderResult:
     """render + 几何审计 + 艺术分析（原子发布）。
 
@@ -491,6 +494,8 @@ def render_with_quality_report(
         raise InvalidArgumentError("audit_mode must be 'report' or 'strict'")
     if not isinstance(fail_on, Severity):
         raise InvalidArgumentError("fail_on must be a Severity")
+    if pixel_analysis not in {"off", "best_effort", "required"}:
+        raise InvalidArgumentError("pixel_analysis must be 'off', 'best_effort', or 'required'")
 
     with _render_stage(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
@@ -507,9 +512,35 @@ def render_with_quality_report(
         m = stage.measurements_path
         art_report: ArtReport | None = None
         warnings: list[ArtWarning] = []
+        staging_slides: str | None = None
+        staging_dir: str | None = None
+        if m is not None and pixel_analysis != "off":
+            staging_dir = tempfile.mkdtemp(
+                prefix="offipy-pixel-", dir=os.path.dirname(stage.final_pptx) or "."
+            )
+            staging_slides = os.path.join(staging_dir, "slides")
+            os.makedirs(staging_slides, exist_ok=True)
+            try:
+                _export_pixel_slides(stage.tmp_pptx, staging_slides)
+                _write_deck_info(staging_slides, stage.tmp_pptx)
+            except Exception as exc:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                if pixel_analysis == "required":
+                    raise ConversionError(f"像素分析导出失败（required）: {exc}") from exc
+                warnings.append(
+                    ArtWarning(
+                        code="art.pixel.best_effort_failed",
+                        message=f"像素分析导出失败，已跳过: {exc}",
+                    )
+                )
+                staging_slides = None
+                staging_dir = None
         if m is not None:
             # 双源融合：measurements 为主 + 刚审计的 pptx_report 作 secondary
-            art_report = _run_art_analysis(m, profile, pptx_report=audit_report)
+            # +（可选）像素 slides_dir 作 tertiary
+            art_report = _run_art_analysis(
+                m, profile, pptx_report=audit_report, slides_dir=staging_slides
+            )
         else:
             warnings.append(
                 ArtWarning(
@@ -521,6 +552,10 @@ def render_with_quality_report(
         # commit() 在这里的 context 内调用：_render_tmp finally unlink tmp_pptx 之前，
         # 同时把 tmp 审计目录改到最终名（双产物一起落位）
         stage.commit()
+        if preserve_pixel_slides and staging_slides is not None:
+            _move_slides_to_final(staging_slides, stage, slides_output_dir)
+        elif staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
     deck_quality = DeckQualityReport(geometry=audit_report, art=art_report, warnings=warnings)
     return QualityRenderResult(
         output_path=stage.final_pptx,
@@ -528,6 +563,49 @@ def render_with_quality_report(
         art_report=art_report,
         deck_quality=deck_quality,
     )
+
+
+def _export_pixel_slides(pptx: str, out_dir: str) -> list[str]:
+    """在真实 PowerPoint 中打开 tmp_pptx 并逐页导出 PNG（PowerPoint 锁的是副本）。"""
+    doc_id = open_live(pptx)
+    try:
+        return export_slides(out_dir, doc_id=doc_id, overwrite=True)
+    finally:
+        close_live(doc_id)
+
+
+def _write_deck_info(out_dir: str, pptx: str) -> None:
+    info = {"schema": 1, "pptx_sha256": _sha256_file(pptx), "run_id": None}
+    Path(out_dir, "_deck_info.json").write_text(
+        json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def _sha256_file(path: str) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _default_slides_dir(final_pptx: str) -> str:
+    return str(Path(final_pptx).with_suffix("")) + "_slides"
+
+
+def _move_slides_to_final(
+    staging_slides: str, stage: RenderStage, slides_output_dir: str | None
+) -> str:
+    final_slides = slides_output_dir or _default_slides_dir(stage.final_pptx)
+    os.makedirs(final_slides, exist_ok=True)
+    for f in Path(staging_slides).iterdir():
+        if f.is_file():
+            shutil.copy2(str(f), os.path.join(final_slides, f.name))
+    # 拷贝完成后清理 staging 目录（slides 的父目录即 mkdtemp 的 staging 根）
+    shutil.rmtree(os.path.dirname(staging_slides), ignore_errors=True)
+    return final_slides
 
 
 # #22：open_live 前把 .pptx 复制到系统临时目录的 offipy-live-* 副本再让 PowerPoint
