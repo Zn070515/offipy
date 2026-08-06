@@ -27,6 +27,11 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   按严重度门槛阻断不合格产物（`--fail-on`）；`compare_pptx` 基线回归（见
   [`docs/audit-baseline.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit-baseline.md)）只阻断候选**新增/恶化**的问题；`deck render_with_report`
   让 HTML→PPTX 生成即门禁
+- **艺术分析（offipy.art）**：纯标准库、确定性、**只建议**的视觉/排版质量分析（见
+  [`docs/art.md`](https://github.com/Zn070515/offipy/blob/main/docs/art.md)）——`build_scene` 把幻灯片
+  抽象成 ArtScene，5 个维度规则（层级 / 构图 / 排版 / 颜色 / 媒体）评估，grade / confidence /
+  evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 双源（measurements + pptx 几何）
+  一次评估，`deck.render_with_quality_report` 生成即质量参考
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
 
 ## 环境要求
@@ -284,6 +289,45 @@ report = aesthetic.audit("deck.html")  # 读 measurement 打分
 print(report.markdown())
 ```
 
+## 艺术分析（offipy.art）
+
+`offipy.art` 是**纯标准库、确定性、只建议**的视觉/排版质量分析：不调 AI、不开 Office、
+不加载 python-pptx（`import offipy` 即有）。它把每页幻灯片抽象成「场景（ArtScene）」，
+用 5 个维度规则（层级 / 构图 / 排版 / 颜色 / 媒体）评估，grade / confidence /
+evidence_coverage 三分离——证据不足的维度降级 `insufficient_evidence`，绝不靠猜误报；
+取舍留给调用方，不提供总分门禁。完整规则、证据源与边界见
+[`docs/art.md`](https://github.com/Zn070515/offipy/blob/main/docs/art.md)。
+
+```python
+from offipy import build_scene, analyze_scene, analyze_deck, render_markdown
+
+# 双源：measurements（浏览器真实像素）为主、pptx 几何审计为副
+scene = build_scene(
+    measurements="out/report_audit/_cache/measurements.json",
+    pptx="out/report.pptx",
+)
+report = analyze_scene(scene, profile="balanced")
+print(render_markdown(report))
+
+# 组合入口：一次调用同时几何审计 + 艺术分析
+deck_report = analyze_deck(
+    pptx="out/report.pptx",
+    measurements="out/report_audit/_cache/measurements.json",
+    profile="consulting",
+)
+print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insufficient_evidence
+```
+
+- **双源合并**：measurements 提供颜色 / 字号 / 文本证据，pptx 提供几何证据，按「文本强佐证 +
+  几何兜底」一对一匹配；未匹配元素保留 + warning，绝不静默丢弃
+- **内置 profile**：`balanced` / `consulting` / `academic` / `technology` / `event`
+  （`offipy.profile_names()` 可查、`get_profile(name)` 可读可扩展）
+- **生成即质量参考**：`deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)`
+  HTML→PPTX 生成后同时产出几何审计与艺术分析，返回 `QualityRenderResult`（含 `art_report` /
+  `deck_quality`）——`audit_mode="strict"` 达 `fail_on` 门槛才退出非 0
+- **证据诚实**：只传 `pptx=` 时，依赖字号 / 颜色证据的维度自动降级（`insufficient_evidence` +
+  `art.evidence.limited` warning），纯几何规则照常运行
+
 ## MCP server（Claude 接入）
 
 `offipy mcp` 启动 MCP stdio server，把 Word / Excel / PowerPoint 全部操作暴露为 MCP 工具
@@ -343,6 +387,7 @@ src/offipy/
   cli.py        # `offipy` 命令入口（复杂参数：重复 flag → list / --payload JSON）
   api.py        # 高层 API facade：Excel() / Word() / Ppt() 上下文管理器
   audit/        # PPTX 静态质量审计与基线回归（models/extract/geometry/roles/rules/compare/render/pptx，纯解析无 COM）
+  art/          # 艺术分析（v0.12）：场景建模/规则/双源合并/渲染/基线对比（纯 stdlib，只建议不阻断）
   mcp_server.py # MCP stdio server（三套件操作 → MCP 工具）
   excel.py / word.py / ppt.py   # 三套件原子操作
   client.py     # server 的 HTTP 客户端（HTML 管线复用）*

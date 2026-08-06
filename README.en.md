@@ -28,6 +28,12 @@ Built for Python developers and AI agents to independently produce **polished, a
   threshold (`--fail-on`); `compare_pptx` baseline regression (see
   [`docs/audit-baseline.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/audit-baseline.en.md)) only blocks candidate **added/worsened** issues;
   `deck render_with_report` turns HTML→PPTX generation into a gate
+- **Art analysis (offipy.art)**: pure-stdlib, deterministic, **advisory-only** visual/typographic quality analysis (see
+  [`docs/art.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/art.en.md)) — `build_scene` abstracts a slide
+  into an ArtScene, 5 dimension rule sets (hierarchy / composition / typography / color / media) with grade /
+  confidence / evidence_coverage separated and evidence-poor dimensions downgraded instead of false-reporting;
+  `analyze_deck` evaluates both sources (measurements + pptx geometry) in one call, and
+  `deck.render_with_quality_report` turns generation into a quality reference
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
 
 ## Requirements
@@ -268,6 +274,47 @@ report = aesthetic.audit("deck.html")  # read measurement and score
 print(report.markdown())
 ```
 
+## Art analysis (offipy.art)
+
+`offipy.art` is **pure-stdlib, deterministic, advisory-only** visual/typographic quality analysis: no AI, no
+Office, no python-pptx on `import offipy`. It abstracts each slide as a "scene (ArtScene)" and evaluates it
+with 5 dimension rule sets (hierarchy / composition / typography / color / media). grade / confidence /
+evidence_coverage are kept strictly separate — evidence-poor dimensions degrade to `insufficient_evidence`
+instead of guessing false findings; the verdict is left to the caller, there is no total-score gate. Full
+rules, evidence sources, and boundaries: [`docs/art.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/art.en.md).
+
+```python
+from offipy import build_scene, analyze_scene, analyze_deck, render_markdown
+
+# dual source: measurements (real browser pixels) primary, pptx geometry audit secondary
+scene = build_scene(
+    measurements="out/report_audit/_cache/measurements.json",
+    pptx="out/report.pptx",
+)
+report = analyze_scene(scene, profile="balanced")
+print(render_markdown(report))
+
+# combined entry: geometry audit + art analysis in one call
+deck_report = analyze_deck(
+    pptx="out/report.pptx",
+    measurements="out/report_audit/_cache/measurements.json",
+    profile="consulting",
+)
+print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insufficient_evidence
+```
+
+- **Dual-source merge**: measurements provide color / font-size / text evidence, pptx provides geometry,
+  matched one-to-one by "text as strong corroboration + geometry as fallback"; unmatched elements are kept
+  with a warning, never silently dropped
+- **Built-in profiles**: `balanced` / `consulting` / `academic` / `technology` / `event`
+  (`offipy.profile_names()` to list, `get_profile(name)` to read / extend)
+- **Quality-on-generate**: `deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)`
+  produces both the geometry audit and the art analysis after HTML→PPTX, returning a `QualityRenderResult`
+  (`art_report` / `deck_quality`) — `audit_mode="strict"` only exits non-zero at the `fail_on` threshold
+- **Evidence honesty**: with only `pptx=` given, dimensions that depend on font-size / color evidence
+  degrade automatically (`insufficient_evidence` + `art.evidence.limited` warning), while pure-geometry
+  rules keep running
+
 ## MCP server (Claude integration)
 
 `offipy mcp` starts an MCP stdio server that exposes all Word / Excel / PowerPoint operations as MCP tools
@@ -327,6 +374,7 @@ src/offipy/
   cli.py        # `offipy` command entry point (complex args: repeated flag → list / --payload JSON)
   api.py        # high-level API facade: Excel() / Word() / Ppt() context managers
   audit/        # PPTX static quality audit & baseline regression (models/extract/geometry/roles/rules/compare/render/pptx, pure parsing, no COM)
+  art/          # Art analysis (v0.12): scene models / rules / dual-source merge / render / baseline compare (pure stdlib, advisory only)
   mcp_server.py # MCP stdio server (three-suite operations → MCP tools)
   excel.py / word.py / ppt.py   # three-suite atomic operations
   client.py     # HTTP client for the server (reused by the HTML pipeline) *

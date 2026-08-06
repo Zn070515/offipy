@@ -1,3 +1,33 @@
+# 0.11 → 0.12 迁移指南
+
+0.12 是**纯新增**版本：不破坏任何 0.11 的既有 API、CLI 行为或返回契约。现有代码**无需改动**。
+
+## 新增（全部可选项）
+
+- **offipy.art 艺术分析**：`build_scene(measurements=..., pptx=...)` 建场景 +
+  `analyze_scene(scene, profile=...)` 评估（5 维度规则），grade / confidence / evidence_coverage
+  三分离、证据不足降级 `insufficient_evidence`；**只建议不阻断**，无总分门禁。纯标准库，
+  `import offipy` 即有（不加载 python-pptx / AI / COM）。
+- **组合入口**：`analyze_deck(pptx=..., measurements=..., profile=...)` 一次调用几何审计 + 艺术分析，
+  产出 `DeckQualityReport`（`.geometry` / `.art` / `.warnings`）。
+- **生成即质量参考**：`deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)`
+  ——**并行新增入口，`render_with_report` 契约完全不变**。`render_with_quality_report` 在几何审计之外
+  再产出艺术分析，返回 `QualityRenderResult`（含 `art_report` / `deck_quality`）。
+- **内置 profile**：`balanced` / `consulting` / `academic` / `technology` / `event`。
+- **基线对比 v2**：`compare_reports(before, after)` 产出 `ArtReportDiff`。
+- CLI / RPC / MCP 三入口行为不受影响；完整 art API 见 [docs/art.md](art.md)。
+
+## 迁移步骤
+
+0.11 → 0.12 **无迁移步骤**。如果 0.11 代码能跑，0.12 直接换版本号即可。
+
+唯一注意点（非破坏）：
+
+- 想给 deck 生成附带艺术分析，把 `render_with_report` 换成新的
+  `render_with_quality_report`（后者在几何审计基础上追加艺术分析）；不想用就直接忽略，不影响。
+
+---
+
 # 0.10 → 0.11 迁移指南
 
 0.11 是**纯新增**版本：不破坏任何 0.10 的既有 API、CLI 行为或返回契约。现有代码**无需改动**。

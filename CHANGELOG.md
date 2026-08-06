@@ -3,6 +3,30 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.12.0] - 2026-08-06
+
+### Added
+- **offipy.art 艺术分析子系统**：纯标准库、确定性、**只建议**的视觉/排版质量分析——`build_scene`
+  把幻灯片抽象成 ArtScene，5 个维度规则（层级 / 构图 / 排版 / 颜色 / 媒体）评估；grade /
+  confidence / evidence_coverage 三分离，证据不足维度降级 `insufficient_evidence` 不误报，无总分
+  门禁（取舍留给调用方）
+- **双源场景合并**：measurements（浏览器像素证据：颜色/字号/文本）+ pptx（几何审计快照）按
+  「文本强佐证 + 几何兜底」一对一匹配；未匹配元素保留 + warning，绝不静默丢弃
+- **组合入口**：`analyze_deck(pptx=..., measurements=..., profile=...)` 一次调用几何审计 + 艺术分析；
+  `deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)` HTML→PPTX 生成即
+  质量参考（返回 `QualityRenderResult`）
+- **内置 profile**：`balanced` / `consulting` / `academic` / `technology` / `event`
+  （`profile_names()` 可查、`get_profile(name)` 可读可扩展）
+- **基线对比 v2**：`compare_reports(before, after)` 产出 `ArtReportDiff`（finding 新增/消失/变化 +
+  grade 变化），只建议不阻断
+
+### Notes
+- **零额外依赖**：`import offipy` 不加载 python-pptx / AI / COM；`import offipy` 即有 art 能力。
+- **证据诚实边界**：只传 `pptx=` 时 hierarchy / typography / color 维度证据不足 → 自动降级
+  （`insufficient_evidence` + `art.evidence.limited` warning），纯几何规则照常运行。
+- **RenderedSlide（PNG / slides_dir 像素级）分析延后到 v0.12.1**：`build_scene(slides_dir=...)` 明确拒绝。
+- 完整规则 / 证据源 / 边界见 [`docs/art.md`](docs/art.md)。
+
 ## [0.11.6] - 2026-08-06
 
 ### Added
