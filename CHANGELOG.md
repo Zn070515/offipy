@@ -3,6 +3,40 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.11.4] - 2026-08-06
+
+### Fixed
+- **Office 进程残留 / 僵尸实例治本**（真实使用项目 13 项 Issue 反馈 #8–#20 反哺）：
+  - `quit()` 按实例 PID 精确回收：调用 `Quit()` 后轮询进程退出，Excel/Word/PowerPoint
+    常驻残留（RCW/COM server 保持）超时未退则 `taskkill /F` 精确清理本实例——不按
+    进程名模糊清理，不误杀用户其它 Office 窗口。`quit()` 返回值恢复契约：正常退出
+    返回 `None`，仅「实例已死」返回 `True`（不再误报失败）
+  - server `_rebuild` 重建连接前先 `reap_own_process` 清掉本库附着过的僵尸进程，
+    治「外部 kill 后重连附着僵尸实例，后续 op 反复 OLE error 0x800ac472」
+  - core 新增 `app_process_pid`（COM 窗口句柄反查 PID）/ `wait_process_exit` /
+    `reap_process`，`quit_app` 同步按 PID 清理
+- **Word / PowerPoint 交互修复**：
+  - 合并单元格后 `Columns(col).Width` 拒访（「表格有混合的单元格宽度」）→ 回退逐格
+    设宽，先合并后调列宽也成立
+  - `read_doc_text` 归一化 Word 原始标记：表格 cell 结束符 `\x07` → `" | "`、
+    段落符 `\r\n` / `\r` → `\n`（`\r\n` 先行避免双换行），Agent 文本层读到干净结构
+  - `add_picture` 内嵌图片传 `SaveWithDocument=msoTrue(-1)`（LinkToFile=False 时传 0
+    被 PowerPoint 拒为 E_INVALIDARG）+ 路径 normpath 归一化
+  - `insert_image` 插图落文末 `Range`，不再覆盖既有内容
+- **deck / 审计 / 审美 / 布局 / CLI**：
+  - `deck render` 后审计目录从随机 `tmp` 名改名为最终输出名保留（`<stem>_audit`），
+    aesthetic/feedback 回路按最终名自动发现测量数据，不再丢失
+  - `charts` 图表容器匹配：转换器 `measure.py` 的 shape 记录补 `className`，按
+    `chart` token 命中（`chart-note` 仍排除）
+  - audit text-fit 缺码位（如 Arial 无 CJK 码位）记 0 宽 → 按字符权重兜底非零宽 +
+    低置信标注，长文不再被误放行
+  - 半透明颜色（`rgba`）按 source-over 与底色合成后再算对比度；全透明按「无颜色」
+    回退页面背景——透明黑不再被当不透明黑造成假阳性
+  - `split-2col` 布局 `.cols` 包装层 `display: contents` 透明化兜底 + 模板注释提醒
+    flex-item 约束，Claude 多包一层 wrapper 也能正确两栏
+  - CLI `--key` 全局归一化 `-` → `_`（`--doc-id` 与 `--doc_id` 等价，README 双写法
+    不再打架）；`--payload` 数组报错补 list 用法提示
+
 ## [0.11.3] - 2026-08-06
 
 ### Fixed
