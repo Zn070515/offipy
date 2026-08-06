@@ -6,6 +6,8 @@ covered 降级（无对比可判）；accent 只认前景色。
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from offipy.audit import Severity
 
 from .features import effective_background, palette_features
@@ -39,6 +41,18 @@ def _effective_fg(el) -> list[ArtColor]:
     return []
 
 
+# 像素证据的 color_confidence 达到该值时才信任其背景判断（否则回退声明路径）
+_PIXEL_CONFIDENCE_MIN = 0.6
+
+
+class _PixelEvidenceKw(TypedDict, total=False):
+    """像素路径 make_finding 的 evidence_* 具名参数。"""
+
+    evidence_sources: set[str]
+    evidence_reliability: float
+    evidence_method: str
+
+
 def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     out = []
     eligible = [e for e in slide.elements if e.has_text()]
@@ -47,9 +61,51 @@ def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
         fgs = _effective_fg(e)
         if not fgs:
             continue
-        bg = effective_background(e, slide)
-        if bg is None:
-            continue  # 背景未知 → 无对比可判，covered 不加
+        pe = e.pixel_evidence
+        bg: ArtColor | None = None
+        evidence_kw: _PixelEvidenceKw = {}
+        suffix = ""
+        # 像素路径：背景由像素验证（color_confidence 足够高时）
+        if (
+            pe is not None
+            and pe.color_confidence >= _PIXEL_CONFIDENCE_MIN
+            and pe.background is not None
+        ):
+            bg = pe.background
+            evidence_kw = {
+                "evidence_sources": {"pixel"},
+                "evidence_reliability": 0.85,
+                "evidence_method": pe.method,
+            }
+            suffix = "（像素验证）"
+        elif (
+            pe is not None
+            and pe.method == "declared_not_found"
+            and pe.foreground_match_ratio is not None
+        ):
+            # 声明前景在像素中未找到 → 低置信提示（<0.35 不驱动降级）
+            covered += 1
+            out.append(
+                make_finding(
+                    RULE_LOW_CONTRAST,
+                    "color",
+                    Severity.LOW,
+                    f"声明前景色在页面像素中匹配率仅 "
+                    f"{pe.foreground_match_ratio:.2f}，颜色可能异常。",
+                    0.25,
+                    slide.index,
+                    primary=e,
+                    details={"foreground_match_ratio": round(pe.foreground_match_ratio, 3)},
+                    evidence_sources={"pixel"},
+                    evidence_reliability=0.5,
+                    evidence_method=pe.method,
+                )
+            )
+            continue
+        else:
+            bg = effective_background(e, slide)
+            if bg is None:
+                continue  # 背景未知 → 无对比可判，covered 不加
         covered += 1
         for c in fgs:
             if c is None:
@@ -64,11 +120,12 @@ def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                         RULE_LOW_CONTRAST,
                         "color",
                         sev,
-                        f"文本与背景对比度 {ratio:.2f} 低于 {ctx.profile.min_contrast}。",
+                        f"文本与背景对比度 {ratio:.2f} 低于 {ctx.profile.min_contrast}{suffix}。",
                         0.95,
                         slide.index,
                         primary=e,  # rev2.1：实测对比度 → 高置信
                         details={"ratio": round(ratio, 3)},
+                        **evidence_kw,
                     )
                 )
                 break
