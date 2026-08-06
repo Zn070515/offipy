@@ -214,3 +214,32 @@ def test_background_like_area_full_bleed_image_no_fire():
         background_uniformity=0.9,
     )
     assert background_like_area_rule(slide, _ctx(slide)).findings == []
+
+
+def test_background_like_area_full_bleed_background_image_no_fire():
+    """is_background 全幅图片被 density 排除 → occupancy 低 → _full_bleed_image 分支真正触发。"""
+    from offipy.art.composition import background_like_area_rule
+    from offipy.art.models import SlidePixelEvidence
+
+    slide = make_slide(
+        1,
+        elements=[
+            ArtElement(
+                element_id="bg_img",
+                kind="image",
+                role="image",
+                x=0.0,
+                y=0.0,
+                width=1.0,
+                height=1.0,
+                slide_index=1,
+                is_background=True,
+            )
+        ],
+    )
+    slide.pixel_evidence = SlidePixelEvidence(
+        background_like_ratio=0.9,
+        background_confidence=0.9,
+        background_uniformity=0.9,
+    )
+    assert background_like_area_rule(slide, _ctx(slide)).findings == []
