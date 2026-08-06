@@ -589,10 +589,55 @@ def _char_width_pt(ch: str, size_pt: float) -> float:
     return size_pt if _is_wide_char(ch) else _ASCII_WEIGHT * size_pt
 
 
+# 已知字体 → (常规, 加粗) 文件。微软雅黑/宋体是 TTC 集合（msyh.ttc/simsun.ttc），
+# 用 base 拼 .ttf 永远找不到 → 必须显式映射，否则 Pillow 度量全失败走字符权重回退。
+_FONT_FILE_MAP: dict[str, tuple[str, str]] = {
+    "microsoftyahei": ("msyh.ttc", "msyhbd.ttc"),
+    "microsoftyaheiui": ("msyh.ttc", "msyhbd.ttc"),
+    "yahei": ("msyh.ttc", "msyhbd.ttc"),
+    "微软雅黑": ("msyh.ttc", "msyhbd.ttc"),
+    "simsun": ("simsun.ttc", "simhei.ttf"),
+    "宋体": ("simsun.ttc", "simhei.ttf"),
+    "simhei": ("simhei.ttf", "simhei.ttf"),
+    "黑体": ("simhei.ttf", "simhei.ttf"),
+    "simkai": ("simkai.ttf", "simkai.ttf"),
+    "kaiti": ("simkai.ttf", "simkai.ttf"),
+    "kaitisc": ("simkai.ttf", "simkai.ttf"),
+    "楷体": ("simkai.ttf", "simkai.ttf"),
+    "simfang": ("simfang.ttf", "simfang.ttf"),
+    "fangsong": ("simfang.ttf", "simfang.ttf"),
+    "仿宋": ("simfang.ttf", "simfang.ttf"),
+    "dengxian": ("deng.ttf", "dengbd.ttf"),
+    "等线": ("deng.ttf", "dengbd.ttf"),
+    "segoeui": ("segoeui.ttf", "segoeuib.ttf"),
+    "segoeuilight": ("segoeuil.ttf", "segoeuil.ttf"),
+    "calibri": ("calibri.ttf", "calibrib.ttf"),
+    "arial": ("arial.ttf", "arialbd.ttf"),
+    "timesnewroman": ("times.ttf", "timesbd.ttf"),
+    "timesnewromanpsmt": ("times.ttf", "timesbd.ttf"),
+    "cambria": ("cambria.ttc", "cambriab.ttf"),
+    "cambriamath": ("cambria.ttc", "cambriab.ttf"),
+    "consolas": ("consola.ttf", "consolab.ttf"),
+    "couriernew": ("cour.ttf", "courbd.ttf"),
+    "verdana": ("verdana.ttf", "verdanab.ttf"),
+    "tahoma": ("tahoma.ttf", "tahomabd.ttf"),
+    "georgia": ("georgia.ttf", "georgiab.ttf"),
+    "lucidasansunicode": ("l_10646.ttf", "l_10646.ttf"),
+    "lucidagrande": ("l_10646.ttf", "l_10646.ttf"),
+    "msreferencesansserif": ("mssans.ttf", "mssansb.ttf"),
+}
+
+
 def _font_candidates(name: str, bold: bool) -> list[Path]:
     base = "".join(ch for ch in name if ch.isalnum())
-    files = [f"{base}bd.ttf", f"{base}b.ttf"] if bold else []
-    files.append(f"{base}.ttf")
+    mapped = _FONT_FILE_MAP.get(base.lower())
+    if mapped:
+        # 已知字体：优先映射文件（加粗时先试加粗变体），再用 base 拼法兜底
+        files = [mapped[1], mapped[0]] if bold else [mapped[0], mapped[1]]
+        files.append(f"{base}.ttf")
+    else:
+        files = [f"{base}bd.ttf", f"{base}b.ttf"] if bold else []
+        files.append(f"{base}.ttf")
     dirs = [
         Path(r"C:\Windows\Fonts"),
         Path("/usr/share/fonts/truetype/dejavu"),

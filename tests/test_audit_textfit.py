@@ -178,3 +178,31 @@ def test_vertical_counts_no_wrap_segments(tmp_path):
     verts = _by_rule(findings, RULE_TEXT_FIT_VERTICAL)
     assert len(verts) == 1
     assert verts[0].details["text_height_in"] == pytest.approx(0.9, abs=0.01)
+
+
+# ---------------------------------------------------------------- 字体定位
+
+
+def test_font_candidates_include_msyh_ttc():
+    # 微软雅黑是 TTC 集合，base 拼 .ttf 找不到 → 必须返回 msyh.ttc 候选
+    from offipy.audit.rules import _font_candidates
+
+    cands = _font_candidates("Microsoft YaHei", False)
+    assert any(p.name.lower() == "msyh.ttc" for p in cands)
+    assert any(p.name.lower() == "msyhbd.ttc" for p in _font_candidates("Microsoft YaHei", True))
+
+
+def test_msyh_metric_high_confidence_when_available(tmp_path):
+    # 本机有 msyh.ttc → 真实 Pillow 度量 confidence 0.8（回归：旧版找不到字体回退 0.4）
+    from offipy.audit.rules import _font_candidates
+
+    if not any(p.exists() for p in _font_candidates("Microsoft YaHei", False)):
+        pytest.skip("本机无 msyh.ttc，跳过 Pillow 实测")
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_tb(slide, 1, 1, "WWWWWWWWWW", font_name="Microsoft YaHei", font_size=18)
+    findings, _, _ = _run(prs, tmp_path)
+    fits = _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL)
+    assert len(fits) == 1
+    assert fits[0].confidence == 0.8
+    assert "字符估算低置信" not in fits[0].message
