@@ -32,7 +32,7 @@ from .exceptions import (
 )
 from .models import PLACEHOLDER_TYPE_NAMES, SlideTextRecord
 
-__version__ = "0.11.5"
+__version__ = "0.11.6"
 
 __all__ = [
     "Excel",
