@@ -5,7 +5,7 @@ from __future__ import annotations
 import html as html_lib
 import math
 
-from .models import ArtReport, DimensionAssessment
+from .models import ArtFinding, ArtReport, DimensionAssessment
 
 _GRADE_LEVEL = {"excellent": 4, "good": 3, "attention": 2, "poor": 1}
 
@@ -20,7 +20,7 @@ def report_to_json(report: ArtReport) -> dict:
     return report.to_dict()
 
 
-def _finding_evidence(f) -> str:
+def _finding_evidence(f: ArtFinding) -> str:
     """finding 的证据后缀：有像素/多源证据时展示来源/方法/可靠度。"""
     if not f.evidence_sources:
         return ""
@@ -137,7 +137,7 @@ def render_html(report: ArtReport) -> str:
             findings = (
                 "<br>".join(
                     f"[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
-                    f"{html_lib.escape(f.message)}{_finding_evidence(f)}"
+                    f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}"
                     for f in d.findings
                 )
                 or "-"
@@ -157,7 +157,7 @@ def render_html(report: ArtReport) -> str:
         for f in report.deck_findings:
             lines.append(
                 f"<li>[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
-                f"{html_lib.escape(f.message)}{_finding_evidence(f)}</li>"
+                f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}</li>"
             )
         lines.append("</ul>")
     lines.append("</body></html>")

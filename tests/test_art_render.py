@@ -142,11 +142,17 @@ def test_render_html_shows_evidence():
         evidence_method="declared_verified",
     )
     d = DimensionAssessment(
-        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+        dimension="hierarchy",
+        status="assessed",
+        grade="good",
+        confidence=0.8,
+        reliability=0.85,
+        findings=[f],
     )
     rep = ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])])
     html = render_html(rep)
     assert "Evidence: pixel" in html
+    assert "/ rel 0.85" in html
 
 
 def test_render_markdown_no_evidence_no_suffix():
@@ -163,3 +169,39 @@ def test_render_markdown_no_evidence_no_suffix():
     )
     md = render_markdown(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
     assert "Evidence:" not in md
+
+
+def test_render_html_no_evidence_no_suffix():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+        slide_index=1,
+    )
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Evidence:" not in html
+
+
+def test_render_html_escapes_evidence_method():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+        slide_index=1,
+        evidence_sources=frozenset({"pixel"}),
+        evidence_reliability=0.85,
+        evidence_method="<b>bad</b>",
+    )
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "&lt;b&gt;bad&lt;/b&gt;" in html
+    assert "<b>bad</b>" not in html
