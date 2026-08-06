@@ -297,8 +297,6 @@ def _measurements_run_id(measurements: str | dict | None) -> str | None:
     if isinstance(measurements, dict):
         return measurements.get("run_id")
     if isinstance(measurements, (str, Path)):
-        import json
-
         p = Path(measurements)
         try:
             is_file = p.is_file()
@@ -309,4 +307,9 @@ def _measurements_run_id(measurements: str | dict | None) -> str | None:
                 return json.loads(p.read_text(encoding="utf-8")).get("run_id")
             except (OSError, ValueError):
                 return None
+        # 内联 JSON 字符串也尝试提取 run_id（路径字符串解析失败安全返回 None）
+        try:
+            return json.loads(str(measurements)).get("run_id")
+        except (OSError, ValueError):
+            return None
     return None
