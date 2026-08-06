@@ -3,7 +3,7 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
-## [Unreleased]
+## [0.11.6] - 2026-08-06
 
 ### Added
 - **Ppt `close_pres` 新操作**（#26）：API 补齐 close 语义——`ppt.close_pres(save, doc_id)`
