@@ -152,3 +152,5 @@ def test_analyze_deck_slides_dir_only(tmp_path):
     assert result.geometry is None
     assert result.art is not None
     assert result.art.slides[0].slide_index == 1
+    # slides_dir-only 有像素证据 → 不触发 art.evidence.limited
+    assert not any(w.code == "art.evidence.limited" for w in result.warnings)
