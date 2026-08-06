@@ -63,6 +63,10 @@ Windows-only 的 Office COM 自动化库（offipy）：会话式驱动 Word/Exce
 - 新增内部开发文档 → 放 `docs/development/` 或 `docs/superpowers/`（已在 ignore 内），
   不要 `git add`；误入库的用 `git rm --cached` 移出（文件保留在磁盘）。
 
+### PyPI 发布纪律
+
+- **PyPI 的发布只能由 GitHub Action Release 链触发**（quality → office-real → publish-testpypi → testpypi-smoke → gh-release → publish-pypi 全绿后自动发布），**禁止手动 twine 上传或任何绕过 CI 质量门禁的强制发布**。手动发布会让发布链无法干净重跑（版本已存在即拦）且丢失质量门禁（v0.11.0 手动发布后需手动补 gh-release 的教训）；发布一律走 tag → push → Release workflow。
+
 ## 版本号更新规则
 
 - **单一来源**：版本号只写在 `src/offipy/__init__.py` 的 `__version__`；`pyproject.toml` 经 `[tool.hatch.version]` 自动读取，**别处不重复写**。
