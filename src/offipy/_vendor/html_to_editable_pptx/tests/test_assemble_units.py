@@ -134,11 +134,12 @@ def test_single_line_cjk_width_padded():
     assert h == pytest.approx(max(20 * 1.4, 14.0 * 1.6))
 
 
-def test_single_line_ascii_width_unchanged():
+def test_single_line_ascii_width_padded():
+    # 单行拉丁/粗体标签同样加 2.5% 冗余（PPT DirectWrite 度量比浏览器略宽）
     from assemble import _text_box_size_px
     rec = _text_rec(100, 20, ["SELECT"])
     w, _ = _text_box_size_px(rec, 14.0, True)
-    assert w == pytest.approx(100.0)
+    assert w == pytest.approx(100 * 1.025)
 
 
 def test_multi_line_cjk_not_padded():
@@ -155,15 +156,19 @@ def test_explicit_break_cjk_not_padded():
     assert w == pytest.approx(100.0)
 
 
+def test_explicit_break_height_covers_line_count():
+    # 显式 <br> 多行：BCR h 亚像素取整比「行数×行高」短 → 取 max，避免盒高系统偏短
+    from assemble import _text_box_size_px
+    rec = _text_rec(200, 40, [{"text": "line1"}, {"text": "line2", "linebreak": True}])
+    rec["style"]["fontSize"] = 32
+    rec["style"]["lineHeight"] = "48px"
+    w, h = _text_box_size_px(rec, 32.0, True)
+    assert h == pytest.approx(96.0)  # 2 行 × 48px
+    assert w == pytest.approx(200.0)  # 显式分行不撑宽
+
+
 def test_flex_anchor_cjk_not_padded():
     from assemble import _text_box_size_px
     rec = _text_rec(100, 20, ["数据"], display="flex", align_items="center")
     w, _ = _text_box_size_px(rec, 14.0, True)
     assert w == pytest.approx(100.0)
-
-
-def test_has_wide_chars_detection():
-    from assemble import _has_wide_chars
-    assert _has_wide_chars(_text_rec(100, 20, ["abc", "数据"])) is True
-    assert _has_wide_chars(_text_rec(100, 20, ["SELECT", "OK"])) is False
-    assert _has_wide_chars(_text_rec(100, 20, [])) is False

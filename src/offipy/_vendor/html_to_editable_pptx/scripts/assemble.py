@@ -333,14 +333,6 @@ def _text_is_single_line(rec, max_fs: float) -> bool:
     return content_h < max_fs * 1.8 and not _has_explicit_break(rec)
 
 
-def _has_wide_chars(rec) -> bool:
-    """单行标签含 CJK/全角字符 → 需要宽度冗余（PPT msyh 度量比浏览器宽 1-3%）。"""
-    for run in (rec.get("runs", []) or []):
-        if is_cjk_text(run.get("text", "") or ""):
-            return True
-    return False
-
-
 def _text_box_size_px(rec, max_fs: float, is_single_line: bool) -> tuple[float, float]:
     """textbox 几何严格 = HTML BCR width，避免几何外扩破坏 algn=ctr 视觉居中。
     高度给一点宽裕，避免 PPT 行高比浏览器略高时底部被裁。
@@ -357,11 +349,16 @@ def _text_box_size_px(rec, max_fs: float, is_single_line: bool) -> tuple[float, 
         return r["w"], r["h"]
     # 显式 <br> / \n 分行：浏览器已经精确测出多行 BCR，cy 严格 = r.h。
     # 再 1.3x 撑高会把下方相邻段盖住（slide 17 链接段贴到上段"关键是..."同位置就是这个 bug）。
+    # 但 BCR h 会亚像素向下取整，实测比「行数×行高」短约 0.36pt → 取 max 兜底。
     if _has_explicit_break(rec):
-        return r["w"], r["h"]
+        lh_px, _ = _effective_line_height_px(rec)
+        br_count = sum(1 for run in (rec.get("runs") or []) if run.get("linebreak"))
+        h = max(r["h"], (br_count + 1) * lh_px) if lh_px > 0 else r["h"]
+        return r["w"], h
     if is_single_line:
-        w = r["w"] * _SINGLE_LINE_W_PADDING if _has_wide_chars(rec) else r["w"]
-        return w, max(r["h"] * 1.4, max_fs * 1.6)
+        # 单行短标签统一加 2.5% 宽冗余：PPT 度量（DirectWrite 含 kern）比浏览器实测略宽，
+        # 不只 CJK——拉丁粗体（如 "TACO + DroneWaste"）同样会贴边。wrap=none 不重排，加宽不破坏排印。
+        return r["w"] * _SINGLE_LINE_W_PADDING, max(r["h"] * 1.4, max_fs * 1.6)
     return r["w"], r["h"] * 1.3
 
 
@@ -766,24 +763,9 @@ def add_text_box(slide, rec):
     runs_raw = rec.get("runs") or []
     br_count = sum(1 for run in runs_raw if run.get("linebreak"))
     has_explicit_break = br_count > 0
-    # 计算"有效行距"：leaf 自身 lineHeight（容器 computed 值）vs runs 内最大字号节点的
-    # lineHeight，取较大者。叶子 .fadelist-items (16px / lh 14.72px) 但 span 是 144px / lh 144px
-    # 这种 case，按 leaf 算行距会让 144px 文字被压在 14.72px 行距里叠压
-    style_for_lh = rec.get("style", {})
-    leaf_fs = style_for_lh.get("fontSize", 16)
-    effective_lh_px = _line_height_px(style_for_lh.get("lineHeight"), leaf_fs)
-    effective_fs = leaf_fs
-    for run in runs_raw:
-        if run.get("linebreak"):
-            continue
-        rfs = run.get("fontSize")
-        rlh = run.get("lineHeight")
-        if rfs and rlh:
-            rlh_px = _line_height_px(rlh, rfs)
-            if rlh_px > effective_lh_px:
-                effective_lh_px = rlh_px
-                effective_fs = rfs
+    effective_lh_px, effective_fs = _effective_line_height_px(rec)
     expected_lines = (r["h"] / effective_lh_px) if effective_lh_px > 0 else 1.0
+    style_for_lh = rec.get("style", {})
     is_tight_layout = expected_lines <= br_count + 1 + 0.7
     no_auto_wrap = is_single_line or (has_explicit_break and is_tight_layout)
     tf.word_wrap = not no_auto_wrap
@@ -900,6 +882,30 @@ def _line_height_px(line_height, font_size_px: float) -> float:
         return float(s) * font_size_px
     except ValueError:
         return font_size_px * 1.2
+
+
+def _effective_line_height_px(rec) -> tuple[float, float]:
+    """(有效行距 px, 有效字号 px)：leaf 自身 lineHeight vs runs 内最大字号节点取较大者。
+
+    叶子 .fadelist-items (16px / lh 14.72px) 但 span 是 144px / lh 144px 的 case：
+    按 leaf 算行距会把 144px 文字压在 14.72px 行距里叠压。
+    """
+    runs_raw = rec.get("runs") or []
+    style_for_lh = rec.get("style", {})
+    leaf_fs = style_for_lh.get("fontSize", 16)
+    effective_lh_px = _line_height_px(style_for_lh.get("lineHeight"), leaf_fs)
+    effective_fs = leaf_fs
+    for run in runs_raw:
+        if run.get("linebreak"):
+            continue
+        rfs = run.get("fontSize")
+        rlh = run.get("lineHeight")
+        if rfs and rlh:
+            rlh_px = _line_height_px(rlh, rfs)
+            if rlh_px > effective_lh_px:
+                effective_lh_px = rlh_px
+                effective_fs = rfs
+    return effective_lh_px, effective_fs
 
 
 def _parse_line_spacing(line_height: str | float | None, font_size_px: float) -> tuple[str, int] | None:
