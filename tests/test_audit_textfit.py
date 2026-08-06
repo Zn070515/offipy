@@ -65,6 +65,30 @@ def test_fallback_char_weight_low_confidence(tmp_path):
     assert f.details["text_width_in"] == 1.25
 
 
+def test_cjk_no_font_name_measured_nonzero(tmp_path):
+    # #8 回归：CJK 文本在无字体声明的框里（默认 Arial，cmap 无 CJK 码位）——
+    # 旧版缺码位记 0 宽 → 长文不报横溢（误放行）。现在按字符权重兜底非零宽
+    # + 低置信标注（fontTools 度量存在但缺码位 → all_present=False）。
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2.0), Inches(0.6))
+    tf = tb.text_frame
+    tf.word_wrap = False
+    tf.margin_left = 0
+    tf.margin_right = 0
+    tf.margin_top = 0
+    tf.margin_bottom = 0
+    p = tf.paragraphs[0]
+    r = p.add_run()
+    r.text = "垃圾检测识别系统处理流程方案"
+    r.font.size = Pt(18)
+    findings, _, _ = _run(prs, tmp_path)
+    fits = _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL)
+    assert len(fits) == 1
+    assert fits[0].details["text_width_in"] > 0  # 非零宽：14 全角 × 18pt = 3.5in
+    assert fits[0].confidence == 0.4  # 缺码位 → 字符权重低置信
+
+
 def test_pillow_metrics_high_confidence(tmp_path):
     font_path = _any_font_path()
     if font_path is None:

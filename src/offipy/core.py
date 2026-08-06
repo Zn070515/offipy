@@ -12,7 +12,9 @@ GetActiveObject 重连同一个已运行的 Office 实例，实现跨调用保�
 import contextlib
 import functools
 import inspect
+import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -178,17 +180,98 @@ def ensure_app(app: str, visible: bool = True, modify_existing_visibility: bool 
         raise OfficeUnavailableError(f"无法启动 {_progid(app)}: {e}") from e
 
 
+# 各应用取主窗口句柄的属性路径：Excel 用 Application.Hwnd；Word/PowerPoint
+# 用 ActiveWindow.Hwnd（无活动文档/启动早期拿不到 → None，跳过精确清理）。
+_APP_HWND_PATH = {
+    "excel": ("Hwnd",),
+    "ppt": ("ActiveWindow", "Hwnd"),
+    "word": ("ActiveWindow", "Hwnd"),
+}
+
+
+def app_process_pid(obj, app: str) -> int | None:
+    """经 COM 窗口句柄反查进程 PID（只用于精确清理本库附着过的实例）。
+
+    拿不到句柄（无活动窗口/断连/启动早期）→ None，调用方跳过清理——
+    绝不按进程名模糊清理，避免误杀用户其它 Word/PowerPoint 实例。
+    """
+    try:
+        import ctypes
+
+        cur = obj
+        for attr in _APP_HWND_PATH.get(app, ()):
+            cur = getattr(cur, attr)
+        hwnd = int(cur)
+        if not hwnd:
+            return None
+        getpid = ctypes.windll.user32.GetWindowThreadProcessId
+        getpid.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong))
+        getpid.restype = ctypes.c_ulong
+        pid = ctypes.c_ulong()
+        getpid(ctypes.c_void_p(hwnd), ctypes.byref(pid))
+        return pid.value or None
+    except Exception:
+        return None
+
+
+def _pid_running(pid: int) -> bool:
+    try:
+        r = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        return str(pid) in r.stdout
+    except Exception:
+        return True  # 无法确认 → 假定存活，交由 taskkill 兜底
+
+
+def wait_process_exit(pid: int | None, timeout: float = 2.0) -> bool:
+    """轮询指定进程是否已退出；timeout 内退出 → True，仍存活/无法确认 → False。"""
+    if not pid:
+        return True
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _pid_running(pid):
+            return True
+        time.sleep(0.2)
+    return not _pid_running(pid)
+
+
+def reap_process(pid: int | None) -> None:
+    """taskkill /F /PID 强制终止指定进程；进程已退/无权限/失败 → 静默。"""
+    if not pid:
+        return
+    with contextlib.suppress(Exception):
+        subprocess.run(
+            ["taskkill", "/F", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+
+
 def quit_app(app: str) -> bool:
-    """退出指定应用的存活实例。无实例时返回 False。"""
+    """退出指定应用的存活实例。无实例时返回 False。
+
+    调用 obj.Quit() 后确认进程退出；Excel 常驻（RCW/COM server 保持）会在
+    Quit 返回后残留进程，按 PID 精确清理本实例，避免反复开合累积 Office 进程。
+    """
     com = _com()
     obj = connect(app)
     if obj is None:
         return False
-    try:
+    pid = app_process_pid(obj, app)
+    with contextlib.suppress(com.pywintypes.com_error):
         obj.Quit()
-        return True
-    except com.pywintypes.com_error:
-        return False
+    if not wait_process_exit(pid, timeout=2.0):
+        reap_process(pid)
+    return True
 
 
 def running(app: str) -> bool:

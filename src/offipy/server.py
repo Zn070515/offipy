@@ -244,6 +244,12 @@ def _rebuild(app):
     if name is None:
         return app
     _APPS.pop(name, None)
+    # 外部 kill 后：先精确清掉本库附着过的进程（僵尸 EXCEL.EXE 等），再重连。
+    # 否则 ensure_app 可能附着到僵尸实例（消息泵/文档恢复异常），后续 op 稳定
+    # 报 OLE error 0x800ac472，直到手动 taskkill 才恢复。
+    reap = getattr(app, "reap_own_process", None)
+    if callable(reap):
+        reap()
     return get_app(name)
 
 

@@ -84,6 +84,25 @@ def _postprocess(label: str, fn, html: str, pptx: str) -> None:
         raise ConversionError(f"{label}后处理失败: {e}") from e
 
 
+def _preserve_audit_dir(tmp_pptx: str, final_out: str) -> None:
+    """把 convert 的 <tmp_stem>_audit 测量目录改名为 <final_stem>_audit。
+
+    aesthetic.audit(html) 按 html stem 自动发现 measurements.json，feedback 回路
+    （feedback.append → dimension_weights）依赖它；tmp 名是 mkstemp 随机名，必须
+    换成最终输出名才能让 `deck render` 的产物被审计到。
+    """
+    tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
+    if not os.path.isdir(tmp_audit):
+        return
+    final_audit = os.path.join(os.path.dirname(final_out), f"{Path(final_out).stem}_audit")
+    if os.path.isdir(final_audit):
+        shutil.rmtree(final_audit, ignore_errors=True)
+    try:
+        os.replace(tmp_audit, final_audit)
+    except OSError:
+        shutil.rmtree(tmp_audit, ignore_errors=True)  # 改名失败不残留孤儿
+
+
 @contextlib.contextmanager
 def _render_tmp(
     html: str,
@@ -189,11 +208,14 @@ def _render_tmp(
         from .icons import postprocess_icons
 
         _postprocess("图标", postprocess_icons, html, tmp_pptx)
+        # 保留 convert 的 <stem>_audit 测量目录（aesthetic/feedback 回路）：
+        # tmp 随机名换成最终输出名（默认 out=<html_stem>.pptx → audit 自动发现）。
+        _preserve_audit_dir(tmp_pptx, final_out)
         yield tmp_pptx, final_out
     finally:
         # 任何路径（成功或失败）都清理临时文件；已存在的 final_out 不受影响。
-        # convert 的 <out>_audit 审计目录跟着临时 .pptx 名字走，tmp 被替换/删除后
-        # 就成了孤儿（charts 后处理在 os.replace 前已读完 measurements），一并清掉。
+        # 审计目录在 yield 前已从 tmp 名改到最终输出名（保留给 aesthetic/feedback），
+        # 这里只兜底清理改名失败残留的孤儿 tmp 目录。
         if tmp_html_dir is not None:
             tmp_html_dir.cleanup()  # 注入副本随整目录删除
         if tmp_pptx and os.path.exists(tmp_pptx):

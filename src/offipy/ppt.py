@@ -366,6 +366,8 @@ class PptApp:
         self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
+        # 记录本实例进程 PID（断连自愈/退出时精确清理，不误杀用户其它实例）
+        self._pid = core.app_process_pid(self.app, "ppt")
         self._docs: dict[str, Any] = {}  # doc_id → 演示文稿句柄（P2-2 多文档）
         self._active_id: str | None = None
         self._seq = 0
@@ -668,7 +670,11 @@ class PptApp:
         doc_id: str | None = None,
     ):
         slide = self._require_pres(doc_id).Slides(slide_idx)
-        slide.Shapes.AddPicture(os.path.abspath(path), 0, 0, left, top, width, height)
+        # SaveWithDocument=msoTrue(-1)：LinkToFile=False 时必须内嵌，传 0 会被
+        # PowerPoint 拒为 E_INVALIDARG。路径 normpath 归一化，COM 拒收正斜杠。
+        slide.Shapes.AddPicture(
+            os.path.normpath(os.path.abspath(path)), 0, -1, left, top, width, height
+        )
 
     def read_slide_texts(
         self,
@@ -724,8 +730,21 @@ class PptApp:
         try:
             # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
             self.app.DisplayAlerts = self._saved_alerts
+            pid = core.app_process_pid(self.app, "ppt") or self._pid
             self.app.Quit()
         except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 PowerPoint 失败: {e}") from e
+        # Quit 已返回但进程可能残留（RCW/COM server 保持）：按 PID 精确清理
+        if not core.wait_process_exit(pid, timeout=2.0):
+            core.reap_process(pid)
+        return None
+
+    def reap_own_process(self) -> None:
+        """断连自愈/退出兜底：精确终止本库附着过的实例进程（不碰用户其它实例）。
+
+        server 检测到外部 kill 后重建连接前调用，清掉残留的僵尸实例，
+        避免重连附着到半死进程污染后续 op。
+        """
+        core.reap_process(self._pid)

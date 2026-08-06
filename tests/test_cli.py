@@ -37,9 +37,10 @@ def test_office_subcommand_has_kwargs():
 def test_parse_kwargs_flag_without_value():
     from offipy.cli import _parse_kwargs
 
-    assert _parse_kwargs(["--no-open"]) == {"no-open": True}
+    # 无值 flag → True；--key 归一化 - → _（no-open 等价 no_open，README 双写法一致）
+    assert _parse_kwargs(["--no-open"]) == {"no_open": True}
     assert _parse_kwargs(["--no-open", "--out", "x.pptx"]) == {
-        "no-open": True,
+        "no_open": True,
         "out": "x.pptx",
     }
     assert _parse_kwargs(["--html", "a.html"]) == {"html": "a.html"}
@@ -325,6 +326,25 @@ def test_parse_kwargs_payload_must_be_object():
 
     with pytest.raises(SystemExit):
         _parse_kwargs(["--payload", "[1, 2]"])
+
+
+def test_parse_kwargs_dash_to_underscore():
+    # 传输层参数之外：--doc-id 归一化为 doc_id（README 双写法不再打架）
+    from offipy.cli import _parse_kwargs
+
+    assert _parse_kwargs(["--doc-id", "book1"]) == {"doc_id": "book1"}
+    assert _parse_kwargs(["--slide-idx", "2"]) == {"slide_idx": "2"}
+
+
+def test_payload_array_error_hints_list_usage():
+    # --payload 传数组时错误信息要提示 list 参数的正确写法（重复 --key / key 数组）
+    from offipy.cli import _parse_kwargs
+
+    with pytest.raises(SystemExit) as exc:
+        _parse_kwargs(["--payload", "[1, 2]"])
+    msg = str(exc.value)
+    assert "list" in msg
+    assert "重复 --key" in msg
 
 
 def test_validate_kwargs_rejects_unknown_exit_2(monkeypatch, capsys):

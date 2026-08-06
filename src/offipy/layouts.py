@@ -8,6 +8,10 @@ inject_layouts 检测引用，把对应布局 CSS（+ 公共排版）注入 <hea
 见 design.py），因此任何主题下都成立。布局模板 HTML 供 Claude 复制后填内容，
 用 HTML 注释标注填空位置。
 
+布局子元素就是 flex item：section 里除了注释，不要多加 wrapper 层（会破坏
+flex 布局、被 stretch 拉成超高文本框）。split-2col 对 .cols 包装做了
+display:contents 透明化兜底，但眉标/标题等其它子元素仍须直接作 section 子元素。
+
 布局来源：docs/ppt_design_research.md §5.2（agentara/skills 的 10 种命名布局）。
 """
 
@@ -80,6 +84,9 @@ _register(
         description="A/B 两栏并排对比内容，中间留 gap。",
         css="""
 .split-2col { display: flex; gap: var(--gap); align-items: stretch; }
+/* 防呆：.cols 包装层透明化（display: contents），包一层 wrapper 也能正确两栏。
+   但眉标/标题等其它子元素仍直接作 section 子元素（它们是 flex item）。 */
+.split-2col > .cols { display: contents; }
 .split-2col .col {
   flex: 1; background: var(--surface); border-radius: var(--radius);
   padding: 40px; border-top: 4px solid var(--accent);
@@ -88,6 +95,8 @@ _register(
 .split-2col .col p { font-size: var(--body); color: var(--ink); line-height: 1.7; }
 """,
         html="""<section class="slide split-2col" data-pptx-slide data-layout="split-2col">
+  <!-- 布局子元素即 flex item，不要加 wrapper：.col 必须是 section 直接子元素；
+       想加眉标/标题，也直接作 section 子元素（放在两栏之前），别包进 .cols。 -->
   <div class="col"><h2 class="col-title"><!-- 左栏标题 --></h2><p><!-- 左栏正文 --></p></div>
   <div class="col"><h2 class="col-title"><!-- 右栏标题 --></h2><p><!-- 右栏正文 --></p></div>
 </section>""",

@@ -266,16 +266,18 @@ def test_render_atomic_success_replaces_and_cleans(tmp_path, monkeypatch):
     assert _hidden_pptx(tmp_path) == []  # 临时 .pptx 已清理
 
 
-def test_render_atomic_cleans_orphan_audit_dir(tmp_path, monkeypatch):
+def test_render_atomic_preserves_audit_dir_under_final_name(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
     monkeypatch.setattr(deck.subprocess, "run", _fake_run_with_audit(created))
 
     pptx = deck.render(str(html), overwrite=True)
-    # convert 的 <tmp>_audit 审计目录在 tmp 被替换后成为孤儿，render 应清理
-    orphans = [p for p in tmp_path.iterdir() if p.name.endswith("_audit")]
-    assert orphans == []
+    # #11：convert 的 <tmp>_audit 改名为 <final>_audit 保留（aesthetic/feedback
+    # 按 final stem 自动发现 measurements），不留 <tmp>_audit 孤儿
+    assert (tmp_path / "deck_audit" / "_cache" / "measurements.json").exists()
+    audits = [p.name for p in tmp_path.iterdir() if p.name.endswith("_audit")]
+    assert audits == ["deck_audit"]
     assert Path(pptx).read_bytes() == b"fake pptx"
 
 
