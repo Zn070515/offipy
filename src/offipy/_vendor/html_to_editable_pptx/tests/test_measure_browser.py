@@ -101,7 +101,8 @@ def test_display_contents_wrapper_children_measured(split2col):
 def test_split_2col_non_col_children_not_stretched(split2col):
     # #9：align-items: stretch 会把眉标/标题（非 .col 的 flex 子元素）拉成整页高
     # （超高文本框）。修复后容器 align-items: flex-start + .col align-self: stretch：
-    # 眉标/标题保持自然高度（远小于整页 1080px），.col 仍填满整页。
+    # 眉标/标题保持自然高度（远小于整页 1080px），.col 仍填满整页内容盒
+    # （.slide 有 --pad 96px 边距，flex 内容盒高 1080−2×96=888px）。
     texts = [r for r in _records(split2col, 0) if r["kind"] == "text" and r.get("text")]
     kicker = next(r for r in texts if "AGENDA_KICKER" in r["text"])
     title = next(r for r in texts if "QUARTERLY_TITLE" in r["text"])
@@ -112,7 +113,7 @@ def test_split_2col_non_col_children_not_stretched(split2col):
         if r["kind"] == "shape" and r["rect"]["w"] > 0 and r["rect"]["h"] > 0
     ]
     assert len(cols) >= 2, "两栏 col 形状缺失"
-    assert all(c["rect"]["h"] >= 900 for c in cols), "col 未填满整页"
+    assert all(c["rect"]["h"] >= 700 for c in cols), "col 未填满整页内容盒"
 
 
 def test_animated_canvas_does_not_crash(deck):
