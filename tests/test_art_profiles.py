@@ -3,6 +3,7 @@ import pytest
 from offipy.art.profiles import (
     ALL_RULES,
     RULE_ACCENT_FLOOD,
+    RULE_BACKGROUND_LIKE_AREA,
     RULE_CORNER_CLUSTER,
     RULE_OFF_BALANCE,
     get_profile,
@@ -11,7 +12,7 @@ from offipy.art.profiles import (
 
 
 def test_all_rules_count():
-    assert len(ALL_RULES) == 16
+    assert len(ALL_RULES) == 17
 
 
 def test_experimental_rules():
@@ -30,6 +31,7 @@ def test_balanced_defaults():
         RULE_ACCENT_FLOOD,
         "art.hierarchy.no_focus",
         "art.color.no_accent",
+        RULE_BACKGROUND_LIKE_AREA,
     }
 
 
@@ -58,6 +60,19 @@ def test_event_relaxes_rules():
 def test_get_profile_unknown_raises():
     with pytest.raises(KeyError):
         get_profile("nope")
+
+
+def test_background_like_area_is_experimental():
+    assert RULE_BACKGROUND_LIKE_AREA in get_profile("balanced").experimental_rules
+
+
+def test_max_background_like_ratio_per_profile():
+    assert get_profile("balanced").max_background_like_ratio == 0.75
+    assert get_profile("consulting").max_background_like_ratio == 0.85
+    assert get_profile("academic").max_background_like_ratio == 0.75
+    assert get_profile("technology").max_background_like_ratio == 0.75
+    assert get_profile("event").max_background_like_ratio == 0.90
+    assert RULE_BACKGROUND_LIKE_AREA in get_profile("balanced").experimental_rules
 
 
 def test_profile_names():
