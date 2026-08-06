@@ -3,6 +3,22 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.11.2] - 2026-08-06
+
+### Fixed
+- **audit text-fit / covered_text 误报治本**（真实 deck 使用反馈反哺）：
+  - text-fit 横溢**仅对显式 `wrap="none"` 的文本框**报——`square`（含 bodyPr@wrap 未设，
+    PowerPoint 默认自动折行）永不报横溢；段落含 `a:br` 软换行时取**最长段**宽，不再跨段
+    求和（旧版把软换行各段宽度加总，5 段 11pt 文本曾算出 16.25in 的假横溢）
+  - 超宽 / 超高加 **1pt 噪声下限**——Pillow FreeType 与 PowerPoint DirectWrite 度量引擎
+    亚 pt 级差异不再触发误报
+  - 字体定位支持 **`.ttc` 集合**（微软雅黑 `msyh.ttc` 等），消除字体找不到时的大面积
+    「字符估算低置信」回退
+  - `covered_text` **只在被盖形状有文本时发射**——空框 / 装饰点浮空卡片（双方无文本）
+    不再报「完全覆盖」
+- **转换器单行 CJK 框加 2.5% 宽冗余**：HTML→PPTX 渲染时含 CJK/全角字符的单行
+  `wrap="none"` 文本框加宽冗余，抵消浏览器与 PowerPoint 的字体度量差异，防溢出不可换行
+
 ## [0.11.1] - 2026-08-06
 
 ### Fixed

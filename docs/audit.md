@@ -110,7 +110,7 @@ report = audit_pptx(
 | `geometry.margin.left/right/top/bottom` | LOW | 内容贴近边缘，间距 < 安全边距 |
 | `geometry.overlap.partial` | LOW / MID | 形状部分重叠（覆盖比 > 0.5，以较小形状计） |
 | `geometry.overlap.covered_text` | MID / HIGH | 一个形状完全覆盖另一个；文本被图片/图表盖住为 HIGH |
-| `text.fit.horizontal` | LOW / MID | 文本横向超出文本框（nowrap 单行超宽等） |
+| `text.fit.horizontal` | LOW / MID | 文本横向超出文本框（显式 `wrap="none"` 单行超宽） |
 | `text.fit.vertical` | LOW / MID | 文本纵向超出文本框（显式多行超高 / 无可用空间） |
 | `text.autofit.shrink` | MID / HIGH | normAutofit 缩小字体，可能低于最小可读 8pt |
 | `text.autofit.grow` | MID / HIGH | spAutoFit 扩大 Shape，可能越界/撞对象 |
@@ -152,15 +152,21 @@ report = audit_pptx(
 - **Pair 分类**：文本位于填充 AutoShape 内 → 卡片容器，抑制为
   `intentional_containment`；文本被图片/图表完全覆盖 → HIGH；同 Group 且 z-order
   合理 → 降严重度。
+- `covered_text` 只在**被盖形状有文本**时发射——空框 / 装饰点浮空卡片（双方无文本）
+  不报。
 - 旋转形状用 AABB 近似（confidence 0.5，message 标注「旋转包围盒近似」）。
 
 ### TextFit（文本溢出）
 
 - 可用区域**先减 TextFrame 的 margin**。
-- 宽高为 0、nowrap 单行明显超宽、显式行数×行高明显超可用高 → 报。
-- 字体度量：**优先 Pillow**（字体文件可定位 → confidence 0.8）；**找不到字体文件
-  回退字符权重**（CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4，message 标注
-  「字符估算低置信」）。
+- 横溢**仅对显式 `wrap="none"` 的文本框**报（单行不折行）；`square`（含 bodyPr@wrap
+  未设，PowerPoint 默认自动折行）永不报横溢。段落含 `a:br` 软换行时取**最长段**宽，
+  不跨段求和。超高按显式行数×行高。
+- 超宽 / 超高需**超过 1pt 噪声下限**才报（Pillow FreeType 与 PowerPoint DirectWrite
+  度量引擎存在亚 pt 级差异）。
+- 字体度量：**优先 Pillow**（含 `.ttc` 集合，如微软雅黑 `msyh.ttc` → confidence 0.8）；
+  **找不到字体文件回退字符权重**（CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4，
+  message 标注「字符估算低置信」）。
 - 页码 / 页眉 / 页脚小文本跳过（本就紧凑）。
 
 ### Autofit（自适应风险）
@@ -198,7 +204,7 @@ overlap 遮挡判定按「上层是否真的盖住下层内容」：透明无文
 | confidence | 含义 |
 |------------|------|
 | 1.0 | 精确几何，无启发式 |
-| 0.8 | Pillow 字体度量参与文本宽度估算 |
+| 0.8 | Pillow 字体度量（含 `.ttc` 集合）参与文本宽度估算 |
 | 0.5 | 旋转形状的 AABB 近似（message 标注） |
 | 0.4 | 字符权重回退（message 标注「字符估算低置信」） |
 
@@ -210,9 +216,9 @@ overlap 遮挡判定按「上层是否真的盖住下层内容」：透明无文
 
 ## 已知限制与误报控制
 
-- **v0.11 不执行以下结构的 text-fit 检查**（静默跳过、不报死、不误报）：表格单元格 /
-  SmartArt / 图表内部文本 / WordArt / 竖排 / 复杂项目符号与自定义行距。这些结构的
-  结构化 unsupported warning（`textfit.table_unsupported` 等）计划在 0.11.1 补齐。
+- **text-fit 不执行以下结构的检查**（静默跳过、不报死、不误报）：表格单元格 /
+  SmartArt / 图表内部文本 / WordArt / 竖排 / 复杂项目符号与自定义行距。结构化
+  unsupported warning（`textfit.table_unsupported` 等）暂未实现，不承诺时间线。
 - 旋转组 / flip 的 bounds/margin/overlap 用 AABB 近似（几何形状本身占位不变，
   翻转只影响内容朝向）。
 - 不承诺所有 PPT 零误报——固定验收集（`tests/fixtures/audit/`）保证
