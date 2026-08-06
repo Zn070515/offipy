@@ -159,16 +159,24 @@ Bounds → Margin → Overlap → TextFit → Autofit.
 - **Pair classification**: text inside a filled AutoShape → card container, suppressed as
   `intentional_containment`; text fully covered by a picture/chart → HIGH; same Group with a
   reasonable z-order → downgraded severity.
+- `covered_text` fires only when the **covered shape has text** — an empty box / decorative dot
+  floating in an empty card (neither has text) is not reported.
 - Rotated shapes use AABB approximation (confidence 0.5, message notes "rotated bounding-box approximation").
 
 ### TextFit
 
 - Available area is **reduced by the TextFrame's margins first**.
-- Reported when: zero width/height, a nowrap single line clearly too wide, explicit
-  line-count × line-height clearly exceeding available height.
-- Font metrics: **Pillow first** (font file locatable → confidence 0.8); **when no font file is
-  found, fall back to character weights** (CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4,
-  message notes "low-confidence character estimation").
+- Horizontal overflow is reported **only for text boxes with explicit `wrap="none"`** (single
+  line, no wrapping); `square` (including an absent bodyPr@wrap, PowerPoint's default auto-wrap)
+  never reports horizontal overflow. Paragraphs with `a:br` soft breaks use the **widest
+  segment**, not the cross-segment sum. Vertical overflow is reported by explicit
+  line-count × line-height.
+- Overflow must **exceed a 1pt noise floor** (Pillow FreeType vs PowerPoint DirectWrite metrics
+  differ at sub-pt level).
+- Font metrics: **Pillow first** (including `.ttc` collections such as Microsoft YaHei
+  `msyh.ttc` → confidence 0.8); **when no font file is found, fall back to character weights**
+  (CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4, message notes "low-confidence character
+  estimation").
 - Page-number / header / footer small text is skipped (naturally compact).
 
 ### Autofit
@@ -208,7 +216,7 @@ region count as page numbers.
 | confidence | meaning |
 |------------|---------|
 | 1.0 | exact geometry, no heuristics |
-| 0.8 | Pillow font metrics used for text-width estimation |
+| 0.8 | Pillow font metrics (incl. `.ttc` collections) used for text-width estimation |
 | 0.5 | AABB approximation of a rotated shape (message notes it) |
 | 0.4 | character-weight fallback (message notes "low-confidence character estimation") |
 
@@ -221,10 +229,10 @@ This is the only warning source in v0.11.
 
 ## Known limitations & false-positive control
 
-- **v0.11 does not run text-fit checks on** table cells / SmartArt / text inside charts /
+- **text-fit does not run checks on** table cells / SmartArt / text inside charts /
   WordArt / vertical text / complex bullets and custom line spacing — they are silently
   skipped (no hard-fail, no false positive). Structured unsupported warnings
-  (`textfit.table_unsupported` etc.) are planned for 0.11.1.
+  (`textfit.table_unsupported` etc.) are not implemented; no timeline is committed.
 - Rotated groups / flips use AABB approximation for bounds/margin/overlap (the geometric shape
   occupies the same place; flipping only affects content orientation).
 - No promise of zero false positives on every PPT — the fixed verification corpus
