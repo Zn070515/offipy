@@ -493,3 +493,13 @@ def _report_from_fixture(data):
         suppressed=[],
         warnings=[],
     )
+
+
+def test_make_element_preserves_pixel_evidence():
+    from offipy.art.models import ElementPixelEvidence
+
+    pe = ElementPixelEvidence(method="declared_verified", color_confidence=0.8)
+    el = make_element("a", pixel_evidence=pe)
+    slide = make_slide(1, elements=[el])
+    assert slide.elements[0].pixel_evidence is not None
+    assert slide.elements[0].pixel_evidence.method == "declared_verified"
