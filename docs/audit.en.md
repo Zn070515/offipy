@@ -170,13 +170,16 @@ Bounds → Margin → Overlap → TextFit → Autofit.
   line, no wrapping); `square` (including an absent bodyPr@wrap, PowerPoint's default auto-wrap)
   never reports horizontal overflow. Paragraphs with `a:br` soft breaks use the **widest
   segment**, not the cross-segment sum. Vertical overflow is reported by explicit
-  line-count × line-height.
+  line-count × line-height; line height reads the paragraph `a:lnSpc` (`spcPts` absolute /
+  `spcPct` percentage), falling back to `font-size × 1.2` when unset. A trailing soft break
+  (`a:br`) does not count as an extra line.
 - Overflow must **exceed a 1pt noise floor** (Pillow FreeType vs PowerPoint DirectWrite metrics
   differ at sub-pt level).
-- Font metrics: **Pillow first** (including `.ttc` collections such as Microsoft YaHei
-  `msyh.ttc` → confidence 0.8); **when no font file is found, fall back to character weights**
-  (CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4, message notes "low-confidence character
-  estimation").
+- Font metrics: **fontTools parses the font file first** (`.ttf` / `.ttc`, such as Microsoft
+  YaHei `msyh.ttc`/`msyhbd.ttc`), summing hmtx glyph widths + kerning/GPOS pair adjustment →
+  confidence 0.8; on failure it falls back to **Pillow** `getlength`, then to **character
+  weights** (CJK=1.0 / ASCII=0.5 / space=0.35 → confidence 0.4, message notes "low-confidence
+  character estimation").
 - Page-number / header / footer small text is skipped (naturally compact).
 
 ### Autofit
@@ -201,6 +204,7 @@ The two modes are **kept separate** (not uniformly downgraded):
 | `decorative_overlay` | small solid decoration/color bar on a text-bearing container (size-based) — no content occluded |
 | `text_on_background` | text floating on a no-text background/container (non-contained) — nothing below to occlude |
 | `transparent_overlay` | transparent (`a:noFill`) textless top shape — visually occludes nothing |
+| `decorative_layering` | textless long-strip decoration layering (short side ≥3×, longer dimension ≥70% of the larger shape, non-contained) — partial overlap, nothing occluded |
 | `user_shape` / `user_region` | user explicitly suppressed via `ignored_shapes` / `ignored_regions` |
 
 Overlap occlusion is judged by "does the top shape actually cover content below": a transparent
@@ -216,7 +220,7 @@ region count as page numbers.
 | confidence | meaning |
 |------------|---------|
 | 1.0 | exact geometry, no heuristics |
-| 0.8 | Pillow font metrics (incl. `.ttc` collections) used for text-width estimation |
+| 0.8 | fontTools font metrics (hmtx glyph widths + kerning/GPOS pair adjustment, incl. `.ttc` collections) |
 | 0.5 | AABB approximation of a rotated shape (message notes it) |
 | 0.4 | character-weight fallback (message notes "low-confidence character estimation") |
 
