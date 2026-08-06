@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from .extract import _Paragraph, _ShapeRecord
+from .extract import _Paragraph, _ShapeRecord, _TextRun
 from .geometry import Rect, overlap_area, rect_contains, rect_intersection
 from .models import (
     RULE_AUTOFIT_GROW,
@@ -484,9 +484,7 @@ def _is_textless_decorative_layering(on_top: _ShapeRecord, below: _ShapeRecord) 
     if not _is_strip(r_on) or not _is_strip(r_below):
         return False
     small, big = (r_on, r_below) if r_on.area() <= r_below.area() else (r_below, r_on)
-    if max(small.width, small.height) < 0.7 * max(big.width, big.height):
-        return False
-    return True
+    return max(small.width, small.height) >= 0.7 * max(big.width, big.height)
 
 
 def _contained_result(
