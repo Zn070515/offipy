@@ -101,6 +101,13 @@ pip install "offipy[deck]"
 playwright install chromium
 ```
 
+`open_live` copies the `.pptx` to an `offipy-live-*` copy in the system temp dir before
+showing it in PowerPoint — PowerPoint locks the copy, never your output file, so
+`render(overwrite=True)` to the same path keeps working across iterations (#22). Close the
+live presentation and free the copy with `deck.close_live(doc_id)`; if a target file is
+otherwise held open, `render` raises an actionable error (suggesting `close_live` /
+`offipy quit ppt`, or a different output name).
+
 ## Python API
 
 ```python

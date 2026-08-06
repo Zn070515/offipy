@@ -57,7 +57,10 @@ Boundary checks (all fail fast in the handler thread, never touching COM):
 
 `expected_target` / `follow_active` are transport parameters: passed through by the client, not part of
 the App method signature; the server dispatch pops them, resolves a target, and injects a `doc_id`.
-They are meaningful only for destructive ops (`schema.supports_expected_target`):
+`expected_target` is meaningful only for destructive/export ops (`schema.supports_expected_target`);
+`follow_active` is meaningful for destructive ops and for read-only ops that declare
+`accepts_follow_active` (get_cell / read_range / read_doc_text / read_slide_texts /
+read_slide_summary) — #25 aligns read-only ops with destructive semantics for write-then-read flows:
 
 - `follow_active` (bool, optional, default `false`): explicitly declares "follow the currently active
   document" — the server resolves the current active target in real time and injects its doc_id;
@@ -70,7 +73,9 @@ Precedence: `expected_target` > `follow_active` > explicit `doc_id` (the first t
 in `args`). In normal use, provide just one. Constraints:
 
 - `expected_target` on a non-destructive op → 400 `invalid_argument` (strictly rejected, not silently ignored).
-- `follow_active` on a non-destructive op is silently ignored (popped).
+- `follow_active` on a read-only op that does not declare `accepts_follow_active` is silently ignored (popped);
+  on one that declares it, the active document is resolved in real time and its doc_id injected
+  (no active target → `TargetNotFoundError`).
 - `quit` accepts neither (it has no doc_id target).
 
 ### Idempotency (request_id, P0-2 Plan A)

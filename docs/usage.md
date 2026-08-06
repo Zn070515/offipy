@@ -90,6 +90,11 @@ pip install "offipy[deck]"
 playwright install chromium
 ```
 
+`open_live` 打开实况演示时先复制到系统临时目录的 `offipy-live-*` 副本再让 PowerPoint
+演示——PowerPoint 锁定的是副本，产物 `.pptx` 路径不被锁，同路径 `render(overwrite=True)`
+可反复重渲染（#22）。用 `deck.close_live(doc_id)` 关闭实况演示并清理副本；目标文件被
+占用时 `render` 会给出可操作错误（提示先 `close_live` / `offipy quit ppt`，或换输出名）。
+
 ## Python API
 
 ```python
