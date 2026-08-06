@@ -2,6 +2,10 @@
 
 rev2.1：不依赖 DOM ID 与 PPTX ID 相同；用 matched 集合保证一对一；
 未匹配的 secondary 元素与 secondary-only 页面都保留并附 warning。
+rev2.2：双源 role 词表不一致（measurement title/body/subtitle ↔ audit
+content/footer）导致 100% 未匹配。匹配改为文本强佐证 + 几何兜底，role 作
+软信号：归一 role 相同且文本相同 → 身份 0.8；文本相同（跨词表 role）→ 0.7；
+双方都有文本但不同 → 不合并；至少一边无文本 → 几何 + role 加分。
 """
 
 from __future__ import annotations
@@ -10,32 +14,46 @@ from typing import Any
 
 from .models import ArtElement, ArtScene, ArtSlide, ArtWarning
 
+_ROLE_ALIASES = {
+    # audit 词表 → art 词表（audit 非占位符文本统一 content，未知形状 unknown）
+    "content": "body",
+    "unknown": "shape",
+}
+
+
+def _norm_role(role: str) -> str:
+    return _ROLE_ALIASES.get(role, role)
+
+
+def _norm_text(text: str) -> str:
+    """文本归一：软换行 \\x0b ↔ \\n 统一，折叠空白，小写。"""
+    return " ".join(text.replace("\x0b", "\n").split()).lower()
+
 
 def _match_confidence(primary_el: ArtElement, secondary_el: ArtElement) -> float | None:
-    """匹配置信度：shape_id 精确=1.0；身份=0.8；几何邻近=0.5×(1-d/0.2)。"""
+    """匹配置信度：shape_id 精确=1.0；身份=0.8；文本强佐证=0.7；几何=0.5×(1-d/0.2)。"""
     if primary_el.element_id == secondary_el.element_id:
         return 1.0
-    if (
-        primary_el.role == secondary_el.role
-        and primary_el.has_text()
-        and secondary_el.has_text()
-        and primary_el.text.strip().lower() == secondary_el.text.strip().lower()
-    ):
-        return 0.8
-    if primary_el.role != secondary_el.role:
-        return None
-    if (
-        primary_el.has_text()
-        and secondary_el.has_text()
-        and primary_el.text.strip().lower() != secondary_el.text.strip().lower()
-    ):
-        return None
+    p_text = _norm_text(primary_el.text)
+    s_text = _norm_text(secondary_el.text)
+    same_text = bool(p_text) and p_text == s_text
+    same_role = _norm_role(primary_el.role) == _norm_role(secondary_el.role)
     pcx, pcy = primary_el.x + primary_el.width / 2, primary_el.y + primary_el.height / 2
     ecx, ecy = secondary_el.x + secondary_el.width / 2, secondary_el.y + secondary_el.height / 2
     d = ((pcx - ecx) ** 2 + (pcy - ecy) ** 2) ** 0.5
     if d > 0.2:
         return None
-    return 0.5 * (1.0 - d / 0.2)
+    if same_role and same_text:
+        return 0.8
+    if same_text:
+        return 0.7
+    # 双方都有文本但不同 → 非同一元素
+    if p_text and s_text:
+        return None
+    base = 0.5 * (1.0 - d / 0.2)
+    if same_role:
+        base += 0.1
+    return base if base > 0.05 else None
 
 
 def _merge_element(

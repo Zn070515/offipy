@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from art_helpers import make_scene, make_slide, make_text_element
+from art_helpers import make_element, make_scene, make_slide, make_text_element
 from offipy.art.adapters import MeasurementAdapter, PptxAuditAdapter, build_scene
 from offipy.art.merge import merge_scenes
 from offipy.art.models import ArtColor
@@ -237,6 +237,131 @@ def test_merge_keeps_secondary_only_slide():
     merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
     assert len(merged.slides) == 2  # secondary-only slide 保留
     assert any(w.code == "art.merge.slide_secondary_only" for w in warnings)
+
+
+def test_merge_cross_vocab_text_match():
+    """双源 role 词表不一致：measurement body ↔ audit content，文本相同仍匹配。"""
+    m_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element("m-title", "产品增长报告", role="title", font_size=48.0),
+                ],
+            )
+        ]
+    )
+    p_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element("pptx-1-3", "产品增长报告", role="content", font_size=44.0),
+                ],
+            )
+        ],
+        width_unit="pt",
+    )
+    merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
+    els = merged.slides[0].elements
+    assert len(els) == 1  # 一对一：不重复追加 secondary
+    assert els[0].source == "merged"
+    assert 0.6 <= els[0].evidence["match_confidence"] <= 0.75  # 文本强佐证分支 0.7
+    assert warnings == []
+
+
+def test_merge_normalizes_text_soft_break():
+    """软换行 \\x0b（pptx）与 \\n（measurement）归一后视为同文本。"""
+    m_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element(
+                        "m-t", "产品增长报告\n与下季度规划", role="body", font_size=48.0
+                    ),
+                ],
+            )
+        ]
+    )
+    p_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element(
+                        "p-t", "产品增长报告\x0b与下季度规划", role="content", font_size=44.0
+                    ),
+                ],
+            )
+        ],
+        width_unit="pt",
+    )
+    merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
+    assert len(merged.slides[0].elements) == 1
+    assert merged.slides[0].elements[0].source == "merged"
+    assert warnings == []
+
+
+def test_merge_empty_shape_matches_by_geometry_with_role_soft():
+    """空文本形状：role 词表不同（shape vs unknown）也按几何 + role 归一加分匹配。"""
+    m_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_element("m-card", kind="shape", role="shape", x=0.1, y=0.3, w=0.4, h=0.3),
+                ],
+            )
+        ]
+    )
+    p_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_element(
+                        "p-card", kind="shape", role="unknown", x=0.1, y=0.3, w=0.4, h=0.3
+                    ),
+                ],
+            )
+        ],
+        width_unit="pt",
+    )
+    merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
+    els = merged.slides[0].elements
+    assert len(els) == 1  # unknown → shape 归一后 role 加分，几何 d=0 匹配
+    assert els[0].source == "merged"
+    assert warnings == []
+
+
+def test_merge_text_mismatch_guard_blocks_merge():
+    """双方都有文本但不同 → 即使几何接近也不合并（避免错误并证）。"""
+    m_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element("m-a", "AAA", x=0.1, y=0.1, font_size=20.0),
+                ],
+            )
+        ]
+    )
+    p_scene = make_scene(
+        [
+            make_slide(
+                1,
+                elements=[
+                    make_text_element("p-b", "BBB", x=0.1, y=0.1, font_size=20.0),
+                ],
+            )
+        ],
+        width_unit="pt",
+    )
+    merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
+    ids = {e.element_id for e in merged.slides[0].elements}
+    assert "m-a" in ids and "p-b" in ids  # 都保留、未合并
+    assert any(w.code == "art.merge.unmatched" for w in warnings)
 
 
 def test_merge_primary_only_slide_warns():
