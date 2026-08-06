@@ -1,3 +1,15 @@
+## v0.11.x → v0.12.1
+
+- `ART_SCHEMA_VERSION` / `ART_REPORT_SCHEMA_VERSION` → `"0.2"`：0.1 报告仍可被 0.2 读取
+  （像素证据字段默认 None）；compare 跨 schema 给出 `art.compare.schema_mismatch` 建议性 warning。
+- `build_scene` / `analyze_deck` 新增 `slides_dir=`：读逐页 PNG 像素证据（需要 Pillow，`offipy[deck]`）。
+- `render_with_quality_report` 新增 `pixel_analysis="off"|"best_effort"|"required"`、
+  `preserve_pixel_slides`、`slides_output_dir`：默认 `off`，行为不变。
+- `DimensionAssessment` 新增可选 `reliability` / `minimum_reliability`；`ArtFinding` 新增
+  `evidence_sources` / `evidence_reliability` / `evidence_method`（仅像素路径非空）。
+
+---
+
 # 0.11 → 0.12 迁移指南
 
 0.12 是**纯新增**版本：不破坏任何 0.11 的既有 API、CLI 行为或返回契约。现有代码**无需改动**。
