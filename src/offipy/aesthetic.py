@@ -42,19 +42,59 @@ _SEVERITY_PENALTY = {"HIGH": 25, "MID": 12, "LOW": 5}
 # ---------------------------------------------------------------- 颜色工具
 
 
-def parse_rgb(color: str | None) -> tuple[int, int, int] | None:
-    """'rgb(34, 81, 255)' / 'rgba(...)' / '#2251FF' → (r, g, b)。"""
+def parse_rgba(color: str | None) -> tuple[int, int, int, float] | None:
+    """'rgb(34, 81, 255)' / 'rgba(...)' / '#2251FF' → (r, g, b, alpha)。
+
+    rgb(...)/hex 视为不透明（alpha=1.0）；rgba 读 alpha（0..1）。只做解析，
+    透明如何处理（忽略/回退/合成）由调用方决定。
+    """
     if not color:
         return None
     color = color.strip()
-    m = re.fullmatch(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*[\d.]+)?\s*\)", color)
+    m = re.fullmatch(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)", color)
     if m:
-        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        alpha = float(m.group(4)) if m.group(4) is not None else 1.0
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)), alpha)
     m = re.fullmatch(r"#([0-9a-fA-F]{6})", color)
     if m:
         v = m.group(1)
-        return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
+        return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16), 1.0)
     return None
+
+
+def parse_rgb(color: str | None) -> tuple[int, int, int] | None:
+    """'rgb(34, 81, 255)' / '#2251FF' → (r, g, b)；rgba 全透明(alpha≤0) → None。
+
+    透明即「无颜色」：让调用方 `parse_rgb(x) or 兜底色` 自然回退到页面背景，
+    避免透明黑被当不透明黑造成对比度假阳性。
+    """
+    rgba = parse_rgba(color)
+    if rgba is None or rgba[3] <= 0:
+        return None
+    return rgba[:3]
+
+
+def _blend(
+    fg: tuple[int, int, int], alpha: float, bg: tuple[int, int, int]
+) -> tuple[int, int, int]:
+    """source-over：前景色按 alpha 与底色合成（用于半透明颜色）。"""
+    return (
+        round(fg[0] * alpha + bg[0] * (1 - alpha)),
+        round(fg[1] * alpha + bg[1] * (1 - alpha)),
+        round(fg[2] * alpha + bg[2] * (1 - alpha)),
+    )
+
+
+def _composite(rgba, base: tuple[int, int, int]) -> tuple[int, int, int] | None:
+    """rgba 与底色合成；解析失败/全透明 → None（无颜色，交由调用方兜底）。"""
+    if rgba is None:
+        return None
+    r, g, b, alpha = rgba
+    if alpha <= 0:
+        return None
+    if alpha >= 1:
+        return (r, g, b)
+    return _blend((r, g, b), alpha, base)
 
 
 def _channel_luminance(c: float) -> float:
@@ -329,14 +369,15 @@ def _audit_contrast(records: list[dict], background: str | None, page_index: int
     for rec in records:
         if rec.get("kind") != "text":
             continue
-        # 文本所在形状若有填充背景（色卡/卡片），用它作对比基准，而非整页背景
+        # 文本所在形状若有填充背景（色卡/卡片），用它作对比基准，而非整页背景；
+        # 半透明背景/前景按底色调 alpha 合成后再算对比度（透明≠不透明黑）
         deco = rec.get("deco")
         if not isinstance(deco, dict):
             deco = {}
-        rec_bg = parse_rgb(deco.get("bg")) or bg
+        rec_bg = _composite(parse_rgba(deco.get("bg")), bg) or bg
         rec_runs = rec.get("runs")
         for run in rec_runs if isinstance(rec_runs, list) else []:
-            fg = parse_rgb(run.get("color"))
+            fg = _composite(parse_rgba(run.get("color")), rec_bg)
             if not fg or (fg, rec_bg) in seen:
                 continue
             seen.add((fg, rec_bg))

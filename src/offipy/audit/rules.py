@@ -812,16 +812,25 @@ def _run_width_pt(
     if metrics is not None:
         upem, advances, kern, cmap = metrics
         total = 0.0
-        names = [cmap.get(ord(ch)) for ch in text]
-        for name in names:
-            if name is not None:
+        missing_pt = 0.0
+        all_present = True
+        names = []
+        for ch in text:
+            name = cmap.get(ord(ch))
+            names.append(name)
+            if name is None:
+                # 缺码位（如 Arial 无 CJK 码位）绝不记 0 宽：按字符权重兜底
+                # （全角 1em/半角 0.5em），并标记低置信走上层回退路径。
+                all_present = False
+                missing_pt += _char_width_pt(ch, size_pt)
+            else:
                 total += advances.get(name, 0)
         for i in range(len(names) - 1):
             gl, gr = names[i], names[i + 1]
             if gl is None or gr is None:
                 continue
             total += kern.get((gl, gr), 0)
-        return total / upem * size_pt, True
+        return total / upem * size_pt + missing_pt, all_present
     font = _load_font(font_name, bool(bold), size_pt)
     if font is not None:
         try:

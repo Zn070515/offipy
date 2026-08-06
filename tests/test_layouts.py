@@ -60,6 +60,19 @@ def test_layout_html_returns_skeleton():
     assert "<!--" in html  # 有填空注释
 
 
+def test_split_2col_css_has_wrapper_display_contents():
+    # 防呆：.cols 包装层透明化，Claude 包一层 wrapper 也能正确两栏
+    css = layout_css("split-2col")
+    assert ".split-2col > .cols { display: contents; }" in css
+
+
+def test_split_2col_html_notes_flex_item_constraint():
+    # HTML 模板注释提醒 flex-item 约束，防 Claude 包 wrapper 破坏布局
+    html = layout_html("split-2col")
+    assert "不要加 wrapper" in html
+    assert "flex item" in html
+
+
 def test_unknown_layout_raises():
     with pytest.raises(KeyError):
         layout_css("nope")

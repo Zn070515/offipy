@@ -62,7 +62,10 @@ def _parse_kwargs(tokens):
                 except (ValueError, TypeError) as e:
                     raise SystemExit(f"--{tok[2:]} JSON 解析失败: {e}") from None
                 if not isinstance(payload, dict):
-                    raise SystemExit(f"--{tok[2:]} 必须是 JSON 对象")
+                    raise SystemExit(
+                        f"--{tok[2:]} 必须是 JSON 对象；list 参数用重复 --key "
+                        f"或 --payload '{{\"key\": [item1, item2, ...]}}'"
+                    )
                 kwargs.update(payload)
                 i += 2
             else:
@@ -105,7 +108,10 @@ def _parse_kwargs(tokens):
             else:
                 raise SystemExit(f"{tok} 需要一个值")
         elif tok.startswith("--"):
-            key = tok[2:]
+            # 全局归一化 - → _：--doc-id 与 --doc_id 等价，README 双写法不再打架。
+            # 传输层参数（--expected-target/--follow-active/--request-id）在上方
+            # elif 已双写法特判，到不了这里，不会二次改名。
+            key = tok[2:].replace("-", "_")
             if i + 1 < len(tokens) and not tokens[i + 1].startswith("--"):
                 value = tokens[i + 1]
                 if key in kwargs:

@@ -16,9 +16,56 @@ def test_parse_rgb_formats():
     assert aesthetic.parse_rgb(None) is None
 
 
+def test_parse_rgba_alpha():
+    assert aesthetic.parse_rgba("rgba(34, 81, 255, 0.5)") == (34, 81, 255, 0.5)
+    assert aesthetic.parse_rgba("rgba(0, 0, 0, 0)") == (0, 0, 0, 0.0)
+    assert aesthetic.parse_rgba("rgb(34, 81, 255)") == (34, 81, 255, 1.0)
+    assert aesthetic.parse_rgba("#2251FF") == (34, 81, 255, 1.0)
+    assert aesthetic.parse_rgba(None) is None
+
+
+def test_parse_rgb_transparent_is_none():
+    # rgba 全透明（alpha≤0）→ 无颜色（让调用方自然回退到页面背景），
+    # 避免透明黑被当不透明黑造成对比度假阳性；半透明仍有 RGB。
+    assert aesthetic.parse_rgb("rgba(0, 0, 0, 0)") is None
+    assert aesthetic.parse_rgb("rgba(0, 0, 0, 0.5)") == (0, 0, 0)
+
+
+def test_composite_blends_semi_transparent():
+    # 半透明前景按 source-over 与底色合成：50% 黑叠白 → 中灰
+    assert aesthetic._composite((0, 0, 0, 0.5), (255, 255, 255)) == (128, 128, 128)
+    assert aesthetic._composite((0, 0, 0, 0.0), (255, 255, 255)) is None  # 全透明无颜色
+    assert aesthetic._composite((34, 81, 255, 1.0), (255, 255, 255)) == (34, 81, 255)  # 不透明原色
+    assert aesthetic._composite(None, (255, 255, 255)) is None  # 解析失败 → 无颜色
+
+
 def test_contrast_ratio_white_black():
     assert aesthetic.contrast_ratio((0, 0, 0), (255, 255, 255)) > 20.0
     assert aesthetic.contrast_ratio((255, 255, 255), (255, 255, 255)) == 1.0
+
+
+def _text_with_deco(bg, color):
+    return {
+        "id": 0,
+        "kind": "text",
+        "rect": {"x": 96, "y": 96, "w": 400, "h": 60},
+        "deco": {"bg": bg},
+        "runs": [{"text": "正文", "fontSize": 18, "color": color}],
+    }
+
+
+def test_contrast_transparent_bg_no_false_positive():
+    # 透明背景（rgba(0,0,0,0)）不按不透明黑算对比度：深灰文本在白页上不再误报低对比
+    records = [_text_with_deco("rgba(0, 0, 0, 0)", "rgb(34, 34, 34)")]
+    assert aesthetic._audit_contrast(records, "rgb(255, 255, 255)", 1) == []
+
+
+def test_contrast_dark_text_on_black_card_still_flags():
+    # 正向对照：实心黑卡上深灰文本确实低对比 → 仍报 HIGH
+    records = [_text_with_deco("rgb(0, 0, 0)", "rgb(20, 20, 20)")]
+    findings = aesthetic._audit_contrast(records, "rgb(255, 255, 255)", 1)
+    assert len(findings) == 1
+    assert findings[0].severity == "HIGH"
 
 
 def test_neutral_detection():
