@@ -106,3 +106,7 @@ def test_composition_rules_are_rule_specs():
         "art.composition.corner_cluster",
         "art.composition.spacing_drift",
     }
+    assert {rs.rule_id for rs in RULES if rs.experimental} == {
+        "art.composition.off_balance",
+        "art.composition.corner_cluster",
+    }
