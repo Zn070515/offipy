@@ -29,6 +29,13 @@ _MAX_BACKGROUND_Z_ORDER = 2
 _PAGE_NUMBER_MAX_WIDTH = 2.0
 _PAGE_NUMBER_MAX_HEIGHT = 0.6
 _FINGERPRINT_BUCKET = 0.5  # 英寸
+# 全宽贴边条（页面结构）：宽度 ≥ 页宽×该比例、贴顶部/底部该容差内（英寸）、
+# 高度 ≤ 页高×该比例（条状而非整屏）。
+# 全宽 header/背景条面积够不上 full_bleed（覆盖≥90%），须单独识别，
+# 否则 role 落成 unknown，margin 误报「贴近左/右/上边缘」。
+_FULL_WIDTH_FRACTION = 0.98
+_EDGE_BAR_TOLERANCE = 0.02
+_MAX_BAR_HEIGHT_FRACTION = 0.5
 
 _PLACEHOLDER_ROLES = {
     "SLIDE_NUMBER": "page_number",
@@ -68,6 +75,13 @@ def _classify_single(rec: _ShapeRecord, slide_w: float, slide_h: float) -> str:
         return "content"
     if _is_full_bleed(rec, slide_w, slide_h):
         return "background"
+    if _is_full_width_edge_bar(rec, slide_w, slide_h):
+        # 全宽贴边条是页面结构：有文本按区域归 header/footer，无文本按背景填充
+        # 归 background——两者都豁免 margin（对应 ignore 开关）。
+        if rec.text.strip() and rec.top is not None and rec.height is not None:
+            cy = rec.top + rec.height / 2.0
+            return "header" if cy < slide_h / 2.0 else "footer"
+        return "background"
     if _is_page_number(rec, slide_h):
         return "page_number"
     if rec.has_text_frame and rec.text.strip():
@@ -91,6 +105,21 @@ def _is_full_bleed(rec: _ShapeRecord, slide_w: float, slide_h: float) -> bool:
     if abs(cy - slide_h / 2.0) > _CENTER_TOLERANCE_FRACTION * slide_h:
         return False
     return rec.z_order <= _MAX_BACKGROUND_Z_ORDER
+
+
+def _is_full_width_edge_bar(rec: _ShapeRecord, slide_w: float, slide_h: float) -> bool:
+    """全宽贴边条（无 group/connector/嵌套）：宽度接近页宽且贴顶/底部。"""
+    if rec.is_group or rec.is_connector or rec.parent_shape_id is not None:
+        return False
+    if rec.left is None or rec.top is None or rec.width is None or rec.height is None:
+        return False
+    if rec.width < _FULL_WIDTH_FRACTION * slide_w:
+        return False
+    if rec.height > _MAX_BAR_HEIGHT_FRACTION * slide_h:
+        return False  # 高度近页高 → 全屏/内容块，不是条
+    if rec.top <= _EDGE_BAR_TOLERANCE:
+        return True
+    return rec.top + rec.height >= slide_h - _EDGE_BAR_TOLERANCE
 
 
 def _is_page_number(rec: _ShapeRecord, slide_h: float) -> bool:

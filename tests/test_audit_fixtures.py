@@ -140,8 +140,8 @@ def test_deck_generated_audits_clean():
       说明文字的框——三者均为透明 TEXT_BOX（fill=BACKGROUND），视觉上各行独立
       可见，属 deck 转换器把「大数字 + 两行说明」渲染成高 textbox 的正常排版。
     - partial MID：同上 #3 与 #5 的框内叠放。
-    不改进 Pair 分类：透明与否需 shape fill 信息（extract 未提取），一刀切降级
-    会漏报真实遮挡；保持现状并在此固定预期，供人工验收。
+    已提取 fill（extract._read_fill），但透明豁免只对无文本上层生效——本误报的
+    上层 textbox 有文本，属内容叠内容，仍报；保持现状并在此固定预期，供人工验收。
     """
     report = audit_pptx(_FIX / "deck_generated.pptx")
     assert report.slide_count >= 1

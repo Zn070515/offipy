@@ -215,6 +215,36 @@ def test_table_detection(tmp_path):
     assert tbl.text == ""
 
 
+# ---------------------------------------------------------------- 填充
+
+
+def test_fill_kind_extracted(tmp_path):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    solid = slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(1), Inches(1))
+    solid.fill.solid()  # 显式 a:solidFill
+    hollow = slide.shapes.add_shape(1, Inches(1), Inches(0), Inches(1), Inches(1))
+    hollow.fill.background()  # a:noFill → 透明
+    grad = slide.shapes.add_shape(1, Inches(2), Inches(0), Inches(1), Inches(1))
+    grad.fill.gradient()  # a:gradFill
+    ext = _make_extract(tmp_path, prs)
+    by_id = {r.shape_id: r for r in ext.slides[0].shapes}
+    assert by_id[solid.shape_id].fill_kind == "solid"
+    assert by_id[hollow.shape_id].fill_kind == "none"
+    assert by_id[grad.shape_id].fill_kind == "gradient"
+    # add_shape 默认无显式填充（主题继承）→ unknown（按不透明处理，防漏报真实遮挡）
+    default = slide.shapes.add_shape(1, Inches(3), Inches(0), Inches(1), Inches(1))
+    ext2 = _make_extract(tmp_path, prs)
+    rec = next(r for r in ext2.slides[0].shapes if r.shape_id == default.shape_id)
+    assert rec.fill_kind == "unknown"
+    # 文本框默认显式 a:noFill（透明）→ none
+    tb = slide.shapes.add_textbox(Inches(4), Inches(0), Inches(1), Inches(1))
+    tb.text = "t"
+    ext3 = _make_extract(tmp_path, prs)
+    rec = next(r for r in ext3.slides[0].shapes if r.shape_id == tb.shape_id)
+    assert rec.fill_kind == "none"
+
+
 # ---------------------------------------------------------------- 占位符
 
 

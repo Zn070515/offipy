@@ -182,7 +182,14 @@ report = audit_pptx(
 | `header_footer` | 页眉页脚占位符；或跨页重复 >60% + 顶部/底部区域 |
 | `repeated_decoration` | 指纹重复 >60% 页的装饰 |
 | `intentional_containment` | 文本位于填充 AutoShape 内（卡片容器） |
+| `decorative_overlay` | 实心小装饰/色条浮有文本容器（尺寸判别）——不遮挡内容 |
+| `text_on_background` | 文字浮无文本背景/容器（非包含）——下方无内容可遮挡 |
+| `transparent_overlay` | 透明（`a:noFill`）无文本上层——视觉上不遮挡任何内容 |
 | `user_shape` / `user_region` | 用户通过 `ignored_shapes` / `ignored_regions` 显式豁免 |
+
+overlap 遮挡判定按「上层是否真的盖住下层内容」：透明无文本上层不遮挡、
+小装饰尺寸判别、文字浮无文本背景不遮挡；**有文本的上层（透明与否）一律不豁免**——
+文本叠文本是真问题，透明不改变内容冲突。
 
 **不会全局忽略所有纯数字短文本**——只有底部小尺寸的纯数字才算页码。
 
