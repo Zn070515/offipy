@@ -3,6 +3,21 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.11.3] - 2026-08-06
+
+### Fixed
+- **audit text-fit / overlap 度量治本**（真实 deck `wastevision_deck.pptx` 第二轮反馈反哺）：
+  - `text.fit.vertical` 读取段落 `a:lnSpc` 行距（`spcPts` 绝对 / `spcPct` 百分比），未设才
+    回退 `字号×1.2`；行尾软换行（`a:br`）不再多算一行空行
+  - `text.fit.horizontal` 用 fontTools 解析字体（`.ttf`/`.ttc`），按 hmtx 字宽 + kerning/GPOS
+    字距求和，对齐 PowerPoint DirectWrite 度量（此前 Pillow 不带字距，拉丁粗体约高估 1.3%）
+  - `geometry.overlap.partial` 新增 `decorative_layering` 豁免：双方无文本的长条装饰分层
+    （短边≥3 倍、较长一维 ≥70% 大者、非包含）部分重叠不再误报
+- **转换器盒高与宽度冗余治本**：
+  - 显式分行（`<br>`）文本框盒高按 `行数×行高` 兜底，消除「行数×行高 − 亚像素取整」的
+    系统性偏短（约 1%）
+  - 单行标签统一加 2.5% 宽冗余（此前仅 CJK 单行，拉丁+粗体仍欠度）
+
 ## [0.11.2] - 2026-08-06
 
 ### Fixed
