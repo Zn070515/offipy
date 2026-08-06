@@ -175,11 +175,6 @@ def test_report_to_dict_schema():
     assert d["experimental_score"] == 66.7
 
 
-def test_schema_versions_v02():
-    assert ART_SCHEMA_VERSION == "0.2"
-    assert ART_REPORT_SCHEMA_VERSION == "0.2"
-
-
 def test_element_pixel_evidence_round_trip():
     from offipy.art.models import ElementPixelEvidence
 

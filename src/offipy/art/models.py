@@ -191,7 +191,7 @@ class ArtScene:
             width_unit=data.get("width_unit", "px"),
             warnings=[ArtWarning(w["code"], w["message"]) for w in data.get("warnings", [])],
             sources=set(data.get("sources", [])),
-            metadata=data.get("metadata", {}),
+            metadata=data.get("metadata", {}).copy(),
         )
 
     def by_slide(self, index: int) -> ArtSlide | None:
