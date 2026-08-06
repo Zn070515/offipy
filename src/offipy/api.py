@@ -107,8 +107,9 @@ class _RemoteFacade:
             return lambda **kw: client.call(self._app_name, name, base_url=self._base_url, **kw)
         sig = inspect.signature(method)
         params = [p for p in sig.parameters.values() if p.name != "self"]
-        # 传输层参数（P0-1/P0-3）：破坏性 op 额外暴露 follow_active/expected_target，
-        # 与 MCP tool 同策略——App 方法签名不声明它们，经 schema 显式补上。
+        # 传输层参数（P0-1/P0-3/#25）：expected_target 仅破坏性/导出 op 暴露；
+        # follow_active 额外放行只读 op（accepts_follow_active），对齐 api.op()。
+        # App 方法签名不声明它们，经 schema 显式补上（与 MCP tool 同策略）。
         if schema.supports_expected_target(self._app_name, name):
             params = params + [
                 inspect.Parameter(
@@ -117,6 +118,9 @@ class _RemoteFacade:
                     annotation=dict,
                     default=None,
                 ),
+            ]
+        if schema.supports_follow_active(self._app_name, name):
+            params = params + [
                 inspect.Parameter(
                     "follow_active",
                     inspect.Parameter.KEYWORD_ONLY,

@@ -5,13 +5,15 @@
 
 import os
 from contextlib import contextmanager, suppress
-from typing import Any
+from typing import Any, TypeVar
 
 from . import core
 from ._comguard import _COM_ERROR, guard_com
-from .core import destructive, requires_target
+from .core import destructive, readonly_guard, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
+
+_T = TypeVar("_T")
 
 WD_ALERTS_NONE = 0  # wdAlertsNone：抑制保存/覆盖等模态提示
 WD_EXPORT_FORMAT_PDF = 17  # wdExportFormatPDF（ExportAsFixedFormat 的 ExportFormat）
@@ -72,6 +74,8 @@ _TABLE_LINE_WIDTH = {
     "4.5pt": 36,
     "6pt": 48,
 }
+# 列表样式（add_list 仅支持两种；"bullet" 是 "bulleted" 的旧别名，对外默认仍为 bullet）
+_LIST_STYLE = {"numbered": "numbered", "bulleted": "bulleted", "bullet": "bulleted"}
 
 
 def _rgb(hex_color: str) -> int:
@@ -86,7 +90,7 @@ def _rgb(hex_color: str) -> int:
     return r + (g << 8) + (b << 16)
 
 
-def _resolve_style(name: str | None, table: dict[str, int], label: str) -> int:
+def _resolve_style(name: str | None, table: dict[str, _T], label: str) -> _T:
     key = (name or "").strip().lower()
     if key not in table:
         raise InvalidArgumentError(f"未知{label}: {name!r}（可选: {', '.join(table)}）")
@@ -118,6 +122,17 @@ def _end_range(doc):
     rng = doc.Content
     rng.Collapse(0)  # wdCollapseEnd
     return rng
+
+
+def _check_paragraph(doc, paragraph: int) -> None:
+    """段落索引前置校验：1..文档段落数，越界抛 InvalidArgumentError。
+
+    参照 format_text/format_paragraph 的枚举校验，把「集合所要求的成员不存在」
+    这类裸 COM 错误前置成 offipy 语义化异常。
+    """
+    count = doc.Paragraphs.Count
+    if paragraph < 1 or paragraph > count:
+        raise InvalidArgumentError(f"段落在 1..{count} 范围外（paragraph={paragraph}）")
 
 
 @guard_com
@@ -194,6 +209,8 @@ class WordApp:
 
     def open_doc(self, path: str) -> str:
         """打开现有文档并设为活动。返回 doc_id。"""
+        if not os.path.isfile(path):
+            raise InvalidArgumentError(f"源文件不存在: {path}")
         return self._register(self.app.Documents.Open(path))
 
     def active_doc(self, doc_id: str | None = None):
@@ -396,7 +413,9 @@ class WordApp:
         highlight: str | None = None,
         doc_id: str | None = None,
     ):
-        font = self._require_doc(doc_id).Paragraphs(paragraph).Range.Font
+        doc = self._require_doc(doc_id)
+        _check_paragraph(doc, paragraph)
+        font = doc.Paragraphs(paragraph).Range.Font
         if bold is not None:
             font.Bold = bold
         if italic is not None:
@@ -425,7 +444,9 @@ class WordApp:
         first_line_indent: float | None = None,
         doc_id: str | None = None,
     ):
-        fmt = self._require_doc(doc_id).Paragraphs(paragraph).Format
+        doc = self._require_doc(doc_id)
+        _check_paragraph(doc, paragraph)
+        fmt = doc.Paragraphs(paragraph).Format
         if alignment is not None:
             fmt.Alignment = _resolve_style(alignment, _ALIGN, "对齐")
         if line_spacing is not None:
@@ -517,6 +538,7 @@ class WordApp:
     def add_list(self, lines: list[str], style: str = "bullet", doc_id: str | None = None):
         if not lines:
             raise InvalidArgumentError("add_list: lines 不能为空")
+        list_kind = _resolve_style(style, _LIST_STYLE, "列表样式")
         doc = self._require_doc(doc_id)
         start = doc.Paragraphs.Count + 1  # 第一个新段落的序号
         for line in lines:
@@ -525,7 +547,7 @@ class WordApp:
         # Range 起点前移一个字符，落在上一段段末标记上，
         # 避免 ApplyBulletDefault 跳过 range 首段（Word 段落边界行为）
         rng = doc.Range(doc.Paragraphs(start).Range.Start - 1, doc.Paragraphs(end).Range.End)
-        if style == "numbered":
+        if list_kind == "numbered":
             rng.ListFormat.ApplyNumberDefault()
         else:
             rng.ListFormat.ApplyBulletDefault()
@@ -569,7 +591,11 @@ class WordApp:
     def set_table_col_width(
         self, table_idx: int, col: int, width: float, doc_id: str | None = None
     ):
+        if width < 7:
+            raise InvalidArgumentError(f"set_table_col_width: 列宽需 ≥ 7pt（width={width}）")
         table = self._require_doc(doc_id).Tables(table_idx)
+        # autofit 后 AllowAutoFit 仍约束列宽赋值（Word 抛「数值超出范围」），先复位再设宽
+        table.AllowAutoFit = False
         try:
             table.Columns(col).Width = width
         except _COM_ERROR:
@@ -577,7 +603,15 @@ class WordApp:
             # 连 Columns(col).Cells 也一样。彻底绕开列对象：逐行取 table.Cell(r, col)，
             # 每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
             for r in range(1, table.Rows.Count + 1):
-                table.Cell(r, col).Width = width
+                try:
+                    table.Cell(r, col).Width = width
+                except _COM_ERROR:
+                    # 目标列落在合并区域内（Cell(r, col) 不独立存在），无法独立设宽——
+                    # 语义化转义，而非漏原始 COM 消息。
+                    raise ComOperationError(
+                        f"set_table_col_width: 目标列 {col} 在第 {r} 行被合并区域覆盖，"
+                        "无法独立设宽；请对合并后的整体单元格设宽或先拆分合并"
+                    ) from None
 
     @destructive
     def set_table_row_height(
@@ -627,6 +661,8 @@ class WordApp:
         height: float | None = None,
         doc_id: str | None = None,
     ):
+        if not os.path.isfile(path):
+            raise InvalidArgumentError(f"源文件不存在: {path}")
         doc = self._require_doc(doc_id)
         shape = doc.InlineShapes.AddPicture(
             os.path.normpath(os.path.abspath(path)), Range=_end_range(doc)
@@ -642,6 +678,7 @@ class WordApp:
         _end_range(self._require_doc(doc_id)).InsertBreak(7)  # wdPageBreak
 
     # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
+    @readonly_guard
     def read_doc_text(self, doc_id: str | None = None):
         """读取当前文档全文文本（只读，不改任何状态）。
 

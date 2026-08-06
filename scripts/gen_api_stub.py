@@ -1,9 +1,10 @@
 """生成 src/offipy/api.pyi 类型 stub（供 mypy/IDE，勿手改）。
 
 从 schema.OPS（op 元数据/返回类型/参数类型）＋ App 类方法签名（参数顺序/
-默认值，唯一权威）生成 6 个 facade 类的显式方法签名。破坏性 op 的传输层参数
-按入口区分（与 MCP/CLI 同策略）：
-- 本地直连 Excel()/Word()/Ppt()：App 方法的 @destructive 守卫额外接受 follow_active
+默认值，唯一权威）生成 6 个 facade 类的显式方法签名。传输层参数按入口区分
+（与 MCP/CLI 同策略，schema.supports_follow_active 放行只读 op）：
+- 本地直连 Excel()/Word()/Ppt()：App 方法的 @destructive/@readonly_guard 守卫
+  额外接受 follow_active
 - 远程 Remote*()：额外接受 expected_target + follow_active + request_id
 
 运行：`uv run python scripts/gen_api_stub.py`（纯标准库）。
@@ -118,6 +119,11 @@ def _method_sig(app: str, op: str, remote: bool) -> str:
             has_star = True
         if remote:
             parts.append("expected_target: dict | None = None")
+    # #25：只读 op（accepts_follow_active）同样暴露 follow_active，与破坏性 op 对齐
+    if has_doc_id and schema.supports_follow_active(app, op):
+        if not has_star:
+            parts.append("*")
+            has_star = True
         parts.append("follow_active: bool = False")
     if remote:
         # P1-4：远程 facade 额外暴露 request_id（幂等标识，keyword-only）

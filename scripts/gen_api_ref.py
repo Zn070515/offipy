@@ -301,6 +301,12 @@ _EN_DESC: dict[tuple[str, str], str] = {
     # --- ppt ---
     ("ppt", "new_pres"): "Create a new blank presentation, set it active, return doc_id.",
     ("ppt", "open_pres"): "Open an existing .pptx file, set it active, return doc_id.",
+    ("ppt", "close_pres"): (
+        "Close the presentation (doc_id defaults to the active one) without quitting PowerPoint. "
+        "save=True saves first (a never-saved document auto-saves to the user data directory "
+        "without the Save As dialog) and returns the saved path; save=False closes without saving "
+        "or prompting and returns null."
+    ),
     ("ppt", "save"): (
         "Save the presentation (doc_id defaults to the active one) and return the absolute "
         "path. If path is given, save-as to that path (.pptx); otherwise save back to the "

@@ -62,7 +62,10 @@ X-Offipy-Protocol: offipy-http/v1
 ### 传输层参数（目标绑定）
 
 `expected_target` / `follow_active` 是传输层参数：client 直接透传、不进 App 方法签名，
-由 server dispatch 弹出后解析并注入 `doc_id`。只对破坏性 op（`schema.supports_expected_target`）有意义：
+由 server dispatch 弹出后解析并注入 `doc_id`。`expected_target` 只对破坏性/导出 op
+（`schema.supports_expected_target`）有意义；`follow_active` 对破坏性 op 与声明了
+`accepts_follow_active` 的只读 op（get_cell / read_range / read_doc_text / read_slide_texts /
+read_slide_summary）都有意义（#25：只读 op 对齐破坏性语义，写后读验证场景可用）：
 
 - `follow_active`（bool，可选，默认 `false`）：显式声明「跟随当前活动文档」——server 实时解析
   当前激活目标并注入其 doc_id；无活动目标 → `TargetNotFoundError`（绝不静默落到任何文档）。
@@ -74,7 +77,8 @@ X-Offipy-Protocol: offipy-http/v1
 正常用法三者取一即可。约束：
 
 - 非破坏性 op 出现 `expected_target` → 400 `invalid_argument`（严格拒绝，不静默忽略）。
-- 非破坏性 op 上的 `follow_active` 静默忽略（被 pop 掉）。
+- 未声明 `accepts_follow_active` 的只读 op 上的 `follow_active` 静默忽略（被 pop 掉）；
+  声明了的只读 op 实时解析活动文档并注入 doc_id（无活动目标 → `TargetNotFoundError`）。
 - `quit` 不接受两者（无 doc_id 目标）。
 
 ### 幂等（request_id，P0-2 方案 A）

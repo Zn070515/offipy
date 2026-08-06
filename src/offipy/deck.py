@@ -103,6 +103,25 @@ def _preserve_audit_dir(tmp_pptx: str, final_out: str) -> None:
         shutil.rmtree(tmp_audit, ignore_errors=True)  # 改名失败不残留孤儿
 
 
+def _atomic_replace(tmp: str, final: str) -> None:
+    """原子替换临时 .pptx 到最终路径，并给可操作错误（#22）。
+
+    Windows 下目标文件被占用（PowerPoint 打开 / 杀软 / 资源管理器）时 os.replace
+    抛 PermissionError [WinError 5]。裸异常对迭代工作流不友好——把最常见的
+    「PowerPoint 实况演示锁住产物」翻译成可执行指引。
+    """
+    try:
+        os.replace(tmp, final)
+    except PermissionError as e:
+        if os.name == "nt":
+            raise ConversionError(
+                f"无法替换 {final}：目标文件被占用（WinError 5）。最常见是 PowerPoint "
+                f"实况演示仍打开着它——请先 deck.close_live() 或 offipy quit ppt 关闭，"
+                f"或改用新的输出路径。"
+            ) from e
+        raise
+
+
 @contextlib.contextmanager
 def _render_tmp(
     html: str,
@@ -251,7 +270,7 @@ def render(
     with _render_tmp(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
     ) as (tmp_pptx, final_out):
-        os.replace(tmp_pptx, final_out)
+        _atomic_replace(tmp_pptx, final_out)
     return final_out
 
 
@@ -322,14 +341,77 @@ def render_with_report(
                 report=audit_report,
                 fail_on=fail_on,
             )
-        os.replace(tmp_pptx, final_out)
+        _atomic_replace(tmp_pptx, final_out)
     return RenderResult(output_path=final_out, audit_report=audit_report)
 
 
+# #22：open_live 前把 .pptx 复制到系统临时目录的 offipy-live-* 副本再让 PowerPoint
+# 打开——PowerPoint 锁定的是副本，源产物路径永不被锁，同路径 re-render(overwrite=True)
+# 不再 PermissionError。副本由 close_live 删除，废弃残留由 _cleanup_stale_live_tmp 兜底。
+_LIVE_TMP_PREFIX = "offipy-live-"
+# doc_id → 临时副本路径（open_live 登记，close_live 清理）。会话级尽力而为：
+# server 重启 / 直接 ppt.close_pres 关闭时靠 _cleanup_stale_live_tmp 兜底。
+_LIVE_TMP_PATHS: dict[str, str] = {}
+
+
+def _cleanup_stale_live_tmp() -> None:
+    """清理废弃的 offipy-live-* 副本（关闭/崩溃/重启后残留）。"""
+    import time
+
+    stale_before = time.time() - 3600  # 1 小时未动即视为废弃
+    tmp_dir = Path(tempfile.gettempdir())
+    for f in tmp_dir.glob(f"{_LIVE_TMP_PREFIX}*.pptx"):
+        try:
+            if f.stat().st_mtime < stale_before:
+                f.unlink()
+        except OSError:
+            pass  # 仍被 PowerPoint 打开（无共享删除）时跳过
+
+
+def _live_tmp_copy(pptx: str) -> str:
+    """把 .pptx 复制成 offipy-live-* 临时副本，返回副本路径。"""
+    src = os.path.abspath(pptx)
+    if not os.path.exists(src):
+        raise InvalidArgumentError(f"源 .pptx 不存在: {src}")
+    _cleanup_stale_live_tmp()
+    fd, tmp = tempfile.mkstemp(prefix=_LIVE_TMP_PREFIX, suffix=".pptx")
+    os.close(fd)
+    os.unlink(tmp)  # 先删占位，copyfile 以正常权限全新创建
+    shutil.copyfile(src, tmp)
+    return tmp
+
+
 def open_live(pptx: str) -> str:
-    """在真实 PowerPoint 里打开生成的 .pptx（实况展示），返回 doc_id 供后续绑定。"""
+    """在真实 PowerPoint 里打开生成的 .pptx（实况展示），返回 doc_id 供后续绑定。
+
+    #22：打开前复制到系统临时目录的 offipy-live-* 副本——PowerPoint 锁定副本而非
+    产物，同路径 re-render(overwrite=True) 不再因源文件被锁而 PermissionError。
+    关闭实况演示：deck.close_live(doc_id)；或 offipy quit ppt 整会话退出。
+    """
     ensure_server()
-    return call("ppt", "open_pres", path=os.path.abspath(pptx))
+    live = _live_tmp_copy(pptx)
+    try:
+        doc_id = call("ppt", "open_pres", path=live)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(live)  # 打开失败不留孤儿副本
+        raise
+    _LIVE_TMP_PATHS[doc_id] = live
+    return doc_id
+
+
+def close_live(doc_id: str) -> None:
+    """关闭 open_live 打开的实况演示，释放其占用的临时副本（#22）。
+
+    save=False 直接关闭不保存——实况展示操作的是临时副本，回写无意义。
+    配合 #26 的 Ppt.close_pres：关闭后同路径 re-render 不再 PermissionError。
+    """
+    ensure_server()
+    call("ppt", "close_pres", doc_id=doc_id, save=False)
+    path = _LIVE_TMP_PATHS.pop(doc_id, None)
+    if path:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
 
 
 def export_slides(

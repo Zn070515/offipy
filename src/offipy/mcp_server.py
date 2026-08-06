@@ -110,8 +110,9 @@ def _build_tool(app: str, op: str) -> None:
     method = getattr(_APP_CLASSES[app], op)
     params = [p for p in inspect.signature(method).parameters.values() if p.name != "self"]
     defaults = {p.name: p.default for p in params if p.default is not inspect.Parameter.empty}
-    # 传输层参数（P0-1/P0-3）：破坏性 op 额外暴露 expected_target（JSON 对象绑定）
-    # 与 follow_active（显式跟随活动文档），随 args 透传给 server dispatch。
+    # 传输层参数（P0-1/P0-3/#25）：expected_target（JSON 对象绑定）仅破坏性/导出
+    # op 暴露；follow_active（显式跟随活动文档）额外放行只读 op（accepts_follow_active）。
+    # 随 args 透传给 server dispatch。
     if schema.supports_expected_target(app, op):
         params = params + [
             inspect.Parameter(
@@ -120,6 +121,10 @@ def _build_tool(app: str, op: str) -> None:
                 annotation=dict,
                 default=None,
             ),
+        ]
+        defaults["expected_target"] = None
+    if schema.supports_follow_active(app, op):
+        params = params + [
             inspect.Parameter(
                 "follow_active",
                 inspect.Parameter.KEYWORD_ONLY,
@@ -127,7 +132,6 @@ def _build_tool(app: str, op: str) -> None:
                 default=False,
             ),
         ]
-        defaults["expected_target"] = None
         defaults["follow_active"] = False
     return_ann = _RETURN_ANNOTATION.get(spec.returns, object)
 

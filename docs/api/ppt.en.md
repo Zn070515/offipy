@@ -22,6 +22,16 @@ Open an existing .pptx file, set it active, return doc_id.
 
 ---
 
+### `close_pres`
+
+Close the presentation (doc_id defaults to the active one) without quitting PowerPoint. save=True saves first (a never-saved document auto-saves to the user data directory without the Save As dialog) and returns the saved path; save=False closes without saving or prompting and returns null.
+
+- **Parameters**: `save: bool`, `doc_id: str`
+- **Returns**: `str|null`
+- **Flags**: mutates document/app state
+
+---
+
 ### `save`
 
 Save the presentation (doc_id defaults to the active one) and return the absolute path. If path is given, save-as to that path (.pptx); otherwise save back to the original path (a never-saved document auto-saves to the user data directory without the Save As dialog); overwrite=True allows overwriting an existing file.

@@ -11,8 +11,8 @@ from contextlib import contextmanager, suppress
 from typing import Any, NamedTuple
 
 from . import core
-from ._comguard import guard_com
-from .core import destructive, requires_target
+from ._comguard import _COM_ERROR, guard_com
+from .core import destructive, readonly_guard, requires_target
 from .exceptions import (
     ComOperationError,
     FileConflictError,
@@ -268,6 +268,18 @@ def _page_size_pt(pres) -> tuple[float, float]:
         return 960.0, 540.0
 
 
+def _require_slide(pres, slide_idx: int):
+    """slide 索引前置校验：1..演示文稿页数，越界抛 InvalidArgumentError。
+
+    把 PowerPoint 原生枚举错误（"Slides.Item: Integer out of range"）前置成
+    offipy 语义化异常，脚本里 slide 号算错一位时直接得到可读提示。
+    """
+    count = pres.Slides.Count
+    if slide_idx < 1 or slide_idx > count:
+        raise InvalidArgumentError(f"slide {slide_idx} 越界，演示文稿共 {count} 页")
+    return pres.Slides(slide_idx)
+
+
 # 摘要豁免占位符类型（P1-2）：页码/页眉/页脚/日期，不进 title/body
 _EXEMPT_PLACEHOLDER_TYPES = frozenset({13, 14, 15, 16})
 _PAGE_NUMBER_MAX_WIDTH_PT = 72.0  # 页码通常远小于 72pt 宽
@@ -431,6 +443,31 @@ class PptApp:
     def open_pres(self, path: str) -> str:
         """打开现有演示文稿并设为活动。返回 doc_id。"""
         return self._register(self.app.Presentations.Open(os.path.abspath(path)))
+
+    @destructive
+    def close_pres(self, save: bool = True, doc_id: str | None = None):
+        """关闭演示文稿（doc_id 缺省为活动），不退出 PowerPoint。
+
+        save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
+        保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。
+        语义对齐 word close_doc / excel close_book（#26：Ppt 此前只有 quit）。
+        """
+        pres = self._require_pres(doc_id)
+        did = doc_id if doc_id is not None else self._active_id
+        if save:
+            path = pres.FullName if pres.Path else self.save(doc_id=did)
+            with self._alerts_scope():
+                pres.Close()
+        else:
+            path = None
+            with self._alerts_scope():
+                pres.Saved = True  # 兜底：确保 Close 不触发保存提示
+                pres.Close()
+        if did is not None:
+            self._docs.pop(did, None)
+            if self._active_id == did:
+                self._active_id = None
+        return path
 
     def active_pres(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
@@ -605,15 +642,24 @@ class PptApp:
     # --- 幻灯片 ---
     @destructive
     def add_slide(self, layout: int = PP_LAYOUT_TEXT, doc_id: str | None = None):
+        if isinstance(layout, bool) or not isinstance(layout, int):
+            raise InvalidArgumentError(f"非法 layout: {layout!r}（期望整数，如 1/2/5/12）")
+        if layout < 1:
+            raise InvalidArgumentError(f"非法 layout: {layout}（期望 ≥ 1）")
         pres = self._require_pres(doc_id)
-        pres.Slides.Add(pres.Slides.Count + 1, layout)
+        try:
+            pres.Slides.Add(pres.Slides.Count + 1, layout)
+        except _COM_ERROR:
+            raise InvalidArgumentError(
+                f"非法 layout: {layout}（当前模板不提供该布局；本机实测 1/2/5/12 可用）"
+            ) from None
         return pres.Slides.Count
 
     @destructive
     def set_title(self, slide_idx: int, text: str, doc_id: str | None = None):
         if not text:
             raise InvalidArgumentError("set_title: text 不能为空")
-        slide = self._require_pres(doc_id).Slides(slide_idx)
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
         ph = _placeholder_by_type(slide.Shapes, PP_PLACEHOLDER_TITLE, PP_PLACEHOLDER_CENTER_TITLE)
         if ph is None:
             ph = slide.Shapes.AddTextbox(1, *_TITLE_BOX)
@@ -626,7 +672,7 @@ class PptApp:
             lines = [lines]
         if not lines:
             raise InvalidArgumentError("set_body: lines 不能为空")
-        slide = self._require_pres(doc_id).Slides(slide_idx)
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
         ph = _placeholder_by_type(slide.Shapes, PP_PLACEHOLDER_BODY)
         if ph is None:
             ph = slide.Shapes.AddTextbox(1, *_BODY_BOX)
@@ -635,7 +681,7 @@ class PptApp:
 
     @destructive
     def set_notes(self, slide_idx: int, text: str, doc_id: str | None = None):
-        slide = self._require_pres(doc_id).Slides(slide_idx)
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
         shapes = slide.NotesPage.Shapes
         ph = _placeholder_by_type(shapes, PP_PLACEHOLDER_BODY)
         if ph is None:
@@ -654,7 +700,7 @@ class PptApp:
         text: str,
         doc_id: str | None = None,
     ):
-        slide = self._require_pres(doc_id).Slides(slide_idx)
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
         tb = slide.Shapes.AddTextbox(1, left, top, width, height)
         tb.TextFrame.TextRange.Text = text
 
@@ -669,13 +715,16 @@ class PptApp:
         height: float,
         doc_id: str | None = None,
     ):
-        slide = self._require_pres(doc_id).Slides(slide_idx)
+        if not os.path.isfile(path):
+            raise InvalidArgumentError(f"源文件不存在: {path}")
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
         # SaveWithDocument=msoTrue(-1)：LinkToFile=False 时必须内嵌，传 0 会被
         # PowerPoint 拒为 E_INVALIDARG。路径 normpath 归一化，COM 拒收正斜杠。
         slide.Shapes.AddPicture(
             os.path.normpath(os.path.abspath(path)), 0, -1, left, top, width, height
         )
 
+    @readonly_guard
     def read_slide_texts(
         self,
         slide_idx: int,
@@ -691,13 +740,14 @@ class PptApp:
         - recursive=True 递归 group；坐标单位恒为磅（pt），coordinate_space 按探针结论
           标注（非旋转 group 子元素为幻灯片绝对坐标 "slide"；旋转 group 内不可信 "unknown"）。
         """
-        slide = self._require_pres(doc_id).Slides(slide_idx)
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
         return [
             item.record
             for item in _collect_text_records(slide, recursive=recursive)
             if include_empty or item.record["text"]
         ]
 
+    @readonly_guard
     def read_slide_summary(self, doc_id: str | None = None) -> list[dict]:
         """逐页读标题/正文/备注摘要（0.9 read_slide_texts 的语义），返回 list[dict]。
 
