@@ -595,6 +595,10 @@ def test_open_live_presents_from_temp_copy_not_locking_source(tmp_path, monkeypa
     assert src.exists(), "open_live 不应移动/删除源产物"
     assert deck._LIVE_TMP_PATHS.get("pres9") == live
 
+    deck.close_live(doc_id)
+    assert not Path(live).exists(), "open_live 测试未清理临时副本"
+    assert doc_id not in deck._LIVE_TMP_PATHS
+
 
 def test_close_live_closes_and_removes_temp_copy(tmp_path, monkeypatch):
     src = tmp_path / "deck.pptx"
@@ -621,6 +625,7 @@ def test_render_same_path_works_after_open_live(tmp_path, monkeypatch):
     new.write_bytes(b"v2")
     deck._atomic_replace(str(new), str(src))  # 模拟下次 render 的原子替换
     assert src.read_bytes() == b"v2"
+    deck.close_live("pres11")
 
 
 def test_atomic_replace_win32_locked_raises_actionable(tmp_path, monkeypatch):
