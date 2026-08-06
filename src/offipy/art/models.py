@@ -454,8 +454,11 @@ class DimensionAssessment:
             "findings": [f.to_dict() for f in self.findings],
             "warnings": [w.to_dict() for w in self.warnings],
             **({"reliability": self.reliability} if self.reliability is not None else {}),
-            **({"minimum_reliability": self.minimum_reliability}
-               if self.minimum_reliability is not None else {}),
+            **(
+                {"minimum_reliability": self.minimum_reliability}
+                if self.minimum_reliability is not None
+                else {}
+            ),
         }
 
 
