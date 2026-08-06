@@ -162,11 +162,13 @@ def test_read_doc_text_normalizes_cell_and_paragraph_marks(monkeypatch):
 # ---------------------------------------------------------------- #17 ppt
 
 
-def test_add_picture_embeds_with_save_with_document(monkeypatch):
+def test_add_picture_embeds_with_save_with_document(tmp_path, monkeypatch):
     import os
 
     from offipy import ppt
 
+    img = tmp_path / "photo.png"
+    img.write_bytes(b"fake-png")  # 文件必须真实存在（#32：入口前置校验源文件）
     captured = {}
 
     class _Shapes:
@@ -185,17 +187,22 @@ def test_add_picture_embeds_with_save_with_document(monkeypatch):
     class _Slide:
         Shapes = _Shapes()
 
-    class _Pres:
-        def Slides(self, idx):
+    class _Slides:
+        Count = 1
+
+        def __call__(self, idx):
             assert idx == 1
             return _Slide()
 
+    class _Pres:
+        Slides = _Slides()
+
     app = ppt.PptApp.__new__(ppt.PptApp)
     monkeypatch.setattr(app, "_require_pres", lambda doc_id: _Pres())
-    app.add_picture(1, "C:/img/photo.png", 100, 200, 300, 400, doc_id="p1")
+    app.add_picture(1, str(img), 100, 200, 300, 400, doc_id="p1")
     assert captured["save"] == -1  # msoTrue：内嵌（LinkToFile=False 时传 0 会被拒）
     assert captured["link"] == 0
-    assert captured["path"] == os.path.normpath(os.path.abspath("C:/img/photo.png"))
+    assert captured["path"] == os.path.normpath(os.path.abspath(str(img)))
     assert captured["left"] == 100 and captured["top"] == 200
 
 

@@ -393,3 +393,164 @@ def test_set_range_scalar_broadcasts(monkeypatch):
     monkeypatch.setattr(app, "_ws", lambda sheet, doc_id=None: ws)
     app.set_range("数据", "A2:C3", 7, doc_id="b1")
     assert ws.rng.Value == 7
+
+
+# ================================================================ C. ppt
+
+
+def test_add_slide_rejects_non_integer_layout():
+    from offipy import ppt
+
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    with pytest.raises(InvalidArgumentError, match="非法 layout"):
+        app.add_slide(layout="bad", doc_id="p1")
+    with pytest.raises(InvalidArgumentError):
+        app.add_slide(layout=2.5, doc_id="p1")
+
+
+def test_add_slide_rejects_out_of_range_layout(monkeypatch):
+    # 非整数先行拦截；越界整数走 COM 后转 InvalidArgumentError（不泄露原生枚举错误）
+    if not _COM_ERROR:
+        pytest.skip("pywin32 未装，无法构造 com_error")
+    from offipy import ppt
+
+    class _Slides:
+        Count = 0
+
+        def Add(self, index, layout):
+            raise _COM_ERROR((-2147352567, "Invalid enumeration value", None, 0))
+
+    class _Pres:
+        Slides = _Slides()
+
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    monkeypatch.setattr(app, "_require_pres", lambda doc_id: _Pres())
+    with pytest.raises(InvalidArgumentError, match="非法 layout"):
+        app.add_slide(layout=99, doc_id="p1")
+
+
+def test_add_slide_accepts_valid_layout(monkeypatch):
+    from offipy import ppt
+
+    calls = []
+
+    class _Slides:
+        Count = 0
+
+        def Add(self, index, layout):
+            calls.append((index, layout))
+            self.Count += 1
+            return object()
+
+    class _Pres:
+        Slides = _Slides()
+
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    monkeypatch.setattr(app, "_require_pres", lambda doc_id: _Pres())
+    assert app.add_slide(layout=2, doc_id="p1") == 1
+    assert calls == [(1, 2)]
+
+
+def test_slide_index_out_of_range_rejected(monkeypatch):
+    from offipy import ppt
+
+    class _Slides:
+        Count = 3
+
+        def __call__(self, idx):
+            return object()
+
+    class _Pres:
+        Slides = _Slides()
+
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    monkeypatch.setattr(app, "_require_pres", lambda doc_id: _Pres())
+    with pytest.raises(InvalidArgumentError, match="slide 99 越界，演示文稿共 3 页"):
+        app.set_title(99, "x", doc_id="p1")
+    with pytest.raises(InvalidArgumentError, match="slide 0 越界"):
+        app.read_slide_texts(0, doc_id="p1")
+
+
+def test_slide_index_valid_read_slide_texts(monkeypatch):
+    # 回归：合法 slide 索引不误伤，空页返回空列表
+    from offipy import ppt
+
+    class _Shapes:
+        Count = 0
+
+    class _Slide:
+        Shapes = _Shapes()
+
+    class _Slides:
+        Count = 3
+
+        def __call__(self, idx):
+            return _Slide()
+
+    class _Pres:
+        Slides = _Slides()
+
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    monkeypatch.setattr(app, "_require_pres", lambda doc_id: _Pres())
+    assert app.read_slide_texts(2, doc_id="p1") == []
+
+
+def test_add_picture_missing_file_rejected(tmp_path):
+    from offipy import ppt
+
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    with pytest.raises(InvalidArgumentError, match="源文件不存在"):
+        app.add_picture(1, str(tmp_path / "missing.png"), 0, 0, 10, 10, doc_id="p1")
+
+
+def test_close_pres_save_false_closes_and_clears_doc(monkeypatch):
+    from contextlib import nullcontext
+
+    from offipy import ppt
+
+    class _Pres:
+        def __init__(self):
+            self.Saved = None
+            self.closed = False
+
+        def Close(self):
+            self.closed = True
+
+    pres = _Pres()
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    monkeypatch.setattr(app, "_require_pres", lambda doc_id: pres)
+    monkeypatch.setattr(app, "_alerts_scope", lambda value=1: nullcontext())
+    app._docs = {"pres1": pres}
+    app._active_id = "pres1"
+    out = app.close_pres(save=False, doc_id="pres1")
+    assert pres.Saved is True  # 兜底防 Close 弹保存提示
+    assert pres.closed is True
+    assert out is None
+    assert "pres1" not in app._docs
+    assert app._active_id is None
+
+
+def test_close_pres_save_true_saves_then_closes(monkeypatch):
+    from contextlib import nullcontext
+
+    from offipy import ppt
+
+    class _Pres:
+        Path = ""  # 从未保存 → 走 self.save 落盘
+
+        def __init__(self):
+            self.closed = False
+
+        def Close(self):
+            self.closed = True
+
+    pres = _Pres()
+    app = ppt.PptApp.__new__(ppt.PptApp)
+    monkeypatch.setattr(app, "_require_pres", lambda doc_id: pres)
+    monkeypatch.setattr(app, "_alerts_scope", lambda value=1: nullcontext())
+    monkeypatch.setattr(app, "save", lambda doc_id=None: "C:/saved.pptx")
+    app._docs = {"pres1": pres}
+    app._active_id = "pres1"
+    out = app.close_pres(save=True, doc_id="pres1")
+    assert pres.closed is True
+    assert out == "C:/saved.pptx"

@@ -62,13 +62,22 @@ class _FakeShapes:
         return shape
 
 
+class _FakeSlides:
+    def __init__(self, slide):
+        self.Count = 1
+        self._slide = slide
+
+    def __call__(self, i):
+        return self._slide
+
+
 def _app(slide_shapes, notes_shapes=None):
     slide = SimpleNamespace(
         Shapes=_FakeShapes(slide_shapes),
         NotesPage=SimpleNamespace(Shapes=_FakeShapes(notes_shapes or [])),
     )
     app = PptApp.__new__(PptApp)
-    app._require_pres = lambda doc_id=None: SimpleNamespace(Slides=lambda i: slide)
+    app._require_pres = lambda doc_id=None: SimpleNamespace(Slides=_FakeSlides(slide))
     return app
 
 

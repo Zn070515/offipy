@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | [Excel](excel.md) | 25 | 4 | 17 |
 | [Word](word.md) | 32 | 3 | 25 |
-| [PowerPoint](ppt.md) | 17 | 4 | 8 |
+| [PowerPoint](ppt.md) | 18 | 4 | 9 |
 
 每个操作：`doc_id` 缺省走当前活动文档（Excel `bookN` / Word `docN` / PPT `presN`）；`expected_target` 用于破坏性操作的绑定校验。
 
