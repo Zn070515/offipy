@@ -264,3 +264,132 @@ def test_set_table_col_width_merged_region_raises_semantic_error(monkeypatch):
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: _Doc())
     with pytest.raises(ComOperationError, match="被合并区域覆盖"):
         app.set_table_col_width(1, 2, 120.0, doc_id="d1")
+
+
+# ================================================================ B. excel
+
+
+def test_merge_cells_rejects_malformed_range():
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.merge_cells("数据", "????", doc_id="b1")
+    with pytest.raises(InvalidArgumentError):
+        app.merge_cells("数据", "A1ZZ", doc_id="b1")
+
+
+def test_merge_cells_accepts_cell_and_range_forms(monkeypatch):
+    from offipy import excel
+
+    class _Rng:
+        def __init__(self):
+            self.merged = False
+
+        def Merge(self):
+            self.merged = True
+
+    class _Ws:
+        def __init__(self):
+            self.rng = _Rng()
+
+        def Range(self, addr):
+            self.addr = addr
+            return self.rng
+
+    ws = _Ws()
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "_ws", lambda sheet, doc_id=None: ws)
+    app.merge_cells("数据", "A1:B2", doc_id="b1")
+    assert ws.addr == "A1:B2"
+    assert ws.rng.merged is True
+    app.merge_cells("数据", "C3", doc_id="b1")  # 单格合并同样合法
+    assert ws.addr == "C3"
+
+
+def test_unmerge_cells_rejects_malformed_range():
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.unmerge_cells("数据", "A1:B2:C3", doc_id="b1")
+
+
+def test_open_book_missing_file_rejected(tmp_path):
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    with pytest.raises(InvalidArgumentError, match="源文件不存在"):
+        app.open_book(str(tmp_path / "missing.xlsx"))
+
+
+def test_set_range_dimension_mismatch_rejected(monkeypatch):
+    # #24：2×3 目标给 1×3 数据 → 校验拦截，不再静默只填第一行
+    from offipy import excel
+
+    class _Rng:
+        def __init__(self):
+            self.Rows = type("C", (), {"Count": 2})()
+            self.Columns = type("C", (), {"Count": 3})()
+            self.Value = None
+
+    class _Ws:
+        def __init__(self):
+            self.rng = _Rng()
+
+        def Range(self, addr):
+            return self.rng
+
+    ws = _Ws()
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "_ws", lambda sheet, doc_id=None: ws)
+    with pytest.raises(InvalidArgumentError, match="维度不符"):
+        app.set_range("数据", "A2:C3", [[1, 2, 3]], doc_id="b1")
+    assert ws.rng.Value is None  # 未写入任何数据
+
+
+def test_set_range_matching_dimension_passes(monkeypatch):
+    from offipy import excel
+
+    class _Rng:
+        def __init__(self):
+            self.Rows = type("C", (), {"Count": 2})()
+            self.Columns = type("C", (), {"Count": 3})()
+            self.Value = None
+
+    class _Ws:
+        def __init__(self):
+            self.rng = _Rng()
+
+        def Range(self, addr):
+            return self.rng
+
+    ws = _Ws()
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "_ws", lambda sheet, doc_id=None: ws)
+    app.set_range("数据", "A2:C3", [[1, 2, 3], [4, 5, 6]], doc_id="b1")
+    assert ws.rng.Value == [[1, 2, 3], [4, 5, 6]]
+
+
+def test_set_range_scalar_broadcasts(monkeypatch):
+    # 标量（非 list/tuple）会广播填满整个范围，不校验维度
+    from offipy import excel
+
+    class _Rng:
+        def __init__(self):
+            self.Rows = type("C", (), {"Count": 2})()
+            self.Columns = type("C", (), {"Count": 3})()
+            self.Value = None
+
+    class _Ws:
+        def __init__(self):
+            self.rng = _Rng()
+
+        def Range(self, addr):
+            return self.rng
+
+    ws = _Ws()
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "_ws", lambda sheet, doc_id=None: ws)
+    app.set_range("数据", "A2:C3", 7, doc_id="b1")
+    assert ws.rng.Value == 7

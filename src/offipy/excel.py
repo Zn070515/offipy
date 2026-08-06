@@ -4,6 +4,7 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
+import os
 import re
 from contextlib import contextmanager, suppress
 from typing import Any
@@ -42,6 +43,35 @@ def _parse_cell(cell: str):
     if row < 1 or col > _MAX_COL or row > _MAX_ROW:
         raise InvalidArgumentError(f"单元格越界: {cell!r}（上限 XFD1048576）")
     return row, col
+
+
+# 合并/取消合并的区域地址：单格 'A1' 或两角 'A1:B2'（反序 'B2:A1' 同样接受）
+_RANGE_RE = re.compile(r"^([A-Za-z]{1,3}\d{1,7})(?::([A-Za-z]{1,3}\d{1,7}))?$")
+
+
+def _parse_range(range_addr: str):
+    """合并类区域的地址校验：单格或两角形式，坐标越界/畸形抛 InvalidArgumentError。
+
+    参照 _parse_cell 的坐标校验，把「???」这类畸形地址的裸 COM 错误前置成
+    offipy 语义化异常。
+    """
+    m = _RANGE_RE.match(str(range_addr).strip())
+    if m is None:
+        raise InvalidArgumentError(f"非法区域: {range_addr!r}（期望如 'A1' 或 'A1:B2'）")
+    for part in m.groups():
+        if part:
+            _parse_cell(part)
+
+
+def _value_shape(values) -> tuple[int, int]:
+    """把 set_range 的 values 归一成 (rows, cols)；标量视为 (1, 1)。"""
+    if isinstance(values, (list, tuple)):
+        if not values:
+            return (1, 0)
+        if isinstance(values[0], (list, tuple)):
+            return (len(values), max((len(r) for r in values), default=0))
+        return (1, len(values))
+    return (1, 1)
 
 
 def _rgb(hex_color: str) -> int:
@@ -219,6 +249,8 @@ class ExcelApp:
 
     def open_book(self, path: str) -> str:
         """打开现有工作簿并设为活动。返回 doc_id。"""
+        if not os.path.isfile(path):
+            raise InvalidArgumentError(f"源文件不存在: {path}")
         return self._register(self.app.Workbooks.Open(path))
 
     def active_book(self, doc_id: str | None = None):
@@ -410,7 +442,18 @@ class ExcelApp:
 
     @destructive
     def set_range(self, sheet, range_addr: str, values, doc_id: str | None = None):
-        self._ws(sheet, doc_id).Range(range_addr).Value = values
+        rng = self._ws(sheet, doc_id).Range(range_addr)
+        # 数据维度与目标范围必须一致；标量（非 list/tuple）会广播填满整个范围，
+        # 不校验。否则 COM 会静默只填部分（如 2×3 目标给 1×3 数据只写第一行）。
+        if isinstance(values, (list, tuple)):
+            data_rows, data_cols = _value_shape(values)
+            target_rows, target_cols = rng.Rows.Count, rng.Columns.Count
+            if (data_rows, data_cols) != (target_rows, target_cols):
+                raise InvalidArgumentError(
+                    f"set_range: 目标 {range_addr} ({target_rows}×{target_cols}) "
+                    f"与数据 ({data_rows}×{data_cols}) 维度不符"
+                )
+        rng.Value = values
 
     @destructive
     def set_col_width(self, sheet, col, width, doc_id: str | None = None):
@@ -453,10 +496,12 @@ class ExcelApp:
     # --- 合并单元格 ---
     @destructive
     def merge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
+        _parse_range(range_addr)
         self._ws(sheet, doc_id).Range(range_addr).Merge()
 
     @destructive
     def unmerge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
+        _parse_range(range_addr)
         self._ws(sheet, doc_id).Range(range_addr).UnMerge()
 
     # --- 边框 ---
