@@ -1,5 +1,33 @@
 from . import direct
 from .api import Excel, Ppt, RemoteExcel, RemotePpt, RemoteWord, Word, op
+from .art import (
+    ART_REPORT_SCHEMA_VERSION,
+    ART_SCHEMA_VERSION,
+    ArtColor,
+    ArtElement,
+    ArtElementRef,
+    ArtFinding,
+    ArtProfile,
+    ArtReport,
+    ArtReportDiff,
+    ArtScene,
+    ArtSlide,
+    ArtSlideReport,
+    ArtTextRun,
+    ArtWarning,
+    DeckQualityReport,
+    DimensionAssessment,
+    analyze_deck,
+    analyze_scene,
+    build_scene,
+    compare_reports,
+    get_profile,
+    merge_scenes,
+    profile_names,
+    render_html,
+    render_markdown,
+    report_to_json,
+)
 from .audit import (
     AuditConfig,
     AuditFinding,
@@ -32,7 +60,7 @@ from .exceptions import (
 )
 from .models import PLACEHOLDER_TYPE_NAMES, SlideTextRecord
 
-__version__ = "0.11.6"
+__version__ = "0.12.0"
 
 __all__ = [
     "Excel",
@@ -69,4 +97,30 @@ __all__ = [
     "PptxDiffReport",
     "audit_pptx",
     "compare_pptx",
+    "ART_SCHEMA_VERSION",
+    "ART_REPORT_SCHEMA_VERSION",
+    "ArtColor",
+    "ArtElement",
+    "ArtElementRef",
+    "ArtFinding",
+    "ArtProfile",
+    "ArtReport",
+    "ArtReportDiff",
+    "ArtScene",
+    "ArtSlide",
+    "ArtSlideReport",
+    "ArtTextRun",
+    "ArtWarning",
+    "DeckQualityReport",
+    "DimensionAssessment",
+    "analyze_deck",
+    "analyze_scene",
+    "build_scene",
+    "compare_reports",
+    "get_profile",
+    "merge_scenes",
+    "profile_names",
+    "render_html",
+    "render_markdown",
+    "report_to_json",
 ]

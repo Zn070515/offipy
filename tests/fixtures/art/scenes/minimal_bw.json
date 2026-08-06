@@ -1,0 +1,20 @@
+{
+  "slides": [
+    {
+      "index": 1,
+      "width": 1920.0,
+      "height": 1080.0,
+      "background_color": {"r": 255, "g": 255, "b": 255, "a": 1.0},
+      "elements": [
+        {"element_id": "t", "kind": "text", "role": "title",
+         "x": 0.1, "y": 0.05, "width": 0.6, "height": 0.1,
+         "font_size": 48.0, "font_size_unit": "px", "text": "黑白极简",
+         "foreground": {"r": 0, "g": 0, "b": 0, "a": 1.0}},
+        {"element_id": "b", "kind": "text", "role": "body",
+         "x": 0.1, "y": 0.2, "width": 0.5, "height": 0.08,
+         "font_size": 24.0, "font_size_unit": "px", "text": "内容",
+         "foreground": {"r": 0, "g": 0, "b": 0, "a": 1.0}}
+      ]
+    }
+  ]
+}

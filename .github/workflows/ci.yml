@@ -29,6 +29,8 @@ jobs:
         run: uv run mypy src/offipy
       - name: Test pure-module subset + coverage gate
         run: uv run pytest tests -m "not com and not deck_render" --cov=offipy --cov-fail-under=70 -q
+      - name: Art layer pure import gate（无 c-ext / 无 python-pptx）
+        run: uv run python -c "import offipy; offipy.build_scene; offipy.analyze_scene; print('art pure ok')"
 
   # 最新依赖门禁（P1-6）：锁文件测试一条（windows/pure-module）之外，另起一条
   # `uv sync --upgrade` 解析到依赖上限内的最新版本跑纯模块子集——范围锁死不掩盖
@@ -82,8 +84,10 @@ jobs:
           python-version: "3.12"
       - name: Build wheel
         run: uv build
-      - name: Install smoke (干净 venv 装 wheel)
-        run: python scripts/install_smoke.py
+      - name: Check dist (twine)
+        run: uvx twine check dist/*
+      - name: Install smoke (干净 venv 装 wheel，含 art acceptance 真实 analyze_scene)
+        run: python scripts/install_smoke.py --acceptance-dir tests/fixtures/art/scenes
       - uses: actions/upload-artifact@v7
         with:
           name: offipy-wheel
