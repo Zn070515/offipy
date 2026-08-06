@@ -105,6 +105,14 @@ def test_assess_dimension_respects_disabled_rules():
     assert d.status == "not_applicable"
 
 
+def test_assess_dimension_inactive_when_not_in_enabled_rules():
+    # P0 门禁回归：rule_id 不在 enabled_rules（默认 ALL_RULES）→ 维度 not_applicable
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [_rule("synthetic.not_in_registry", covered=1, eligible=1)]
+    d = assess_dimension("hierarchy", specs, _ctx(slide))
+    assert d.status == "not_applicable"
+
+
 def test_assess_dimension_confidence_override_and_grade():
     slide = ArtSlide(index=1, width=1920, height=1080)
     from offipy.art.profiles import ArtProfile
