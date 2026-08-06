@@ -13,7 +13,7 @@ from offipy.audit.models import (
     AuditConfig,
     Severity,
 )
-from offipy.audit.rules import run_rules
+from offipy.audit.rules import _DEFAULT_FONT_SIZE_PT, _text_height_in, run_rules
 
 
 def _run(prs, tmp_path, config=None):
@@ -180,6 +180,61 @@ def test_vertical_counts_no_wrap_segments(tmp_path):
     assert verts[0].details["text_height_in"] == pytest.approx(0.9, abs=0.01)
 
 
+def test_vertical_uses_spcpts_line_spacing(tmp_path):
+    # a:lnSpc spcPts 绝对值决定行高（回归 S13 定位结论：行距 14.85pt 而非字号×1.2）
+    # 2 行 × 14.85pt = 0.4125in 装进 0.55in 框 → 不报纵向溢出；
+    # 旧 字号×1.2（2×18×1.2=0.6in）则会误报。
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = _add_seg_tb(slide, 1, 1, 2.0, 0.55, ["lineA", "lineB"], wrap=False)
+    tb.text_frame.margin_top = 0
+    tb.text_frame.margin_bottom = 0
+    tb.text_frame.paragraphs[0].line_spacing = Pt(14.85)
+    findings, _, records = _run(prs, tmp_path)
+    rec = records[0]
+    assert rec.paragraphs[0].line_spacing_pts == pytest.approx(14.85)
+    text_h, _ = _text_height_in(rec, rec.width, _DEFAULT_FONT_SIZE_PT)
+    assert text_h == pytest.approx(2 * 14.85 / 72.0)  # 0.4125in，非 0.6in
+    assert _by_rule(findings, RULE_TEXT_FIT_VERTICAL) == []
+
+
+def test_vertical_uses_spcpct_line_spacing(tmp_path):
+    # a:lnSpc spcPct 百分比（150%）→ 行高 = 字号×1.5；3 段 × 18×1.5 = 1.125in
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = _add_seg_tb(slide, 1, 1, 2.0, 1.0, ["a", "b", "c"], wrap=False)
+    tb.text_frame.margin_top = 0
+    tb.text_frame.margin_bottom = 0
+    tb.text_frame.paragraphs[0].line_spacing = 1.5
+    _, _, records = _run(prs, tmp_path)
+    rec = records[0]
+    assert rec.paragraphs[0].line_spacing_pct == pytest.approx(150.0)
+    text_h, _ = _text_height_in(rec, rec.width, _DEFAULT_FONT_SIZE_PT)
+    assert text_h == pytest.approx(3 * 18 * 1.5 / 72.0)
+
+
+def test_vertical_trailing_soft_break_not_extra_line(tmp_path):
+    # 尾部 a:br 不渲染额外一行：2 实线 + 尾部 br（3 段含空段）→ 按 2 行计高
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2.0), Inches(0.7))
+    tf = tb.text_frame
+    tf.word_wrap = False
+    tf.margin_top = 0
+    tf.margin_bottom = 0
+    p = tf.paragraphs[0]
+    p.add_run().text = "lineA"
+    p.add_line_break()
+    p.add_run().text = "lineB"
+    p.add_line_break()  # 尾部 br → 末尾空段
+    findings, _, records = _run(prs, tmp_path)
+    rec = records[0]
+    assert len(rec.paragraphs[0].segments) == 3  # 提取层保留空段
+    text_h, _ = _text_height_in(rec, rec.width, _DEFAULT_FONT_SIZE_PT)
+    assert text_h == pytest.approx(2 * 18 * 1.2 / 72.0)  # 0.6in，非 0.9in
+    assert _by_rule(findings, RULE_TEXT_FIT_VERTICAL) == []  # 0.6 < 0.7+1pt
+
+
 # ---------------------------------------------------------------- 字体定位
 
 
@@ -217,6 +272,18 @@ def test_horizontal_overflow_below_floor_not_reported(tmp_path):
     _add_seg_tb(slide, 1, 1, 1.443, 1.0, ["WWWWWWWWWW"], wrap=False)
     findings, _, _ = _run(prs, tmp_path)
     assert _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL) == []
+
+
+def test_run_width_pt_applies_kerning():
+    # msyhbd "FPS · TensorRT FP16" 22pt bold：fontTools hmtx+kern ≈ DirectWrite 3.1261in
+    # （Pillow getlength 无 kern 会高估 ~1.3% 到 3.16in）——治理拉丁+粗体高估的根因
+    from offipy.audit.rules import _font_candidates, _run_width_pt
+
+    if not any(p.exists() for p in _font_candidates("Microsoft YaHei", True)):
+        pytest.skip("本机无 msyhbd.ttc，跳过 kerning 度量测试")
+    w_pt, used = _run_width_pt("FPS · TensorRT FP16", 22, True, "Microsoft YaHei")
+    assert used is True
+    assert w_pt / 72.0 == pytest.approx(3.1264, abs=0.01)
 
 
 def test_horizontal_overflow_above_floor_reported(tmp_path):

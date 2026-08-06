@@ -99,6 +99,30 @@ def test_overlap_shape_over_text_not_suppressed(tmp_path):
     assert not any(s.reason == "text_on_background" for s in suppressed)
 
 
+# ---------------------------------------------------------------- 豁免 D：卡片+行条纹装饰分层
+
+
+def test_overlap_decorative_stripe_poking_card_suppressed(tmp_path):
+    """S13 卡片+行条纹：条纹仅越出卡片底边 0.1in（partial ratio 0.8）→ 装饰分层豁免。"""
+    prs, slide = _new_deck()
+    slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(6), Inches(2))  # 卡片 aspect 3
+    slide.shapes.add_shape(1, Inches(1), Inches(2.6), Inches(5.7), Inches(0.5))  # 条纹 poking 0.1
+    findings, suppressed, records = _run(prs, tmp_path)
+    assert len(records) == 2
+    assert not any(f.kind == "overlap" for f in findings)
+    assert any(s.reason == "decorative_layering" for s in suppressed)
+
+
+def test_overlap_non_strip_textless_partial_still_reported(tmp_path):
+    """非长条空框（aspect < 3）部分重叠 → 仍报 partial，不误伤。"""
+    prs, slide = _new_deck()
+    slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(4), Inches(3))  # card aspect 1.33
+    slide.shapes.add_shape(1, Inches(1), Inches(2.7), Inches(1.5), Inches(1.5))  # 方形 poking
+    findings, suppressed, _ = _run(prs, tmp_path)
+    assert any(f.rule_id == RULE_OVERLAP_PARTIAL for f in findings)
+    assert not any(s.reason == "decorative_layering" for s in suppressed)
+
+
 # ---------------------------------------------------------------- 豁免 A2：透明装饰（治本根信号）
 
 

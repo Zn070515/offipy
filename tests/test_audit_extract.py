@@ -124,6 +124,31 @@ def test_paragraph_no_break_single_segment(tmp_path):
     assert [run.text for run in para.segments[0]] == ["plain", " extra"]
 
 
+def test_paragraph_line_spacing_extracted(tmp_path):
+    # a:lnSpc 解析：spcPts 绝对点值 / spcPct 百分比，未设时为 None
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    tf = tb.text_frame
+    p1 = tf.paragraphs[0]
+    p1.add_run().text = "line one"
+    p1.line_spacing = Pt(14.85)  # spcPts val=1485 → 14.85pt
+    p2 = tf.add_paragraph()
+    p2.add_run().text = "line two"
+    p2.line_spacing = 1.5  # spcPct val=150000 → 150%
+    p3 = tf.add_paragraph()
+    p3.add_run().text = "line three"  # 未设 → None
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "TEXT_BOX")
+    p1r, p2r, p3r = rec.paragraphs[0], rec.paragraphs[1], rec.paragraphs[2]
+    assert p1r.line_spacing_pts == pytest.approx(14.85)
+    assert p1r.line_spacing_pct is None
+    assert p2r.line_spacing_pts is None
+    assert p2r.line_spacing_pct == pytest.approx(150.0)
+    assert p3r.line_spacing_pts is None
+    assert p3r.line_spacing_pct is None
+
+
 # ---------------------------------------------------------------- group 嵌套
 
 
