@@ -66,6 +66,16 @@ def test_split_2col_css_has_wrapper_display_contents():
     assert ".split-2col > .cols { display: contents; }" in css
 
 
+def test_split_2col_css_only_col_stretches():
+    # #9：align-items: stretch 会把眉标/标题等非 col 的 flex 子元素拉成整页高
+    # （超高文本框）。容器改 flex-start，只让 .col 用 align-self: stretch 填满。
+    css = layout_css("split-2col")
+    assert "align-items: flex-start" in css
+    assert "align-items: stretch" not in css
+    assert ".split-2col .col {" in css
+    assert "align-self: stretch" in css
+
+
 def test_split_2col_html_notes_flex_item_constraint():
     # HTML 模板注释提醒 flex-item 约束，防 Claude 包 wrapper 破坏布局
     html = layout_html("split-2col")
