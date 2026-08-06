@@ -629,15 +629,21 @@ def test_render_same_path_works_after_open_live(tmp_path, monkeypatch):
 
 
 def test_atomic_replace_win32_locked_raises_actionable(tmp_path, monkeypatch):
-    # #22：目标被 PowerPoint 锁定 → os.replace WinError 5 → ConversionError 带指引
-    # （而非裸 PermissionError），CLI/用户能直接照做。
+    # #22：Windows 下目标被 PowerPoint 锁定 → os.replace WinError 5 → ConversionError
+    # 带指引（而非裸 PermissionError），CLI/用户能直接照做。非 Windows（posix）原样
+    # 重抛 PermissionError——WinError 5 是 Windows 独占场景，其余平台不吞异常。
     from offipy.exceptions import ConversionError
 
     def locked_replace(src_, dst_):
         raise PermissionError(13, "Permission denied", dst_)
 
     monkeypatch.setattr(deck.os, "replace", locked_replace)
-    with pytest.raises(ConversionError) as exc:
-        deck._atomic_replace("tmp.pptx", str(tmp_path / "out.pptx"))
-    assert "close_live" in str(exc.value)
-    assert "out.pptx" in str(exc.value)
+    target = str(tmp_path / "out.pptx")
+    if os.name == "nt":
+        with pytest.raises(ConversionError) as exc:
+            deck._atomic_replace("tmp.pptx", target)
+        assert "close_live" in str(exc.value)
+        assert "out.pptx" in str(exc.value)
+    else:
+        with pytest.raises(PermissionError):
+            deck._atomic_replace("tmp.pptx", target)
