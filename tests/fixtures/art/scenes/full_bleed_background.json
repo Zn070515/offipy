@@ -16,7 +16,10 @@
         {"element_id": "body", "kind": "text", "role": "body",
          "x": 0.1, "y": 0.25, "width": 0.5, "height": 0.4,
          "font_size": 28.0, "font_size_unit": "px", "text": "正文",
-         "foreground": {"r": 60, "g": 40, "b": 20, "a": 1.0}}
+         "foreground": {"r": 60, "g": 40, "b": 20, "a": 1.0}},
+        {"element_id": "photo", "kind": "image", "role": "image",
+         "x": 0.6, "y": 0.25, "width": 0.35, "height": 0.35,
+         "natural_width": 800.0, "natural_height": 450.0}
       ]
     }
   ]
