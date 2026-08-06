@@ -20,6 +20,14 @@
   .slide2 p { position: absolute; top: 300px; left: 200px; font-size: 40px;
               color: #eeeeee; font-family: system-ui, sans-serif; }
   canvas { position: absolute; top: 500px; left: 200px; }
+  /* slide 3：split-2col 的 .cols wrapper 形态（复刻 layouts.py）。.cols 为
+     display: contents，无盒但子元素可见；isHidden 不得据此剪掉两栏子树。 */
+  .split-2col { display: flex; gap: 80px; align-items: stretch; }
+  .split-2col > .cols { display: contents; }
+  .split-2col .col { flex: 1; background: #f5f7fa; border-radius: 16px; padding: 40px;
+                     box-sizing: border-box; }
+  .split-2col .col-title { font-size: 40px; font-weight: 700; }
+  .split-2col .col p { font-size: 28px; line-height: 1.7; color: #222; }
 </style>
 </head>
 <body>
@@ -32,6 +40,18 @@
 <section class="slide slide2">
   <p>Forever animating canvas below</p>
   <canvas id="cv" width="480" height="300"></canvas>
+</section>
+<section class="slide split-2col">
+  <div class="cols">
+    <div class="col">
+      <h2 class="col-title">左栏标题</h2>
+      <p>LEFT_COL_BODY</p>
+    </div>
+    <div class="col">
+      <h2 class="col-title">右栏标题</h2>
+      <p>RIGHT_COL_BODY</p>
+    </div>
+  </div>
 </section>
 <script>
   const cv = document.getElementById('cv'), ctx = cv.getContext('2d');

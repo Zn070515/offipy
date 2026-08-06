@@ -49,6 +49,10 @@ EXTRACT_JS = r"""
   const isHidden = (el) => {
     const s = getComputedStyle(el);
     if (s.display === 'none' || s.visibility === 'hidden' || parseFloat(s.opacity) === 0) return true;
+    // display: contents 无盒（rect 恒 0×0）但子元素照常渲染。若按盒判隐藏，
+    // walk() 会在 .cols 这类 wrapper 上提前剪枝，整个子树（含可见子节点）被丢弃。
+    // 隐藏意图应由 display:none / visibility:hidden / opacity:0 表达，而不是这里。
+    if (s.display === 'contents') return false;
     const r = el.getBoundingClientRect();
     if (r.width === 0 || r.height === 0) return true;
     return false;

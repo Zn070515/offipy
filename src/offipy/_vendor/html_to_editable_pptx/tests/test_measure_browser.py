@@ -8,6 +8,7 @@
 - display:none 文本不进 runs
 - 零间隙相邻 span 之间不插空格
 - 永动 canvas 不崩 measure（超时兜底）
+- display:contents wrapper（split-2col .cols）子树不剪枝、自身不产生退化形状
 - deck 缩短后参考截图目录清掉"幽灵页"
 """
 from pathlib import Path
@@ -34,7 +35,7 @@ def _records(deck, page):
 
 
 def test_decoration_divs_not_mistaken_for_slides(deck):
-    assert len(deck["slides"]) == 2, \
+    assert len(deck["slides"]) == 3, \
         "slide 内的同 tag 装饰 div 组被误识别成了 deck"
 
 
@@ -64,6 +65,26 @@ def test_zero_gap_spans_no_inserted_space(deck):
     joined = "".join(run.get("text", "") for run in h1["runs"])
     assert "ShipFast" in joined, f"零间隙 span 边界被插入空格: {joined!r}"
     assert "now" in joined
+
+
+def test_display_contents_wrapper_children_measured(deck):
+    # #9：.cols { display: contents } 无盒（rect 0×0）但子元素可见。isHidden 若
+    # 按盒判隐藏，walk() 会在 wrapper 上提前剪枝，两栏子树整体丢弃（ZERO shapes）。
+    # 断言 wrapper 内的两个 .col 文本都被测到，且 wrapper 自身不产生空形状。
+    texts = [
+        run.get("text", "")
+        for r in _records(deck, 2)
+        if r["kind"] == "text"
+        for run in r.get("runs", [])
+    ]
+    joined = "".join(texts)
+    assert "LEFT_COL_BODY" in joined, "display:contents wrapper 的左栏被剪枝"
+    assert "RIGHT_COL_BODY" in joined, "display:contents wrapper 的右栏被剪枝"
+    # .cols 无 bg/border，不应以 0×0 空形状出现
+    assert not any(
+        r["kind"] == "shape" and r["rect"]["w"] == 0 and r["rect"]["h"] == 0
+        for r in _records(deck, 2)
+    ), "display:contents wrapper 自身产生了退化形状"
 
 
 def test_animated_canvas_does_not_crash(deck):
