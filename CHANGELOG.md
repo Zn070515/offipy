@@ -3,6 +3,31 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.12.1] - 2026-08-06
+
+### Added
+- **slides_dir 像素级分析（第三证据源）**：`build_scene(slides_dir=...)` / `analyze_deck(slides_dir=...)`
+  读逐页 PNG（`slide_<n>.png` + `_deck_info.json` 指纹）增强 ArtScene——页面级背景估计 / 调色板 /
+  background_like_ratio，元素级声明颜色验证（`declared_verified` / `declared_not_found` /
+  `center_fill_verified` / `complex_background`）。惰性 Pillow（`offipy[deck]`）。
+- **实验性规则 `art.composition.background_like_area`**：页面级留白提示（联合条件：背景置信 ≥0.7 ∧
+  均匀度 ≥0.7 ∧ 元素占用 ≤0.5 ∧ 非全幅图片），`conf ≤ 0.3` 不驱动降级。
+- **维度 reliability 加权聚合**：`DimensionAssessment.reliability` = applicable 确定性规则
+  reliability 按 coverage 加权均值（experimental 排除），`minimum_reliability` 仅供调试。
+- **证据契约**：`ArtFinding` 带 `evidence_sources` / `evidence_reliability` / `evidence_method`，
+  Markdown/HTML 展示，compare 时证据来源/方法变化判 `changed`；`low_contrast` 像素验证背景路径。
+- **deck 像素集成**：`render_with_quality_report(pixel_analysis="off"|"best_effort"|"required",
+  preserve_pixel_slides=False, slides_output_dir=None)`，PNG 先落 staging、全链成功后提交。
+
+### Changed
+- **ART_SCHEMA_VERSION / ART_REPORT_SCHEMA_VERSION → 0.2**：0.1 报告可被 0.2 读取（证据字段默认
+  None）；compare 跨 schema 仅建议性对比 + warning。
+
+### Notes
+- **组合 PNG 的证据边界**：像素证据不归因到元素——不做溢出/真实遮挡判断；只做页面级背景证据 +
+  元素级声明色验证。
+- 完整规则 / 证据源 / 边界见 [`docs/art.md`](docs/art.md)。
+
 ## [0.12.0] - 2026-08-06
 
 ### Added
@@ -24,7 +49,6 @@
 - **零额外依赖**：`import offipy` 不加载 python-pptx / AI / COM；`import offipy` 即有 art 能力。
 - **证据诚实边界**：只传 `pptx=` 时 hierarchy / typography / color 维度证据不足 → 自动降级
   （`insufficient_evidence` + `art.evidence.limited` warning），纯几何规则照常运行。
-- **RenderedSlide（PNG / slides_dir 像素级）分析延后到 v0.12.1**：`build_scene(slides_dir=...)` 明确拒绝。
 - 完整规则 / 证据源 / 边界见 [`docs/art.md`](docs/art.md)。
 
 ## [0.11.6] - 2026-08-06
