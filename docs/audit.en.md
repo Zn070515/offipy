@@ -115,7 +115,7 @@ report = audit_pptx(
 | `geometry.margin.left/right/top/bottom` | LOW | content near an edge, spacing < safe margin |
 | `geometry.overlap.partial` | LOW / MID | shapes partially overlap (coverage ratio > 0.5, by smaller shape) |
 | `geometry.overlap.covered_text` | MID / HIGH | one shape fully covers another; text covered by picture/chart is HIGH |
-| `text.fit.horizontal` | LOW / MID | text exceeds the text box horizontally (nowrap single line too wide, etc.) |
+| `text.fit.horizontal` | LOW / MID | text exceeds the text box horizontally (explicit `wrap="none"` single line too wide) |
 | `text.fit.vertical` | LOW / MID | text exceeds the text box vertically (explicit multi-line too tall / no available space) |
 | `text.autofit.shrink` | MID / HIGH | normAutofit shrinks the font, possibly below the 8pt minimum readable |
 | `text.autofit.grow` | MID / HIGH | spAutoFit grows the shape, possibly out of bounds / colliding |

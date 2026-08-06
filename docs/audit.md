@@ -110,7 +110,7 @@ report = audit_pptx(
 | `geometry.margin.left/right/top/bottom` | LOW | 内容贴近边缘，间距 < 安全边距 |
 | `geometry.overlap.partial` | LOW / MID | 形状部分重叠（覆盖比 > 0.5，以较小形状计） |
 | `geometry.overlap.covered_text` | MID / HIGH | 一个形状完全覆盖另一个；文本被图片/图表盖住为 HIGH |
-| `text.fit.horizontal` | LOW / MID | 文本横向超出文本框（nowrap 单行超宽等） |
+| `text.fit.horizontal` | LOW / MID | 文本横向超出文本框（显式 `wrap="none"` 单行超宽） |
 | `text.fit.vertical` | LOW / MID | 文本纵向超出文本框（显式多行超高 / 无可用空间） |
 | `text.autofit.shrink` | MID / HIGH | normAutofit 缩小字体，可能低于最小可读 8pt |
 | `text.autofit.grow` | MID / HIGH | spAutoFit 扩大 Shape，可能越界/撞对象 |
