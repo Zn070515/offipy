@@ -77,7 +77,10 @@ def test_no_focus_needs_three_elements():
             make_text_element("b", "Body", y=0.2, font_size=24.0),
         ],
     )
-    assert no_focus_rule(slide, _ctx(slide)).findings == []
+    ev = no_focus_rule(slide, _ctx(slide))
+    assert ev.findings == []
+    assert ev.eligible_count == 0  # 元素不足 → 不适用，不进 coverage
+    assert ev.covered_count == 0
 
 
 def test_hierarchy_rules_are_rule_specs():
