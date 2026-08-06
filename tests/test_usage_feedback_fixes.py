@@ -202,11 +202,13 @@ def test_add_picture_embeds_with_save_with_document(monkeypatch):
 # ---------------------------------------------------------------- #18 word
 
 
-def test_insert_image_passes_normalized_path_and_end_range(monkeypatch):
+def test_insert_image_passes_normalized_path_and_end_range(tmp_path, monkeypatch):
     import os
 
     from offipy import word
 
+    img = tmp_path / "pic.jpg"
+    img.write_bytes(b"fake-jpeg-content")  # 文件必须真实存在（#30：入口前置校验源文件）
     captured = {}
 
     class _Rng:
@@ -229,8 +231,8 @@ def test_insert_image_passes_normalized_path_and_end_range(monkeypatch):
     doc = _Doc()
     app = word.WordApp.__new__(word.WordApp)
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: doc)
-    app.insert_image("C:/images/pic.jpg", width=200, height=150, doc_id="d1")
-    assert captured["path"] == os.path.normpath(os.path.abspath("C:/images/pic.jpg"))
+    app.insert_image(str(img), width=200, height=150, doc_id="d1")
+    assert captured["path"] == os.path.normpath(os.path.abspath(str(img)))
     assert captured["has_range"] is True  # 插图落在文末 Range，不覆盖既有内容
     assert captured["collapse"] == 0  # wdCollapseEnd
 
