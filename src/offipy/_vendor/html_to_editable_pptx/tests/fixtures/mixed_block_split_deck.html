@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* 混合布局 deck（#21）：slide 1 普通 block 页 + slide 2 split-2col flex 页。
+     修复前 naturalDisplay 取第一张可见页（block）全局强制给所有页，
+     slide 2 的 .col 被压成块级 → 两栏竖排。修复后应按页记录各自 naturalDisplay。 */
+  * { margin: 0; box-sizing: border-box; }
+  .slide { width: 1920px; height: 1080px; position: relative; overflow: hidden;
+           background: #ffffff; padding: 96px; }
+  .split-2col { display: flex; gap: 80px; align-items: flex-start; }
+  .split-2col > .cols { display: contents; }
+  .split-2col .col { flex: 1; align-self: stretch; background: #f5f7fa;
+                     border-radius: 16px; padding: 40px; box-sizing: border-box; }
+  .split-2col .col-title { font-size: 40px; font-weight: 700; }
+  .split-2col .col p { font-size: 28px; line-height: 1.7; color: #222; }
+  .split-2col .kicker { font-size: 28px; color: #666; margin-bottom: 16px; }
+  .split-2col h1 { font-size: 64px; color: #111; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+<section class="slide" data-pptx-slide>
+  <h1>BLOCK_PAGE_TITLE</h1>
+  <p>普通 block 布局页。</p>
+</section>
+<section class="slide split-2col" data-pptx-slide data-layout="split-2col">
+  <p class="kicker">AGENDA_KICKER</p>
+  <h1>QUARTERLY_TITLE</h1>
+  <div class="cols">
+    <div class="col">
+      <h2 class="col-title">左栏标题</h2>
+      <p>LEFT_COL_BODY</p>
+    </div>
+    <div class="col">
+      <h2 class="col-title">右栏标题</h2>
+      <p>RIGHT_COL_BODY</p>
+    </div>
+  </div>
+</section>
+</body>
+</html>

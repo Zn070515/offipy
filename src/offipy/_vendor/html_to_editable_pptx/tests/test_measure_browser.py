@@ -41,6 +41,12 @@ def split2col(tmp_path_factory):
     return _measure("split_2col_deck.html", tmp_path_factory)
 
 
+@pytest.fixture(scope="module")
+def mixed_block_split(tmp_path_factory):
+    # #21：混合布局 deck（slide 1 block + slide 2 split-2col flex）
+    return _measure("mixed_block_split_deck.html", tmp_path_factory)
+
+
 def _records(deck, page):
     return deck["slides"][page]["records"]
 
@@ -114,6 +120,37 @@ def test_split_2col_non_col_children_not_stretched(split2col):
     ]
     assert len(cols) >= 2, "两栏 col 形状缺失"
     assert all(c["rect"]["h"] >= 700 for c in cols), "col 未填满整页内容盒"
+
+
+def test_mixed_deck_split_2col_not_forced_block(mixed_block_split, split2col):
+    # #21：混合布局 deck 的 flex 页此前被"第一张可见页的 display"全局强加成 block
+    # （.col 全宽竖排）。修复后按 slide 记录各自 natural display，split-2col 页
+    # 保持 flex——两栏并排，几何与独立单页 split-2col fixture 完全一致。
+    assert len(mixed_block_split["slides"]) == 2
+    slide2 = mixed_block_split["slides"][1]["records"]
+
+    def cols(records):
+        # col 形状：填满内容盒高度（h≥700）且非整页 slide 背景（w<1900）
+        return [
+            r["rect"] for r in records
+            if r["kind"] == "shape"
+            and r["rect"]["h"] >= 700
+            and r["rect"]["w"] < 1900
+        ]
+
+    mixed_cols = cols(slide2)
+    assert len(mixed_cols) == 2, "slide 2 的两栏 col 缺失"
+    xs = sorted(c["x"] for c in mixed_cols)
+    assert xs[1] - xs[0] > 100, f"两栏被压成竖排（同 x）：{xs}"
+    assert all(c["w"] < 900 for c in mixed_cols), f"col 全宽竖排：{mixed_cols}"
+
+    # 与独立单页 split-2col 对照：几何逐字段一致（唯一变量就是前面多了 block 页）
+    ref_cols = cols(split2col["slides"][0]["records"])
+    assert len(ref_cols) == 2
+    for mine, ref in zip(sorted(mixed_cols, key=lambda c: c["x"]),
+                         sorted(ref_cols, key=lambda c: c["x"])):
+        for k in ("x", "y", "w", "h"):
+            assert abs(mine[k] - ref[k]) < 1, f"col 几何偏离单页对照: {k} {mine[k]} vs {ref[k]}"
 
 
 def test_animated_canvas_does_not_crash(deck):

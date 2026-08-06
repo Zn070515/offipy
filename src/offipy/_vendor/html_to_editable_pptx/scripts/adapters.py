@@ -36,7 +36,8 @@ ZERO_ANIMATIONS_CSS = r"""
 """
 
 
-# 统一发现 slide：跑一次得出 window.__pptxSlides 数组 + window.__pptxNaturalDisplay
+# 统一发现 slide：跑一次得出 window.__pptxSlides 数组 + 各 slide 的 natural display
+# （window.__pptxNaturalDisplays，按 index 对齐；#21：混合布局 deck 不再全局强加）
 DISCOVER_JS = r"""
 () => {
     // 1) 用户显式标注优先：[data-pptx-slide]
@@ -87,16 +88,21 @@ DISCOVER_JS = r"""
         group = bestGroup;
     }
 
-    // 探测"自然 display"：找当前可见（display!=none）的 slide 的 display 值
-    // 用于 activate 时覆盖 `display:none` 的隐藏，但保留模板的 flex/grid 等布局
-    let naturalDisplay = 'block';
-    for (const s of group) {
+    // 探测各 slide 的"自然 display"（#21）：不再取第一张可见页的 display 全局强加
+    // 给所有页——混合布局 deck（block + split-2col 等）会被压成同一布局。改为按
+    // slide 记录各自 display，activate 第 idx 张时用其自己的值，flex/grid/contents
+    // 页保持原布局。被切页机制隐藏（display:none）的 slide 读不到自然值，暂时打
+    // .active 类探一次（模板靠 .slide:not(.active) 隐藏时能还原），读回即还原。
+    window.__pptxNaturalDisplays = group.map((s) => {
         const d = getComputedStyle(s).display;
-        if (d && d !== 'none') { naturalDisplay = d; break; }
-    }
+        if (d && d !== 'none') return d;
+        s.classList.add('active', 'is-active');
+        const revealed = getComputedStyle(s).display;
+        s.classList.remove('active', 'is-active');
+        return revealed && revealed !== 'none' ? revealed : 'block';
+    });
 
     window.__pptxSlides = group;
-    window.__pptxNaturalDisplay = naturalDisplay;
     return group;
 }
 """
@@ -138,7 +144,8 @@ ACTIVATE_JS = r"""
     const slides = window.__pptxSlides || [];
     if (!slides[idx]) return { error: 'index out of range' };
     const target = slides[idx];
-    const naturalDisplay = window.__pptxNaturalDisplay || 'block';
+    const naturalDisplays = window.__pptxNaturalDisplays || [];
+    const naturalDisplay = naturalDisplays[idx] || 'block';
 
     // Step 1: 还原上一次 activate 留下的标记 / 内联样式
     for (const s of slides) {
