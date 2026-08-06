@@ -556,3 +556,83 @@ def test_render_concurrent_same_final_path_one_conflicts(tmp_path, monkeypatch):
     assert Path(out).read_bytes() == b"fake pptx"
     assert "conflict" in results  # B 的 preflight 拒绝已存在输出
     assert _hidden_pptx(tmp_path) == []  # 双方临时文件都清理干净
+
+
+# --- #22 open_live 文件锁：临时副本演示 + close_live 释放 + 可操作替换错误 ---
+
+
+def _fake_call_returns(monkeypatch, doc_id):
+    """mock call：记录最后调用，固定返回 doc_id。"""
+    calls = {}
+
+    def fake_call(app, op, **kw):
+        calls["call"] = (app, op, kw)
+        return doc_id
+
+    monkeypatch.setattr(deck, "ensure_server", lambda: None)
+    monkeypatch.setattr(deck, "call", fake_call)
+    return calls
+
+
+def test_open_live_presents_from_temp_copy_not_locking_source(tmp_path, monkeypatch):
+    # #22：open_live 复制到 offipy-live-* 临时副本再让 PowerPoint 打开——锁在副本，
+    # 源产物路径不被锁，同路径 re-render 不再 PermissionError。
+    import tempfile
+
+    src = tmp_path / "deck.pptx"
+    src.write_bytes(b"fake pptx v1")
+    calls = _fake_call_returns(monkeypatch, "pres9")
+
+    doc_id = deck.open_live(str(src))
+    assert doc_id == "pres9"
+    app, op, kw = calls["call"]
+    assert (app, op) == ("ppt", "open_pres")
+    live = kw["path"]
+    assert Path(live).is_file()
+    assert Path(live).read_bytes() == b"fake pptx v1"
+    assert Path(live).name.startswith("offipy-live-")
+    assert Path(live).parent == Path(tempfile.gettempdir())
+    assert src.exists(), "open_live 不应移动/删除源产物"
+    assert deck._LIVE_TMP_PATHS.get("pres9") == live
+
+
+def test_close_live_closes_and_removes_temp_copy(tmp_path, monkeypatch):
+    src = tmp_path / "deck.pptx"
+    src.write_bytes(b"x")
+    calls = _fake_call_returns(monkeypatch, "pres10")
+    doc_id = deck.open_live(str(src))
+    live = deck._LIVE_TMP_PATHS[doc_id]
+    calls.clear()
+
+    deck.close_live(doc_id)
+    assert calls["call"] == ("ppt", "close_pres", {"doc_id": doc_id, "save": False})
+    assert not Path(live).exists(), "close_live 未清理临时副本"
+    assert doc_id not in deck._LIVE_TMP_PATHS
+
+
+def test_render_same_path_works_after_open_live(tmp_path, monkeypatch):
+    # #22 核心场景：open_live 后对同一输出路径再 render(overwrite=True) 不再被锁。
+    src = tmp_path / "deck.pptx"
+    src.write_bytes(b"v1")
+    _fake_call_returns(monkeypatch, "pres11")
+    deck.open_live(str(src))
+
+    new = tmp_path / "new.pptx"
+    new.write_bytes(b"v2")
+    deck._atomic_replace(str(new), str(src))  # 模拟下次 render 的原子替换
+    assert src.read_bytes() == b"v2"
+
+
+def test_atomic_replace_win32_locked_raises_actionable(tmp_path, monkeypatch):
+    # #22：目标被 PowerPoint 锁定 → os.replace WinError 5 → ConversionError 带指引
+    # （而非裸 PermissionError），CLI/用户能直接照做。
+    from offipy.exceptions import ConversionError
+
+    def locked_replace(src_, dst_):
+        raise PermissionError(13, "Permission denied", dst_)
+
+    monkeypatch.setattr(deck.os, "replace", locked_replace)
+    with pytest.raises(ConversionError) as exc:
+        deck._atomic_replace("tmp.pptx", str(tmp_path / "out.pptx"))
+    assert "close_live" in str(exc.value)
+    assert "out.pptx" in str(exc.value)
