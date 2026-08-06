@@ -3,6 +3,16 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.11.1] - 2026-08-06
+
+### Fixed
+- **overlap/margin 误报治本**（真实 deck 使用反馈反哺）：extract 提取显式填充
+  （`a:noFill` 透明），overlap 改为统一遮挡判定——透明无文本上层不遮挡
+  （`transparent_overlay`）、实心小装饰浮有文本容器（`decorative_overlay`）、
+  文字浮无文本背景（`text_on_background`）分别豁免；全宽贴边条归
+  background/header/footer 豁免 margin（`full_bleed` / `header_footer`）。
+  有文本上层（透明与否）一律不豁免——文本叠文本仍报
+
 ## [0.11.0] - 2026-08-06
 
 ### Added
