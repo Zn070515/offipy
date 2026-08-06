@@ -8,7 +8,7 @@ from contextlib import contextmanager, suppress
 from typing import Any
 
 from . import core
-from ._comguard import guard_com
+from ._comguard import _COM_ERROR, guard_com
 from .core import destructive, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
@@ -130,6 +130,8 @@ class WordApp:
         self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
+        # 记录本实例进程 PID（断连自愈/退出时精确清理，不误杀用户其它实例）
+        self._pid = core.app_process_pid(self.app, "word")
         self._docs: dict[str, Any] = {}  # doc_id → 文档句柄（P2-2 多文档）
         self._active_id: str | None = None
         self._seq = 0
@@ -567,7 +569,15 @@ class WordApp:
     def set_table_col_width(
         self, table_idx: int, col: int, width: float, doc_id: str | None = None
     ):
-        self._require_doc(doc_id).Tables(table_idx).Columns(col).Width = width
+        table = self._require_doc(doc_id).Tables(table_idx)
+        try:
+            table.Columns(col).Width = width
+        except _COM_ERROR:
+            # 合并单元格后 Columns(col).Width 拒访（「表格有混合的单元格宽度」）。
+            # 改逐格设宽：每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
+            cells = table.Columns(col).Cells
+            for i in range(1, cells.Count + 1):
+                cells(i).Width = width
 
     @destructive
     def set_table_row_height(
@@ -618,7 +628,9 @@ class WordApp:
         doc_id: str | None = None,
     ):
         doc = self._require_doc(doc_id)
-        shape = doc.InlineShapes.AddPicture(os.path.abspath(path), Range=_end_range(doc))
+        shape = doc.InlineShapes.AddPicture(
+            os.path.normpath(os.path.abspath(path)), Range=_end_range(doc)
+        )
         if width is not None:
             shape.Width = width
         if height is not None:
@@ -631,8 +643,13 @@ class WordApp:
 
     # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
     def read_doc_text(self, doc_id: str | None = None):
-        """读取当前文档全文文本（只读，不改任何状态）。"""
-        return self._require_doc(doc_id).Content.Text
+        """读取当前文档全文文本（只读，不改任何状态）。
+
+        表格 cell 结束符 \\x07 替换成 " | "、段落符 \\r\\n / \\r 归一化成 \\n
+        （\\r\\n 先行避免双换行），消费端直接得到可读结构，无需自行剥离 Word 原始标记。
+        """
+        text = self._require_doc(doc_id).Content.Text
+        return text.replace("\x07", " | ").replace("\r\n", "\n").replace("\r", "\n")
 
     def quit(self, force: bool = False):
         """退出 Word 会话。
@@ -649,8 +666,21 @@ class WordApp:
         try:
             # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
             self.app.DisplayAlerts = self._saved_alerts
+            pid = core.app_process_pid(self.app, "word") or self._pid
             self.app.Quit()
         except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Word 失败: {e}") from e
+        # Quit 已返回但进程可能残留（RCW/COM server 保持）：按 PID 精确清理
+        if not core.wait_process_exit(pid, timeout=2.0):
+            core.reap_process(pid)
+        return None
+
+    def reap_own_process(self) -> None:
+        """断连自愈/退出兜底：精确终止本库附着过的实例进程（不碰用户其它实例）。
+
+        server 检测到外部 kill 后重建连接前调用，清掉残留的僵尸实例，
+        避免重连附着到半死进程污染后续 op。
+        """
+        core.reap_process(self._pid)

@@ -13,7 +13,8 @@ def test_word_read_doc_text_golden():
     doc = SimpleNamespace(Content=SimpleNamespace(Text="第一段\r\n第二段\r\n第三段"))
     w = word.WordApp.__new__(word.WordApp)
     w.active_doc = lambda doc_id=None: doc
-    assert w.read_doc_text() == "第一段\r\n第二段\r\n第三段"
+    # #16：段落符 \r\n / \r 归一化成 \n（golden 随归一化规则更新）
+    assert w.read_doc_text() == "第一段\n第二段\n第三段"
 
 
 class _Text:

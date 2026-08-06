@@ -640,6 +640,7 @@ EXTRACT_JS = r"""
         id: nodeId++,
         kind: 'shape',
         tag: el.tagName.toLowerCase(),
+        className: el.className || '',
         rect: rectRel(r),
         // 元素未旋转的尺寸（不含 transform 效果），用于旋转还原
         naturalSize: { w: el.offsetWidth, h: el.offsetHeight },

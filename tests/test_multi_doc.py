@@ -405,7 +405,7 @@ def test_word_multi_doc_route(monkeypatch):
     assert app._docs[d2].Content.text == ""
     app.write_line("world", doc_id=d2)
     assert app._docs[d2].Content.text == "world\r\n"
-    assert app.read_doc_text(doc_id=d2) == "world\r\n"
+    assert app.read_doc_text(doc_id=d2) == "world\n"  # #16：段落符归一化成 \n
     assert app.get_target()["name"] == "Doc1"
 
 

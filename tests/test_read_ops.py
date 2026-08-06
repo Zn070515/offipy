@@ -13,7 +13,8 @@ def test_word_read_doc_text_returns_full_text():
     doc = SimpleNamespace(Content=SimpleNamespace(Text="第一段\r\n第二段"))
     w = word.WordApp.__new__(word.WordApp)
     w.active_doc = lambda doc_id=None: doc
-    assert w.read_doc_text() == "第一段\r\n第二段"
+    # #16：Word 段落符 \r\n / \r 归一化成 \n（可读文本层，供 Agent 迭代）
+    assert w.read_doc_text() == "第一段\n第二段"
 
 
 class _Text:

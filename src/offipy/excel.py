@@ -150,6 +150,8 @@ class ExcelApp:
         self._owned = self.created
         # DisplayAlerts 不再永久静音（P0-5）：按需用 _alerts_scope 临时抑制
         self._saved_alerts = self.app.DisplayAlerts  # quit() 兜底还原
+        # 记录本实例进程 PID（断连自愈/退出时精确清理，不误杀用户其它实例）
+        self._pid = core.app_process_pid(self.app, "excel")
         self._docs: dict[str, Any] = {}  # doc_id → 工作簿句柄（P2-2 多文档）
         self._active_id: str | None = None
         self._seq = 0
@@ -628,8 +630,21 @@ class ExcelApp:
         try:
             # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
             self.app.DisplayAlerts = self._saved_alerts
+            pid = core.app_process_pid(self.app, "excel") or self._pid
             self.app.Quit()
         except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Excel 失败: {e}") from e
+        # Quit 已返回但进程可能残留（RCW/COM server 保持，Excel 常驻）：按 PID 精确清理
+        if not core.wait_process_exit(pid, timeout=2.0):
+            core.reap_process(pid)
+        return None
+
+    def reap_own_process(self) -> None:
+        """断连自愈/退出兜底：精确终止本库附着过的实例进程（不碰用户其它实例）。
+
+        server 检测到外部 kill 后重建连接前调用，清掉残留的僵尸 EXCEL.EXE，
+        避免 EnsureDispatch 附着到僵尸实例污染后续 op（0x800ac472）。
+        """
+        core.reap_process(self._pid)
