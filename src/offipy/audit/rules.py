@@ -637,16 +637,24 @@ def _run_width_pt(
     return sum(_char_width_pt(ch, size_pt) for ch in text), False
 
 
-def _para_width_in(p: _Paragraph, default_size_pt: float) -> tuple[float, bool]:
-    """段落自然宽度（不折行）→ (英寸, 是否用 Pillow 度量)。"""
-    total_pt = 0.0
-    used_pillow = False
-    for run in p.runs:
-        size = run.font_size or default_size_pt
-        w_pt, used = _run_width_pt(run.text, size, run.bold, run.font_name)
-        total_pt += w_pt
-        used_pillow = used_pillow or used
-    return total_pt / 72.0, used_pillow
+def _para_segments_in(p: _Paragraph, default_size_pt: float) -> list[tuple[float, bool]]:
+    """段落按 a:br 拆成视觉行，每行自然宽度（英寸）→ (宽, 是否用 Pillow 度量)。
+
+    同一视觉行内的 run 求和；不同视觉行是独立行（wrap=none 时各自成行，
+    wrap 时各自折行），绝不能跨行求和。
+    """
+    groups = p.segments if p.segments else [p.runs]
+    out = []
+    for seg in groups:
+        total_pt = 0.0
+        used = False
+        for run in seg:
+            size = run.font_size or default_size_pt
+            w_pt, u = _run_width_pt(run.text, size, run.bold, run.font_name)
+            total_pt += w_pt
+            used = used or u
+        out.append((total_pt / 72.0, used))
+    return out
 
 
 def _para_size_pt(p: _Paragraph, default_size_pt: float) -> float:
@@ -660,10 +668,14 @@ def _text_height_in(
     """文本所需高（英寸，含折行）→ (高度, 是否用 Pillow 度量)。"""
     total_pt = 0.0
     used_pillow = False
+    wraps = rec.word_wrap is not False  # None(未设) 按 PowerPoint 默认 square 折行
     for p in rec.paragraphs:
-        pw, used = _para_width_in(p, default_size_pt)
-        used_pillow = used_pillow or used
-        lines = max(1, math.ceil(pw / avail_w)) if rec.word_wrap and avail_w > _MIN_DIM else 1
+        segs = _para_segments_in(p, default_size_pt)
+        used_pillow = used_pillow or any(u for _, u in segs)
+        if wraps and avail_w > _MIN_DIM:
+            lines = sum(max(1, math.ceil(w / avail_w)) for w, _ in segs)
+        else:
+            lines = len(segs) if segs else 1
         size = _para_size_pt(p, default_size_pt)
         total_pt += lines * size * _LINE_HEIGHT_RATIO
     return total_pt / 72.0, used_pillow
@@ -678,11 +690,12 @@ def _text_overflow(
     rec: _ShapeRecord, avail_w: float, avail_h: float
 ) -> tuple[bool, bool, float, float]:
     """文本是否超出现有可用区域 → (超宽, 超高, 文本宽, 文本高)。"""
-    widths = [_para_width_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
-    max_w = max((w for w, _ in widths), default=0.0)
+    segs_all = [_para_segments_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
+    max_w = max((w for segs in segs_all for w, _ in segs), default=0.0)
     wrap_w = avail_w if avail_w > _MIN_DIM else 1.0
     text_h, _ = _text_height_in(rec, wrap_w, _DEFAULT_FONT_SIZE_PT)
-    over_w = (not rec.word_wrap) and max_w > avail_w
+    # 仅显式 wrap=none 会横向溢出：square 自动折行，None(未设) 按 PowerPoint 默认 square
+    over_w = (rec.word_wrap is False) and max_w > avail_w
     over_h = text_h > avail_h
     return over_w, over_h, max_w, text_h
 
@@ -731,12 +744,12 @@ class TextFitRule:
                     )
                 )
                 continue
-            widths = [_para_width_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
-            max_para_w = max((w for w, _ in widths), default=0.0)
-            used_pillow = any(u for _, u in widths)
+            segs_all = [_para_segments_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
+            max_para_w = max((w for segs in segs_all for w, _ in segs), default=0.0)
+            used_pillow = any(u for segs in segs_all for _, u in segs)
             conf = _PILLOW_CONF if used_pillow else _FALLBACK_CONF
             approx = "" if used_pillow else "（字符估算低置信）"
-            if not rec.word_wrap and max_para_w > avail_w:
+            if rec.word_wrap is False and max_para_w > avail_w:
                 findings.append(
                     _finding(
                         rule_id=RULE_TEXT_FIT_HORIZONTAL,

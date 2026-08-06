@@ -103,3 +103,78 @@ def test_no_usable_space_mid(tmp_path):
     fits = _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL)
     assert len(fits) == 1
     assert fits[0].severity == Severity.MID
+
+
+def _add_seg_tb(slide, x, y, w, h, segs, wrap, font_name="NonexistentFontXYZ", font_size=18):
+    """多段（a:br 软换行）文本框；Nonexistent 字体强制走字符权重，宽度可预测。"""
+    tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    tf = tb.text_frame
+    tf.word_wrap = wrap
+    p = tf.paragraphs[0]
+    for i, seg in enumerate(segs):
+        if i > 0:
+            p.add_line_break()
+        r = p.add_run()
+        r.text = seg
+        r.font.name = font_name
+        r.font.size = Pt(font_size)
+    return tb
+
+
+def test_multi_segment_horizontal_uses_max_not_sum(tmp_path):
+    # 段落含 a:br：多段求和（旧 S2#15 16.25in 假象）会误报，应取最长段。
+    # 两段各 10 个 W（18pt × 0.5 权重 = 1.25in），求和 2.5in > avail 2.3in，
+    # 但最长段 1.25in < avail 2.3in → 不报横溢。
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_seg_tb(slide, 1, 1, 2.5, 1.0, ["WWWWWWWWWW", "WWWWWWWWWW"], wrap=False)
+    findings, _, _ = _run(prs, tmp_path)
+    assert _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL) == []
+    assert _by_rule(findings, RULE_TEXT_FIT_VERTICAL) == []  # 2 段 0.6in < avail 0.8in
+
+
+def test_multi_segment_genuine_overflow_still_reported(tmp_path):
+    # 最长段确实超过框宽 → 仍报横溢，且宽度是段宽（2.5in）不是求和（2.75in）
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_seg_tb(slide, 1, 1, 1.0, 1.0, ["WWWWWWWWWWWWWWWWWWWW", "WW"], wrap=False)
+    findings, _, _ = _run(prs, tmp_path)
+    fits = _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL)
+    assert len(fits) == 1
+    assert fits[0].details["text_width_in"] == pytest.approx(2.5, abs=0.02)
+
+
+def test_unset_wrap_default_square_no_horizontal(tmp_path):
+    # bodyPr@wrap 未设 → PowerPoint 默认 square（自动折行），不报横溢（旧 not None 误报）
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(4.0), Inches(1.0))
+    tf = tb.text_frame
+    tf.paragraphs[0].add_run().text = "WWWWWWWWWWWWWWWWWWWW"
+    bodyPr = tf._txBody.xpath("./a:bodyPr")[0]
+    bodyPr.attrib.pop("wrap", None)  # 移除 wrap → 未设
+    findings, _, records = _run(prs, tmp_path)
+    assert records[0].word_wrap is None
+    assert _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL) == []
+
+
+def test_explicit_wrap_none_horizontal_reported(tmp_path):
+    # 显式 wrap=none（不折行）单行超宽 → 报横溢
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_seg_tb(slide, 1, 1, 1.0, 1.0, ["WWWWWWWWWWWWWWWWWWWW"], wrap=False)
+    findings, _, _ = _run(prs, tmp_path)
+    fits = _by_rule(findings, RULE_TEXT_FIT_HORIZONTAL)
+    assert len(fits) == 1
+    assert fits[0].severity == Severity.LOW
+
+
+def test_vertical_counts_no_wrap_segments(tmp_path):
+    # wrap=none 多段：纵向按段数计行（3 段 × 18pt × 1.2 / 72 = 0.9in），非 1 行
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_seg_tb(slide, 1, 1, 2.0, 0.5, ["short", "line", "three"], wrap=False)
+    findings, _, _ = _run(prs, tmp_path)
+    verts = _by_rule(findings, RULE_TEXT_FIT_VERTICAL)
+    assert len(verts) == 1
+    assert verts[0].details["text_height_in"] == pytest.approx(0.9, abs=0.01)
