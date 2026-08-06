@@ -1,4 +1,6 @@
+import errno
 import json
+from pathlib import Path
 
 import pytest
 
@@ -51,6 +53,19 @@ def test_measurement_adapter_accepts_json_string_and_path(tmp_path):
     p.write_text(raw, encoding="utf-8")
     scene2 = build_scene(measurements=str(p))
     assert len(scene1.slides) == len(scene2.slides) == 1
+
+
+def test_measurement_adapter_json_string_survives_oserror_on_path_check(monkeypatch):
+    # 回归：Linux 上 Path(超长 JSON 串).is_file() 抛 ENAMETOOLONG（Windows 返回 False），
+    # build_scene 必须把它当 JSON 字符串处理而不是抛错。
+    raw = (FIXTURES / "real_measurements.json").read_text(encoding="utf-8")
+
+    def _raise_enametoolong(self):
+        raise OSError(errno.ENAMETOOLONG, "File name too long")
+
+    monkeypatch.setattr(Path, "is_file", _raise_enametoolong)
+    scene = build_scene(measurements=raw)
+    assert len(scene.slides) == 1
 
 
 def test_pptx_adapter_real_shapes():

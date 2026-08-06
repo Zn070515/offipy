@@ -242,7 +242,12 @@ def build_scene(
     if measurements is not None:
         if isinstance(measurements, (str, Path)):
             p = Path(measurements)
-            raw: dict | str = p.read_text(encoding="utf-8") if p.is_file() else str(measurements)
+            try:
+                is_file = p.is_file()
+            except OSError:
+                # 超长 JSON 字符串在 Linux 触发 ENAMETOOLONG，Windows 返回 False → 视为 JSON 字符串
+                is_file = False
+            raw: dict | str = p.read_text(encoding="utf-8") if is_file else str(measurements)
         else:
             raw = measurements
         scenes.append(MeasurementAdapter(raw).build())
