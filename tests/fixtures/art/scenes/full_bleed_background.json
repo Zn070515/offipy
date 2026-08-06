@@ -1,0 +1,23 @@
+{
+  "slides": [
+    {
+      "index": 1,
+      "width": 1920.0,
+      "height": 1080.0,
+      "elements": [
+        {"element_id": "bg", "kind": "shape", "role": "background",
+         "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+         "background": {"r": 250, "g": 240, "b": 230, "a": 1.0},
+         "is_background": true},
+        {"element_id": "title", "kind": "text", "role": "title",
+         "x": 0.1, "y": 0.05, "width": 0.6, "height": 0.1,
+         "font_size": 52.0, "font_size_unit": "px", "text": "通版背景",
+         "foreground": {"r": 60, "g": 40, "b": 20, "a": 1.0}},
+        {"element_id": "body", "kind": "text", "role": "body",
+         "x": 0.1, "y": 0.25, "width": 0.5, "height": 0.4,
+         "font_size": 28.0, "font_size_unit": "px", "text": "正文",
+         "foreground": {"r": 60, "g": 40, "b": 20, "a": 1.0}}
+      ]
+    }
+  ]
+}

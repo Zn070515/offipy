@@ -1,0 +1,24 @@
+{
+  "slides": [
+    {
+      "index": 1,
+      "width": 1920.0,
+      "height": 1080.0,
+      "background_color": {"r": 0, "g": 0, "b": 0, "a": 1.0},
+      "elements": [
+        {"element_id": "title", "kind": "text", "role": "title",
+         "x": 0.1, "y": 0.05, "width": 0.6, "height": 0.1,
+         "font_size": 60.0, "font_size_unit": "px", "text": "发布会",
+         "foreground": {"r": 255, "g": 0, "b": 0, "a": 1.0}},
+        {"element_id": "sub", "kind": "text", "role": "subtitle",
+         "x": 0.1, "y": 0.25, "width": 0.5, "height": 0.08,
+         "font_size": 32.0, "font_size_unit": "px", "text": "高饱和",
+         "foreground": {"r": 255, "g": 0, "b": 0, "a": 1.0}},
+        {"element_id": "bar", "kind": "shape", "role": "decoration",
+         "x": 0.0, "y": 0.9, "width": 1.0, "height": 0.05,
+         "foreground": {"r": 255, "g": 0, "b": 0, "a": 1.0},
+         "decoration": true}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "slides": [
+    {
+      "index": 1,
+      "width": 1920.0,
+      "height": 1080.0,
+      "background_color": {"r": 255, "g": 255, "b": 255, "a": 1.0},
+      "elements": [
+        {"element_id": "title", "kind": "text", "role": "title",
+         "x": 0.1, "y": 0.05, "width": 0.5, "height": 0.1,
+         "font_size": 56.0, "font_size_unit": "px", "text": "数据分析",
+         "foreground": {"r": 30, "g": 30, "b": 30, "a": 1.0}},
+        {"element_id": "body1", "kind": "text", "role": "body",
+         "x": 0.1, "y": 0.2, "width": 0.4, "height": 0.08,
+         "font_size": 26.0, "font_size_unit": "px", "text": "要点一",
+         "foreground": {"r": 60, "g": 60, "b": 60, "a": 1.0}},
+        {"element_id": "body2", "kind": "text", "role": "body",
+         "x": 0.1, "y": 0.3, "width": 0.4, "height": 0.08,
+         "font_size": 26.0, "font_size_unit": "px", "text": "要点二",
+         "foreground": {"r": 60, "g": 60, "b": 60, "a": 1.0}},
+        {"element_id": "img", "kind": "image", "role": "image",
+         "x": 0.6, "y": 0.2, "width": 0.35, "height": 0.5,
+         "natural_width": 1000.0, "natural_height": 800.0}
+      ]
+    }
+  ]
+}
