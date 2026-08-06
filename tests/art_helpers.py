@@ -15,23 +15,35 @@ from offipy.art.models import (
 )
 
 
-def _prepare_element(el: ArtElement, *, slide_index: int,
-                     slide_height: float) -> ArtElement:
+def _prepare_element(el: ArtElement, *, slide_index: int, slide_height: float) -> ArtElement:
     """重建元素：统一 slide_index，并给缺 norm 的 px/pt 元素填 norm = font_size/height。"""
     norm = el.font_size_norm
     if norm is None and el.font_size is not None and el.font_size_unit != "unknown":
         norm = el.font_size / slide_height
     return ArtElement(
-        element_id=el.element_id, kind=el.kind, role=el.role,
-        x=el.x, y=el.y, width=el.width, height=el.height,
+        element_id=el.element_id,
+        kind=el.kind,
+        role=el.role,
+        x=el.x,
+        y=el.y,
+        width=el.width,
+        height=el.height,
         slide_index=slide_index,
-        foreground=el.foreground, background=el.background, border=el.border,
-        is_background=el.is_background, text=el.text,
-        font_size=el.font_size, font_size_unit=el.font_size_unit,
+        foreground=el.foreground,
+        background=el.background,
+        border=el.border,
+        is_background=el.is_background,
+        text=el.text,
+        font_size=el.font_size,
+        font_size_unit=el.font_size_unit,
         font_size_norm=norm,
-        runs=el.runs, natural_width=el.natural_width,
-        natural_height=el.natural_height, source=el.source, evidence=el.evidence,
-        container=el.container, decoration=el.decoration,
+        runs=el.runs,
+        natural_width=el.natural_width,
+        natural_height=el.natural_height,
+        source=el.source,
+        evidence=el.evidence,
+        container=el.container,
+        decoration=el.decoration,
     )
 
 
@@ -99,13 +111,27 @@ def make_text_element(
     runs: list[ArtTextRun] | None = None,
 ) -> ArtElement:
     if runs is None:
-        runs = [ArtTextRun(text=text, font_size=font_size,
-                           font_size_unit=font_size_unit, color=foreground)]
+        runs = [
+            ArtTextRun(
+                text=text, font_size=font_size, font_size_unit=font_size_unit, color=foreground
+            )
+        ]
     return make_element(
-        element_id, kind="text", role=role, x=x, y=y, w=w, h=h,
-        slide_index=slide_index, foreground=foreground, text=text,
-        background=background, border=border, is_background=is_background,
-        font_size=font_size, font_size_unit=font_size_unit,
+        element_id,
+        kind="text",
+        role=role,
+        x=x,
+        y=y,
+        w=w,
+        h=h,
+        slide_index=slide_index,
+        foreground=foreground,
+        text=text,
+        background=background,
+        border=border,
+        is_background=is_background,
+        font_size=font_size,
+        font_size_unit=font_size_unit,
         runs=runs,
     )
 
@@ -121,9 +147,16 @@ def make_image_element(
     slide_index: int = 1,
 ) -> ArtElement:
     return make_element(
-        element_id, kind="image", role="image", x=x, y=y, w=w, h=h,
+        element_id,
+        kind="image",
+        role="image",
+        x=x,
+        y=y,
+        w=w,
+        h=h,
         slide_index=slide_index,
-        natural_width=natural_width, natural_height=natural_height,
+        natural_width=natural_width,
+        natural_height=natural_height,
     )
 
 
@@ -134,11 +167,13 @@ def make_slide(
     elements: list[ArtElement] | None = None,
     background_color: ArtColor | None = None,
 ) -> ArtSlide:
-    els = [_prepare_element(e, slide_index=index, slide_height=height)
-           for e in (elements or [])]
+    els = [_prepare_element(e, slide_index=index, slide_height=height) for e in (elements or [])]
     return ArtSlide(
-        index=index, width=width, height=height,
-        elements=els, background_color=background_color,
+        index=index,
+        width=width,
+        height=height,
+        elements=els,
+        background_color=background_color,
     )
 
 
