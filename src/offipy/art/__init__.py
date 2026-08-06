@@ -23,7 +23,11 @@ from .models import (
     ArtWarning,
     DeckQualityReport,
     DimensionAssessment,
+    ElementPixelEvidence,
+    PixelColorShare,
+    SlidePixelEvidence,
 )
+from .pixels import PixelEnricher
 from .profiles import ArtProfile, get_profile, profile_names
 from .render import render_html, render_markdown, report_to_json
 
@@ -44,7 +48,11 @@ __all__ = [
     "ArtWarning",
     "DeckQualityReport",
     "DimensionAssessment",
+    "ElementPixelEvidence",
     "MeasurementAdapter",
+    "PixelColorShare",
+    "PixelEnricher",
+    "SlidePixelEvidence",
     "PptxAuditAdapter",
     "analyze_deck",
     "analyze_scene",
