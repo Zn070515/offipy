@@ -70,6 +70,9 @@ SuppressionReason = Literal[
     "repeated_decoration",
     "full_bleed",
     "intentional_containment",
+    "decorative_overlay",
+    "text_on_background",
+    "transparent_overlay",
 ]
 
 

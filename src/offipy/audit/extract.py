@@ -126,6 +126,9 @@ class _ShapeRecord:
     autofit_norm_auto_fit: bool = False
     autofit_sp_auto_fit: bool = False
     image_sha256: str | None = None  # PICTURE 图片内容 hash（compare 匹配用）
+    # 显式填充类型：none(noFill 透明)/solid/gradient/blip/pattern/unknown（无显式填充，
+    # 继承 style，按不透明处理）。overlap 遮挡判定用——透明上层不遮挡下方内容。
+    fill_kind: str = "unknown"
 
 
 @dataclass
@@ -231,6 +234,7 @@ def _build_record(
         shape_id=int(shape.shape_id),  # type: ignore[attr-defined]
         name=str(shape.name),  # type: ignore[attr-defined]
         shape_type=shape_type,
+        fill_kind=_read_fill(shape),
         left=_to_inches(shape.left),  # type: ignore[attr-defined]
         top=_to_inches(shape.top),  # type: ignore[attr-defined]
         width=_to_inches(shape.width),  # type: ignore[attr-defined]
@@ -296,6 +300,31 @@ def _read_text_frame(shape: object) -> _TextFrameData:
         autofit_norm_auto_fit=bool(norm),
         autofit_sp_auto_fit=bool(sp),
     )
+
+
+def _read_fill(shape: object) -> str:
+    """读取 p:spPr 显式填充类型，区分是否 noFill 透明。
+
+    a:noFill → "none"（透明，不遮挡下方内容）；solid/grad/blip/patt → 不透明；
+    无显式填充元素 → "unknown"（继承 style，按不透明处理——避免把继承主题填充的
+    AutoShape 误判成透明而漏报真实遮挡）。
+    """
+    from pptx.oxml.ns import qn
+
+    spPr = shape._element.xpath("./p:spPr")  # type: ignore[attr-defined]
+    if not spPr:
+        return "unknown"
+    el = spPr[0]
+    for tag, kind in (
+        ("a:noFill", "none"),
+        ("a:solidFill", "solid"),
+        ("a:gradFill", "gradient"),
+        ("a:blipFill", "blip"),
+        ("a:pattFill", "pattern"),
+    ):
+        if el.find(qn(tag)) is not None:
+            return kind
+    return "unknown"
 
 
 def _read_group_transform(shape: object) -> _GroupTransform | None:

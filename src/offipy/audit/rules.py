@@ -38,6 +38,10 @@ _TINY_AREA = 0.0025  # in²，极小装饰点
 _MIN_DIM = 1e-6  # in，退化矩形（水平/垂直线条）判空宽高阈值
 _FULL_COVER_RATIO = 0.98
 _PARTIAL_RATIO = 0.5
+_DECORATIVE_SIZE_FRACTION = 0.5
+# 装饰浮卡片豁免：on_top 无文本 + 面积 ≤ 卡片一半（≤ _DECORATIVE_SIZE_FRACTION ×
+# 卡片面积）→ 小装饰/色条分层设计（实心不透明装饰仍按尺寸判别，透明装饰走
+# transparent_overlay）。
 _OFF_CANVAS_MID_AREA = 1.0  # in²
 _HIGH_OVERSHOOT_FRACTION = 0.25
 _EDGE_RULE = {
@@ -366,11 +370,21 @@ def _classify_overlap(
     approx_note = "（旋转包围盒近似）" if confidence < 1.0 else ""
     same_parent = _same_parent(a, b)
     area_a, area_b = ra.area(), rb.area()
+    on_top, below = _on_top_below(a, b, area_a, area_b, same_parent)
+    contained = rect_contains(ra, rb, eps=1e-6) or rect_contains(rb, ra, eps=1e-6)
 
-    if rect_contains(ra, rb, eps=1e-6) or rect_contains(rb, ra, eps=1e-6):
+    reason = _overlay_suppression_reason(on_top, below, contained)
+    if reason is not None:
+        if reason == "text_on_background":
+            f = _partial_finding(a, b, ratio, context, Severity.LOW, confidence, approx_note)
+        else:
+            f = _cover_finding(below, on_top, ratio, context, confidence, approx_note)
+        context.suppressed.append(SuppressedFinding(finding=f, reason=reason))
+        return None
+
+    if contained:
         return _contained_result(a, b, ratio, context, same_parent, confidence, approx_note)
     if ratio >= _FULL_COVER_RATIO:
-        on_top, below = _on_top_below(a, b, area_a, area_b, same_parent)
         high = _is_picture_chart(on_top) and bool(below.text.strip())
         return _cover_finding(below, on_top, ratio, context, confidence, approx_note, high=high)
     if same_parent and a.parent_shape_id is not None:
@@ -389,6 +403,55 @@ def _on_top_below(
     if same_parent:
         return (a, b) if a.z_order >= b.z_order else (b, a)
     return (a, b) if area_a >= area_b else (b, a)
+
+
+def _overlay_suppression_reason(
+    on_top: _ShapeRecord, below: _ShapeRecord, contained: bool
+) -> SuppressionReason | None:
+    """统一遮挡判定：返回豁免 reason，None 则按正常分类报。
+
+    遮挡问题的本质是「上层是否真的盖住下层内容」：
+    - 透明（a:noFill）无文本上层 → 视觉上不遮挡任何东西 → transparent_overlay；
+    - 实心小装饰浮有文本容器（面积尺寸判别）→ decorative_overlay（包含/非包含都放行）；
+    - 文字浮无文本背景/容器（非包含）→ text_on_background：下方无内容可遮挡，
+      文字本身在上层完全可见，只是叠在背景条上。
+    有文本的上层（透明与否）一律不豁免——文本叠文本是真问题，透明不改变内容冲突。
+    """
+    if _is_transparent(on_top) and not _has_text(on_top):
+        return "transparent_overlay"
+    if _is_decorative_overlay(on_top, below):
+        return "decorative_overlay"
+    if not contained and _has_text(on_top) and not _has_text(below):
+        return "text_on_background"
+    return None
+
+
+def _is_transparent(rec: _ShapeRecord) -> bool:
+    """是否透明（a:noFill）——只认显式 noFill，继承填充按不透明处理。"""
+    return rec.fill_kind == "none"
+
+
+def _has_text(rec: _ShapeRecord) -> bool:
+    return rec.has_text_frame and bool(rec.text.strip())
+
+
+def _is_decorative_overlay(on_top: _ShapeRecord, below: _ShapeRecord) -> bool:
+    """小装饰/色条浮在卡片内容器上（分层设计）→ 豁免 covered_text。
+
+    on_top 无文本 + 面积 ≤ 卡片一半 + 双方非 PICTURE/CHART + 卡片有文本
+    （有内容的容器）才算装饰；大块无文本形状盖住卡片（面积占优）不豁免；
+    无文本纯背景不豁免（让背景在 --no-full-bleed-ignore 时参与 overlap）。
+    """
+    if _is_picture_chart(on_top) or _is_picture_chart(below):
+        return False
+    if _has_text(on_top):
+        return False
+    if not _has_text(below):
+        return False
+    r_on, r_below = _rect(on_top), _rect(below)
+    if r_on is None or r_below is None:
+        return False
+    return r_on.area() <= r_below.area() * _DECORATIVE_SIZE_FRACTION
 
 
 def _contained_result(
