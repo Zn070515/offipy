@@ -9,6 +9,8 @@ Claude 写 16:9 HTML 幻灯片 → vendored 的 vector-first 转换器（Playwri
 CSS；同一份 HTML 换主题即换皮，内容与视觉解耦。
 """
 
+from __future__ import annotations
+
 import contextlib
 import os
 import shutil
@@ -16,9 +18,10 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .audit import AuditConfig, PptxAuditReport, Severity
 from .client import call, ensure_server
@@ -26,6 +29,11 @@ from .design import inject_theme
 from .exceptions import ConversionError, FileConflictError, InvalidArgumentError
 from .layouts import inject_layouts
 from .paths import converter_data_dir
+
+if TYPE_CHECKING:
+    # 注解用到的 art 类型（惰性：运行时已被 from __future__ import annotations
+    # 字符串化，绝不触发包加载即拉 python-pptx 链）。
+    from .art.models import ArtReport, DeckQualityReport
 
 # vendored 转换器位于包内 _vendor/，site-packages 下经 __file__ 自定位
 _CONVERT_DIR = Path(__file__).resolve().parent / "_vendor" / "html_to_editable_pptx"
@@ -132,6 +140,7 @@ def _render_tmp(
     theme: str | None,
     apply_layouts: bool,
     overwrite: bool,
+    defer_audit_preserve: bool = False,
 ) -> Iterator[tuple[str, str]]:
     """生成到临时 .pptx 的上下文：前置检查 → mkstemp → convert → 图表/图标后处理。
 
@@ -228,8 +237,11 @@ def _render_tmp(
 
         _postprocess("图标", postprocess_icons, html, tmp_pptx)
         # 保留 convert 的 <stem>_audit 测量目录（aesthetic/feedback 回路）：
-        # tmp 随机名换成最终输出名（默认 out=<html_stem>.pptx → audit 自动发现）。
-        _preserve_audit_dir(tmp_pptx, final_out)
+        # 默认立即改到最终名（render / render_with_report 行为不变）；
+        # defer_audit_preserve=True（render_with_quality_report）保持 tmp 名，
+        # 由 RenderStage.commit() 双产物事务一起移动。
+        if not defer_audit_preserve:
+            _preserve_audit_dir(tmp_pptx, final_out)
         yield tmp_pptx, final_out
     finally:
         # 任何路径（成功或失败）都清理临时文件；已存在的 final_out 不受影响。
@@ -243,6 +255,42 @@ def _render_tmp(
             tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
             if os.path.isdir(tmp_audit):
                 shutil.rmtree(tmp_audit, ignore_errors=True)
+
+
+@contextmanager
+def _render_stage(
+    html,
+    out=None,
+    only_slides=None,
+    no_visual_audit=False,
+    timeout=600,
+    theme=None,
+    apply_layouts=False,
+    overwrite=False,
+):
+    """渲染 + 双产物原子发布阶段（defer audit preserve）。
+
+    审计目录在 with 块内保持 tmp 名（defer_audit_preserve=True），commit() 由
+    render_with_quality_report 在成功路径显式调用（context 内、finally unlink 之前）。
+    这里不自动 commit，避免双产物二次提交。
+    """
+    with _render_tmp(
+        html,
+        out,
+        only_slides,
+        no_visual_audit,
+        timeout,
+        theme,
+        apply_layouts,
+        overwrite,
+        defer_audit_preserve=True,
+    ) as (tmp_pptx, final_out):
+        stage = RenderStage(tmp_pptx=tmp_pptx, final_pptx=final_out)
+        try:
+            yield stage
+        except BaseException:
+            stage.rollback()
+            raise
 
 
 def render(
@@ -283,6 +331,59 @@ class RenderResult:
 
     def to_dict(self) -> dict:
         return {"output_path": self.output_path, "audit": self.audit_report.to_dict()}
+
+
+@dataclass
+class QualityRenderResult(RenderResult):
+    """render_with_quality_report 产出：几何审计 + 艺术分析组合。"""
+
+    art_report: ArtReport | None = None
+    deck_quality: DeckQualityReport | None = None
+
+
+@dataclass
+class RenderStage:
+    """双产物原子发布事务：PPTX + 审计目录一起提交。
+
+    - tmp_pptx：渲染产物（_render_tmp 的 finally 会在 context 退出时 unlink）
+    - final_pptx：最终 PPTX 路径
+    - committed：commit 是否已执行（避免二次 replace）
+
+    rev2.1.1：审计目录不再由 _render_tmp 提前改名到最终位置（那会让失败时
+    新审计目录已落位、旧 PPTX 保留，双产物不一致）。改为 defer_audit_preserve：
+    with 块内审计目录保持 tmp 名，commit() 才先换 PPTX 再移动审计目录。
+    """
+
+    tmp_pptx: str
+    final_pptx: str
+    committed: bool = False
+
+    @property
+    def tmp_audit_dir(self) -> Path:
+        return Path(self.tmp_pptx).parent / f"{Path(self.tmp_pptx).stem}_audit"
+
+    @property
+    def final_audit_dir(self) -> Path:
+        return Path(self.final_pptx).parent / f"{Path(self.final_pptx).stem}_audit"
+
+    @property
+    def measurements_path(self) -> Path | None:
+        """with 块内审计目录仍在 tmp 名：从这里读 measurements（最终名还没生成）。"""
+        m = self.tmp_audit_dir / "_cache" / "measurements.json"
+        return m if m.is_file() else None
+
+    def commit(self) -> None:
+        """先原子替换 PPTX，成功后把 tmp 审计目录改到最终名（双产物一起落位）。"""
+        if self.committed:
+            return
+        _atomic_replace(self.tmp_pptx, self.final_pptx)
+        if self.tmp_audit_dir.is_dir():
+            _preserve_audit_dir(self.tmp_pptx, self.final_pptx)
+        self.committed = True
+
+    def rollback(self) -> None:
+        """失败回滚：不提交；tmp_pptx 与 tmp 审计目录由 _render_tmp finally 清理。"""
+        self.committed = False
 
 
 class AuditGateError(ConversionError):
@@ -343,6 +444,90 @@ def render_with_report(
             )
         _atomic_replace(tmp_pptx, final_out)
     return RenderResult(output_path=final_out, audit_report=audit_report)
+
+
+def _run_art_analysis(
+    measurements: dict | str, profile: str, pptx_report: object | None = None
+) -> ArtReport:
+    """从保留的 measurements +（可选）几何审计建场景并分析。惰性 import art。
+
+    pptx_report 传入时 build_scene 双源融合：measurement 为主场景，
+    pptx 几何审计作 secondary 对照（合并字号/角色证据，coverage 更完整）。
+    """
+    from .art import analyze_scene, build_scene
+
+    scene = build_scene(measurements=measurements, pptx_report=pptx_report)
+    return analyze_scene(scene, profile=profile)
+
+
+def _check_art_gate() -> None:
+    """v0.12 占位：艺术层默认不阻断。strict 门禁仍归几何层。"""
+    return None
+
+
+def render_with_quality_report(
+    html: str,
+    out: str | None = None,
+    only_slides: list[int] | None = None,
+    no_visual_audit: bool = False,
+    timeout: int = 600,
+    theme: str | None = None,
+    apply_layouts: bool = False,
+    overwrite: bool = False,
+    audit_mode: str = "report",
+    fail_on: Severity = Severity.HIGH,
+    audit_config: AuditConfig | None = None,
+    profile: str = "balanced",
+) -> QualityRenderResult:
+    """render + 几何审计 + 艺术分析（原子发布）。
+
+    与 render_with_report 契约一致（audit_mode / fail_on / audit_config 同语义）；
+    艺术结果默认只建议不阻断。art 惰性 import。
+    """
+    from .art import ArtWarning, DeckQualityReport
+    from .audit import audit_pptx
+
+    if audit_mode not in {"report", "strict"}:
+        raise InvalidArgumentError("audit_mode must be 'report' or 'strict'")
+    if not isinstance(fail_on, Severity):
+        raise InvalidArgumentError("fail_on must be a Severity")
+
+    with _render_stage(
+        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+    ) as stage:
+        audit_report = audit_pptx(stage.tmp_pptx, audit_config)
+        gate = audit_report.max_severity
+        if audit_mode == "strict" and gate is not None and gate >= fail_on:
+            raise AuditGateError(
+                f"审计门槛未通过：最高严重度 {gate.name} ≥ fail_on={fail_on.name}，"
+                f"{stage.final_pptx} 未替换（旧文件保留）",
+                report=audit_report,
+                fail_on=fail_on,
+            )
+        m = stage.measurements_path
+        art_report: ArtReport | None = None
+        warnings: list[ArtWarning] = []
+        if m is not None:
+            # 双源融合：measurements 为主 + 刚审计的 pptx_report 作 secondary
+            art_report = _run_art_analysis(m, profile, pptx_report=audit_report)
+        else:
+            warnings.append(
+                ArtWarning(
+                    code="art.measurements_missing",
+                    message="未找到 measurements.json，跳过艺术分析",
+                )
+            )
+        _check_art_gate()
+        # commit() 在这里的 context 内调用：_render_tmp finally unlink tmp_pptx 之前，
+        # 同时把 tmp 审计目录改到最终名（双产物一起落位）
+        stage.commit()
+    deck_quality = DeckQualityReport(geometry=audit_report, art=art_report, warnings=warnings)
+    return QualityRenderResult(
+        output_path=stage.final_pptx,
+        audit_report=audit_report,
+        art_report=art_report,
+        deck_quality=deck_quality,
+    )
 
 
 # #22：open_live 前把 .pptx 复制到系统临时目录的 offipy-live-* 副本再让 PowerPoint
