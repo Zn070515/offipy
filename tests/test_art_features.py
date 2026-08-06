@@ -1,15 +1,22 @@
+from art_helpers import make_element, make_image_element, make_slide, make_text_element
 from offipy.art.features import (
     AlignmentLine,
     _drifted_count,
     _gaps,
     _row_clusters,
     alignment_features,
+    compute_features,
     density_features,
+    effective_background,
+    focus_features,
+    font_hierarchy,
+    infer_slide_role,
+    palette_features,
     physical_aspect_ratio,
     spacing_features,
     visual_mass,
 )
-from offipy.art.models import ArtElement
+from offipy.art.models import ArtColor, ArtElement
 
 
 def _el(element_id, x, y, w, h, role="body", kind="text"):
@@ -253,3 +260,175 @@ def test_physical_aspect_ratio_from_norm():
     )
     r = physical_aspect_ratio(el, page_width=1920.0, page_height=1080.0)
     assert abs(r - (960.0 / 324.0)) < 1e-6
+
+
+def test_infer_slide_role_cover_title_subtitle():
+    # 标题 + 副标题，正文极少（≤1）→ cover（不再用「元素数 ≤3」作硬条件）
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", font_size=52.0, role="title"),
+            make_text_element("s", "Sub", y=0.3, font_size=26.0, role="subtitle"),
+        ],
+    )
+    assert infer_slide_role(slide) == "cover"
+
+
+def test_infer_slide_role_content():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", y=0.05, font_size=40.0),
+            make_text_element("b1", "B1", y=0.2, font_size=24.0),
+            make_text_element("b2", "B2", y=0.3, font_size=24.0),
+            make_image_element("i", y=0.4, w=0.4, h=0.3),
+        ],
+    )
+    assert infer_slide_role(slide) == "content"
+
+
+def test_infer_slide_role_explicit_marker_wins():
+    # 显式 role 标记优先于启发式
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", font_size=48.0, role="section"),
+            make_text_element("b", "Body", y=0.2, font_size=24.0),
+        ],
+    )
+    assert infer_slide_role(slide) == "section"
+
+
+def test_infer_slide_role_gallery_when_three_images():
+    slide = make_slide(
+        1,
+        elements=[
+            make_image_element("i1", y=0.1),
+            make_image_element("i2", y=0.4),
+            make_image_element("i3", y=0.7),
+        ],
+    )
+    assert infer_slide_role(slide) == "gallery"
+
+
+def test_effective_background_element_first():
+    el = make_element("t", kind="text", role="body", text="Hi", background=ArtColor(240, 240, 240))
+    slide = make_slide(1, elements=[el], background_color=ArtColor(255, 255, 255))
+    bg = effective_background(el, slide)
+    assert (bg.r, bg.g, bg.b) == (240, 240, 240)
+
+
+def test_effective_background_falls_back_to_slide():
+    el = make_text_element("t", "Hi", font_size=20.0)  # 无元素背景
+    slide = make_slide(1, elements=[el], background_color=ArtColor(255, 255, 255))
+    bg = effective_background(el, slide)
+    assert (bg.r, bg.g, bg.b) == (255, 255, 255)
+
+
+def test_effective_background_unknown_is_none():
+    # 元素无背景 + 页面无背景 → None（不默认白，规则降 coverage）
+    el = make_text_element("t", "Hi", font_size=20.0)
+    slide = make_slide(1, elements=[el], background_color=None)
+    assert effective_background(el, slide) is None
+
+
+def test_font_hierarchy_ratio():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("title", "Title", font_size=48.0, role="title"),
+            make_text_element("body", "Body", y=0.2, font_size=24.0, role="body"),
+        ],
+    )
+    fh = font_hierarchy(slide)
+    assert abs(fh["ratio"] - 2.0) < 1e-9
+    assert fh["title_id"] == "title"
+
+
+def test_palette_accent_ratio_area_weighted():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("a", "A", font_size=20.0, foreground=ArtColor(230, 0, 0)),
+            make_text_element("b", "B", font_size=20.0, foreground=ArtColor(230, 0, 0), w=0.4),
+            make_text_element("c", "C", font_size=20.0, foreground=ArtColor(30, 30, 30)),
+        ],
+    )
+    pal = palette_features(slide)
+    # accent 两元素面积 (0.2*0.08 + 0.4*0.08)，非 accent 0.2*0.08
+    assert pal["accent_ratio"] > 0.5
+    assert pal["dominant"][0] > 0
+
+
+def test_palette_uses_foreground_not_background():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element(
+                "a",
+                "A",
+                font_size=20.0,
+                foreground=ArtColor(30, 30, 30),
+                background=ArtColor(230, 0, 0),
+            ),
+        ],
+    )
+    pal = palette_features(slide)
+    assert pal["accent_ratio"] == 0.0  # 红色背景不算强调色
+
+
+def test_palette_rgb_bucket():
+    c = ArtColor(20, 21, 22)
+    assert (c.r // 32) * 32 == 0
+    assert (ArtColor(250, 250, 250).r // 32) * 32 == 224
+
+
+def test_focus_requires_three_and_ratio():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", font_size=48.0, role="title"),
+            make_text_element("b", "Body", y=0.2, font_size=48.0, role="body"),
+            make_text_element("c", "Cap", y=0.3, font_size=48.0, role="caption"),
+        ],
+    )
+    assert focus_features(slide)["has_focus"] is False  # ratio < 1.5
+
+
+def test_focus_true_with_dominant():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", font_size=72.0, role="title"),
+            make_text_element("b1", "B1", y=0.2, font_size=20.0, role="body"),
+            make_text_element("b2", "B2", y=0.3, font_size=20.0, role="body"),
+        ],
+    )
+    assert focus_features(slide)["has_focus"] is True
+
+
+def test_compute_features_no_width_unit():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", font_size=48.0, role="title"),
+            make_text_element("b", "Body", y=0.2, font_size=24.0, role="body"),
+        ],
+    )
+    feats = compute_features(slide)
+    sig = feats["page_signature"]
+    assert "role" in sig and "dominant_id" in sig
+    assert "width_unit" not in sig
+
+
+def test_make_slide_sets_element_slide_index():
+    # 模型不变量：make_slide 后 element.slide_index 必须等于 slide.index
+    slide = make_slide(
+        3,
+        elements=[
+            make_text_element("t", "Title", font_size=48.0),
+            make_text_element("b", "Body", y=0.2, font_size=24.0),
+        ],
+    )
+    assert slide.index == 3
+    assert all(e.slide_index == slide.index for e in slide.elements)

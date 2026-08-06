@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .models import ArtElement, ArtSlide
+from .models import ArtColor, ArtElement, ArtSlide
 
 _SKIP_ROLES = {
     "background",
@@ -236,9 +236,122 @@ def physical_aspect_ratio(el: ArtElement, page_width: float, page_height: float)
     return (pw / ph) if ph else 0.0
 
 
-def compute_features(slide: ArtSlide) -> dict:
-    """角色/颜色/字体/焦点综合特征入口。
+# ---- 角色 / 背景 / 字体 / 调色板 / 焦点 ----
 
-    Task 5 实现（当前为占位，避免导入期缺失 name 破坏 Task 4 测试集合）。
+_KNOWN_SLIDE_ROLES = {"cover", "section", "content", "data", "gallery", "closing"}
+
+
+def infer_slide_role(slide: ArtSlide) -> str:
+    """推断 slide 角色：显式 role 标记优先，其次启发式。
+
+    支持 cover / section / content / data / gallery / closing。
+    显式 role 标记（非 content）直接返回；无标记时：
+    标题 + 正文极少（≤1）且图片 <3 → cover；图片 ≥3 → gallery；
+    图表/表格主导 → data；否则 → content。不再用「元素数 ≤3」作 cover 硬条件。
     """
-    raise NotImplementedError
+    for e in slide.elements:
+        if e.role in _KNOWN_SLIDE_ROLES and e.role != "content":
+            return e.role
+    titles = [e for e in slide.elements if e.role == "title" and e.has_text()]
+    bodies = [e for e in slide.elements if e.role == "body" and e.has_text()]
+    images = [e for e in slide.elements if e.kind == "image"]
+    if titles and len(bodies) <= 1 and len(images) < 3:
+        return "cover"
+    if len(images) >= 3:
+        return "gallery"
+    if any(e.kind in ("chart", "table") for e in slide.elements):
+        return "data"
+    return "content"
+
+
+def effective_background(el: ArtElement, slide: ArtSlide) -> ArtColor | None:
+    """元素自身背景 → 页面背景 → 未知（None，不默认白色）。
+
+    rev2.1：背景未知时返回 None，规则降 coverage / insufficient_evidence，不误报。
+    """
+    if el.background is not None:
+        return el.background
+    return slide.background_color
+
+
+def font_hierarchy(slide: ArtSlide) -> dict:
+    """标题/正文字号层级：title_size_norm、max_body_size_norm、ratio、title_id。"""
+    title = next((e for e in slide.elements if e.role == "title"), None)
+    title_size = title.font_size_norm if title else None
+    body_sizes = [
+        e.font_size_norm
+        for e in slide.elements
+        if e.role == "body" and e.font_size_norm is not None
+    ]
+    max_body = max(body_sizes) if body_sizes else None
+    ratio = (title_size / max_body) if (title_size and max_body) else None
+    return {
+        "title_size_norm": title_size,
+        "max_body_size_norm": max_body,
+        "ratio": ratio,
+        "title_id": title.element_id if title else None,
+    }
+
+
+def _is_accent(c: ArtColor) -> bool:
+    """近似判断「高饱和强调色」（前景色）。"""
+    mx = max(c.r, c.g, c.b)
+    mn = min(c.r, c.g, c.b)
+    return (mx - mn) > 60 and mx > 160
+
+
+def palette_features(slide: ArtSlide) -> dict:
+    """RGB 分桶 + 面积加权 accent 占比（只算前景色）+ dominant 色。"""
+    buckets: dict[tuple[int, int, int], float] = {}
+    accent_area = 0.0
+    total_area = 0.0
+    for e in slide.elements:
+        if e.role in _SKIP_ROLES or not e.area:
+            continue
+        c = e.foreground  # rev2.1：只用前景色；背景不算强调色
+        if c is None:
+            continue
+        bucket = ((c.r // 32) * 32, (c.g // 32) * 32, (c.b // 32) * 32)
+        buckets[bucket] = buckets.get(bucket, 0.0) + e.area
+        total_area += e.area
+        if _is_accent(c):
+            accent_area += e.area
+    if not buckets:
+        return {"buckets": {}, "accent_ratio": 0.0, "dominant": (0, 0, 0)}
+    dominant = max(buckets.items(), key=lambda kv: kv[1])[0]
+    return {
+        "buckets": {f"{r},{g},{b}": round(a, 6) for (r, g, b), a in buckets.items()},
+        "accent_ratio": round(accent_area / total_area, 6) if total_area else 0.0,
+        "dominant": list(dominant),
+    }
+
+
+def focus_features(slide: ArtSlide) -> dict:
+    """视觉焦点：≥3 元素且最大/中位字号比 ≥1.5。"""
+    sizes = [e.font_size_norm for e in slide.elements if e.font_size_norm is not None]
+    if len(slide.elements) < 3 or len(sizes) < 2:
+        return {"has_focus": False, "ratio": None}
+    top = max(sizes)
+    median = sorted(sizes)[len(sizes) // 2]
+    ratio = top / median if median else 0.0
+    return {"has_focus": ratio >= 1.5, "ratio": round(ratio, 6)}
+
+
+def compute_features(slide: ArtSlide) -> dict:
+    """汇总 8 个特征 key（alignment/spacing/mass/font_hierarchy/palette/density/focus/签名）。"""
+    els = slide.elements
+    role = infer_slide_role(slide)
+    mass = visual_mass(els)
+    return {
+        "alignment": alignment_features(els),
+        "spacing": spacing_features(els),
+        "mass": mass,
+        "font_hierarchy": font_hierarchy(slide),
+        "palette": palette_features(slide),
+        "density": density_features(els),
+        "focus": focus_features(slide),
+        "page_signature": {
+            "role": role,
+            "dominant_id": mass["dominant_id"],
+        },
+    }
