@@ -27,6 +27,10 @@ SLIDE_H_EMU = 6858000       # 7.5"
 PX_TO_EMU = SLIDE_W_EMU / SLIDE_W_PX  # 6350
 PX_TO_PT = 0.5
 
+# 单行 CJK 标签宽度冗余：PPT 的 msyh 度量比浏览器宽 1-3%，紧贴标签会溢出
+# 2-7pt 且不可换行；ASCII 度量一致，不加冗余以免破坏 algn=ctr 居中。
+_SINGLE_LINE_W_PADDING = 1.025
+
 from embed_fonts import (
     family_alias_map, weighted_family_map, cjk_typefaces, cjk_for_style, style_of_typeface,
 )
@@ -329,6 +333,14 @@ def _text_is_single_line(rec, max_fs: float) -> bool:
     return content_h < max_fs * 1.8 and not _has_explicit_break(rec)
 
 
+def _has_wide_chars(rec) -> bool:
+    """单行标签含 CJK/全角字符 → 需要宽度冗余（PPT msyh 度量比浏览器宽 1-3%）。"""
+    for run in (rec.get("runs", []) or []):
+        if is_cjk_text(run.get("text", "") or ""):
+            return True
+    return False
+
+
 def _text_box_size_px(rec, max_fs: float, is_single_line: bool) -> tuple[float, float]:
     """textbox 几何严格 = HTML BCR width，避免几何外扩破坏 algn=ctr 视觉居中。
     高度给一点宽裕，避免 PPT 行高比浏览器略高时底部被裁。
@@ -348,7 +360,8 @@ def _text_box_size_px(rec, max_fs: float, is_single_line: bool) -> tuple[float, 
     if _has_explicit_break(rec):
         return r["w"], r["h"]
     if is_single_line:
-        return r["w"], max(r["h"] * 1.4, max_fs * 1.6)
+        w = r["w"] * _SINGLE_LINE_W_PADDING if _has_wide_chars(rec) else r["w"]
+        return w, max(r["h"] * 1.4, max_fs * 1.6)
     return r["w"], r["h"] * 1.3
 
 

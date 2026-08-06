@@ -9,6 +9,8 @@
 import re
 import zipfile
 
+import pytest
+
 from assemble import assemble, first_font, DEFAULT_LATIN_FALLBACK
 
 WHITE = "rgb(255, 255, 255)"
@@ -108,3 +110,60 @@ def test_circle_with_bg_and_border_has_outline(tmp_path):
     m = re.search(r'<a:ln[^>]*w="(\d+)"[^>]*>.*?srgbClr val="333333"', xml, re.S)
     assert m, "圆形描边丢失"
     assert int(m.group(1)) == 6 * 6350  # 6px 线宽
+
+
+# ---------------------------------------------------------------- 单行 CJK 宽度冗余
+
+
+def _text_rec(w, h, runs, display="block", align_items=None):
+    """runs: list[str] 或 list[dict]（dict 需带 text 键）。"""
+    norm = [{"text": r} if isinstance(r, str) else dict(r) for r in runs]
+    rec = {"kind": "text", "rect": {"x": 0, "y": 0, "w": w, "h": h}, "runs": norm}
+    st = {"display": display}
+    if align_items:
+        st["alignItems"] = align_items
+    rec["style"] = st
+    return rec
+
+
+def test_single_line_cjk_width_padded():
+    from assemble import _text_box_size_px
+    rec = _text_rec(100, 20, ["数据标签"])
+    w, h = _text_box_size_px(rec, 14.0, True)
+    assert w == pytest.approx(100 * 1.025)
+    assert h == pytest.approx(max(20 * 1.4, 14.0 * 1.6))
+
+
+def test_single_line_ascii_width_unchanged():
+    from assemble import _text_box_size_px
+    rec = _text_rec(100, 20, ["SELECT"])
+    w, _ = _text_box_size_px(rec, 14.0, True)
+    assert w == pytest.approx(100.0)
+
+
+def test_multi_line_cjk_not_padded():
+    from assemble import _text_box_size_px
+    rec = _text_rec(100, 20, ["数据标签"])
+    w, _ = _text_box_size_px(rec, 14.0, False)
+    assert w == pytest.approx(100.0)
+
+
+def test_explicit_break_cjk_not_padded():
+    from assemble import _text_box_size_px
+    rec = _text_rec(100, 20, [{"text": "数据", "linebreak": True}])
+    w, _ = _text_box_size_px(rec, 14.0, True)
+    assert w == pytest.approx(100.0)
+
+
+def test_flex_anchor_cjk_not_padded():
+    from assemble import _text_box_size_px
+    rec = _text_rec(100, 20, ["数据"], display="flex", align_items="center")
+    w, _ = _text_box_size_px(rec, 14.0, True)
+    assert w == pytest.approx(100.0)
+
+
+def test_has_wide_chars_detection():
+    from assemble import _has_wide_chars
+    assert _has_wide_chars(_text_rec(100, 20, ["abc", "数据"])) is True
+    assert _has_wide_chars(_text_rec(100, 20, ["SELECT", "OK"])) is False
+    assert _has_wide_chars(_text_rec(100, 20, [])) is False
