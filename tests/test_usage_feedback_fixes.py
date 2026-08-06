@@ -65,8 +65,9 @@ def test_app_process_pid_non_com_object_none():
 
 
 def test_set_table_col_width_falls_back_to_cells_on_merged(monkeypatch):
-    # 合并单元格后 Columns(col).Width 拒访（「表格有混合的单元格宽度」）→
-    # 逐格设宽；每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
+    # 合并单元格后 Columns(col) 本身就被拒访（「表格有混合的单元格宽度」）→
+    # 彻底绕开列对象，逐行 table.Cell(r, col).Width 设宽；每个 cell 有独立
+    # Width 可写，先合并后调列宽也能成立。
     if not _COM_ERROR:
         pytest.skip("pywin32 未装，无法构造 com_error 触发回退")
     from offipy import word
@@ -77,18 +78,9 @@ def test_set_table_col_width_falls_back_to_cells_on_merged(monkeypatch):
         def __init__(self):
             self.Width = None
 
-    class _Cells:
-        def __init__(self, n):
-            self.Count = n
-            self.cells = [_Cell() for _ in range(n)]
-
-        def __call__(self, i):
-            return self.cells[i - 1]
-
     class _MergedCol:
-        def __init__(self):
-            self.Cells = _Cells(3)
-
+        # Columns(col) 在混合列宽表格上任何属性访问都被拒访（含 .Width 与
+        # .Cells）——设宽即抛错，fallback 才能走到逐行 table.Cell(r, col) 分支。
         def __setattr__(self, name, value):
             if name == "Width":
                 raise err
@@ -97,10 +89,16 @@ def test_set_table_col_width_falls_back_to_cells_on_merged(monkeypatch):
     class _Table:
         def __init__(self):
             self._col = _MergedCol()
+            self.Rows = type("R", (), {"Count": 3})()
+            self.cells = [[_Cell() for _ in range(3)] for _ in range(3)]
 
         def Columns(self, col):
             assert col == 2
             return self._col
+
+        def Cell(self, row, col):
+            assert col == 2
+            return self.cells[row - 1][col - 1]
 
     class _Doc:
         def __init__(self):
@@ -113,7 +111,7 @@ def test_set_table_col_width_falls_back_to_cells_on_merged(monkeypatch):
     app = word.WordApp.__new__(word.WordApp)
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: doc)
     app.set_table_col_width(1, 2, 300.0, doc_id="d1")
-    widths = [c.Width for c in doc.table._col.Cells.cells]
+    widths = [doc.table.cells[r][1].Width for r in range(3)]
     assert widths == [300.0, 300.0, 300.0]
 
 

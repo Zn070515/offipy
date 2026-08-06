@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.11.4 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.11.5 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 

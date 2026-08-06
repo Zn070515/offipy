@@ -573,11 +573,11 @@ class WordApp:
         try:
             table.Columns(col).Width = width
         except _COM_ERROR:
-            # 合并单元格后 Columns(col).Width 拒访（「表格有混合的单元格宽度」）。
-            # 改逐格设宽：每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
-            cells = table.Columns(col).Cells
-            for i in range(1, cells.Count + 1):
-                cells(i).Width = width
+            # 合并单元格后 Columns(col) 本身就被拒访（「表格有混合的单元格宽度」），
+            # 连 Columns(col).Cells 也一样。彻底绕开列对象：逐行取 table.Cell(r, col)，
+            # 每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
+            for r in range(1, table.Rows.Count + 1):
+                table.Cell(r, col).Width = width
 
     @destructive
     def set_table_row_height(

@@ -3,6 +3,21 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.11.5] - 2026-08-06
+
+### Fixed
+- **Word 合并表格列宽真正生效**（使用方复测 #15）：0.11.4 的逐格回退仍走
+  `Columns(col).Cells`，而混合列宽表格上 `Columns(col)` 本身即被拒访（「表格有
+  混合的单元格宽度」），回退首句就抛错、从未生效。改为逐行 `table.Cell(r, col).Width`
+  设宽（r 遍历 `Rows.Count`），彻底绕开列对象
+- **`split-2col` 布局 `.cols` wrapper 形态回归修复**（使用方复测 #9）：
+  - `display: contents` 的 `.cols` 无盒（`getBoundingClientRect` 恒 0×0）但子元素
+    照常渲染，measure 的 `isHidden` 不再把它当隐藏剪掉子树——`.cols` wrapper 形态
+    不再产出 ZERO shapes（比 0.11.4 的「两栏堆叠左列」更糟的回归）
+  - 容器 `align-items` 由 `stretch` 改为 `flex-start`，只让 `.col` 用
+    `align-self: stretch` 填满整页；眉标/标题等非 col 的 flex 子元素保持自然高度，
+    不再被拉成整页高的 7.8in 超高文本框
+
 ## [0.11.4] - 2026-08-06
 
 ### Fixed
@@ -16,8 +31,8 @@
   - core 新增 `app_process_pid`（COM 窗口句柄反查 PID）/ `wait_process_exit` /
     `reap_process`，`quit_app` 同步按 PID 清理
 - **Word / PowerPoint 交互修复**：
-  - 合并单元格后 `Columns(col).Width` 拒访（「表格有混合的单元格宽度」）→ 回退逐格
-    设宽，先合并后调列宽也成立
+  - 合并单元格后 `Columns(col).Width` 拒访（「表格有混合的单元格宽度」）→ 首次回退
+    逐格设宽（0.11.5 修正：该回退在混合列宽表格上仍被拒访、从未生效，见 0.11.5 条目）
   - `read_doc_text` 归一化 Word 原始标记：表格 cell 结束符 `\x07` → `" | "`、
     段落符 `\r\n` / `\r` → `\n`（`\r\n` 先行避免双换行），Agent 文本层读到干净结构
   - `add_picture` 内嵌图片传 `SaveWithDocument=msoTrue(-1)`（LinkToFile=False 时传 0
