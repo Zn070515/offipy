@@ -16,11 +16,16 @@
   mcp    —— offipy[mcp]（MCP server）
   all    —— offipy[all]（默认）
 
+--acceptance-dir：对目录下全部 art 验收 fixture（*.json）跑真实 analyze_scene，
+  验证 wheel 里的 offipy.art 完整可用（import 导出 + 场景解析 + 规则评估 + 报告）。
+
 验证点（任一失败 → 非 0 退出，供 CI release 门禁用）：
   1. uv pip install 能解析依赖并装进干净 venv（依赖走 uv 全局缓存，无需重下载）
   2. `import offipy` 成功，__version__ 非空
   3. offipy.deck.CONVERT_PY 存在（P0-1：converter vendored 进 wheel）
   4. `offipy check --json` 能跑，输出合法 JSON 且 version 匹配
+  5. offipy.art 导出存在（build_scene/analyze_scene/render_markdown）
+  6. 对 acceptance-dir 全部 fixture 跑 analyze_scene，报告非空
 
 注：不断言 check 的退出码——Chromium/Office 是否就绪是运行环境问题，
 不是打包问题；这里只证明打包本身正确。
@@ -46,6 +51,26 @@ CHECK_JSON = (
     "import offipy.cli\n"
     "rc = offipy.cli.main(['check', '--json'])\n"
     "print(json.dumps({'rc': rc, 'version': offipy.__version__}))\n"
+)
+# 在已装 wheel 的干净 venv 里验证 offipy.art 完整可用：纯标准库、不拉 python-pptx。
+ART_CHECK = (
+    "import json, sys\n"
+    "from pathlib import Path\n"
+    "import offipy\n"
+    "assert hasattr(offipy, 'build_scene'), 'build_scene 导出缺失'\n"
+    "assert hasattr(offipy, 'analyze_scene'), 'analyze_scene 导出缺失'\n"
+    "assert hasattr(offipy, 'render_markdown'), 'render_markdown 导出缺失'\n"
+    "assert 'pptx' not in sys.modules, 'art import 不应加载 python-pptx'\n"
+    "from offipy.art import ArtScene\n"
+    "acc = sys.argv[1]\n"
+    "files = sorted(Path(acc).glob('*.json')) if acc and Path(acc).is_dir() else []\n"
+    "if not files:\n"
+    "    raise SystemExit(f'acceptance-dir 无 fixture: {acc}')\n"
+    "for f in files:\n"
+    "    scene = ArtScene.from_dict(json.loads(f.read_text(encoding='utf-8')))\n"
+    "    report = offipy.analyze_scene(scene, profile='balanced')\n"
+    "    assert report.slides, f'{f.name}: 报告无 slides'\n"
+    "print(f'wheel art ok: {len(files)} acceptance scenes analyzed')\n"
 )
 
 PROFILES = ("core", "office", "deck", "mcp", "all")
@@ -92,6 +117,10 @@ def main() -> int:
     )
     parser.add_argument("--index", help="从 index 安装（此时需 --version），如 test.pypi.org")
     parser.add_argument("--version", help="index 安装的版本号，如 0.9.0a1")
+    parser.add_argument(
+        "--acceptance-dir",
+        help="art 验收 fixture 目录（*.json），对每个 fixture 跑真实 analyze_scene",
+    )
     args = parser.parse_args()
 
     if args.index and not args.version:
@@ -133,6 +162,11 @@ def main() -> int:
         print(f"[install-smoke] version = {report['version']}, check rc = {report['rc']}")
         if not report["version"]:
             raise SystemExit("[install-smoke] 版本为空")
+
+        print("[install-smoke] offipy.art 导出 + acceptance fixtures 真实 analyze_scene ...")
+        acc = args.acceptance_dir or ""
+        r = _run([py, "-c", ART_CHECK, acc])
+        print(f"[install-smoke] {r.stdout.strip().splitlines()[-1]}")
 
         print("[install-smoke] OK — 打包冒烟通过")
         return 0
