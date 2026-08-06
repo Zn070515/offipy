@@ -514,48 +514,49 @@ def render_with_quality_report(
         warnings: list[ArtWarning] = []
         staging_slides: str | None = None
         staging_dir: str | None = None
-        if m is not None and pixel_analysis != "off":
-            staging_dir = tempfile.mkdtemp(
-                prefix="offipy-pixel-", dir=os.path.dirname(stage.final_pptx) or "."
-            )
-            staging_slides = os.path.join(staging_dir, "slides")
-            os.makedirs(staging_slides, exist_ok=True)
-            try:
-                _export_pixel_slides(stage.tmp_pptx, staging_slides)
-                _write_deck_info(staging_slides, stage.tmp_pptx)
-            except Exception as exc:
-                shutil.rmtree(staging_dir, ignore_errors=True)
+        try:
+            if m is not None and pixel_analysis != "off":
+                staging_dir = tempfile.mkdtemp(
+                    prefix="offipy-pixel-", dir=os.path.dirname(stage.final_pptx) or "."
+                )
+                staging_slides = os.path.join(staging_dir, "slides")
+                try:
+                    os.makedirs(staging_slides, exist_ok=True)
+                    _export_pixel_slides(stage.tmp_pptx, staging_slides)
+                    _write_deck_info(staging_slides, stage.tmp_pptx)
+                except Exception as exc:
+                    if pixel_analysis == "required":
+                        raise ConversionError(f"像素分析导出失败（required）: {exc}") from exc
+                    warnings.append(
+                        ArtWarning(
+                            code="art.pixel.best_effort_failed",
+                            message=f"像素分析导出失败，已跳过: {exc}",
+                        )
+                    )
+                    staging_slides = None
+            if m is not None:
+                # 双源融合：measurements 为主 + pptx_report secondary + slides_dir tertiary
+                art_report = _run_art_analysis(
+                    m, profile, pptx_report=audit_report, slides_dir=staging_slides
+                )
+            else:
                 if pixel_analysis == "required":
-                    raise ConversionError(f"像素分析导出失败（required）: {exc}") from exc
+                    raise ConversionError("像素分析（required）需要 measurements.json")
                 warnings.append(
                     ArtWarning(
-                        code="art.pixel.best_effort_failed",
-                        message=f"像素分析导出失败，已跳过: {exc}",
+                        code="art.measurements_missing",
+                        message="未找到 measurements.json，跳过艺术分析",
                     )
                 )
-                staging_slides = None
-                staging_dir = None
-        if m is not None:
-            # 双源融合：measurements 为主 + 刚审计的 pptx_report 作 secondary
-            # +（可选）像素 slides_dir 作 tertiary
-            art_report = _run_art_analysis(
-                m, profile, pptx_report=audit_report, slides_dir=staging_slides
-            )
-        else:
-            warnings.append(
-                ArtWarning(
-                    code="art.measurements_missing",
-                    message="未找到 measurements.json，跳过艺术分析",
-                )
-            )
-        _check_art_gate()
-        # commit() 在这里的 context 内调用：_render_tmp finally unlink tmp_pptx 之前，
-        # 同时把 tmp 审计目录改到最终名（双产物一起落位）
-        stage.commit()
-        if preserve_pixel_slides and staging_slides is not None:
-            _move_slides_to_final(staging_slides, stage, slides_output_dir)
-        elif staging_dir is not None:
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            _check_art_gate()
+            # commit() 在 context 内调用：_render_tmp finally unlink tmp_pptx 之前，
+            # 同时把 tmp 审计目录改到最终名（双产物一起落位）
+            stage.commit()
+            if preserve_pixel_slides and staging_slides is not None:
+                _move_slides_to_final(staging_slides, stage, slides_output_dir)
+        finally:
+            if staging_dir is not None:
+                shutil.rmtree(staging_dir, ignore_errors=True)
     deck_quality = DeckQualityReport(geometry=audit_report, art=art_report, warnings=warnings)
     return QualityRenderResult(
         output_path=stage.final_pptx,
@@ -595,16 +596,23 @@ def _default_slides_dir(final_pptx: str) -> str:
     return str(Path(final_pptx).with_suffix("")) + "_slides"
 
 
+def _is_slide_png(name: str) -> bool:
+    return name.startswith("slide_") and name.endswith(".png")
+
+
 def _move_slides_to_final(
     staging_slides: str, stage: RenderStage, slides_output_dir: str | None
 ) -> str:
     final_slides = slides_output_dir or _default_slides_dir(stage.final_pptx)
     os.makedirs(final_slides, exist_ok=True)
+    # 先清理本 deck 先前落位的产物（slide_*.png + _deck_info.json），避免 re-render
+    # 页数变少时残留旧页；绝不删用户其他文件。
+    for f in Path(final_slides).iterdir():
+        if f.is_file() and (f.name == "_deck_info.json" or _is_slide_png(f.name)):
+            f.unlink()
     for f in Path(staging_slides).iterdir():
         if f.is_file():
             shutil.copy2(str(f), os.path.join(final_slides, f.name))
-    # 拷贝完成后清理 staging 目录（slides 的父目录即 mkdtemp 的 staging 根）
-    shutil.rmtree(os.path.dirname(staging_slides), ignore_errors=True)
     return final_slides
 
 

@@ -225,3 +225,79 @@ def test_render_with_quality_report_invalid_pixel_analysis(tmp_path, monkeypatch
     monkeypatch.setattr("offipy.audit.audit_pptx", _fake_audit)
     with pytest.raises(InvalidArgumentError):
         deck.render_with_quality_report("in.html", pixel_analysis="always")
+
+
+def test_render_with_quality_report_pixel_commit_failure_cleans_staging(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    audit_dir = out_dir / "tmp_audit" / "_cache"
+    audit_dir.mkdir(parents=True)
+    (audit_dir / "measurements.json").write_text(json.dumps({"slides": []}), encoding="utf-8")
+
+    monkeypatch.setattr(deck, "_render_stage", lambda *a, **kw: _FakeStage(out_dir))
+    monkeypatch.setattr("offipy.audit.audit_pptx", _fake_audit)
+
+    def fake_export(pptx, out_dir):
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        Path(out_dir, "slide_1.png").write_bytes(b"png")
+        return [str(Path(out_dir, "slide_1.png"))]
+
+    monkeypatch.setattr(deck, "_export_pixel_slides", fake_export)
+    monkeypatch.setattr(deck, "_write_deck_info", lambda out_dir, pptx: None)
+    monkeypatch.setattr(
+        deck,
+        "_run_art_analysis",
+        lambda measurements, profile="balanced", pptx_report=None, slides_dir=None: ArtReport(
+            profile=profile
+        ),
+    )
+    monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
+
+    def raise_commit(self):
+        raise ConversionError("final pptx locked")
+
+    monkeypatch.setattr(_FakeStage, "commit", raise_commit)
+
+    with pytest.raises(ConversionError):
+        deck.render_with_quality_report(
+            "in.html", pixel_analysis="required", preserve_pixel_slides=True
+        )
+    assert not list(out_dir.glob("offipy-pixel-*"))  # commit 抛错也清理 staging
+
+
+def test_move_slides_to_final_scrubs_stale(tmp_path):
+    staging = tmp_path / "staging" / "slides"
+    staging.mkdir(parents=True)
+    (staging / "slide_1.png").write_bytes(b"fresh1")
+    (staging / "_deck_info.json").write_text("fresh_info", encoding="utf-8")
+
+    final = tmp_path / "final"
+    final.mkdir(parents=True)
+    (final / "slide_1.png").write_bytes(b"old1")
+    (final / "slide_2.png").write_bytes(b"old2")
+    (final / "_deck_info.json").write_text("old_info", encoding="utf-8")
+    (final / "notes.txt").write_text("keep", encoding="utf-8")
+
+    class _DummyStage:
+        final_pptx = "x"
+
+    deck._move_slides_to_final(str(staging), _DummyStage(), slides_output_dir=str(final))
+
+    assert (final / "slide_1.png").read_bytes() == b"fresh1"
+    assert (final / "_deck_info.json").read_text(encoding="utf-8") == "fresh_info"
+    assert (final / "notes.txt").read_text(encoding="utf-8") == "keep"
+    assert not (final / "slide_2.png").exists()  # 旧页残留被清掉
+
+
+def test_render_with_quality_report_pixel_required_missing_measurements_raises(
+    tmp_path, monkeypatch
+):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    monkeypatch.setattr(deck, "_render_stage", lambda *a, **kw: _FakeStage(out_dir))
+    monkeypatch.setattr("offipy.audit.audit_pptx", _fake_audit)
+    monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
+
+    with pytest.raises(ConversionError):
+        deck.render_with_quality_report("in.html", pixel_analysis="required")
+    assert not list(out_dir.glob("offipy-pixel-*"))  # 无 measurements 不建 staging
