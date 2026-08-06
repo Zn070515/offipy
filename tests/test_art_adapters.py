@@ -239,6 +239,51 @@ def test_merge_keeps_secondary_only_slide():
     assert any(w.code == "art.merge.slide_secondary_only" for w in warnings)
 
 
+def test_merge_primary_only_slide_warns():
+    m_scene = make_scene(
+        [
+            make_slide(1, elements=[make_text_element("a", "A", font_size=20.0)]),
+            make_slide(2, elements=[make_text_element("s2", "S2", font_size=20.0)]),
+        ]
+    )
+    p_scene = make_scene(
+        [make_slide(1, elements=[make_text_element("a", "A", font_size=20.0)])],
+        width_unit="pt",
+    )
+    merged, warnings = merge_scenes(primary=m_scene, secondary=p_scene)
+    assert any(w.code == "art.merge.slide_missing" for w in warnings)
+    # primary-only slide 2 kept, elements stay source "measurement"
+    assert merged.slides[1].elements[0].source == "measurement"
+
+
+def test_pptx_adapter_skips_index_out_of_range():
+    from offipy.audit.models import SlideShapeSnapshot
+
+    report = _report_from_fixture(
+        json.loads((FIXTURES / "real_audit_report.json").read_text(encoding="utf-8"))
+    )
+    report.shapes.append(
+        SlideShapeSnapshot(
+            slide_index=5,
+            shape_id=99,
+            name="oob",
+            shape_type="TextBox",
+            role="body",
+            left=1.0,
+            top=1.0,
+            width=1.0,
+            height=1.0,
+            z_order=9,
+            text="",
+            is_rotated=False,
+            geometry_unknown=False,
+        )
+    )
+    scene = PptxAuditAdapter(report).build()
+    assert len(scene.slides[0].elements) == 2  # out-of-range shape skipped
+    assert any(w.code == "art.adapter.index_out_of_range" for w in scene.warnings)
+
+
 def _report_from_fixture(data):
     from offipy.audit.models import AuditConfig, PptxAuditReport, SlideShapeSnapshot
 
