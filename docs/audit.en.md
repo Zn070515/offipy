@@ -190,7 +190,15 @@ The two modes are **kept separate** (not uniformly downgraded):
 | `header_footer` | header/footer placeholder; or repeated >60% across pages + top/bottom region |
 | `repeated_decoration` | decoration whose fingerprint repeats >60% of pages |
 | `intentional_containment` | text inside a filled AutoShape (card container) |
+| `decorative_overlay` | small solid decoration/color bar on a text-bearing container (size-based) — no content occluded |
+| `text_on_background` | text floating on a no-text background/container (non-contained) — nothing below to occlude |
+| `transparent_overlay` | transparent (`a:noFill`) textless top shape — visually occludes nothing |
 | `user_shape` / `user_region` | user explicitly suppressed via `ignored_shapes` / `ignored_regions` |
+
+Overlap occlusion is judged by "does the top shape actually cover content below": a transparent
+textless top shape occludes nothing, small decorations are size-based, and text on a no-text
+background occludes nothing. **A text-bearing top shape (transparent or not) is never exempted** —
+text-on-text is a real problem; transparency does not remove the content conflict.
 
 **Not all pure-number short text is globally ignored** — only small pure numbers in the bottom
 region count as page numbers.
