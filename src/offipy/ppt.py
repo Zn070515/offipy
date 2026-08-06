@@ -12,7 +12,7 @@ from typing import Any, NamedTuple
 
 from . import core
 from ._comguard import _COM_ERROR, guard_com
-from .core import destructive, requires_target
+from .core import destructive, readonly_guard, requires_target
 from .exceptions import (
     ComOperationError,
     FileConflictError,
@@ -724,6 +724,7 @@ class PptApp:
             os.path.normpath(os.path.abspath(path)), 0, -1, left, top, width, height
         )
 
+    @readonly_guard
     def read_slide_texts(
         self,
         slide_idx: int,
@@ -746,6 +747,7 @@ class PptApp:
             if include_empty or item.record["text"]
         ]
 
+    @readonly_guard
     def read_slide_summary(self, doc_id: str | None = None) -> list[dict]:
         """逐页读标题/正文/备注摘要（0.9 read_slide_texts 的语义），返回 list[dict]。
 

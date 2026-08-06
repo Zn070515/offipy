@@ -12,7 +12,7 @@
 import pytest
 
 from offipy._comguard import _COM_ERROR
-from offipy.exceptions import ComOperationError, InvalidArgumentError
+from offipy.exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 
 # ================================================================ A. word
 
@@ -554,3 +554,134 @@ def test_close_pres_save_true_saves_then_closes(monkeypatch):
     out = app.close_pres(save=True, doc_id="pres1")
     assert pres.closed is True
     assert out == "C:/saved.pptx"
+
+
+# ================================================================ D. op() 只读 follow_active（#25）
+
+
+def test_schema_supports_follow_active():
+    from offipy import schema
+
+    # 只读目标 op 显式放行 follow_active
+    assert schema.supports_follow_active("excel", "get_cell") is True
+    assert schema.supports_follow_active("excel", "read_range") is True
+    assert schema.supports_follow_active("word", "read_doc_text") is True
+    assert schema.supports_follow_active("ppt", "read_slide_texts") is True
+    assert schema.supports_follow_active("ppt", "read_slide_summary") is True
+    # destructive / requires_target 自动继承
+    assert schema.supports_follow_active("excel", "set_cell") is True
+    assert schema.supports_follow_active("ppt", "save_pdf") is True
+    # 无目标语义的 op 不放行（new_*/activate/list_docs 不作用在活动目标上）
+    assert schema.supports_follow_active("excel", "new_book") is False
+    assert schema.supports_follow_active("excel", "activate") is False
+    assert schema.supports_follow_active("word", "list_docs") is False
+
+
+def test_schema_supports_follow_active_matches_flags():
+    # 一致性：supports_follow_active ↔ destructive/requires_target/accepts_follow_active
+    from offipy import schema
+
+    for app in schema.apps():
+        for op in schema.ops(app):
+            spec = schema.spec(app, op)
+            want = bool(spec.destructive or spec.requires_target or spec.accepts_follow_active)
+            assert schema.supports_follow_active(app, op) is want, f"{app}.{op} 不一致"
+
+
+def test_get_cell_follow_active_resolves_active_doc(monkeypatch):
+    from offipy import excel
+
+    captured = {}
+
+    class _Ws:
+        def Cells(self, row, col):
+            return type("C", (), {"Value": 7})()
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "get_target", lambda: {"doc_id": "active-book"})
+    monkeypatch.setattr(
+        app, "_ws", lambda sheet, doc_id=None: captured.__setitem__("doc_id", doc_id) or _Ws()
+    )
+    assert app.get_cell(1, "A1", follow_active=True) == 7
+    assert captured["doc_id"] == "active-book"
+
+
+def test_read_range_follow_active_resolves_active_doc(monkeypatch):
+    from offipy import excel
+
+    captured = {}
+
+    class _Ws:
+        def Range(self, addr):
+            return type("R", (), {"Value": [["x"]], "Address": addr})()
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "get_target", lambda: {"doc_id": "active-book"})
+    monkeypatch.setattr(
+        app, "_ws", lambda sheet, doc_id=None: captured.__setitem__("doc_id", doc_id) or _Ws()
+    )
+    assert app.read_range(1, "A1", follow_active=True) == [["x"]]
+    assert captured["doc_id"] == "active-book"
+
+
+def test_read_doc_text_follow_active_resolves_active_doc(monkeypatch):
+    from offipy import word
+
+    captured = {}
+
+    class _Doc:
+        @property
+        def Content(self):
+            return type("C", (), {"Text": "hi"})
+
+    app = word.WordApp.__new__(word.WordApp)
+    monkeypatch.setattr(app, "get_target", lambda: {"doc_id": "active-doc"})
+    monkeypatch.setattr(
+        app, "_require_doc", lambda doc_id=None: captured.__setitem__("doc_id", doc_id) or _Doc()
+    )
+    assert app.read_doc_text(follow_active=True) == "hi"
+    assert captured["doc_id"] == "active-doc"
+
+
+def test_readonly_follow_active_no_active_doc_raises(monkeypatch):
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(app, "get_target", lambda: None)
+    with pytest.raises(TargetNotFoundError, match="没有活动文档"):
+        app.get_cell(1, "A1", follow_active=True)
+
+
+def test_readonly_follow_active_false_keeps_active_fallback(monkeypatch):
+    # follow_active=False（缺省）：doc_id 仍缺省走活动文档（只读语义不变）
+    from offipy import excel
+
+    captured = {}
+
+    class _Ws:
+        def Cells(self, row, col):
+            return type("C", (), {"Value": 7})()
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    monkeypatch.setattr(
+        app, "_ws", lambda sheet, doc_id=None: captured.__setitem__("doc_id", doc_id) or _Ws()
+    )
+    assert app.get_cell(1, "A1") == 7
+    assert captured["doc_id"] is None
+
+
+def test_remote_facade_exposes_follow_active_on_readonly():
+    import inspect
+
+    from offipy import api
+
+    r = api.RemoteExcel(base_url="http://127.0.0.1:1")
+    assert "follow_active" in inspect.signature(r.get_cell).parameters
+    assert "expected_target" not in inspect.signature(r.get_cell).parameters
+    assert "follow_active" in inspect.signature(r.read_range).parameters
+    assert "expected_target" not in inspect.signature(r.read_range).parameters
+    # 破坏性 op 仍同时带 expected_target + follow_active
+    assert "expected_target" in inspect.signature(r.set_cell).parameters
+    assert "follow_active" in inspect.signature(r.set_cell).parameters
+    # 无目标语义的只读 op 不放行
+    assert "follow_active" not in inspect.signature(r.new_book).parameters

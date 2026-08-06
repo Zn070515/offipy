@@ -27,6 +27,7 @@ class OpSpec:
     destructive: bool = False  # 会改动文档内容/状态（expected_target 绑定对象）
     requires_target: bool = False  # 会选中源文档并写文件系统：非破坏性但必须绑定目标（P0-3）
     supports_expected_target: bool = False  # 传输层额外支持 expected_target 绑定
+    accepts_follow_active: bool = False  # #25：只读 op 也显式接受 follow_active（默认已跟随活动）
     deprecated: bool = False  # P2-9 预留：已弃用 op，响应带 warning
     returns: str = "void"  # void/int/str/bool/list/dict/any（文档化用）
     params: dict[str, Any] = field(default_factory=dict)  # 参数类型（与 App 方法签名一致）
@@ -66,6 +67,20 @@ def supports_expected_target(app: str, op: str) -> bool:
     """
     s = spec(app, op)
     return bool(s and (s.destructive or s.requires_target or s.supports_expected_target))
+
+
+def supports_follow_active(app: str, op: str) -> bool:
+    """该 op 是否接受 follow_active 传输参数（P0-3 / #25）。
+
+    destructive 自动继承（follow_active = 显式声明跟随当前活动文档，与
+    expected_target 同路径）；requires_target op（导出类）同样必须绑定目标；
+    个别只读但作用在当前活动文档上的 op（get_cell/read_range/read_doc_text/
+    read_slide_texts/read_slide_summary）经 accepts_follow_active=True 显式放行——
+    语义上它们 doc_id 缺省本就跟随活动文档，follow_active 是对齐破坏性 op 的
+    显式入口，避免 api.op()/Remote/MCP/CLI 传 follow_active 时 TypeError。
+    """
+    s = spec(app, op)
+    return bool(s and (s.destructive or s.requires_target or s.accepts_follow_active))
 
 
 # =================================================================== Excel
@@ -122,6 +137,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "get_cell": OpSpec(
             description="读取单元格的值；sheet 传表名或序号，cell 如 'A1'。",
             readonly=True,
+            accepts_follow_active=True,
             returns="any",
             params={"sheet": Any, "cell": str, "doc_id": str},
         ),
@@ -251,6 +267,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "read_range": OpSpec(
             description="读取工作表 range_addr（如 'A1:C3'）的值，返回二维列表（行→列）。",
             readonly=True,
+            accepts_follow_active=True,
             returns="list",
             params={"sheet": Any, "range_addr": str, "doc_id": str},
         ),
@@ -515,6 +532,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "read_doc_text": OpSpec(
             description="读取文档全文文本（只读，不修改状态）。",
             readonly=True,
+            accepts_follow_active=True,
             returns="str",
             params={"doc_id": str},
         ),
@@ -659,6 +677,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "include_empty=True 连空文本 shape 也返回；recursive=False 不递归 group。"
             ),
             readonly=True,
+            accepts_follow_active=True,
             returns="list[SlideTextRecord]",
             params={"slide_idx": int, "include_empty": bool, "recursive": bool, "doc_id": str},
         ),
@@ -668,6 +687,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "返回 [{index, title, body, notes}]。"
             ),
             readonly=True,
+            accepts_follow_active=True,
             returns="list",
             params={"doc_id": str},
         ),

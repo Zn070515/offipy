@@ -9,7 +9,7 @@ from typing import Any, TypeVar
 
 from . import core
 from ._comguard import _COM_ERROR, guard_com
-from .core import destructive, requires_target
+from .core import destructive, readonly_guard, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -678,6 +678,7 @@ class WordApp:
         _end_range(self._require_doc(doc_id)).InsertBreak(7)  # wdPageBreak
 
     # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
+    @readonly_guard
     def read_doc_text(self, doc_id: str | None = None):
         """读取当前文档全文文本（只读，不改任何状态）。
 

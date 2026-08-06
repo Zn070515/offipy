@@ -116,6 +116,30 @@ def requires_target(fn):
     return _target_guard(fn, "导出/写文件操作需要显式 doc_id 或 follow_active=True")
 
 
+def readonly_guard(fn):
+    """只读操作守卫：可选 follow_active（#25：只读 op 对齐破坏性语义）。
+
+    只读 op 的 doc_id 缺省本就实时解析当前活动文档；follow_active=True 是显式
+    声明该意图，经 get_target() 解析真实活动目标并注入 doc_id，无活动文档抛
+    TargetNotFoundError——与 destructive/requires_target 的 follow_active 完全
+    一致，让 api.op()/with Excel() 等入口对只读 op 传 follow_active 不再 TypeError。
+    """
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, follow_active=False, **kw):
+        bound = sig.bind_partial(self, *args, **kw)
+        did = bound.arguments.get("doc_id")
+        if did is None and follow_active:
+            tgt = self.get_target()
+            if tgt is None:
+                raise TargetNotFoundError("没有活动文档；请先 new_*/open_* 或显式 doc_id")
+            bound.arguments["doc_id"] = tgt["doc_id"]
+        return fn(*bound.args, **bound.kwargs)
+
+    return wrapper
+
+
 # GetActiveObject 连不到已运行实例的 HRESULT（有符号 int，与 com_error.hresult 一致）：
 # 仅这三类视为「没有可连实例」→ 返回 None 走 launch；其余（权限/RPC/注册损坏）抛
 # ComOperationError，绝不静默拉起——否则权限问题会被掩盖成新建实例。

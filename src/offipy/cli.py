@@ -275,11 +275,13 @@ def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
                 inspect.Parameter.POSITIONAL_ONLY,
             )
         }
-    # 传输层参数（P0-1/P0-3）：破坏性 op 可显式绑定 expected_target / follow_active。
-    # 非破坏性 op 上放行也无妨——server 侧对 expected_target 严格拒绝、follow_active
-    # 静默忽略，语义一致。
+    # 传输层参数（P0-1/P0-3/#25）：expected_target 仅破坏性/导出 op 放行；
+    # follow_active 额外放行只读 op（accepts_follow_active）。server 侧对
+    # expected_target 严格拒绝、follow_active 静默忽略，语义一致。
     if schema.supports_expected_target(app, op):
-        known |= {"expected_target", "follow_active"}
+        known |= {"expected_target"}
+    if schema.supports_follow_active(app, op):
+        known |= {"follow_active"}
     known |= {"request_id"}  # P1-4：所有 op 可用，透明传 server（幂等标识）
     for key in kwargs:
         if key not in known:

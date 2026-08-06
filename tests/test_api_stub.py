@@ -89,11 +89,15 @@ def test_read_slide_texts_stub_signature_snapshot():
         "def read_slide_texts(self, slide_idx: int, *, include_empty: bool = False"
     ), direct
     assert ", recursive: bool = True" in direct
-    assert ", doc_id: str | None = None)" in direct
+    # #25：只读 op 也带 follow_active（read_slide_texts 放行）
+    assert ", doc_id: str | None = None, follow_active: bool = False)" in direct
     # 旧摘要形态（无 slide_idx）已移除，摘要语义移到 read_slide_summary
     assert "read_slide_summary" in _class_sigs(text, "Ppt")
     summary = _class_sigs(text, "Ppt")["read_slide_summary"]
-    assert "def read_slide_summary(self, doc_id: str | None = None)" in summary
+    assert (
+        "def read_slide_summary(self, doc_id: str | None = None, *, follow_active: bool = False)"
+        in summary
+    )
     # 远程 facade 同样带 keyword-only request_id
     remote = _class_sigs(text, "RemotePpt")["read_slide_texts"]
     assert "request_id: str | None = None" in remote

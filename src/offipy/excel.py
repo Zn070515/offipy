@@ -11,7 +11,7 @@ from typing import Any
 
 from . import core
 from ._comguard import _COM_ERROR, guard_com
-from .core import destructive, requires_target
+from .core import destructive, readonly_guard, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
 
@@ -436,6 +436,7 @@ class ExcelApp:
         row, col = _parse_cell(cell)
         self._ws(sheet, doc_id).Cells(row, col).Value = value
 
+    @readonly_guard
     def get_cell(self, sheet, cell: str, doc_id: str | None = None):
         row, col = _parse_cell(cell)
         return self._ws(sheet, doc_id).Cells(row, col).Value
@@ -459,6 +460,7 @@ class ExcelApp:
     def set_col_width(self, sheet, col, width, doc_id: str | None = None):
         self._ws(sheet, doc_id).Columns(col).ColumnWidth = width
 
+    @readonly_guard
     def read_range(self, sheet, range_addr, doc_id: str | None = None):
         """读取区域值，返回二维 list（行→列）。只读，不改状态。"""
         return _normalize_range(self._ws(sheet, doc_id).Range(range_addr).Value)
