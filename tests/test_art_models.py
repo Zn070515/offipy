@@ -22,8 +22,8 @@ def _el(**kw):
 
 
 def test_schema_versions():
-    assert ART_SCHEMA_VERSION == "0.1"
-    assert ART_REPORT_SCHEMA_VERSION == "0.1"
+    assert ART_SCHEMA_VERSION == "0.2"
+    assert ART_REPORT_SCHEMA_VERSION == "0.2"
 
 
 def test_alpha_composite():
@@ -173,3 +173,109 @@ def test_report_to_dict_schema():
     assert d["schema_version"] == ART_REPORT_SCHEMA_VERSION
     assert d["profile"] == "balanced"
     assert d["experimental_score"] == 66.7
+
+
+def test_schema_versions_v02():
+    assert ART_SCHEMA_VERSION == "0.2"
+    assert ART_REPORT_SCHEMA_VERSION == "0.2"
+
+
+def test_element_pixel_evidence_round_trip():
+    from offipy.art.models import ElementPixelEvidence
+
+    pe = ElementPixelEvidence(
+        foreground=ArtColor(30, 30, 30),
+        foreground_match_ratio=0.8,
+        background_complexity=0.1,
+        color_confidence=0.85,
+        method="declared_verified",
+    )
+    d = pe.to_dict()
+    assert d["method"] == "declared_verified"
+    assert d["foreground"]["r"] == 30
+    assert ElementPixelEvidence.from_dict(d) == pe
+
+
+def test_slide_pixel_evidence_round_trip():
+    from offipy.art.models import PixelColorShare, SlidePixelEvidence
+
+    sp = SlidePixelEvidence(
+        background=ArtColor(255, 255, 255),
+        background_confidence=0.9,
+        background_uniformity=0.95,
+        palette=[PixelColorShare(ArtColor(255, 255, 255), 0.8)],
+        background_like_ratio=0.2,
+    )
+    d = sp.to_dict()
+    assert d["palette"][0]["ratio"] == 0.8
+    assert SlidePixelEvidence.from_dict(d) == sp
+
+
+def test_finding_evidence_serialization():
+    f = ArtFinding(
+        rule_id="art.color.low_contrast",
+        dimension="color",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.85,
+        slide_index=1,
+        evidence_sources=frozenset({"pixel", "measurement"}),
+        evidence_reliability=0.85,
+        evidence_method="declared_verified",
+    )
+    d = f.to_dict()
+    assert d["evidence_sources"] == ["measurement", "pixel"]
+    assert d["evidence_reliability"] == 0.85
+    assert d["evidence_method"] == "declared_verified"
+
+
+def test_dimension_reliability_serialization():
+    d = DimensionAssessment(
+        dimension="hierarchy",
+        status="assessed",
+        grade="good",
+        confidence=0.8,
+        evidence_coverage=0.9,
+        reliability=0.85,
+        minimum_reliability=0.55,
+    )
+    dd = d.to_dict()
+    assert dd["reliability"] == 0.85
+    assert dd["minimum_reliability"] == 0.55
+    # None 不序列化（0.1 报告可被 0.2 读取）
+    d2 = DimensionAssessment(dimension="hierarchy", status="assessed")
+    assert "reliability" not in d2.to_dict()
+
+
+def test_scene_from_dict_parses_pixel_evidence_and_metadata():
+    data = {
+        "width_unit": "px",
+        "metadata": {"pixel_pages_covered": 1, "pixel_pages_total": 1},
+        "slides": [
+            {
+                "index": 1,
+                "width": 1920.0,
+                "height": 1080.0,
+                "pixel_evidence": {"background_confidence": 0.9, "method": "unsupported"},
+                "elements": [
+                    {
+                        "element_id": "t",
+                        "kind": "text",
+                        "role": "title",
+                        "x": 0.1,
+                        "y": 0.05,
+                        "width": 0.6,
+                        "height": 0.1,
+                        "pixel_evidence": {
+                            "method": "declared_verified",
+                            "color_confidence": 0.8,
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    scene = ArtScene.from_dict(data)
+    assert scene.metadata["pixel_pages_covered"] == 1
+    assert scene.slides[0].pixel_evidence.background_confidence == 0.9
+    assert scene.slides[0].elements[0].pixel_evidence.method == "declared_verified"
