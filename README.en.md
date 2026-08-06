@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.12.0 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.12.1 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -32,7 +32,8 @@ Built for Python developers and AI agents to independently produce **polished, a
   [`docs/art.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/art.en.md)) — `build_scene` abstracts a slide
   into an ArtScene, 5 dimension rule sets (hierarchy / composition / typography / color / media) with grade /
   confidence / evidence_coverage separated and evidence-poor dimensions downgraded instead of false-reporting;
-  `analyze_deck` evaluates both sources (measurements + pptx geometry) in one call, and
+  `analyze_deck` evaluates all three sources (measurements + pptx geometry + slides_dir per-page PNG
+  pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
 
@@ -286,10 +287,12 @@ rules, evidence sources, and boundaries: [`docs/art.en.md`](https://github.com/Z
 ```python
 from offipy import build_scene, analyze_scene, analyze_deck, render_markdown
 
-# dual source: measurements (real browser pixels) primary, pptx geometry audit secondary
+# three sources: measurements (real browser pixels) primary, pptx geometry audit secondary,
+# slides_dir per-page PNG pixels supplemental
 scene = build_scene(
     measurements="out/report_audit/_cache/measurements.json",
     pptx="out/report.pptx",
+    slides_dir="out/slides",  # optional: per-page PNG pixel evidence (requires Pillow, `offipy[deck]`)
 )
 report = analyze_scene(scene, profile="balanced")
 print(render_markdown(report))
@@ -303,9 +306,10 @@ deck_report = analyze_deck(
 print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insufficient_evidence
 ```
 
-- **Dual-source merge**: measurements provide color / font-size / text evidence, pptx provides geometry,
-  matched one-to-one by "text as strong corroboration + geometry as fallback"; unmatched elements are kept
-  with a warning, never silently dropped
+- **Three-source merge**: measurements provide color / font-size / text evidence, pptx provides geometry,
+  and slides_dir provides per-page PNG pixel evidence (page-level background / whitespace + declared-color
+  verification, lazy Pillow) — matched one-to-one by "text as strong corroboration + geometry as fallback";
+  unmatched elements are kept with a warning, never silently dropped
 - **Built-in profiles**: `balanced` / `consulting` / `academic` / `technology` / `event`
   (`offipy.profile_names()` to list, `get_profile(name)` to read / extend)
 - **Quality-on-generate**: `deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)`

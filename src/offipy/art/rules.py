@@ -59,6 +59,7 @@ class RuleEvaluation:
     covered_count: int = 0
     eligible_count: int = 0
     warnings: list[ArtWarning] = field(default_factory=list)
+    reliability: float | None = None
 
 
 def make_finding(
@@ -71,6 +72,9 @@ def make_finding(
     primary: object | None = None,
     related: Iterable[object] | None = None,
     details: dict | None = None,
+    evidence_sources: Iterable[str] | None = None,
+    evidence_reliability: float | None = None,
+    evidence_method: str | None = None,
 ) -> ArtFinding:
     from .models import ArtElementRef
 
@@ -93,6 +97,9 @@ def make_finding(
         primary=ref(primary),
         related=[r for r in (ref(x) for x in (related or [])) if r is not None],
         details=details or {},
+        evidence_sources=frozenset(evidence_sources or ()),
+        evidence_reliability=evidence_reliability,
+        evidence_method=evidence_method,
     )
 
 
@@ -136,9 +143,13 @@ def _apply_profile(
     return finding
 
 
-def _dimension_reliability(ctx: RuleContext) -> float:
-    """measurement 源可靠 1.0；仅 pptx 源 0.6。"""
-    return 1.0 if "measurement" in ctx.sources else 0.6
+def _scene_reliability(ctx: RuleContext) -> float:
+    """场景证据源可靠度：measurement 1.0；pixel 0.55；仅几何 0.6。"""
+    if "measurement" in ctx.sources:
+        return 1.0
+    if "pixel" in ctx.sources:
+        return 0.55
+    return 0.6
 
 
 def assess_dimension(
@@ -155,6 +166,8 @@ def assess_dimension(
     eligible = 0
     warnings: list[ArtWarning] = []
     applicable = 0
+    reliability_terms: list[float] = []
+    reliability_weights: list[int] = []
     for rs in active:
         ev = rs.run(ctx.slide, ctx)
         covered += ev.covered_count
@@ -162,6 +175,14 @@ def assess_dimension(
         warnings.extend(ev.warnings)
         if ev.eligible_count > 0:
             applicable += 1
+        if (
+            ev.reliability is not None
+            and ev.covered_count > 0
+            and not rs.experimental
+            and rs.rule_id not in ctx.profile.experimental_rules
+        ):
+            reliability_terms.append(ev.reliability)
+            reliability_weights.append(ev.covered_count)
         for f in ev.findings:
             findings.append(_apply_profile(f, ctx.profile, experimental=rs.experimental))
     coverage = (covered / eligible) if eligible else 0.0
@@ -176,7 +197,17 @@ def assess_dimension(
         )
     grade = grade_from_findings(findings)
     applicability = (applicable / len(active)) if active else 0.0
-    conf = round(coverage * applicability * _dimension_reliability(ctx), 4)
+    weight_total = sum(reliability_weights)
+    if weight_total > 0:
+        reliability = (
+            sum(t * w for t, w in zip(reliability_terms, reliability_weights, strict=True))
+            / weight_total
+        )
+        minimum_reliability = min(reliability_terms)
+    else:
+        reliability = _scene_reliability(ctx)
+        minimum_reliability = reliability
+    conf = round(coverage * applicability * reliability, 4)
     return DimensionAssessment(
         dimension=dimension,
         status="assessed",
@@ -185,4 +216,6 @@ def assess_dimension(
         evidence_coverage=round(coverage, 4),
         findings=findings,
         warnings=warnings,
+        reliability=round(reliability, 4),
+        minimum_reliability=round(minimum_reliability, 4),
     )

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from offipy.audit import Severity
 
-from .models import ArtElement, ArtSlide
+from .models import ArtElement, ArtSlide, ArtWarning
 from .profiles import (
+    RULE_BACKGROUND_LIKE_AREA,
     RULE_CORNER_CLUSTER,
     RULE_OFF_BALANCE,
     RULE_SPACING_DRIFT,
@@ -13,6 +14,11 @@ from .profiles import (
 from .rules import RuleContext, RuleEvaluation, RuleSpec, make_finding
 
 _SKIP_ROLES = {"background", "container", "decoration", "page_number", "footer"}
+
+_BG_CONF_MIN = 0.7
+_BG_UNIFORMITY_MIN = 0.7
+_MAX_OCCUPANCY = 0.5
+_FULL_BLEED_IMAGE_AREA = 0.9
 
 
 def _weighted(elements: list[ArtElement]) -> list[ArtElement]:
@@ -128,6 +134,64 @@ def spacing_drift_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     )
 
 
+def _full_bleed_image(slide: ArtSlide) -> bool:
+    return any(e.kind == "image" and e.area >= _FULL_BLEED_IMAGE_AREA for e in slide.elements)
+
+
+def background_like_area_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
+    """页面级留白提示（experimental）：像素背景证据 + 联合条件。
+
+    联合条件：背景置信 ≥0.7 ∧ 均匀度 ≥0.7 ∧ 元素占用 ≤0.5 ∧ 非全幅图片。
+    低置信但高相似面积 → warning 不提示；占用/全图 → 静默跳过。
+    """
+    pe = slide.pixel_evidence
+    eligible = 1 if pe is not None else 0
+    if pe is None or pe.background_like_ratio is None:
+        return RuleEvaluation(covered_count=0, eligible_count=eligible)
+    if pe.background_confidence is None or pe.background_uniformity is None:
+        return RuleEvaluation(covered_count=0, eligible_count=eligible)
+    conf_ok = (
+        pe.background_confidence >= _BG_CONF_MIN and pe.background_uniformity >= _BG_UNIFORMITY_MIN
+    )
+    if not conf_ok:
+        if pe.background_like_ratio > ctx.profile.max_background_like_ratio:
+            return RuleEvaluation(
+                covered_count=0,
+                eligible_count=eligible,
+                warnings=[
+                    ArtWarning(
+                        code="art.pixel.background_low_confidence",
+                        message="背景相似面积高但背景像素证据置信不足，不提示留白",
+                    )
+                ],
+            )
+        return RuleEvaluation(covered_count=0, eligible_count=eligible)
+    occupancy = (ctx.features.get("density") or {}).get("union_area_ratio", 1.0)
+    if occupancy > _MAX_OCCUPANCY or _full_bleed_image(slide):
+        return RuleEvaluation(covered_count=0, eligible_count=eligible)
+    if pe.background_like_ratio <= ctx.profile.max_background_like_ratio:
+        return RuleEvaluation(covered_count=1, eligible_count=eligible)
+    return RuleEvaluation(
+        findings=[
+            make_finding(
+                RULE_BACKGROUND_LIKE_AREA,
+                "composition",
+                Severity.LOW,
+                f"页面大面积近似背景色（占比 {pe.background_like_ratio:.2f}），可能留白过多。",
+                0.3,
+                slide.index,
+                evidence_sources={"pixel"},
+                evidence_reliability=0.5,
+                evidence_method=None,
+                details={"background_like_ratio": round(pe.background_like_ratio, 3)},
+            )
+        ],
+        covered_count=1,
+        eligible_count=eligible,
+        reliability=0.5,
+    )
+
+
 RULES = [
     RuleSpec(
         rule_id=RULE_OFF_BALANCE, dimension="composition", run=off_balance_rule, experimental=True
@@ -139,4 +203,10 @@ RULES = [
         experimental=True,
     ),
     RuleSpec(rule_id=RULE_SPACING_DRIFT, dimension="composition", run=spacing_drift_rule),
+    RuleSpec(
+        rule_id=RULE_BACKGROUND_LIKE_AREA,
+        dimension="composition",
+        run=background_like_area_rule,
+        experimental=True,
+    ),
 ]

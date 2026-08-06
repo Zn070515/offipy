@@ -12,6 +12,7 @@ from offipy.art.models import (
     ArtScene,
     ArtSlide,
     ArtTextRun,
+    ElementPixelEvidence,
 )
 
 
@@ -44,6 +45,7 @@ def _prepare_element(el: ArtElement, *, slide_index: int, slide_height: float) -
         evidence=el.evidence,
         container=el.container,
         decoration=el.decoration,
+        pixel_evidence=el.pixel_evidence,
     )
 
 
@@ -68,6 +70,7 @@ def make_element(
     natural_height: float | None = None,
     container: bool = False,
     decoration: bool = False,
+    pixel_evidence: ElementPixelEvidence | None = None,
 ) -> ArtElement:
     return ArtElement(
         element_id=element_id,
@@ -90,6 +93,7 @@ def make_element(
         natural_height=natural_height,
         container=container,
         decoration=decoration,
+        pixel_evidence=pixel_evidence,
     )
 
 

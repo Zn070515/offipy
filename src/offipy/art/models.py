@@ -12,8 +12,8 @@ from typing import Literal
 
 from offipy.audit import Severity
 
-ART_SCHEMA_VERSION = "0.1"
-ART_REPORT_SCHEMA_VERSION = "0.1"
+ART_SCHEMA_VERSION = "0.2"
+ART_REPORT_SCHEMA_VERSION = "0.2"
 
 Grade = Literal["excellent", "good", "attention", "poor"]
 AssessmentStatus = Literal["assessed", "insufficient_evidence", "not_applicable"]
@@ -107,6 +107,7 @@ class ArtElement:
     evidence: dict = field(default_factory=dict)
     container: bool = False
     decoration: bool = False
+    pixel_evidence: ElementPixelEvidence | None = None
 
     @property
     def area(self) -> float:
@@ -140,6 +141,7 @@ class ArtElement:
             "evidence": self.evidence,
             "container": self.container,
             "decoration": self.decoration,
+            "pixel_evidence": self.pixel_evidence.to_dict() if self.pixel_evidence else None,
         }
 
 
@@ -150,6 +152,7 @@ class ArtSlide:
     height: float
     elements: list[ArtElement] = field(default_factory=list)
     background_color: ArtColor | None = None
+    pixel_evidence: SlidePixelEvidence | None = None
 
     def by_id(self, element_id: str) -> ArtElement | None:
         return next((e for e in self.elements if e.element_id == element_id), None)
@@ -161,6 +164,7 @@ class ArtScene:
     width_unit: str = "px"  # "px" | "pt"
     warnings: list[ArtWarning] = field(default_factory=list)
     sources: set[str] = field(default_factory=set)
+    metadata: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> ArtScene:
@@ -171,6 +175,7 @@ class ArtScene:
             height = float(s.get("height", 1080.0))
             elements = [_element_from_dict(e, idx, height) for e in s.get("elements", [])]
             bg = s.get("background_color")
+            pe = s.get("pixel_evidence")
             slides.append(
                 ArtSlide(
                     index=idx,
@@ -178,6 +183,7 @@ class ArtScene:
                     height=height,
                     elements=elements,
                     background_color=ArtColor.from_dict(bg) if bg else None,
+                    pixel_evidence=SlidePixelEvidence.from_dict(pe) if pe else None,
                 )
             )
         return cls(
@@ -185,6 +191,7 @@ class ArtScene:
             width_unit=data.get("width_unit", "px"),
             warnings=[ArtWarning(w["code"], w["message"]) for w in data.get("warnings", [])],
             sources=set(data.get("sources", [])),
+            metadata=data.get("metadata", {}).copy(),
         )
 
     def by_slide(self, index: int) -> ArtSlide | None:
@@ -194,6 +201,7 @@ class ArtScene:
 def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElement:
     fg = data.get("foreground") or data.get("color")
     bg = data.get("background")
+    pe = data.get("pixel_evidence")
     if isinstance(bg, bool):  # 旧格式 bool background 标志 → is_background
         return ArtElement(
             element_id=data["element_id"],
@@ -224,6 +232,7 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
             natural_height=float(data["natural_height"]) if data.get("natural_height") else None,
             container=bool(data.get("container", False)),
             decoration=bool(data.get("decoration", False)),
+            pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
         )
     return ArtElement(
         element_id=data["element_id"],
@@ -256,6 +265,7 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
         natural_height=float(data["natural_height"]) if data.get("natural_height") else None,
         container=bool(data.get("container", False)),
         decoration=bool(data.get("decoration", False)),
+        pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
     )
 
 
@@ -283,6 +293,104 @@ def _color_from(c) -> ArtColor | None:
     return None
 
 
+def _opt_float(v) -> float | None:
+    """序列化可选浮点：None 原样，其余转 float。"""
+    return float(v) if v is not None else None
+
+
+PixelEvidenceMethod = Literal[
+    "declared_verified",
+    "declared_not_found",
+    "center_fill_verified",
+    "complex_background",
+    "unsupported",
+]
+
+
+@dataclass(frozen=True)
+class PixelColorShare:
+    color: ArtColor
+    ratio: float
+
+    def to_dict(self) -> dict:
+        return {"color": self.color.to_dict(), "ratio": self.ratio}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> PixelColorShare:
+        return cls(ArtColor.from_dict(data["color"]), float(data["ratio"]))
+
+
+@dataclass(frozen=True)
+class SlidePixelEvidence:
+    background: ArtColor | None = None
+    background_confidence: float | None = None
+    background_uniformity: float | None = None
+    palette: list[PixelColorShare] = field(default_factory=list)
+    background_like_ratio: float | None = None
+    method: PixelEvidenceMethod = "unsupported"
+    unsupported_reason: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "background": self.background.to_dict() if self.background else None,
+            "background_confidence": self.background_confidence,
+            "background_uniformity": self.background_uniformity,
+            "palette": [p.to_dict() for p in self.palette],
+            "background_like_ratio": self.background_like_ratio,
+            "method": self.method,
+            "unsupported_reason": self.unsupported_reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SlidePixelEvidence:
+        return cls(
+            background=ArtColor.from_dict(data["background"]) if data.get("background") else None,
+            background_confidence=_opt_float(data.get("background_confidence")),
+            background_uniformity=_opt_float(data.get("background_uniformity")),
+            palette=[PixelColorShare.from_dict(p) for p in data.get("palette", [])],
+            background_like_ratio=_opt_float(data.get("background_like_ratio")),
+            method=data.get("method", "unsupported"),
+            unsupported_reason=data.get("unsupported_reason"),
+        )
+
+
+@dataclass(frozen=True)
+class ElementPixelEvidence:
+    foreground: ArtColor | None = None
+    background: ArtColor | None = None
+    foreground_match_ratio: float | None = None
+    background_match_ratio: float | None = None
+    background_complexity: float | None = None
+    color_confidence: float = 0.0
+    method: PixelEvidenceMethod = "unsupported"
+    unsupported_reason: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "foreground": self.foreground.to_dict() if self.foreground else None,
+            "background": self.background.to_dict() if self.background else None,
+            "foreground_match_ratio": self.foreground_match_ratio,
+            "background_match_ratio": self.background_match_ratio,
+            "background_complexity": self.background_complexity,
+            "color_confidence": self.color_confidence,
+            "method": self.method,
+            "unsupported_reason": self.unsupported_reason,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ElementPixelEvidence:
+        return cls(
+            foreground=ArtColor.from_dict(data["foreground"]) if data.get("foreground") else None,
+            background=ArtColor.from_dict(data["background"]) if data.get("background") else None,
+            foreground_match_ratio=_opt_float(data.get("foreground_match_ratio")),
+            background_match_ratio=_opt_float(data.get("background_match_ratio")),
+            background_complexity=_opt_float(data.get("background_complexity")),
+            color_confidence=float(data.get("color_confidence", 0.0)),
+            method=data.get("method", "unsupported"),
+            unsupported_reason=data.get("unsupported_reason"),
+        )
+
+
 @dataclass
 class ArtWarning:
     code: str
@@ -303,6 +411,9 @@ class ArtFinding:
     primary: ArtElementRef | None = None
     related: list[ArtElementRef] = field(default_factory=list)
     details: dict[str, JsonValue] = field(default_factory=dict)
+    evidence_sources: frozenset[str] = frozenset()
+    evidence_reliability: float | None = None
+    evidence_method: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -315,6 +426,9 @@ class ArtFinding:
             "primary": self.primary.to_dict() if self.primary else None,
             "related": [r.to_dict() for r in self.related],
             "details": self.details,
+            "evidence_sources": sorted(self.evidence_sources),
+            "evidence_reliability": self.evidence_reliability,
+            "evidence_method": self.evidence_method,
         }
 
 
@@ -327,6 +441,8 @@ class DimensionAssessment:
     evidence_coverage: float = 1.0
     findings: list[ArtFinding] = field(default_factory=list)
     warnings: list[ArtWarning] = field(default_factory=list)
+    reliability: float | None = None
+    minimum_reliability: float | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -337,6 +453,12 @@ class DimensionAssessment:
             "evidence_coverage": self.evidence_coverage,
             "findings": [f.to_dict() for f in self.findings],
             "warnings": [w.to_dict() for w in self.warnings],
+            **({"reliability": self.reliability} if self.reliability is not None else {}),
+            **(
+                {"minimum_reliability": self.minimum_reliability}
+                if self.minimum_reliability is not None
+                else {}
+            ),
         }
 
 

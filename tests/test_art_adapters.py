@@ -127,11 +127,6 @@ def test_pptx_adapter_keeps_blank_slides():
     assert scene.slides[1].elements == []  # slide 2 无 shape → 空页
 
 
-def test_build_scene_slides_dir_raises():
-    with pytest.raises(InvalidArgumentError):
-        build_scene(slides_dir="whatever")
-
-
 def test_build_scene_no_source_raises():
     with pytest.raises(InvalidArgumentError):
         build_scene()
@@ -493,3 +488,69 @@ def _report_from_fixture(data):
         suppressed=[],
         warnings=[],
     )
+
+
+def test_make_element_preserves_pixel_evidence():
+    from offipy.art.models import ElementPixelEvidence
+
+    pe = ElementPixelEvidence(method="declared_verified", color_confidence=0.8)
+    el = make_element("a", pixel_evidence=pe)
+    slide = make_slide(1, elements=[el])
+    assert slide.elements[0].pixel_evidence is not None
+    assert slide.elements[0].pixel_evidence.method == "declared_verified"
+
+
+def test_build_scene_slides_dir_invalid_dir_raises(tmp_path):
+    with pytest.raises(InvalidArgumentError):
+        build_scene(slides_dir=str(tmp_path / "nope"))
+
+
+def test_build_scene_slides_dir_only_creates_empty_scene(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    d = tmp_path / "slides"
+    d.mkdir()
+    Image.new("RGB", (100, 50), (255, 255, 255)).save(d / "slide_1.png")
+    scene = build_scene(slides_dir=str(d))
+    assert len(scene.slides) == 1
+    assert scene.slides[0].index == 1
+    assert scene.slides[0].width == 100.0
+    assert scene.width_unit == "px"
+
+
+def test_build_scene_measurements_plus_slides_dir(tmp_path):
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    d = tmp_path / "slides"
+    d.mkdir()
+    Image.new("RGB", (1920, 1080), (255, 255, 255)).save(d / "slide_1.png")
+    m = tmp_path / "m.json"
+    m.write_text(
+        json.dumps(
+            {
+                "slides": [
+                    {
+                        "slide": {"width": 1920, "height": 1080, "background": "rgb(255,255,255)"},
+                        "records": [
+                            {
+                                "id": 1,
+                                "kind": "text",
+                                "className": "title",
+                                "tag": "h1",
+                                "rect": {"x": 0, "y": 0, "w": 600, "h": 60},
+                                "style": {"fontSize": "52px", "color": "rgb(0,0,0)"},
+                                "runs": [{"text": "Title", "fontSize": 52, "color": "rgb(0,0,0)"}],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    scene = build_scene(measurements=str(m), slides_dir=str(d))
+    assert "measurement" in scene.sources
+    assert "pixel" in scene.sources
+    assert scene.slides[0].elements[0].pixel_evidence is not None

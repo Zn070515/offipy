@@ -24,6 +24,7 @@ RULE_TINY_IMAGE = "art.media.tiny_image"
 RULE_MIXED_IMAGE_SIZES = "art.media.mixed_image_sizes"
 RULE_TITLE_DRIFT = "art.consistency.title_drift"
 RULE_MARGIN_DRIFT = "art.consistency.margin_drift"
+RULE_BACKGROUND_LIKE_AREA = "art.composition.background_like_area"
 
 ALL_RULES = frozenset(
     {
@@ -43,6 +44,7 @@ ALL_RULES = frozenset(
         RULE_MIXED_IMAGE_SIZES,
         RULE_TITLE_DRIFT,
         RULE_MARGIN_DRIFT,
+        RULE_BACKGROUND_LIKE_AREA,
     }
 )
 
@@ -53,6 +55,7 @@ _EXPERIMENTAL = frozenset(
         RULE_NO_FOCUS,
         RULE_ACCENT_FLOOD,
         RULE_NO_ACCENT,
+        RULE_BACKGROUND_LIKE_AREA,
     }
 )
 
@@ -74,6 +77,7 @@ class ArtProfile:
     max_image_size_spread: float = 0.5
     title_drift_tol: float = 0.15
     margin_drift_tol: float = 0.10
+    max_background_like_ratio: float = 0.75
     enabled_rules: frozenset[str] = ALL_RULES
     disabled_rules: frozenset[str] = frozenset()
     severity_overrides: Mapping[str, Severity] = field(default_factory=dict)
@@ -115,6 +119,7 @@ _BUILTIN = {
         max_image_size_spread=0.4,
         title_drift_tol=0.10,
         margin_drift_tol=0.08,
+        max_background_like_ratio=0.85,
     ),
     "academic": ArtProfile(
         name="academic",
@@ -167,6 +172,7 @@ _BUILTIN = {
         max_image_size_spread=0.7,
         title_drift_tol=0.25,
         margin_drift_tol=0.15,
+        max_background_like_ratio=0.90,
         disabled_rules=frozenset({RULE_OFF_BALANCE, RULE_CORNER_CLUSTER}),
     ),
 }

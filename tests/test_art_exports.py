@@ -19,6 +19,10 @@ def test_offipy_exports_art_api():
         "ArtWarning",
         "DeckQualityReport",
         "DimensionAssessment",
+        "ElementPixelEvidence",
+        "PixelColorShare",
+        "PixelEnricher",
+        "SlidePixelEvidence",
         "analyze_deck",
         "analyze_scene",
         "build_scene",
@@ -48,5 +52,9 @@ def test_art_package_exports():
         "render_html",
         "render_markdown",
         "report_to_json",
+        "ElementPixelEvidence",
+        "PixelColorShare",
+        "PixelEnricher",
+        "SlidePixelEvidence",
     ):
         assert hasattr(art, name), f"offipy.art 未导出 {name}"

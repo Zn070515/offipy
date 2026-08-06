@@ -5,7 +5,7 @@ from __future__ import annotations
 import html as html_lib
 import math
 
-from .models import ArtReport, DimensionAssessment
+from .models import ArtFinding, ArtReport, DimensionAssessment
 
 _GRADE_LEVEL = {"excellent": 4, "good": 3, "attention": 2, "poor": 1}
 
@@ -18,6 +18,17 @@ _STATUS_LABEL = {
 
 def report_to_json(report: ArtReport) -> dict:
     return report.to_dict()
+
+
+def _finding_evidence(f: ArtFinding) -> str:
+    """finding 的证据后缀：有像素/多源证据时展示来源/方法/可靠度。"""
+    if not f.evidence_sources:
+        return ""
+    rel = f"{f.evidence_reliability:.2f}" if f.evidence_reliability is not None else "-"
+    return (
+        f" (Evidence: {', '.join(sorted(f.evidence_sources))} / "
+        f"Method: {f.evidence_method or '-'} / Reliability: {rel})"
+    )
 
 
 def render_markdown(report: ArtReport) -> str:
@@ -34,14 +45,17 @@ def render_markdown(report: ArtReport) -> str:
                     f"(evidence {d.evidence_coverage:.2f})"
                 )
                 continue
-            lines.append(f"- **{d.dimension}**: {d.grade} (confidence {d.confidence:.2f})")
+            rel = f" / reliability {d.reliability:.2f}" if d.reliability is not None else ""
+            lines.append(f"- **{d.dimension}**: {d.grade} (confidence {d.confidence:.2f}{rel})")
             for f in d.findings:
-                lines.append(f"  - [{f.severity.name}] {f.rule_id}: {f.message}")
+                lines.append(
+                    f"  - [{f.severity.name}] {f.rule_id}: {f.message}{_finding_evidence(f)}"
+                )
         lines.append("")
     if report.deck_findings:
         lines.append("## Deck 级")
         for f in report.deck_findings:
-            lines.append(f"- [{f.severity.name}] {f.rule_id}: {f.message}")
+            lines.append(f"- [{f.severity.name}] {f.rule_id}: {f.message}{_finding_evidence(f)}")
         lines.append("")
     return "\n".join(lines)
 
@@ -123,15 +137,18 @@ def render_html(report: ArtReport) -> str:
             findings = (
                 "<br>".join(
                     f"[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
-                    f"{html_lib.escape(f.message)}"
+                    f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}"
                     for f in d.findings
                 )
                 or "-"
             )
+            conf = f"{d.confidence:.2f}"
+            if d.reliability is not None:
+                conf += f" / rel {d.reliability:.2f}"
             lines.append(
                 f"<tr><td>{d.dimension}</td>"
                 f"<td><span class='dim-grade {d.grade}'>{d.grade}</span></td>"
-                f"<td>{d.confidence:.2f}</td>"
+                f"<td>{conf}</td>"
                 f"<td>{d.evidence_coverage:.2f}</td><td>{findings}</td></tr>"
             )
         lines.append("</table>")
@@ -140,7 +157,7 @@ def render_html(report: ArtReport) -> str:
         for f in report.deck_findings:
             lines.append(
                 f"<li>[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
-                f"{html_lib.escape(f.message)}</li>"
+                f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}</li>"
             )
         lines.append("</ul>")
     lines.append("</body></html>")

@@ -135,3 +135,23 @@ def test_profile_mismatch_warns():
     after.profile = "consulting"
     diff = compare_reports(before, after)
     assert any(w.code == "art.compare.profile_mismatch" for w in diff.warnings)
+
+
+def test_evidence_change_detected():
+    def f(ev_sources, ev_method):
+        return ArtFinding(
+            rule_id="a.h",
+            dimension="hierarchy",
+            severity=Severity.MID,
+            message="a.h",
+            confidence=0.6,
+            slide_index=1,
+            primary=ArtElementRef(1, "a", "text", "body"),
+            evidence_sources=ev_sources,
+            evidence_method=ev_method,
+        )
+
+    before = _report({1: {"hierarchy": [f(frozenset({"measurement"}), None)]}})
+    after = _report({1: {"hierarchy": [f(frozenset({"pixel"}), "declared_verified")]}})
+    diff = compare_reports(before, after)
+    assert any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)

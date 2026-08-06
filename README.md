@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.12.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.12.1（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -30,8 +30,8 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 - **艺术分析（offipy.art）**：纯标准库、确定性、**只建议**的视觉/排版质量分析（见
   [`docs/art.md`](https://github.com/Zn070515/offipy/blob/main/docs/art.md)）——`build_scene` 把幻灯片
   抽象成 ArtScene，5 个维度规则（层级 / 构图 / 排版 / 颜色 / 媒体）评估，grade / confidence /
-  evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 双源（measurements + pptx 几何）
-  一次评估，`deck.render_with_quality_report` 生成即质量参考
+  evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 三源（measurements + pptx 几何 +
+  slides_dir 逐页 PNG 像素）一次评估，`deck.render_with_quality_report` 生成即质量参考
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
 
 ## 环境要求
@@ -301,10 +301,11 @@ evidence_coverage 三分离——证据不足的维度降级 `insufficient_evide
 ```python
 from offipy import build_scene, analyze_scene, analyze_deck, render_markdown
 
-# 双源：measurements（浏览器真实像素）为主、pptx 几何审计为副
+# 三源：measurements（浏览器真实像素）为主、pptx 几何审计为副、slides_dir 逐页 PNG 像素为补充
 scene = build_scene(
     measurements="out/report_audit/_cache/measurements.json",
     pptx="out/report.pptx",
+    slides_dir="out/slides",  # 可选：逐页 PNG 像素证据（需 Pillow，`offipy[deck]`）
 )
 report = analyze_scene(scene, profile="balanced")
 print(render_markdown(report))
@@ -318,7 +319,8 @@ deck_report = analyze_deck(
 print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insufficient_evidence
 ```
 
-- **双源合并**：measurements 提供颜色 / 字号 / 文本证据，pptx 提供几何证据，按「文本强佐证 +
+- **三源合并**：measurements 提供颜色 / 字号 / 文本证据，pptx 提供几何证据，slides_dir 提供逐页
+  PNG 像素证据（页面级背景 / 留白 + 元素声明色验证，惰性 Pillow）——按「文本强佐证 +
   几何兜底」一对一匹配；未匹配元素保留 + warning，绝不静默丢弃
 - **内置 profile**：`balanced` / `consulting` / `academic` / `technology` / `event`
   （`offipy.profile_names()` 可查、`get_profile(name)` 可读可扩展）

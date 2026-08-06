@@ -1,5 +1,5 @@
 from offipy.art.models import ArtScene, ArtSlide
-from offipy.art.profiles import RULE_TITLE_TOO_SMALL, get_profile
+from offipy.art.profiles import RULE_TITLE_TOO_SMALL, ArtProfile, get_profile
 from offipy.art.rules import (
     RuleContext,
     RuleEvaluation,
@@ -12,8 +12,9 @@ from offipy.audit import Severity
 
 
 def _ctx(slide, profile="balanced", features=None, sources=None):
+    prof = profile if isinstance(profile, ArtProfile) else get_profile(profile)
     return RuleContext(
-        profile=get_profile(profile),
+        profile=prof,
         slide=slide,
         slide_index=slide.index,
         features=features or {},
@@ -30,6 +31,7 @@ def _rule(
     covered=0,
     eligible=0,
     warnings=None,
+    reliability=None,
 ):
     def run(slide, ctx):
         return RuleEvaluation(
@@ -37,6 +39,7 @@ def _rule(
             covered_count=covered,
             eligible_count=eligible,
             warnings=warnings or [],
+            reliability=reliability,
         )
 
     return RuleSpec(rule_id=rule_id, dimension=dimension, run=run, experimental=experimental)
@@ -163,3 +166,96 @@ def test_dimension_confidence_reliability_pptx_only():
     assert d.status == "assessed"
     expected = 1.0 * 1.0 * 0.6  # coverage 1.0 × applicability 1.0 × reliability 0.6
     assert abs(d.confidence - expected) < 1e-9
+
+
+def test_make_finding_evidence_fields():
+    f = make_finding(
+        "a.h",
+        "hierarchy",
+        Severity.MID,
+        "m",
+        0.6,
+        slide_index=1,
+        evidence_sources={"pixel"},
+        evidence_reliability=0.85,
+        evidence_method="declared_verified",
+    )
+    assert f.evidence_sources == frozenset({"pixel"})
+    assert f.evidence_reliability == 0.85
+    assert f.evidence_method == "declared_verified"
+
+
+def test_dimension_reliability_weighted_mean_skips_experimental():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [
+        _rule("art.hierarchy.no_focus", covered=1, eligible=1, reliability=1.0),
+        _rule(
+            "art.composition.off_balance",
+            experimental=True,
+            covered=4,
+            eligible=4,
+            reliability=0.3,
+        ),
+    ]
+    d = assess_dimension("hierarchy", specs, _ctx(slide))
+    assert d.status == "assessed"
+    # experimental 不参与聚合 → 仅 deterministic 规则
+    assert abs(d.reliability - 1.0) < 1e-9
+    assert abs(d.minimum_reliability - 1.0) < 1e-9
+
+
+def test_dimension_reliability_weighted_mean_mixed():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [
+        _rule("art.typography.many_families", covered=4, eligible=4, reliability=1.0),
+        _rule("art.typography.tiny_text", covered=1, eligible=1, reliability=0.5),
+    ]
+    d = assess_dimension("typography", specs, _ctx(slide))
+    expected = (1.0 * 4 + 0.5 * 1) / 5  # 0.9
+    assert abs(d.reliability - expected) < 1e-9
+    assert abs(d.minimum_reliability - 0.5) < 1e-9
+
+
+def test_dimension_reliability_zero_coverage_rule_excluded():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [
+        _rule("art.typography.many_families", covered=5, eligible=5, reliability=0.8),
+        _rule("art.typography.tiny_text", covered=0, eligible=5, reliability=0.2),
+    ]
+    d = assess_dimension("typography", specs, _ctx(slide))
+    assert abs(d.reliability - 0.8) < 1e-9
+
+
+def test_dimension_reliability_fallback_when_no_rule_reliability():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [_rule("art.typography.tiny_text", covered=5, eligible=5)]
+    ctx = _ctx(slide, sources={"pptx"})
+    d = assess_dimension("typography", specs, ctx)
+    assert abs(d.reliability - 0.6) < 1e-9  # 回退 _scene_reliability({pptx})
+    assert abs(d.minimum_reliability - 0.6) < 1e-9
+
+
+def test_dimension_reliability_fallback_measurement_source():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [_rule("art.typography.tiny_text", covered=5, eligible=5)]
+    ctx = _ctx(slide)  # default sources={"measurement"} per _ctx helper
+    d = assess_dimension("typography", specs, ctx)
+    assert abs(d.reliability - 1.0) < 1e-9
+
+
+def test_dimension_reliability_fallback_pixel_source():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [_rule("art.typography.tiny_text", covered=5, eligible=5)]
+    ctx = _ctx(slide, sources={"pixel"})
+    d = assess_dimension("typography", specs, ctx)
+    assert abs(d.reliability - 0.55) < 1e-9
+
+
+def test_dimension_reliability_excludes_profile_experimental():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    spec = _rule("art.typography.many_families", covered=5, eligible=5, reliability=0.9)
+    profile = ArtProfile(name="x", experimental_rules={"art.typography.many_families"})
+    ctx = _ctx(slide, profile=profile)
+    d = assess_dimension("typography", [spec], ctx)
+    # profile-experimental 规则同样不参与聚合 → 无权重 → 回退场景可靠度
+    assert abs(d.reliability - 1.0) < 1e-9  # sources 默认 measurement
