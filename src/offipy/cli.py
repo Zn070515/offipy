@@ -248,6 +248,16 @@ def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
     return coerced
 
 
+def _usage_exit(message: str) -> None:
+    """参数用法错误 → stderr 报错 + exit 2（对齐 argparse 的 exit 2 语义）。
+
+    #29：CLI 退出码不统一——deck 缺必填参数走 `raise SystemExit("...")`（exit 1），
+    而 argparse/参数校验走 exit 2。统一归到 2：1 留给运行时失败（COM/IO/转换错误）。
+    """
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
 def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
     """未知 --key（不在 schema/方法参数内）→ stderr 报错并 exit 2（argparse 语义）。"""
     sp = schema.spec(app, op)
@@ -557,7 +567,7 @@ def _main(argv=None):
             from .deck import make as deck_make
 
             if not args.html:
-                raise SystemExit(
+                _usage_exit(
                     "用法: offipy deck make --html <deck.html> "
                     "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
                     "[--theme <name>] [--layouts] [--overwrite]"
@@ -577,7 +587,7 @@ def _main(argv=None):
 
             md_path = args.input or args.md
             if not md_path:
-                raise SystemExit(
+                _usage_exit(
                     "用法: offipy deck outline --input <outline.md> "
                     "[--theme <name>] [--out <deck.html>]"
                 )
@@ -679,7 +689,7 @@ def _deck_make_with_audit(args) -> int | None:
     from .deck import AuditGateError, export_slides, open_live, render_with_report
 
     if not args.html:
-        raise SystemExit(
+        _usage_exit(
             "用法: offipy deck make --html <deck.html> "
             "[--audit-mode report|strict] [--fail-on HIGH|MID|LOW] "
             "[--audit-report <path>] [--out <x.pptx>] [--no-open] "

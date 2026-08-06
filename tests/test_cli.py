@@ -147,10 +147,30 @@ def test_deck_outline_prints_json_without_out(tmp_path, capsys):
 
 
 def test_deck_outline_missing_input_raises():
+    # #29：deck 缺必填参数 → stderr + exit 2（对齐 argparse 参数错误语义）
     from offipy import cli
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline"])
+    assert exc.value.code == 2
+
+
+def test_deck_make_missing_html_exits_2():
+    # #29：deck make 缺 --html → stderr 用法提示 + exit 2（曾是 exit 1）
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "make"])
+    assert exc.value.code == 2
+
+
+def test_deck_make_audit_mode_missing_html_exits_2():
+    # #29：--audit-mode 走 _deck_make_with_audit 分支，同样缺 --html → exit 2
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "make", "--audit-mode", "report"])
+    assert exc.value.code == 2
 
 
 def test_deck_outline_missing_file_friendly_error(tmp_path, capsys):
