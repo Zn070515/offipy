@@ -1,5 +1,5 @@
 from offipy.art.models import ArtScene, ArtSlide
-from offipy.art.profiles import RULE_TITLE_TOO_SMALL, get_profile
+from offipy.art.profiles import RULE_TITLE_TOO_SMALL, ArtProfile, get_profile
 from offipy.art.rules import (
     RuleContext,
     RuleEvaluation,
@@ -12,8 +12,9 @@ from offipy.audit import Severity
 
 
 def _ctx(slide, profile="balanced", features=None, sources=None):
+    prof = profile if isinstance(profile, ArtProfile) else get_profile(profile)
     return RuleContext(
-        profile=get_profile(profile),
+        profile=prof,
         slide=slide,
         slide_index=slide.index,
         features=features or {},
@@ -232,3 +233,29 @@ def test_dimension_reliability_fallback_when_no_rule_reliability():
     d = assess_dimension("typography", specs, ctx)
     assert abs(d.reliability - 0.6) < 1e-9  # 回退 _scene_reliability({pptx})
     assert abs(d.minimum_reliability - 0.6) < 1e-9
+
+
+def test_dimension_reliability_fallback_measurement_source():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [_rule("art.typography.tiny_text", covered=5, eligible=5)]
+    ctx = _ctx(slide)  # default sources={"measurement"} per _ctx helper
+    d = assess_dimension("typography", specs, ctx)
+    assert abs(d.reliability - 1.0) < 1e-9
+
+
+def test_dimension_reliability_fallback_pixel_source():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [_rule("art.typography.tiny_text", covered=5, eligible=5)]
+    ctx = _ctx(slide, sources={"pixel"})
+    d = assess_dimension("typography", specs, ctx)
+    assert abs(d.reliability - 0.55) < 1e-9
+
+
+def test_dimension_reliability_excludes_profile_experimental():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    spec = _rule("art.typography.many_families", covered=5, eligible=5, reliability=0.9)
+    profile = ArtProfile(name="x", experimental_rules={"art.typography.many_families"})
+    ctx = _ctx(slide, profile=profile)
+    d = assess_dimension("typography", [spec], ctx)
+    # profile-experimental 规则同样不参与聚合 → 无权重 → 回退场景可靠度
+    assert abs(d.reliability - 1.0) < 1e-9  # sources 默认 measurement

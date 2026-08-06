@@ -175,7 +175,12 @@ def assess_dimension(
         warnings.extend(ev.warnings)
         if ev.eligible_count > 0:
             applicable += 1
-        if ev.reliability is not None and ev.covered_count > 0 and not rs.experimental:
+        if (
+            ev.reliability is not None
+            and ev.covered_count > 0
+            and not rs.experimental
+            and rs.rule_id not in ctx.profile.experimental_rules
+        ):
             reliability_terms.append(ev.reliability)
             reliability_weights.append(ev.covered_count)
         for f in ev.findings:
@@ -195,7 +200,7 @@ def assess_dimension(
     weight_total = sum(reliability_weights)
     if weight_total > 0:
         reliability = (
-            sum(t * w for t, w in zip(reliability_terms, reliability_weights, strict=False))
+            sum(t * w for t, w in zip(reliability_terms, reliability_weights, strict=True))
             / weight_total
         )
         minimum_reliability = min(reliability_terms)
