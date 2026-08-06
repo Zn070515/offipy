@@ -1,0 +1,20 @@
+{
+  "schema_version": "0.1",
+  "offipy_version": "0.11.6",
+  "path": "deck.pptx",
+  "source_sha256": "abc123",
+  "slide_size": [13.333, 7.5],
+  "slide_count": 1,
+  "shapes": [
+    {"slide_index": 1, "shape_id": 2, "name": "TextBox 2",
+     "shape_type": "TextBox", "role": "title",
+     "left": 1.0, "top": 0.5, "width": 8.0, "height": 0.8,
+     "z_order": 1, "text": "数据分析", "is_rotated": false,
+     "geometry_unknown": false},
+    {"slide_index": 1, "shape_id": 5, "name": "Picture 5",
+     "shape_type": "Picture", "role": "image",
+     "left": 8.6, "top": 1.2, "width": 3.2, "height": 4.0,
+     "z_order": 2, "text": "", "is_rotated": false,
+     "geometry_unknown": false}
+  ]
+}

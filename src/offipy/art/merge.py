@@ -1,0 +1,184 @@
+"""场景融合：测量为主、几何审计为副，一对一匹配 + 匹配置信度 + 证据合并。
+
+rev2.1：不依赖 DOM ID 与 PPTX ID 相同；用 matched 集合保证一对一；
+未匹配的 secondary 元素与 secondary-only 页面都保留并附 warning。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .models import ArtElement, ArtScene, ArtSlide, ArtWarning
+
+
+def _match_confidence(primary_el: ArtElement, secondary_el: ArtElement) -> float | None:
+    """匹配置信度：shape_id 精确=1.0；身份=0.8；几何邻近=0.5×(1-d/0.2)。"""
+    if primary_el.element_id == secondary_el.element_id:
+        return 1.0
+    if (
+        primary_el.role == secondary_el.role
+        and primary_el.has_text()
+        and secondary_el.has_text()
+        and primary_el.text.strip().lower() == secondary_el.text.strip().lower()
+    ):
+        return 0.8
+    if primary_el.role != secondary_el.role:
+        return None
+    if (
+        primary_el.has_text()
+        and secondary_el.has_text()
+        and primary_el.text.strip().lower() != secondary_el.text.strip().lower()
+    ):
+        return None
+    pcx, pcy = primary_el.x + primary_el.width / 2, primary_el.y + primary_el.height / 2
+    ecx, ecy = secondary_el.x + secondary_el.width / 2, secondary_el.y + secondary_el.height / 2
+    d = ((pcx - ecx) ** 2 + (pcy - ecy) ** 2) ** 0.5
+    if d > 0.2:
+        return None
+    return 0.5 * (1.0 - d / 0.2)
+
+
+def _merge_element(
+    primary_el: ArtElement, secondary_el: ArtElement | None, confidence: float | None
+) -> ArtElement:
+    """重建新元素（ArtElement frozen）：source/evidence 写入新实例。"""
+    evidence: dict[str, Any] = {"measurement": _snapshot(primary_el)}
+    source = "measurement"
+    if secondary_el is not None:
+        evidence["pptx"] = _snapshot(secondary_el)
+        evidence["match_confidence"] = confidence
+        source = "merged"
+    return ArtElement(
+        element_id=primary_el.element_id,
+        kind=primary_el.kind,
+        role=primary_el.role,
+        x=primary_el.x,
+        y=primary_el.y,
+        width=primary_el.width,
+        height=primary_el.height,
+        slide_index=primary_el.slide_index,
+        foreground=primary_el.foreground,
+        background=primary_el.background,
+        border=primary_el.border,
+        is_background=primary_el.is_background,
+        text=primary_el.text,
+        font_size=primary_el.font_size,
+        font_size_unit=primary_el.font_size_unit,
+        font_size_norm=primary_el.font_size_norm,
+        runs=primary_el.runs,
+        natural_width=primary_el.natural_width,
+        natural_height=primary_el.natural_height,
+        source=source,
+        evidence=evidence,
+        container=primary_el.container,
+        decoration=primary_el.decoration,
+    )
+
+
+def merge_scenes(primary: ArtScene, secondary: ArtScene) -> tuple[ArtScene, list[ArtWarning]]:
+    """以 primary（测量）为主场景，把 secondary（pptx 审计）一对一合并。
+
+    对 primary 每个元素，在未匹配的 secondary 元素里选匹配置信度最高者；
+    未匹配的 secondary 元素追加（warning art.merge.unmatched）；
+    secondary 独有页面保留（warning art.merge.slide_secondary_only）。
+    主场景单位（px）为准；pptx 证据只作对照，规则不混用单位比较。
+    """
+    warnings: list[ArtWarning] = []
+    out_slides: list[ArtSlide] = []
+    for ps in primary.slides:
+        ss = secondary.by_slide(ps.index)
+        # 每页独立匹配集合：不跨页复用 secondary 元素
+        matched_secondary: set[str] = set()
+        elements: list[ArtElement] = []
+        if ss is None:
+            warnings.append(
+                ArtWarning(
+                    code="art.merge.slide_missing",
+                    message=f"secondary 缺 slide {ps.index}",
+                )
+            )
+            for el in ps.elements:
+                elements.append(_merge_element(el, None, None))
+            out_slides.append(
+                ArtSlide(
+                    index=ps.index,
+                    width=ps.width,
+                    height=ps.height,
+                    elements=elements,
+                    background_color=ps.background_color,
+                )
+            )
+            continue
+        for el in ps.elements:
+            best = None
+            best_c = 0.0
+            for se in ss.elements:
+                if se.element_id in matched_secondary:
+                    continue
+                c = _match_confidence(el, se)
+                if c is not None and c > best_c:
+                    best_c = c
+                    best = se
+            if best is not None:
+                matched_secondary.add(best.element_id)
+            elements.append(_merge_element(el, best, best_c if best else None))
+        # secondary 未匹配元素 → 追加 + warning
+        for se in ss.elements:
+            if se.element_id not in matched_secondary:
+                elements.append(se)
+                warnings.append(
+                    ArtWarning(
+                        code="art.merge.unmatched",
+                        message=f"secondary 元素 {se.element_id} 未匹配，已追加",
+                    )
+                )
+                matched_secondary.add(se.element_id)
+        out_slides.append(
+            ArtSlide(
+                index=ps.index,
+                width=ps.width,
+                height=ps.height,
+                elements=elements,
+                background_color=ps.background_color,
+            )
+        )
+    # secondary 独有页面 → 保留 + warning
+    for ss in secondary.slides:
+        if primary.by_slide(ss.index) is None:
+            out_slides.append(
+                ArtSlide(
+                    index=ss.index,
+                    width=ss.width,
+                    height=ss.height,
+                    elements=list(ss.elements),
+                    background_color=ss.background_color,
+                )
+            )
+            warnings.append(
+                ArtWarning(
+                    code="art.merge.slide_secondary_only",
+                    message=f"secondary 独有 slide {ss.index} 已保留",
+                )
+            )
+    out_slides.sort(key=lambda s: s.index)
+    scene = ArtScene(
+        slides=out_slides,
+        width_unit=primary.width_unit,
+        warnings=list(primary.warnings) + list(secondary.warnings) + warnings,
+        sources=set(primary.sources) | set(secondary.sources),
+    )
+    return scene, warnings
+
+
+def _snapshot(el: ArtElement) -> dict:
+    return {
+        "font_size": el.font_size,
+        "font_size_unit": el.font_size_unit,
+        "font_size_norm": el.font_size_norm,
+        "x": el.x,
+        "y": el.y,
+        "width": el.width,
+        "height": el.height,
+        "foreground": el.foreground.to_dict() if el.foreground else None,
+        "background": el.background.to_dict() if el.background else None,
+    }
