@@ -86,6 +86,11 @@ def _status(before: ArtFinding | None, after: ArtFinding | None) -> ChangeStatus
         after.details,
     ):
         return "changed"
+    if (before.evidence_sources, before.evidence_method) != (
+        after.evidence_sources,
+        after.evidence_method,
+    ):
+        return "changed"
     return "unchanged"
 
 

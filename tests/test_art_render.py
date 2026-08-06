@@ -99,3 +99,67 @@ def test_render_html_contains_dimensions_and_radar_label():
     assert "good" in html
     assert "规则评级" in html
     assert "<svg" in html
+
+
+def test_render_markdown_shows_evidence_and_reliability():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+        slide_index=1,
+        evidence_sources=frozenset({"pixel"}),
+        evidence_reliability=0.85,
+        evidence_method="declared_verified",
+    )
+    d = DimensionAssessment(
+        dimension="hierarchy",
+        status="assessed",
+        grade="good",
+        confidence=0.8,
+        reliability=0.85,
+        findings=[f],
+    )
+    rep = ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])])
+    md = render_markdown(rep)
+    assert "Evidence: pixel" in md
+    assert "Method: declared_verified" in md
+    assert "Reliability: 0.85" in md
+    assert "reliability 0.85" in md
+
+
+def test_render_html_shows_evidence():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+        slide_index=1,
+        evidence_sources=frozenset({"pixel"}),
+        evidence_reliability=0.85,
+        evidence_method="declared_verified",
+    )
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    rep = ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])])
+    html = render_html(rep)
+    assert "Evidence: pixel" in html
+
+
+def test_render_markdown_no_evidence_no_suffix():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+        slide_index=1,
+    )
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    md = render_markdown(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Evidence:" not in md
