@@ -84,6 +84,46 @@ def test_extract_autoshape_inherited_font_size(tmp_path):
     assert rec.paragraphs[0].runs[0].font_size is None  # 继承
 
 
+def test_paragraph_segments_split_at_soft_break(tmp_path):
+    # a:br 软换行把段落切成视觉行分组；runs 不含 a:br，段切分由元素序遍历还原
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+    tf = tb.text_frame
+    tf.text = "seg one"
+    p = tf.paragraphs[0]
+    p.add_line_break()
+    r = p.add_run()
+    r.text = "seg two"
+    r.font.size = Pt(14)
+    p.add_line_break()
+    p.add_run().text = "seg three"
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "TEXT_BOX")
+    para = rec.paragraphs[0]
+    assert para.text == "seg one\vseg two\vseg three"
+    assert len(para.segments) == 3
+    assert [run.text for run in para.segments[0]] == ["seg one"]
+    assert [run.text for run in para.segments[1]] == ["seg two"]
+    assert para.segments[1][0].font_size == pytest.approx(14.0)
+    assert [run.text for run in para.segments[2]] == ["seg three"]
+
+
+def test_paragraph_no_break_single_segment(tmp_path):
+    # 无 a:br → 整段一组
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    tf = tb.text_frame
+    tf.text = "plain"
+    tf.paragraphs[0].add_run().text = " extra"
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "TEXT_BOX")
+    para = rec.paragraphs[0]
+    assert len(para.segments) == 1
+    assert [run.text for run in para.segments[0]] == ["plain", " extra"]
+
+
 # ---------------------------------------------------------------- group 嵌套
 
 

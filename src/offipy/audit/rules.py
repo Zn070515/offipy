@@ -54,6 +54,9 @@ _EDGE_CN = {"left": "左", "right": "右", "top": "上", "bottom": "下"}
 
 _MIN_READABLE_PT = 8.0  # 最小可读字号阈值
 _DEFAULT_FONT_SIZE_PT = 18.0  # 文本框默认字号（未显式设置时的估算基准）
+# 溢出噪声下限：Pillow(FreeType) 与 PowerPoint(DirectWrite) 度量 msyh 有亚 pt 级
+# 引擎差。低于 1pt 的「超出」在 PowerPoint 里渲染刚好放下，报了是新的「脱节」。
+_OVERFLOW_FLOOR_IN = 1.0 / 72.0
 _LINE_HEIGHT_RATIO = 1.2
 _PILLOW_CONF = 0.8  # Pillow 字体度量置信度
 _FALLBACK_CONF = 0.4  # 字符权重回退置信度（消息标注「字符估算低置信」）
@@ -386,7 +389,7 @@ def _classify_overlap(
         return _contained_result(a, b, ratio, context, same_parent, confidence, approx_note)
     if ratio >= _FULL_COVER_RATIO:
         high = _is_picture_chart(on_top) and bool(below.text.strip())
-        return _cover_finding(below, on_top, ratio, context, confidence, approx_note, high=high)
+        return _covered_or_none(below, on_top, ratio, context, confidence, approx_note, high=high)
     if same_parent and a.parent_shape_id is not None:
         return _partial_finding(a, b, ratio, context, Severity.LOW, confidence, approx_note)
     return _partial_finding(a, b, ratio, context, Severity.MID, confidence, approx_note)
@@ -468,8 +471,8 @@ def _contained_result(
     assert ra is not None and rb is not None
     on_top, below = _on_top_below(a, b, ra.area(), rb.area(), same_parent)
     if _is_picture_chart(on_top):
-        # 图片/图表盖住：下方有文本 → 内容被遮挡 HIGH；否则图片盖图片 MID
-        return _cover_finding(
+        # 图片/图表盖住：下方有文本 → 内容被遮挡 HIGH；下方无文本 → 无内容可遮挡
+        return _covered_or_none(
             below, on_top, ratio, context, confidence, approx_note, high=bool(below.text.strip())
         )
     if on_top.has_text_frame and on_top.text.strip():
@@ -484,11 +487,9 @@ def _contained_result(
             return None
         if _is_picture_chart(below):
             return None  # 文本题注盖在图上 → 正常配图
-        return _cover_finding(below, on_top, ratio, context, confidence, approx_note)
-    if below.has_text_frame and below.text.strip():
-        # 文本在下层被非图片容器盖住 → 内容被遮挡
-        return _cover_finding(below, on_top, ratio, context, confidence, approx_note)
-    return _cover_finding(below, on_top, ratio, context, confidence, approx_note)
+        return _covered_or_none(below, on_top, ratio, context, confidence, approx_note)
+    # 下方有文本 → 内容被遮挡；无文本 → 无内容可遮挡（装饰点浮空卡片不再误报）
+    return _covered_or_none(below, on_top, ratio, context, confidence, approx_note)
 
 
 def _overlap_area(a: _ShapeRecord, b: _ShapeRecord) -> float:
@@ -496,6 +497,21 @@ def _overlap_area(a: _ShapeRecord, b: _ShapeRecord) -> float:
     if ra is None or rb is None:
         return 0.0
     return overlap_area(ra, rb)
+
+
+def _covered_or_none(
+    covered: _ShapeRecord,
+    cover: _ShapeRecord,
+    ratio: float,
+    context: RuleContext,
+    confidence: float,
+    approx_note: str,
+    high: bool = False,
+) -> AuditFinding | None:
+    """covered_text 只在被盖形状有文本时发射；下层无文本就无内容可遮挡。"""
+    if not _has_text(covered):
+        return None
+    return _cover_finding(covered, cover, ratio, context, confidence, approx_note, high=high)
 
 
 def _cover_finding(
@@ -589,10 +605,55 @@ def _char_width_pt(ch: str, size_pt: float) -> float:
     return size_pt if _is_wide_char(ch) else _ASCII_WEIGHT * size_pt
 
 
+# 已知字体 → (常规, 加粗) 文件。微软雅黑/宋体是 TTC 集合（msyh.ttc/simsun.ttc），
+# 用 base 拼 .ttf 永远找不到 → 必须显式映射，否则 Pillow 度量全失败走字符权重回退。
+_FONT_FILE_MAP: dict[str, tuple[str, str]] = {
+    "microsoftyahei": ("msyh.ttc", "msyhbd.ttc"),
+    "microsoftyaheiui": ("msyh.ttc", "msyhbd.ttc"),
+    "yahei": ("msyh.ttc", "msyhbd.ttc"),
+    "微软雅黑": ("msyh.ttc", "msyhbd.ttc"),
+    "simsun": ("simsun.ttc", "simhei.ttf"),
+    "宋体": ("simsun.ttc", "simhei.ttf"),
+    "simhei": ("simhei.ttf", "simhei.ttf"),
+    "黑体": ("simhei.ttf", "simhei.ttf"),
+    "simkai": ("simkai.ttf", "simkai.ttf"),
+    "kaiti": ("simkai.ttf", "simkai.ttf"),
+    "kaitisc": ("simkai.ttf", "simkai.ttf"),
+    "楷体": ("simkai.ttf", "simkai.ttf"),
+    "simfang": ("simfang.ttf", "simfang.ttf"),
+    "fangsong": ("simfang.ttf", "simfang.ttf"),
+    "仿宋": ("simfang.ttf", "simfang.ttf"),
+    "dengxian": ("deng.ttf", "dengbd.ttf"),
+    "等线": ("deng.ttf", "dengbd.ttf"),
+    "segoeui": ("segoeui.ttf", "segoeuib.ttf"),
+    "segoeuilight": ("segoeuil.ttf", "segoeuil.ttf"),
+    "calibri": ("calibri.ttf", "calibrib.ttf"),
+    "arial": ("arial.ttf", "arialbd.ttf"),
+    "timesnewroman": ("times.ttf", "timesbd.ttf"),
+    "timesnewromanpsmt": ("times.ttf", "timesbd.ttf"),
+    "cambria": ("cambria.ttc", "cambriab.ttf"),
+    "cambriamath": ("cambria.ttc", "cambriab.ttf"),
+    "consolas": ("consola.ttf", "consolab.ttf"),
+    "couriernew": ("cour.ttf", "courbd.ttf"),
+    "verdana": ("verdana.ttf", "verdanab.ttf"),
+    "tahoma": ("tahoma.ttf", "tahomabd.ttf"),
+    "georgia": ("georgia.ttf", "georgiab.ttf"),
+    "lucidasansunicode": ("l_10646.ttf", "l_10646.ttf"),
+    "lucidagrande": ("l_10646.ttf", "l_10646.ttf"),
+    "msreferencesansserif": ("mssans.ttf", "mssansb.ttf"),
+}
+
+
 def _font_candidates(name: str, bold: bool) -> list[Path]:
     base = "".join(ch for ch in name if ch.isalnum())
-    files = [f"{base}bd.ttf", f"{base}b.ttf"] if bold else []
-    files.append(f"{base}.ttf")
+    mapped = _FONT_FILE_MAP.get(base.lower())
+    if mapped:
+        # 已知字体：优先映射文件（加粗时先试加粗变体），再用 base 拼法兜底
+        files = [mapped[1], mapped[0]] if bold else [mapped[0], mapped[1]]
+        files.append(f"{base}.ttf")
+    else:
+        files = [f"{base}bd.ttf", f"{base}b.ttf"] if bold else []
+        files.append(f"{base}.ttf")
     dirs = [
         Path(r"C:\Windows\Fonts"),
         Path("/usr/share/fonts/truetype/dejavu"),
@@ -637,16 +698,24 @@ def _run_width_pt(
     return sum(_char_width_pt(ch, size_pt) for ch in text), False
 
 
-def _para_width_in(p: _Paragraph, default_size_pt: float) -> tuple[float, bool]:
-    """段落自然宽度（不折行）→ (英寸, 是否用 Pillow 度量)。"""
-    total_pt = 0.0
-    used_pillow = False
-    for run in p.runs:
-        size = run.font_size or default_size_pt
-        w_pt, used = _run_width_pt(run.text, size, run.bold, run.font_name)
-        total_pt += w_pt
-        used_pillow = used_pillow or used
-    return total_pt / 72.0, used_pillow
+def _para_segments_in(p: _Paragraph, default_size_pt: float) -> list[tuple[float, bool]]:
+    """段落按 a:br 拆成视觉行，每行自然宽度（英寸）→ (宽, 是否用 Pillow 度量)。
+
+    同一视觉行内的 run 求和；不同视觉行是独立行（wrap=none 时各自成行，
+    wrap 时各自折行），绝不能跨行求和。
+    """
+    groups = p.segments if p.segments else [p.runs]
+    out = []
+    for seg in groups:
+        total_pt = 0.0
+        used = False
+        for run in seg:
+            size = run.font_size or default_size_pt
+            w_pt, u = _run_width_pt(run.text, size, run.bold, run.font_name)
+            total_pt += w_pt
+            used = used or u
+        out.append((total_pt / 72.0, used))
+    return out
 
 
 def _para_size_pt(p: _Paragraph, default_size_pt: float) -> float:
@@ -660,10 +729,14 @@ def _text_height_in(
     """文本所需高（英寸，含折行）→ (高度, 是否用 Pillow 度量)。"""
     total_pt = 0.0
     used_pillow = False
+    wraps = rec.word_wrap is not False  # None(未设) 按 PowerPoint 默认 square 折行
     for p in rec.paragraphs:
-        pw, used = _para_width_in(p, default_size_pt)
-        used_pillow = used_pillow or used
-        lines = max(1, math.ceil(pw / avail_w)) if rec.word_wrap and avail_w > _MIN_DIM else 1
+        segs = _para_segments_in(p, default_size_pt)
+        used_pillow = used_pillow or any(u for _, u in segs)
+        if wraps and avail_w > _MIN_DIM:
+            lines = sum(max(1, math.ceil(w / avail_w)) for w, _ in segs)
+        else:
+            lines = len(segs) if segs else 1
         size = _para_size_pt(p, default_size_pt)
         total_pt += lines * size * _LINE_HEIGHT_RATIO
     return total_pt / 72.0, used_pillow
@@ -678,12 +751,13 @@ def _text_overflow(
     rec: _ShapeRecord, avail_w: float, avail_h: float
 ) -> tuple[bool, bool, float, float]:
     """文本是否超出现有可用区域 → (超宽, 超高, 文本宽, 文本高)。"""
-    widths = [_para_width_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
-    max_w = max((w for w, _ in widths), default=0.0)
+    segs_all = [_para_segments_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
+    max_w = max((w for segs in segs_all for w, _ in segs), default=0.0)
     wrap_w = avail_w if avail_w > _MIN_DIM else 1.0
     text_h, _ = _text_height_in(rec, wrap_w, _DEFAULT_FONT_SIZE_PT)
-    over_w = (not rec.word_wrap) and max_w > avail_w
-    over_h = text_h > avail_h
+    # 仅显式 wrap=none 会横向溢出：square 自动折行，None(未设) 按 PowerPoint 默认 square
+    over_w = (rec.word_wrap is False) and max_w > avail_w + _OVERFLOW_FLOOR_IN
+    over_h = text_h > avail_h + _OVERFLOW_FLOOR_IN
     return over_w, over_h, max_w, text_h
 
 
@@ -731,12 +805,12 @@ class TextFitRule:
                     )
                 )
                 continue
-            widths = [_para_width_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
-            max_para_w = max((w for w, _ in widths), default=0.0)
-            used_pillow = any(u for _, u in widths)
+            segs_all = [_para_segments_in(p, _DEFAULT_FONT_SIZE_PT) for p in rec.paragraphs]
+            max_para_w = max((w for segs in segs_all for w, _ in segs), default=0.0)
+            used_pillow = any(u for segs in segs_all for _, u in segs)
             conf = _PILLOW_CONF if used_pillow else _FALLBACK_CONF
             approx = "" if used_pillow else "（字符估算低置信）"
-            if not rec.word_wrap and max_para_w > avail_w:
+            if rec.word_wrap is False and max_para_w > avail_w + _OVERFLOW_FLOOR_IN:
                 findings.append(
                     _finding(
                         rule_id=RULE_TEXT_FIT_HORIZONTAL,
@@ -758,7 +832,7 @@ class TextFitRule:
             text_h, v_used = _text_height_in(rec, avail_w, _DEFAULT_FONT_SIZE_PT)
             v_conf = _PILLOW_CONF if (used_pillow or v_used) else _FALLBACK_CONF
             v_approx = "" if (used_pillow or v_used) else "（字符估算低置信）"
-            if text_h > avail_h:
+            if text_h > avail_h + _OVERFLOW_FLOOR_IN:
                 findings.append(
                     _finding(
                         rule_id=RULE_TEXT_FIT_VERTICAL,

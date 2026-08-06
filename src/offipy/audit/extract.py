@@ -55,6 +55,8 @@ class _TextRun:
 class _Paragraph:
     text: str  # 段落全部文本（runs + 软换行语义，可能含 \v）
     runs: list[_TextRun]
+    # a:br 软换行拆出的视觉行分组（每行一组 run）；无 a:br 时 = [runs]
+    segments: list[list[_TextRun]] = field(default_factory=list)
 
 
 @dataclass
@@ -266,17 +268,30 @@ def _build_record(
 
 
 def _read_text_frame(shape: object) -> _TextFrameData:
+    from pptx.oxml.ns import qn
+
     tf = shape.text_frame  # type: ignore[attr-defined]
     paragraphs: list[_Paragraph] = []
     text_parts: list[str] = []
     for para in tf.paragraphs:
         runs = []
-        for run in para.runs:
-            font = run.font
-            size = font.size.pt if font.size is not None else None
-            runs.append(_TextRun(run.text, size, font.bold, font.name))
+        segments: list[list[_TextRun]] = [[]]
+        pp_runs = para.runs
+        ri = 0
+        # 按文档序遍历 a:p 子元素，a:br 处切开视觉行分组（runs 不含 a:br，无法仅靠 runs 还原顺序）
+        for child in para._p:
+            if child.tag == qn("a:r"):
+                run = pp_runs[ri]
+                ri += 1
+                font = run.font
+                size = font.size.pt if font.size is not None else None
+                tr = _TextRun(run.text, size, font.bold, font.name)
+                runs.append(tr)
+                segments[-1].append(tr)
+            elif child.tag == qn("a:br"):
+                segments.append([])
         p_text = para.text
-        paragraphs.append(_Paragraph(text=p_text, runs=runs))
+        paragraphs.append(_Paragraph(text=p_text, runs=runs, segments=segments))
         text_parts.append(p_text)
     auto = tf.auto_size
     autofit = getattr(auto, "name", None) or "UNKNOWN"

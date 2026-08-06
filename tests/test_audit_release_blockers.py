@@ -58,8 +58,12 @@ def test_page_number_margin_default_suppressed_then_recovered(tmp_path):
 def test_background_margin_and_overlap_default_exempt_then_recovered(tmp_path):
     prs = Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[6])
+    # 内容矩形先加（z 在下层），全页背景后加（z 在上层）：
+    # covered_text 语义是「文本被盖住」，背景盖住有文本内容才是 overlap 要抓的场景。
+    # 反向排布（内容浮背景上）会走 intentional_containment 正常抑制，测不到本门禁。
+    inner = slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))
+    inner.text = "content"
     slide.shapes.add_shape(1, Inches(0), Inches(0), Inches(10), Inches(7.5))  # 全页背景
-    slide.shapes.add_shape(1, Inches(1), Inches(1), Inches(2), Inches(1))  # 背景内矩形（无文本）
     findings, suppressed, records = _run(prs, tmp_path)
     assert any(r.role == "background" for r in records)
     assert findings == []  # 默认：背景 margin 全 suppressed、不参与 overlap
