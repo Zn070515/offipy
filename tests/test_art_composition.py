@@ -105,8 +105,112 @@ def test_composition_rules_are_rule_specs():
         "art.composition.off_balance",
         "art.composition.corner_cluster",
         "art.composition.spacing_drift",
+        "art.composition.background_like_area",
     }
     assert {rs.rule_id for rs in RULES if rs.experimental} == {
         "art.composition.off_balance",
         "art.composition.corner_cluster",
+        "art.composition.background_like_area",
     }
+
+
+def test_background_like_area_fires():
+    from offipy.art.composition import background_like_area_rule
+    from offipy.art.models import SlidePixelEvidence
+
+    slide = make_slide(1, elements=[])
+    slide.pixel_evidence = SlidePixelEvidence(
+        background_like_ratio=0.9,
+        background_confidence=0.9,
+        background_uniformity=0.9,
+    )
+    ev = background_like_area_rule(slide, _ctx(slide))
+    assert len(ev.findings) == 1
+    assert ev.findings[0].rule_id == "art.composition.background_like_area"
+    assert ev.findings[0].confidence <= 0.3
+    assert ev.findings[0].evidence_sources == frozenset({"pixel"})
+
+
+def test_background_like_area_low_ratio_no_fire():
+    from offipy.art.composition import background_like_area_rule
+    from offipy.art.models import SlidePixelEvidence
+
+    slide = make_slide(1, elements=[])
+    slide.pixel_evidence = SlidePixelEvidence(
+        background_like_ratio=0.3,
+        background_confidence=0.9,
+        background_uniformity=0.9,
+    )
+    assert background_like_area_rule(slide, _ctx(slide)).findings == []
+
+
+def test_background_like_area_low_confidence_warns():
+    from offipy.art.composition import background_like_area_rule
+    from offipy.art.models import SlidePixelEvidence
+
+    slide = make_slide(1, elements=[])
+    slide.pixel_evidence = SlidePixelEvidence(
+        background_like_ratio=0.9,
+        background_confidence=0.4,  # 低于 0.7
+        background_uniformity=0.9,
+    )
+    ev = background_like_area_rule(slide, _ctx(slide))
+    assert ev.findings == []
+    assert any(w.code == "art.pixel.background_low_confidence" for w in ev.warnings)
+
+
+def test_background_like_area_high_occupancy_no_fire():
+    from offipy.art.composition import background_like_area_rule
+    from offipy.art.models import SlidePixelEvidence
+
+    # 元素占满页面 → union_area_ratio > 0.5 → 不提示、不警告
+    slide = make_slide(
+        1,
+        elements=[
+            ArtElement(
+                element_id="full",
+                kind="shape",
+                role="body",
+                x=0.0,
+                y=0.0,
+                width=1.0,
+                height=0.9,
+                slide_index=1,
+            )
+        ],
+    )
+    slide.pixel_evidence = SlidePixelEvidence(
+        background_like_ratio=0.9,
+        background_confidence=0.9,
+        background_uniformity=0.9,
+    )
+    ev = background_like_area_rule(slide, _ctx(slide))
+    assert ev.findings == []
+    assert ev.warnings == []
+
+
+def test_background_like_area_full_bleed_image_no_fire():
+    from offipy.art.composition import background_like_area_rule
+    from offipy.art.models import SlidePixelEvidence
+
+    slide = make_slide(
+        1,
+        elements=[
+            ArtElement(
+                element_id="img",
+                kind="image",
+                role="image",
+                x=0.0,
+                y=0.0,
+                width=1.0,
+                height=1.0,
+                slide_index=1,
+            )
+        ],
+    )
+    slide.pixel_evidence = SlidePixelEvidence(
+        background_like_ratio=0.9,
+        background_confidence=0.9,
+        background_uniformity=0.9,
+    )
+    assert background_like_area_rule(slide, _ctx(slide)).findings == []
