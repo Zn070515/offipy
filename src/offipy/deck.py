@@ -452,11 +452,14 @@ def _run_art_analysis(
     profile: str,
     pptx_report: object | None = None,
     slides_dir: str | None = None,
+    pixel_required: bool = False,
 ) -> ArtReport:
     """从保留的 measurements +（可选）几何审计 +（可选）像素 slides_dir 建场景并分析。"""
     from .art import analyze_scene, build_scene
 
     scene = build_scene(measurements=measurements, pptx_report=pptx_report, slides_dir=slides_dir)
+    if pixel_required and slides_dir is not None and "pixel" not in scene.sources:
+        raise ConversionError("像素分析无有效页面（required）")
     return analyze_scene(scene, profile=profile)
 
 
@@ -522,7 +525,7 @@ def render_with_quality_report(
                 staging_slides = os.path.join(staging_dir, "slides")
                 try:
                     os.makedirs(staging_slides, exist_ok=True)
-                    _export_pixel_slides(stage.tmp_pptx, staging_slides)
+                    exported = _export_pixel_slides(stage.tmp_pptx, staging_slides)
                     _write_deck_info(staging_slides, stage.tmp_pptx)
                 except Exception as exc:
                     if pixel_analysis == "required":
@@ -534,10 +537,17 @@ def render_with_quality_report(
                         )
                     )
                     staging_slides = None
+                else:
+                    if pixel_analysis == "required" and not exported:
+                        raise ConversionError("像素分析未导出任何页面（required）")
             if m is not None:
                 # 双源融合：measurements 为主 + pptx_report secondary + slides_dir tertiary
                 art_report = _run_art_analysis(
-                    m, profile, pptx_report=audit_report, slides_dir=staging_slides
+                    m,
+                    profile,
+                    pptx_report=audit_report,
+                    slides_dir=staging_slides,
+                    pixel_required=(pixel_analysis == "required"),
                 )
             else:
                 if pixel_analysis == "required":

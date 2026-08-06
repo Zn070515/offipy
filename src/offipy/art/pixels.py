@@ -530,12 +530,24 @@ def empty_scene_from_slides(slides_dir: str | Path) -> ArtScene:
     """slides_dir-only：空 ArtScene，index/宽高取 PNG 像素尺寸，保留真实页号。"""
     enricher = PixelEnricher(slides_dir)
     pages, warnings = enricher.scan()
-    slides = [
-        ArtSlide(
-            index=idx,
-            width=float(enricher._image_size(p)[0]),
-            height=float(enricher._image_size(p)[1]),
-        )
-        for idx, p in sorted(pages.items())
-    ]
+    slides: list[ArtSlide] = []
+    for idx, p in sorted(pages.items()):
+        try:
+            width, height = enricher._image_size(p)
+        except Exception as exc:
+            warnings.append(
+                ArtWarning(code="art.pixel.decode_failed", message=f"页 {idx} PNG 解码失败: {exc}")
+            )
+            continue
+        slides.append(ArtSlide(index=idx, width=float(width), height=float(height)))
+    indexes = sorted(s.index for s in slides)
+    if indexes:
+        missing = [i for i in range(indexes[0], indexes[-1] + 1) if i not in set(indexes)]
+        if missing:
+            warnings.append(
+                ArtWarning(
+                    code="art.pixel.page_gap",
+                    message=f"页号不连续，缺页: {', '.join(map(str, missing))}",
+                )
+            )
     return ArtScene(slides=slides, width_unit="px", warnings=warnings, sources=set())

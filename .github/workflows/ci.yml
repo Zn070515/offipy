@@ -28,7 +28,7 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/offipy
       - name: Test pure-module subset + coverage gate
-        run: uv run pytest tests -m "not com and not deck_render and not slow" --cov=offipy --cov-fail-under=70 -q
+        run: uv run pytest tests -m "not com and not deck_render" --cov=offipy --cov-fail-under=70 -q
       - name: Art layer pure import gate（无 c-ext / 无 python-pptx）
         run: uv run python -c "import offipy; offipy.build_scene; offipy.analyze_scene; print('art pure ok')"
 
@@ -46,7 +46,7 @@ jobs:
       - name: Sync dependencies (latest allowed)
         run: uv sync --extra dev --upgrade
       - name: Test pure-module subset (latest deps)
-        run: uv run pytest tests -m "not com and not deck_render and not slow" -q
+        run: uv run pytest tests -m "not com and not deck_render" -q
 
   # Windows 全量：含 deck_render（安装 chromium），COM 测试无 Office 自动跳过
   windows:
@@ -71,7 +71,7 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/offipy
       - name: Test (pytest)
-        run: uv run pytest tests -m "not slow" -q
+        run: uv run pytest tests -q
 
   # 打包 smoke：构建 wheel + 干净 venv 安装 + import/check（release 门禁）
   wheel-smoke:

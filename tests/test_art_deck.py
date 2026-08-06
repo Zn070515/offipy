@@ -21,6 +21,13 @@ def _fake_audit(p, config=None):
     )
 
 
+def _fake_run_art_analysis(
+    measurements, profile="balanced", pptx_report=None, slides_dir=None, pixel_required=False
+):
+    """_run_art_analysis 替身：接受 v0.12.1 新增的 pixel_required kwarg。"""
+    return ArtReport(profile=profile)
+
+
 class _FakeStage:
     """可调用的 _render_stage 替身：返回一个 CM 实例（不是 CM 本身不可调用）。"""
 
@@ -76,13 +83,7 @@ def test_render_with_quality_report_assembles_art(tmp_path, monkeypatch):
     monkeypatch.setattr(deck, "_render_stage", lambda *a, **kw: _FakeStage(out_dir))
     # render_with_quality_report 内部 `from .audit import audit_pptx`（惰性）→ 必须 patch 真实模块
     monkeypatch.setattr("offipy.audit.audit_pptx", _fake_audit)
-    monkeypatch.setattr(
-        deck,
-        "_run_art_analysis",
-        lambda measurements, profile="balanced", pptx_report=None, slides_dir=None: ArtReport(
-            profile=profile
-        ),
-    )
+    monkeypatch.setattr(deck, "_run_art_analysis", _fake_run_art_analysis)
     monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
 
     result = deck.render_with_quality_report("in.html", profile="balanced")
@@ -129,13 +130,7 @@ def test_render_with_quality_report_pixel_off_default(tmp_path, monkeypatch):
 
     monkeypatch.setattr(deck, "_render_stage", lambda *a, **kw: _FakeStage(out_dir))
     monkeypatch.setattr("offipy.audit.audit_pptx", _fake_audit)
-    monkeypatch.setattr(
-        deck,
-        "_run_art_analysis",
-        lambda measurements, profile="balanced", pptx_report=None, slides_dir=None: ArtReport(
-            profile=profile
-        ),
-    )
+    monkeypatch.setattr(deck, "_run_art_analysis", _fake_run_art_analysis)
     monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
 
     result = deck.render_with_quality_report("in.html", profile="balanced")
@@ -203,13 +198,7 @@ def test_render_with_quality_report_pixel_preserve(tmp_path, monkeypatch):
 
     monkeypatch.setattr(deck, "_export_pixel_slides", fake_export)
     monkeypatch.setattr(deck, "_write_deck_info", lambda out_dir, pptx: None)
-    monkeypatch.setattr(
-        deck,
-        "_run_art_analysis",
-        lambda measurements, profile="balanced", pptx_report=None, slides_dir=None: ArtReport(
-            profile=profile
-        ),
-    )
+    monkeypatch.setattr(deck, "_run_art_analysis", _fake_run_art_analysis)
     monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
 
     deck.render_with_quality_report(
@@ -244,13 +233,7 @@ def test_render_with_quality_report_pixel_commit_failure_cleans_staging(tmp_path
 
     monkeypatch.setattr(deck, "_export_pixel_slides", fake_export)
     monkeypatch.setattr(deck, "_write_deck_info", lambda out_dir, pptx: None)
-    monkeypatch.setattr(
-        deck,
-        "_run_art_analysis",
-        lambda measurements, profile="balanced", pptx_report=None, slides_dir=None: ArtReport(
-            profile=profile
-        ),
-    )
+    monkeypatch.setattr(deck, "_run_art_analysis", _fake_run_art_analysis)
     monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
 
     def raise_commit(self):
@@ -301,3 +284,37 @@ def test_render_with_quality_report_pixel_required_missing_measurements_raises(
     with pytest.raises(ConversionError):
         deck.render_with_quality_report("in.html", pixel_analysis="required")
     assert not list(out_dir.glob("offipy-pixel-*"))  # 无 measurements 不建 staging
+
+
+def test_render_with_quality_report_pixel_required_empty_export_raises(tmp_path, monkeypatch):
+    out_dir = tmp_path / "out"
+    out_dir.mkdir(parents=True)
+    audit_dir = out_dir / "tmp_audit" / "_cache"
+    audit_dir.mkdir(parents=True)
+    (audit_dir / "measurements.json").write_text(json.dumps({"slides": []}), encoding="utf-8")
+
+    monkeypatch.setattr(deck, "_render_stage", lambda *a, **kw: _FakeStage(out_dir))
+    monkeypatch.setattr("offipy.audit.audit_pptx", _fake_audit)
+    monkeypatch.setattr(deck, "_export_pixel_slides", lambda pptx, out_dir: [])
+    monkeypatch.setattr(deck, "_write_deck_info", lambda out_dir, pptx: None)
+    monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
+
+    with pytest.raises(ConversionError):
+        deck.render_with_quality_report("in.html", pixel_analysis="required")
+    assert not list(out_dir.glob("offipy-pixel-*"))  # staging 已清理
+
+
+def test_run_art_analysis_required_no_pixel_raises(monkeypatch):
+    monkeypatch.setattr("offipy.art.build_scene", lambda **kw: ArtScene())
+    with pytest.raises(ConversionError):
+        deck._run_art_analysis(
+            {"slides": []}, "balanced", slides_dir="out/slides", pixel_required=True
+        )
+
+
+def test_run_art_analysis_required_with_pixel_source_ok(monkeypatch):
+    monkeypatch.setattr("offipy.art.build_scene", lambda **kw: ArtScene(sources={"pixel"}))
+    art = deck._run_art_analysis(
+        {"slides": []}, "balanced", slides_dir="out/slides", pixel_required=True
+    )
+    assert isinstance(art, ArtReport)

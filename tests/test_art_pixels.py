@@ -48,6 +48,35 @@ def test_empty_scene_from_slides_dimensions(tmp_path):
     assert scene.width_unit == "px"
 
 
+def test_empty_scene_from_slides_corrupt_png_warns(tmp_path):
+    d = tmp_path / "slides"
+    d.mkdir()
+    (d / "slide_1.png").write_bytes(b"not-a-png")
+    scene = empty_scene_from_slides(d)
+    assert [s.index for s in scene.slides] == []  # 损坏页被跳过，不硬崩
+    assert any(w.code == "art.pixel.decode_failed" for w in scene.warnings)
+
+
+def test_empty_scene_from_slides_page_gap_warns(tmp_path):
+    d = tmp_path / "slides"
+    d.mkdir()
+    _write(d, "slide_1.png", _img())
+    _write(d, "slide_3.png", _img())
+    scene = empty_scene_from_slides(d)
+    assert [s.index for s in scene.slides] == [1, 3]  # 保留真实页号
+    assert any(w.code == "art.pixel.page_gap" for w in scene.warnings)
+
+
+def test_empty_scene_from_slides_consecutive_no_gap(tmp_path):
+    d = tmp_path / "slides"
+    d.mkdir()
+    _write(d, "slide_1.png", _img())
+    _write(d, "slide_2.png", _img())
+    scene = empty_scene_from_slides(d)
+    assert [s.index for s in scene.slides] == [1, 2]
+    assert not any(w.code == "art.pixel.page_gap" for w in scene.warnings)
+
+
 def test_enrich_declared_verified(tmp_path):
     d = tmp_path / "slides"
     d.mkdir()
