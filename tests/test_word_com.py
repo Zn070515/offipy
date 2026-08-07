@@ -133,11 +133,24 @@ def test_add_page_number_standalone_alignment_switch_right_to_left():
     )
     tabs = [(round(t.Position, 1), t.Alignment) for t in hf.Range.ParagraphFormat.TabStops]
     assert (text_w, 2) in tabs  # right 制表位存在
-    # 切到 left：旧右制表位必须被 ClearAll 清掉，否则页码仍落右边
+    assert hf.Range.Text == "公司名\t1\r"
+    # 切到 left：旧右制表位被 ClearAll 清掉、遗留尾随制表符被移除，页码紧跟文本
     call("word", "add_page_number", mode="standalone", alignment="left", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
     tabs = [(round(t.Position, 1), t.Alignment) for t in hf.Range.ParagraphFormat.TabStops]
     assert (text_w, 2) not in tabs  # 旧右制表位已清除
-    assert any(t[1] == 0 for t in tabs)  # 左制表位存在
+    assert "\t" not in hf.Range.Text  # 尾随制表符已移除（左模式无制表区）
+    assert hf.Range.Text == "公司名1\r"
+
+
+def test_add_page_number_standalone_left_follows_text():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="standalone", alignment="left", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    # 左模式无制表区：页码紧跟页脚文本自然左排（Word 丢弃 position 0 制表位）
+    assert hf.Range.Text == "公司名1\r"
+    assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
 
 
 def test_page_setup_landscape_a4_margin():

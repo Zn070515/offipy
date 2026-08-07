@@ -604,9 +604,18 @@ class WordApp:
             # 清掉旧制表位（右→左切换时旧右制表位会让页码仍落在右边）；
             # 副作用：standalone 也会一并抹掉用户手设的其他制表位
             rng.ParagraphFormat.TabStops.ClearAll()
-            text_w = _footer_text_width(doc)
-            pos = {0: 0.0, 1: text_w / 2.0, 2: text_w}[tab_align]
-            rng.ParagraphFormat.TabStops.Add(pos, tab_align)
+            if tab_align == _TAB_ALIGN["left"]:
+                # 左对齐没有有意义的制表区：页码紧跟页脚文本自然左排。
+                # Word 会静默丢弃 position 0 的制表位，故左模式不设制表位；
+                # 若上次是 center/right，清掉遗留的尾随制表符，避免被默认制表位推偏。
+                if hf.Range.Text[:-1].endswith("\t"):
+                    rng.MoveStart(_WD_CHARACTER, -1)
+                    rng.Delete()
+                    rng.Collapse(_WD_COLLAPSE_END)
+            else:
+                text_w = _footer_text_width(doc)
+                pos = {0: 0.0, 1: text_w / 2.0, 2: text_w}[tab_align]
+                rng.ParagraphFormat.TabStops.Add(pos, tab_align)
             fld = _add_page_field_at_end(hf)
         if fld is not None:
             _style_field_only(fld, color, size)

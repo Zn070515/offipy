@@ -124,8 +124,21 @@ class _FakeRange:
     def MoveEnd(self, unit, count):
         self._collapsed = True
 
+    def MoveStart(self, unit, count):
+        self._collapsed = True
+
     def Collapse(self, direction):
         self._collapsed = True
+
+    def Delete(self):
+        """折叠态删除选中文本：建模为删掉尾部一个非段落符字符（standalone 左模式
+        清遗留尾随制表符用）。"""
+        if self._collapsed:
+            t = self._footer._text
+            if t.endswith("\r"):
+                self._footer._text = t[:-2] + "\r" if len(t) > 1 else "\r"
+            else:
+                self._footer._text = t[:-1]
 
 
 class _FakeFooter:
@@ -290,12 +303,16 @@ def test_add_page_number_standalone_center_tab_zone():
     assert doc.footer.Range.ParagraphFormat.TabStops.added == [(234.0, 1)]
 
 
-def test_add_page_number_standalone_left_tab_zone():
+def test_add_page_number_standalone_left_follows_text():
+    # 左对齐无制表区：不插制表符、不设制表位（Word 丢弃 position 0 制表位），
+    # 页码紧跟页脚文本自然左排（实探见 docs/development/probe_word_page_number.md）
     doc = _FakeDoc()
     doc.footer.Range.Text = "公司名"
     app = _app(doc)
-    app.add_page_number(mode="standalone", alignment="left", doc_id="x")
-    assert doc.footer.Range.ParagraphFormat.TabStops.added == [(0.0, 0)]
+    result = app.add_page_number(mode="standalone", alignment="left", doc_id="x")
+    assert result == "公司名1\r"
+    assert doc.footer.Range.ParagraphFormat.TabStops.added == []
+    assert _page_fields(doc.footer) == [_WD_FIELD_PAGE]
 
 
 def test_add_page_number_standalone_rebuilds_idempotent():
@@ -318,16 +335,18 @@ def test_add_page_number_standalone_empty_footer():
 
 
 def test_add_page_number_standalone_clears_stale_tab_stops():
-    # 右→左切换：旧的右制表位必须被 ClearAll 清掉，否则页码仍落右边
+    # 右→左切换：旧右制表位被 ClearAll 清掉，遗留尾随制表符也被移除，
+    # 页码紧跟文本左排（不设制表位，Word 丢弃 position 0）
     doc = _FakeDoc()
-    doc.footer.Range.Text = "公司名"
+    doc.footer.Range.Text = "公司名\t"  # 模拟上次 right 遗留的尾随制表符
     app = _app(doc)
     # 预置一个「陈旧」右制表位（模拟上次 right 调用遗留）
     doc.footer.Range.ParagraphFormat.TabStops.Add(468.0, 2)
     app.add_page_number(mode="standalone", alignment="left", doc_id="x")
     ts = doc.footer.Range.ParagraphFormat.TabStops
     assert ts.clear_count >= 1
-    assert ts.added == [(0.0, 0)]  # 旧右制表位已被清掉，只剩本次左制表位
+    assert ts.added == []  # 左模式不设制表位
+    assert doc.footer.Range.Text == "公司名1\r"  # 尾随制表符已移除，页码紧跟文本
 
 
 def test_add_page_number_standalone_preserves_non_page_field():
