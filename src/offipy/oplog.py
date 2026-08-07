@@ -4,8 +4,9 @@
 resource_id}——args 一律不落盘（脱敏，不写原始敏感值）。CLI `offipy log` 读取。
 
 并发安全：写前拿模块级线程锁（进程内多线程串行）+ 文件字节锁
-（Windows msvcrt / POSIX fcntl，跨进程互斥）；轮转在同一把线程锁内完成，
-避免改名期间有写入打到同一文件。
+（Windows msvcrt / POSIX fcntl，跨进程互斥）；轮转在线程锁 + 跨进程文件锁
+内完成——改名期间既无本进程写入，也不会有其它进程持有 fd，Windows 下
+rename 不会因并发句柄静默失败（#48）。
 """
 
 import contextlib
@@ -36,8 +37,15 @@ def log_path() -> Path:
 
 @contextlib.contextmanager
 def _file_lock(path: Path):
-    """跨进程写锁：Windows msvcrt 字节锁 / POSIX fcntl；锁 + 写在同一个 fd。"""
-    with open(path, "a+b") as f:
+    """跨进程写锁：Windows msvcrt 字节锁 / POSIX fcntl。
+
+    锁在旁路 `.lock` 文件上，不锁数据文件本身——Windows 下数据文件只要还有
+    打开的 fd（包括自己）就 rename 失败（WinError 32），轮转必须在无 fd
+    占用时改名；持锁方只把数据 fd 短暂打开用于写入，轮转期间其它进程被
+    .lock 挡在门外，rename 才有保障（#48）。
+    """
+    lock_file = path.with_name(path.name + ".lock")
+    with open(lock_file, "a+b") as f:
         try:
             if sys.platform == "win32":
                 import msvcrt
@@ -51,7 +59,7 @@ def _file_lock(path: Path):
         except Exception:
             pass  # 拿不到跨进程锁仍继续写（单实例下线程锁已够用）
         try:
-            yield f
+            yield
         finally:
             with contextlib.suppress(Exception):
                 if sys.platform == "win32":
@@ -79,11 +87,10 @@ def _rotate(path: Path) -> None:
 
 def _append_locked(path: Path, line: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _THREAD_LOCK:
-        with _file_lock(path) as f:
+    with _THREAD_LOCK, _file_lock(path):
+        with open(path, "ab") as f:
             f.write(line.encode("utf-8") + b"\n")
-            f.flush()
-        _rotate(path)
+        _rotate(path)  # #48：在跨进程锁内轮转，改名无 fd 占用才不被打断
 
 
 def append(session_id: str, app: str, op: str, ok: bool, **kw) -> None:

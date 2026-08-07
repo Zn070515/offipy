@@ -1,5 +1,6 @@
 """P2-3 操作日志：append / read / 轮转 / 并发写不串行。"""
 
+import contextlib
 import json
 import threading
 
@@ -60,6 +61,36 @@ def test_rotation_keeps_log_bounded(monkeypatch, tmp_path):
         if path.exists():
             for line in path.read_text(encoding="utf-8").splitlines():
                 json.loads(line)
+
+
+def test_rotate_runs_inside_file_lock(monkeypatch, tmp_path):
+    # #48：轮转必须在跨进程文件锁作用域内执行——此前在 _file_lock 块外调用，
+    # Windows 下并发进程持有 fd 时 rename 静默失败（except OSError: pass）。
+    _point(monkeypatch, tmp_path)
+    monkeypatch.setattr(oplog, "MAX_BYTES", 1)  # 每次追加都触发轮转
+    state = {"in_lock": False, "rotate_seen": []}
+    real_lock = oplog._file_lock
+    real_rotate = oplog._rotate
+
+    @contextlib.contextmanager
+    def tracking_lock(path):
+        state["in_lock"] = True
+        try:
+            with real_lock(path) as f:
+                yield f
+        finally:
+            state["in_lock"] = False
+
+    def tracking_rotate(path):
+        state["rotate_seen"].append(state["in_lock"])
+        return real_rotate(path)
+
+    monkeypatch.setattr(oplog, "_file_lock", tracking_lock)
+    monkeypatch.setattr(oplog, "_rotate", tracking_rotate)
+    for i in range(3):
+        oplog.append("s", "excel", f"op{i}", True)
+    assert state["rotate_seen"]
+    assert all(state["rotate_seen"]), "轮转必须在 _file_lock 作用域内执行"
 
 
 def test_concurrent_writes_no_loss(monkeypatch, tmp_path):
