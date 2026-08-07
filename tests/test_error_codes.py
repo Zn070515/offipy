@@ -68,6 +68,34 @@ def test_request_unknown_code_falls_back_to_remote(monkeypatch):
         client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
 
 
+def test_request_400_with_error_code_maps_domain(monkeypatch):
+    # #47：400 带可识别 error_code → 领域异常（invalid_argument），非 RemoteCallError。
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+
+    def raiser(req, timeout=None):
+        raise _http_error(req, 400, "invalid_argument")
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    with pytest.raises(InvalidArgumentError):
+        client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
+
+
+def test_request_400_without_error_code_falls_back_to_remote(monkeypatch):
+    # #47：400 无 error_code（如坏 body）→ RemoteCallError。
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+
+    def raiser(req, timeout=None):
+        body = {"ok": False, "error": "bad"}
+        data = json.dumps(body).encode()
+        raise urllib.error.HTTPError(req.full_url, 400, "Error", {}, io.BytesIO(data))
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    from offipy.exceptions import RemoteCallError
+
+    with pytest.raises(RemoteCallError):
+        client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
+
+
 # --- 契约4/5：request 应用层失败抛异常（非返回 dict）+ ComOperationError 透传 hresult ---
 
 

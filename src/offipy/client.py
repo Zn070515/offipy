@@ -441,11 +441,12 @@ def request(
 ) -> dict:
     """发一次调用并返回响应 dict；应用层失败抛对应 OffipyError。
 
-    成功（server 返回 200 + ok:true）→ dict；应用层失败（server 以 HTTP 500
-    返回 ok:false + error_code）→ 按 error_code 映射抛领域异常，com_operation
-    透传 hresult 供断连识别；传输层失败（超时/连不上/坏 JSON/400/401/413/415
-    等）→ RemoteCallError。base_url 缺省连本地 8890（P0-4 Remote* 共享 CLI/
-    MCP 会话）；显式给出可指向其他 offipy server。
+    成功（server 返回 200 + ok:true）→ dict；server 返回 ok:false 且带可识别
+    error_code（HTTP 400 invalid_argument/protocol、HTTP 500 领域错误、503 busy
+    等）→ 按 error_code 映射抛领域异常，com_operation 透传 hresult 供断连识别；
+    error_code 缺失或未知（401 未授权、坏 JSON、超时、连不上、internal/busy 等）
+    → RemoteCallError。base_url 缺省连本地 8890（P0-4 Remote* 共享 CLI/MCP
+    会话）；显式给出可指向其他 offipy server。
 
     request_id（P0-2 幂等方案 A）：缺省自动生成 uuid4；调用方超时重试应复用
     同一 request_id——server 对同 id 同 payload 合并/回放缓存，不重复执行。
