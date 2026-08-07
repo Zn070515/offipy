@@ -21,6 +21,7 @@ from offipy.assets.primitives._common import (
     add_shape,
     add_textbox,
     fit_font_size,
+    fit_font_size_wrapped,
     px_to_emu,
     resolve_native_colors,
     shape_elements,
@@ -131,6 +132,25 @@ def test_fit_font_size_raises_when_impossible() -> None:
 
 def test_fit_font_size_empty_text() -> None:
     assert fit_font_size("", 400, 200, start_pt=20, min_pt=8) > 0
+
+
+def test_fit_font_size_wrapped_short_text_stays_single_line() -> None:
+    size = fit_font_size_wrapped("Hi there", 400, 200, start_pt=40, min_pt=8)
+    assert size == pytest.approx(40)
+
+
+def test_fit_font_size_wrapped_shrinks_for_long_multiline_text() -> None:
+    size = fit_font_size_wrapped(" ".join(["word"] * 20), 400, 80, start_pt=48, min_pt=6)
+    assert 6 <= size < 48
+
+
+def test_fit_font_size_wrapped_unbreakable_token_raises() -> None:
+    with pytest.raises(InvalidArgumentError, match="does not fit"):
+        fit_font_size_wrapped("x" * 500, 100, 40, start_pt=24, min_pt=8)
+
+
+def test_fit_font_size_wrapped_empty_text() -> None:
+    assert fit_font_size_wrapped("", 400, 200, start_pt=20, min_pt=8) > 0
 
 
 # -- shape helpers ---------------------------------------------------------

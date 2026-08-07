@@ -212,7 +212,7 @@ def render_asset(
         from offipy.assets.primitives import get_native_renderer
 
         renderer = get_native_renderer(payload.primitive)
-        shapes = renderer(slide, payload.params, context)
+        shapes = renderer(slide, dict(payload.params), context)
         return list(shapes)
     raise InvalidArgumentError(f"unknown asset payload type {type(payload).__name__}")
 

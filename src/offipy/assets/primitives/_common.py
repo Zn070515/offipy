@@ -205,6 +205,53 @@ def fit_font_size(
     )
 
 
+def fit_font_size_wrapped(
+    text: str,
+    w_px: float,
+    h_px: float,
+    *,
+    start_pt: float,
+    min_pt: float,
+    approx_char_width: float = 0.55,
+    line_height_pt: float = 1.2,
+) -> float:
+    """Largest font size (pt) whose greedy word-wrap fits w_px×h_px.
+
+    Whitespace is the only wrap point; a token wider than the box must shrink
+    (never truncates user text). Raises when even ``min_pt`` overflows either
+    axis, so no rendered line ever escapes the rect.
+    """
+    if not text:
+        return min(start_pt, max(min_pt, h_px * 72.0 / 96.0 / line_height_pt))
+    for size_pt in _descending_pt(start_pt, min_pt):
+        char_w_px = size_pt * (96.0 / 72.0) * approx_char_width
+        line_h_px = size_pt * (96.0 / 72.0) * line_height_pt
+        n_lines, max_line_w = _wrap_measure(text, char_w_px, w_px)
+        if max_line_w <= w_px and n_lines * line_h_px <= h_px:
+            return size_pt
+    raise InvalidArgumentError(
+        f"text {text[:24]!r} does not fit rect {w_px:.0f}x{h_px:.0f}px at min {min_pt}pt"
+    )
+
+
+def _wrap_measure(text: str, char_w_px: float, w_px: float) -> tuple[int, float]:
+    space_w_px = char_w_px * 0.3
+    lines = 1
+    cur = 0.0
+    max_line_w = 0.0
+    for token in text.split():
+        token_w = len(token) * char_w_px
+        if cur == 0:
+            cur = token_w
+        elif cur + space_w_px + token_w <= w_px:
+            cur += space_w_px + token_w
+        else:
+            max_line_w = max(max_line_w, cur)
+            lines += 1
+            cur = token_w
+    return lines, max(max_line_w, cur)
+
+
 def _descending_pt(start_pt: float, min_pt: float) -> Iterable[float]:
     step = 1.0
     size = start_pt
