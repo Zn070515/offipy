@@ -3,6 +3,36 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.13.2] - 2026-08-07
+
+### Fixed
+- **#40 feedback.load_records 脏行跳过**：`dimension`/`action` 校验前移到读路径，
+  JSON 合法但维度非法的坏行直接跳过，`dimension_weights()` 不再崩裸 KeyError。
+- **#41 Excel 三个 op 补 `_parse_range` 预校验**：`set_number_format` /
+  `add_conditional_format` / `autofit` 畸形 `range_addr` 先抛
+  `InvalidArgumentError`，不再落到 COM 抛裸 `ComOperationError`，与 5 个兄弟 op 对称。
+- **#42 公共 API 边界不泄漏裸内建异常**：`offipy.op()` 未知应用、`art.get_profile()`
+  未知 profile 一律抛 `InvalidArgumentError`（OffipyError 子类），不再抛裸
+  ValueError / KeyError。
+- **#43 `add_heading` 越界 level 显式拒绝**：level ≠ 1/2/3 抛
+  `InvalidArgumentError`，不再静默降级为 Heading 1。
+- **#44 `add_page_number` 参数序修正**：OpSpec 改为
+  `(alignment, color, size, doc_id, mode)`，`mode` 为 keyword-only；
+  `docs/api/word`（含 .en）同步。
+- **#45 server queue.Full 回滚唤醒合并等待**：owner 入队回滚时用
+  `_complete_entry` 同步 result + event，非 owner 线程不再 merge 到永不完成的
+  entry 挂 600s 返回误导性 504。
+- **#46 `quit` 对称拒绝 `follow_active`**：与 `expected_target` 一致拒绝，不再
+  静默消费（protocol.md「quit 不接受两者」）。
+- **#47 `client.request()` docstring 对齐**：400 带可识别 error_code → 领域异常，
+  不再声称一律归 RemoteCallError。
+- **#48 oplog 轮转在跨进程锁内**：`_rotate` 移到文件锁作用域内执行，且跨进程锁
+  落在旁路 `.lock` 文件上——Windows 下数据文件自身 fd 会挡 rename（WinError 32），
+  并发进程持有 fd 时不再静默不轮转、日志可超 5MB。
+
+### Notes
+- 纯 PATCH 修复（#40–#48），无破坏性 API / CLI / 契约变化。
+
 ## [0.13.1] - 2026-08-07
 
 ### Fixed
