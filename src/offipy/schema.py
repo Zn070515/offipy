@@ -415,10 +415,19 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "add_page_number": OpSpec(
             description=(
                 "在页脚插入页码。alignment 取 left/center/right；"
-                "可带 color '#RRGGBB' 和 size 字号（会清空既有页脚文本）。"
+                "color '#RRGGBB' 与 size 字号只作用于页码域；"
+                "mode 取 replace（默认，清空页脚后插入，legacy 行为）/ "
+                "append（保留既有文本后追加）/ "
+                "standalone（保留文本，页码放入左/中/右制表区）。"
             ),
             destructive=True,
-            params={"alignment": str, "color": str, "size": float, "doc_id": str},
+            params={
+                "alignment": str,
+                "color": str,
+                "size": float,
+                "mode": str,
+                "doc_id": str,
+            },
         ),
         "page_setup": OpSpec(
             description=(

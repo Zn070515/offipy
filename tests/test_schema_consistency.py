@@ -77,6 +77,15 @@ def test_schema_param_names_match_app_methods():
             )
 
 
+def test_add_page_number_mode_in_schema():
+    # S4 Task 2：schema 暴露 mode 参数（replace 默认 = legacy 行为），
+    # 供 server/CLI/MCP 三入口与生成 API 使用；描述需说明默认值是 legacy 行为
+    spec = schema.spec("word", "add_page_number")
+    assert spec is not None
+    assert spec.params["mode"] is str
+    assert "replace" in spec.description and "legacy" in spec.description
+
+
 def test_schema_flags_internally_consistent():
     for app in schema.apps():
         for op in schema.ops(app):

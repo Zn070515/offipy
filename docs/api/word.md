@@ -144,9 +144,9 @@
 
 ### `add_page_number`
 
-在页脚插入页码。alignment 取 left/center/right；可带 color '#RRGGBB' 和 size 字号（会清空既有页脚文本）。
+在页脚插入页码。alignment 取 left/center/right；color '#RRGGBB' 与 size 字号只作用于页码域；mode 取 replace（默认，清空页脚后插入，legacy 行为）/ append（保留既有文本后追加）/ standalone（保留文本，页码放入左/中/右制表区）。
 
-- **参数**: `alignment: str`、`color: str`、`size: float`、`doc_id: str`
+- **参数**: `alignment: str`、`color: str`、`size: float`、`mode: str`、`doc_id: str`
 - **返回**: `void`
 - **标志**: 会改动文档/应用状态
 
