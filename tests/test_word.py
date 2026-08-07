@@ -40,7 +40,8 @@ class _FakeField:
         if self in self._fields._items:
             self._fields._items.remove(self)
         if self._range is not None:
-            self._range._text = self._range._text.replace(self.Result.Text, "", 1)
+            footer = self._range._footer
+            footer._text = footer._text.replace(self.Result.Text, "", 1)
 
 
 class _FakeFields:
@@ -58,20 +59,26 @@ class _FakeFields:
         fld = _FakeField(self, range_, type_, result)
         self._items.append(fld)
         if range_ is not None:
-            text = range_._text
+            footer = range_._footer
+            text = footer._text
             if text.endswith("\r"):
-                range_._text = text[:-1] + result + "\r"
+                footer._text = text[:-1] + result + "\r"
             else:
-                range_._text = text + result
+                footer._text = text + result
         return fld
 
 
 class _FakeTabStops:
     def __init__(self):
         self.added = []
+        self.clear_count = 0
 
     def Add(self, position, alignment):
         self.added.append((position, alignment))
+
+    def ClearAll(self):
+        self.clear_count += 1
+        self.added = []
 
 
 class _FakeParagraphFormat:
@@ -81,39 +88,55 @@ class _FakeParagraphFormat:
 
 
 class _FakeRange:
-    def __init__(self, fields):
-        self._fields = fields
-        self._text = "\r"
-        self.ParagraphFormat = _FakeParagraphFormat()
+    """每次 hf.Range 访问返回新的 Range 视图，共享页脚文本/域/段落格式。
+
+    折叠态（MoveEnd/Collapse 后）写 Text = 在段落符前插入文本，不清除既有域；
+    整段重写（replace 清空）才清域——与 Word 实机行为一致。
+    """
+
+    def __init__(self, footer):
+        self._footer = footer
+        self._collapsed = False
 
     @property
     def Fields(self):
-        return self._fields
+        return self._footer.fields
+
+    @property
+    def ParagraphFormat(self):
+        return self._footer.paragraph_format
 
     @property
     def Text(self):
-        return self._text
+        return self._footer._text
 
     @Text.setter
     def Text(self, value):
-        self._fields._items.clear()  # Word：写 Range.Text 会清除既有域
-        self._text = value if value.endswith("\r") else value + "\r"
+        if self._collapsed:
+            if self._footer._text.endswith("\r"):
+                self._footer._text = self._footer._text[:-1] + value + "\r"
+            else:
+                self._footer._text = self._footer._text + value
+        else:
+            self._footer.fields._items.clear()
+            self._footer._text = value if value.endswith("\r") else value + "\r"
 
     def MoveEnd(self, unit, count):
-        pass
+        self._collapsed = True
 
     def Collapse(self, direction):
-        pass
+        self._collapsed = True
 
 
 class _FakeFooter:
     def __init__(self):
-        self._fields = _FakeFields()
-        self._range = _FakeRange(self._fields)
+        self.fields = _FakeFields()
+        self.paragraph_format = _FakeParagraphFormat()
+        self._text = "\r"
 
     @property
     def Range(self):
-        return self._range
+        return _FakeRange(self)
 
 
 class _FakeSections:
@@ -294,6 +317,29 @@ def test_add_page_number_standalone_empty_footer():
     assert _page_fields(doc.footer) == [_WD_FIELD_PAGE]
 
 
+def test_add_page_number_standalone_clears_stale_tab_stops():
+    # 右→左切换：旧的右制表位必须被 ClearAll 清掉，否则页码仍落右边
+    doc = _FakeDoc()
+    doc.footer.Range.Text = "公司名"
+    app = _app(doc)
+    # 预置一个「陈旧」右制表位（模拟上次 right 调用遗留）
+    doc.footer.Range.ParagraphFormat.TabStops.Add(468.0, 2)
+    app.add_page_number(mode="standalone", alignment="left", doc_id="x")
+    ts = doc.footer.Range.ParagraphFormat.TabStops
+    assert ts.clear_count >= 1
+    assert ts.added == [(0.0, 0)]  # 旧右制表位已被清掉，只剩本次左制表位
+
+
+def test_add_page_number_standalone_preserves_non_page_field():
+    # standalone 不重写整段：既有的非 PAGE 域（如 DATE）必须原样保留
+    doc = _FakeDoc()
+    doc.footer.Range.Text = "公司名"
+    doc.footer.Range.Fields.Add(doc.footer.Range, 21)  # DATE 域
+    app = _app(doc)
+    app.add_page_number(mode="standalone", doc_id="x")
+    assert sorted(_page_fields(doc.footer)) == [21, _WD_FIELD_PAGE]
+
+
 # --- 校验 ----------------------------------------------------------------------
 
 
@@ -306,6 +352,16 @@ def test_add_page_number_invalid_mode_rejected():
         app.add_page_number(mode="append_extra", doc_id="x")
     with pytest.raises(InvalidArgumentError, match="未知模式"):
         app.add_page_number(mode="", doc_id="x")
+
+
+def test_add_page_number_non_str_mode_rejected():
+    # 非字符串 mode（int/None）不得落到 .strip() 抛 AttributeError
+    doc = _FakeDoc()
+    app = _app(doc)
+    with pytest.raises(InvalidArgumentError, match="未知模式"):
+        app.add_page_number(mode=5, doc_id="x")
+    with pytest.raises(InvalidArgumentError, match="未知模式"):
+        app.add_page_number(mode=None, doc_id="x")
 
 
 def test_add_page_number_mode_is_case_insensitive():

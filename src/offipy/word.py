@@ -545,7 +545,8 @@ class WordApp:
         alignment 取 left/center/right；color '#RRGGBB' 与 size 只作用到页码域
         （不会染色页脚其余文本）。
         """
-        mode_key = (mode or "").strip().lower()
+        # 非字符串 mode（如 int/None）不得落到 .strip() 抛 AttributeError
+        mode_key = mode.strip().lower() if isinstance(mode, str) else ""
         if mode_key not in ("replace", "append", "standalone"):
             raise InvalidArgumentError(
                 f"add_page_number: 未知模式: {mode!r}（可选: replace/append/standalone）"
@@ -573,13 +574,19 @@ class WordApp:
             for f in list(hf.Range.Fields):
                 if f.Type == _WD_FIELD_PAGE:
                     f.Delete()
-            text = hf.Range.Text
-            base = text[:-1] if text.endswith("\r") else text
-            base = base.rstrip("\t")  # 清掉上次独立模式遗留的尾部制表符
-            hf.Range.Text = base + "\t"  # 保留既有文本，尾部追加真实制表符
+            # 不重写整段：折叠到结尾段落符前插入制表符，保留既有域与文本
+            rng = hf.Range
+            rng.MoveEnd(_WD_CHARACTER, -1)
+            rng.Collapse(_WD_COLLAPSE_END)
+            # 幂等：末尾已有制表符（上次 standalone 遗留）则不重复插入
+            if not hf.Range.Text[:-1].endswith("\t"):
+                rng.Text = "\t"
+                rng.Collapse(_WD_COLLAPSE_END)  # 重新折叠到插入后的末尾
+            # 清掉旧制表位（右→左切换时旧右制表位会让页码仍落在右边）
+            rng.ParagraphFormat.TabStops.ClearAll()
             text_w = _footer_text_width(doc)
             pos = {0: 0.0, 1: text_w / 2.0, 2: text_w}[tab_align]
-            hf.Range.ParagraphFormat.TabStops.Add(pos, tab_align)
+            rng.ParagraphFormat.TabStops.Add(pos, tab_align)
             fld = _add_page_field_at_end(hf)
         if fld is not None:
             _style_field_only(fld, color, size)

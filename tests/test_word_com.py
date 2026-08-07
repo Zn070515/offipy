@@ -104,6 +104,42 @@ def test_add_page_number_standalone_readback():
     assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
 
 
+def test_add_page_number_standalone_preserves_date_field():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    # 先插一个 DATE 域（wdFieldDate=21）模拟既有非 PAGE 域
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    rng = hf.Range
+    rng.MoveEnd(1, -1)  # wdCharacter：排除尾部段落符
+    rng.Collapse(0)  # wdCollapseEnd
+    rng.Fields.Add(rng, 21)  # wdFieldDate
+    date_result = next(f for f in hf.Range.Fields if f.Type == 21).Result.Text
+    # standalone 不得重写整段：DATE 域必须原样保留为活域
+    call("word", "add_page_number", mode="standalone", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    types = [f.Type for f in hf.Range.Fields]
+    assert 21 in types and 33 in types  # DATE 仍是活域，PAGE 域已加
+    assert hf.Range.Text == f"公司名{date_result}\t1\r"
+
+
+def test_add_page_number_standalone_alignment_switch_right_to_left():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="standalone", alignment="right", doc_id=did)
+    doc = _word().ActiveDocument
+    hf = doc.Sections(1).Footers(1)
+    text_w = round(
+        doc.PageSetup.PageWidth - doc.PageSetup.LeftMargin - doc.PageSetup.RightMargin, 1
+    )
+    tabs = [(round(t.Position, 1), t.Alignment) for t in hf.Range.ParagraphFormat.TabStops]
+    assert (text_w, 2) in tabs  # right 制表位存在
+    # 切到 left：旧右制表位必须被 ClearAll 清掉，否则页码仍落右边
+    call("word", "add_page_number", mode="standalone", alignment="left", doc_id=did)
+    tabs = [(round(t.Position, 1), t.Alignment) for t in hf.Range.ParagraphFormat.TabStops]
+    assert (text_w, 2) not in tabs  # 旧右制表位已清除
+    assert any(t[1] == 0 for t in tabs)  # 左制表位存在
+
+
 def test_page_setup_landscape_a4_margin():
     did = call("word", "new_doc")
     call(
