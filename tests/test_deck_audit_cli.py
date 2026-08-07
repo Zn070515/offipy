@@ -188,15 +188,15 @@ def test_deck_audit_ppt_missing_file_friendly(monkeypatch, capsys):
         raise FileNotFoundError("x.pptx")
 
     monkeypatch.setattr("offipy.art.analyze.analyze_deck", boom)
-    assert cli.main(["deck", "audit", "--pptx", "x.pptx"]) == 1
+    assert cli.main(["deck", "audit", "--pptx", "x.pptx"]) == 2
     err = capsys.readouterr().err
     assert "找不到文件" in err
     assert "Traceback" not in err
 
 
 def test_deck_audit_invalid_profile_friendly(monkeypatch, capsys):
-    # 未知 --profile → get_profile 抛 KeyError，CLI 必须转友好 offipy: error + exit 1，
-    # 绝不留裸 traceback（违反「库异常转 stderr + exit 1」契约）
+    # 未知 --profile → get_profile 抛 KeyError，CLI 必须转友好 offipy: error + exit 2，
+    # 绝不留裸 traceback（预运行无效输入 → exit 2，#39）
     from offipy import cli
 
     # PPTX 流
@@ -204,7 +204,7 @@ def test_deck_audit_invalid_profile_friendly(monkeypatch, capsys):
         raise KeyError("unknown art profile: bogus")
 
     monkeypatch.setattr("offipy.art.analyze.analyze_deck", boom_ppt)
-    assert cli.main(["deck", "audit", "--pptx", "x.pptx", "--profile", "bogus"]) == 1
+    assert cli.main(["deck", "audit", "--pptx", "x.pptx", "--profile", "bogus"]) == 2
     err = capsys.readouterr().err
     assert "offipy: error:" in err
     assert "bogus" in err
@@ -215,7 +215,7 @@ def test_deck_audit_invalid_profile_friendly(monkeypatch, capsys):
         raise KeyError("unknown art profile: bogus")
 
     monkeypatch.setattr("offipy.deck.render_with_quality_report", boom_html)
-    assert cli.main(["deck", "audit", "x.html", "--profile", "bogus"]) == 1
+    assert cli.main(["deck", "audit", "x.html", "--profile", "bogus"]) == 2
     err2 = capsys.readouterr().err
     assert "offipy: error:" in err2
     assert "bogus" in err2
