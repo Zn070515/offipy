@@ -219,6 +219,8 @@ class AssetRenderContext:
 
     def __post_init__(self) -> None:
         _check_placement(self.placement)
+        # keep the frozen context independent of the caller's mutable mapping
+        object.__setattr__(self, "theme_vars", dict(self.theme_vars))
 
 
 @dataclass(frozen=True)
