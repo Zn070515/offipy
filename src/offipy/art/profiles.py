@@ -48,6 +48,27 @@ ALL_RULES = frozenset(
     }
 )
 
+# 规则 → 维度 规范化注册表：feedback 只依赖此处，不 import 规则实现
+RULE_DIMENSIONS: Mapping[str, str] = {
+    RULE_NO_FOCUS: "hierarchy",
+    RULE_TITLE_TOO_SMALL: "hierarchy",
+    RULE_OFF_BALANCE: "composition",
+    RULE_CORNER_CLUSTER: "composition",
+    RULE_SPACING_DRIFT: "composition",
+    RULE_BACKGROUND_LIKE_AREA: "composition",
+    RULE_MANY_FAMILIES: "typography",
+    RULE_TINY_TEXT: "typography",
+    RULE_FLAT_SCALE: "typography",
+    RULE_LOW_CONTRAST: "color",
+    RULE_ACCENT_FLOOD: "color",
+    RULE_NO_ACCENT: "color",
+    RULE_DISTORTED_IMAGE: "media",
+    RULE_TINY_IMAGE: "media",
+    RULE_MIXED_IMAGE_SIZES: "media",
+    RULE_TITLE_DRIFT: "consistency",
+    RULE_MARGIN_DRIFT: "consistency",
+}
+
 _EXPERIMENTAL = frozenset(
     {
         RULE_OFF_BALANCE,

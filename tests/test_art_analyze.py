@@ -154,3 +154,15 @@ def test_analyze_deck_slides_dir_only(tmp_path):
     assert result.art.slides[0].slide_index == 1
     # slides_dir-only 有像素证据 → 不触发 art.evidence.limited
     assert not any(w.code == "art.evidence.limited" for w in result.warnings)
+
+
+def test_rule_dimensions_agree_with_dimension_rules():
+    import offipy.art.analyze as A
+    from offipy.art.profiles import RULE_DIMENSIONS, RULE_MARGIN_DRIFT, RULE_TITLE_DRIFT
+
+    for dimension, specs in A._DIMENSION_RULES.items():
+        for spec in specs:
+            assert RULE_DIMENSIONS[spec.rule_id] == spec.dimension == dimension
+    # deck 级一致性规则不在 _DIMENSION_RULES 列表里，单独断言
+    assert RULE_DIMENSIONS[RULE_TITLE_DRIFT] == "consistency"
+    assert RULE_DIMENSIONS[RULE_MARGIN_DRIFT] == "consistency"

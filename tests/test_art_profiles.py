@@ -5,6 +5,7 @@ from offipy.art.profiles import (
     RULE_ACCENT_FLOOD,
     RULE_BACKGROUND_LIKE_AREA,
     RULE_CORNER_CLUSTER,
+    RULE_DIMENSIONS,
     RULE_OFF_BALANCE,
     get_profile,
     profile_names,
@@ -13,6 +14,15 @@ from offipy.art.profiles import (
 
 def test_all_rules_count():
     assert len(ALL_RULES) == 17
+
+
+def test_rule_dimensions_covers_all_rules():
+    assert set(RULE_DIMENSIONS) == set(ALL_RULES)
+
+
+def test_rule_dimensions_are_known():
+    known = {"hierarchy", "composition", "typography", "color", "media", "consistency"}
+    assert set(RULE_DIMENSIONS.values()) <= known
 
 
 def test_experimental_rules():
