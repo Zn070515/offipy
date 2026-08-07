@@ -359,9 +359,11 @@ def test_derive_palette_extremes(accent):
     assert palette == derive_chart_palette(accent)
 
 
-def test_derive_palette_invalid_accent_raises():
+@pytest.mark.parametrize("accent", ["notacolor", "#FFF", "#GGGGGG"])
+def test_derive_palette_invalid_accent_raises(accent):
+    # 只认 6 位 #RRGGBB；3 位 #FFF / 非 hex 均拒绝（6 位无 # 形式按设计接受，不在本测试断言）
     with pytest.raises(ValueError):
-        derive_chart_palette("notacolor")
+        derive_chart_palette(accent)
 
 
 def test_parse_colors_override_valid():
@@ -406,6 +408,23 @@ def test_parse_decl_preserves_slide_classes():
     assert no_cls[0].slide_classes == frozenset()
 
 
+def test_parse_decl_slide_classes_reset_per_section():
+    # 两页 section：第二页无 class，不得继承第一页的 {"slide","dark"}
+    html = (
+        '<section class="slide dark" data-pptx-slide>'
+        '<div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+        "<section data-pptx-slide>"
+        '<div class="chart" data-chart="line" '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+    )
+    decls = parse_chart_declarations(html)
+    assert decls[0].slide_classes == frozenset({"slide", "dark"})
+    assert decls[1].slide_classes == frozenset()
+
+
 def test_parse_decl_preserves_colors_override():
     html = (
         '<section class="slide" data-pptx-slide>'
@@ -440,3 +459,5 @@ def test_parse_decl_empty_colors_override_raises():
 def test_cycle_colors():
     assert _cycle_colors(("#a", "#b"), 5) == ("#a", "#b", "#a", "#b", "#a")
     assert _cycle_colors(("#a",), 2) == ("#a", "#a")
+    # 截断：n < len(colors)
+    assert _cycle_colors(("#a", "#b", "#c"), 2) == ("#a", "#b")

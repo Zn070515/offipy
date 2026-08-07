@@ -136,7 +136,7 @@ def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[float, float, float]:
 
 
 def _hsl_to_rgb(h: float, s: float, light: float) -> tuple[int, int, int]:
-    """HSL → RGB(0-255)。h 先 mod 360，s/light 先 clamp [0,1]。纯 stdlib math，确定性。"""
+    """HSL → RGB(0-255)。h 先 mod 360；s/light 假定调用方已 clamp。纯 stdlib math，确定性。"""
     h = h % 360.0
     c = (1.0 - abs(2.0 * light - 1.0)) * s
     hp = h / 60.0
