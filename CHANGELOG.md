@@ -3,6 +3,26 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.12.2] - 2026-08-07
+
+### Fixed
+- **#33 MCP `close_*` 返回注解**：`_RETURN_ANNOTATION` 补 `"str|null"`，`close_book` /
+  `close_doc` / `close_pres` 从 `object` 修正为 `str`。
+- **#34 版本偏斜自愈**：client `_probe()` 识别「协议匹配但版本不一致」的旧 server →
+  `mismatch`，`ensure_server` 按 pid 归属自动重启；`server_status()` 偏斜时返回含
+  `version` 的可读 dict（非 offipy 进程协议失配才返回 None）。
+- **#35 Excel 畸形区域 fail-fast**：`set_range` / `read_range` / `set_border` 经
+  `_parse_range` 集中校验，非法地址统一抛 `InvalidArgumentError`（不再穿透原始 COM 错误）。
+- **#36 HRESULT 可读显示 + 线程契约提示**：负 HRESULT 以两补码 `0x…` 显示；`CO_E_NOTINITIALIZED`
+  （0x800401F0）单列识别，报错提示 `com_apartment()`（P1-4 线程契约）。
+- **#37 保存锁重试 + quit 不静默**：`save` / `save_pdf`（ppt/word/excel）经
+  `save_with_lock_retry` 锁感知短重试，目标文件被占用时给可读 `ComOperationError`；
+  `ppt.quit(force=True)` PID 解析失败时以 liveness 探针兜底，进程仍活则明确抛错。
+
+### Notes
+- 纯 PATCH 修复（#33-#37），无破坏性 API / CLI / 契约变化；迁移见
+  [`docs/migration.md`](docs/migration.md)。
+
 ## [0.12.1] - 2026-08-06
 
 ### Added
