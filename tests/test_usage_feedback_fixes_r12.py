@@ -315,6 +315,37 @@ def test_unmerge_cells_rejects_malformed_range():
         app.unmerge_cells("数据", "A1:B2:C3", doc_id="b1")
 
 
+def test_set_range_rejects_malformed_range():
+    # #35：畸形区域地址必须在触 COM 前抛 InvalidArgumentError，与 merge/unmerge 对齐
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.set_range("数据", "???", [[1]], doc_id="b1")
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.set_range("数据", "A1:B2:C3", [[1]], doc_id="b1")
+
+
+def test_read_range_rejects_malformed_range():
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.read_range("数据", "???", doc_id="b1")
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.read_range("数据", "A1ZZ", doc_id="b1")
+
+
+def test_set_border_rejects_malformed_range():
+    from offipy import excel
+
+    app = excel.ExcelApp.__new__(excel.ExcelApp)
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.set_border("数据", "???", color="#FF0000", doc_id="b1")
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        app.set_border("数据", "A1:B2:C3", doc_id="b1")
+
+
 def test_open_book_missing_file_rejected(tmp_path):
     from offipy import excel
 

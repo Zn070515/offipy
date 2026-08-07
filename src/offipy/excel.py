@@ -443,6 +443,7 @@ class ExcelApp:
 
     @destructive
     def set_range(self, sheet, range_addr: str, values, doc_id: str | None = None):
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         rng = self._ws(sheet, doc_id).Range(range_addr)
         # 数据维度与目标范围必须一致；标量（非 list/tuple）会广播填满整个范围，
         # 不校验。否则 COM 会静默只填部分（如 2×3 目标给 1×3 数据只写第一行）。
@@ -463,6 +464,7 @@ class ExcelApp:
     @readonly_guard
     def read_range(self, sheet, range_addr, doc_id: str | None = None):
         """读取区域值，返回二维 list（行→列）。只读，不改状态。"""
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         return _normalize_range(self._ws(sheet, doc_id).Range(range_addr).Value)
 
     # --- 格式化 ---
@@ -518,6 +520,7 @@ class ExcelApp:
         color: str | None = None,
         doc_id: str | None = None,
     ):
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
         rng = ws.Range(range_addr)
         style_const = _resolve_style(style, _LINE_STYLE, "线型")
