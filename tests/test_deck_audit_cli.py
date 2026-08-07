@@ -231,6 +231,20 @@ def test_deck_audit_json_deterministic(monkeypatch, capsys):
     assert first == second
 
 
+def test_deck_audit_text_deterministic(monkeypatch, capsys):
+    # 文本路径同样确定性：两次运行 stdout 逐字节一致
+    from offipy import cli
+
+    monkeypatch.setattr(
+        "offipy.deck.render_with_quality_report", lambda html, **kw: _render_result()
+    )
+    cli.main(["deck", "audit", "x.html"])
+    first = capsys.readouterr().out
+    cli.main(["deck", "audit", "x.html"])
+    second = capsys.readouterr().out
+    assert first == second
+
+
 # ---------------------------------------------------------------- 建议投影
 
 
@@ -276,6 +290,20 @@ def test_deck_audit_temp_workspace_cleaned(monkeypatch):
     assert cli.main(["deck", "audit", "x.html"]) == 1
     after = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
     assert after == before  # 失败路径也不残留临时工作区
+
+
+def test_deck_audit_success_cleans_temp(monkeypatch, capsys):
+    # 成功路径同样清理临时工作区（TemporaryDirectory 正常退出即删）
+    from offipy import cli
+
+    monkeypatch.setattr(
+        "offipy.deck.render_with_quality_report", lambda html, **kw: _render_result()
+    )
+    tmpdir = tempfile.gettempdir()
+    before = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
+    cli.main(["deck", "audit", "x.html", "--json"])
+    after = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
+    assert after == before  # 成功路径不残留临时工作区
 
 
 def test_deck_audit_chromium_error_concise(monkeypatch, capsys):
