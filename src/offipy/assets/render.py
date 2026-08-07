@@ -1,19 +1,29 @@
-"""offipy.assets — generic asset measurement binding and placeholder lookup.
+"""offipy.assets — generic asset measurement binding and renderer/z-order.
 
-A3 Task 6: bind converter `kind=asset` measurements to deterministic
-declaration ids, and locate the transparent placeholder in an assembled deck.
-Internal-facing helpers for the postprocess pipeline; not part of the public
-asset core surface.
+A3 Task 6/7: bind converter `kind=asset` measurements to deterministic
+declaration ids, locate the transparent placeholder in an assembled deck, and
+render resolved payloads into exact placeholder XML slots (replace / decorative
+/ background). Internal-facing helpers for the postprocess pipeline; not part of
+the public asset core surface.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
 from offipy.assets.declarations import AssetDeclaration
-from offipy.assets.model import AssetRect
+from offipy.assets.model import (
+    AssetRect,
+    AssetRenderContext,
+    NativeShapePayload,
+    RasterPayload,
+    ResolvedAsset,
+    SvgPayload,
+    SvgTemplatePayload,
+)
 from offipy.exceptions import InvalidArgumentError
 
 PLACEHOLDER_PREFIX = "OFFIPY_ASSET::"
@@ -120,3 +130,174 @@ def bind_asset_measurements(
         if asset_id not in bound:
             raise InvalidArgumentError(f"asset 测量记录 {asset_id} 无对应声明")
     return bound
+
+
+# ---------------------------------------------------------------------------
+# 渲染（Task 7）
+# ---------------------------------------------------------------------------
+
+_PX_TO_EMU = 6350  # 转换器画布 1920×1080 px = 12192000×6858000 EMU
+
+
+def _px_rect(rect: AssetRect) -> dict[str, float]:
+    return {"x": rect.x, "y": rect.y, "w": rect.width, "h": rect.height}
+
+
+def _accent_rgb(context: AssetRenderContext):
+    """theme_vars['accent'] → RGBColor（图标 computed color 缺失时的 v0.13.2 兜底）。"""
+    accent = context.theme_vars.get("accent")
+    if not accent:
+        return None
+    m = re.fullmatch(r"#([0-9a-fA-F]{6})", accent.strip())
+    if not m:
+        return None
+    from pptx.dml.color import RGBColor
+
+    return RGBColor.from_string(m.group(1))
+
+
+def render_asset(
+    slide,
+    resolved: ResolvedAsset,
+    context: AssetRenderContext,
+    *,
+    color: str | None = None,
+) -> list:
+    """按 payload 类型把 ResolvedAsset 渲染进 slide，返回创建的形状/元素列表。
+
+    - freeform_svg → 既有图标 freeform 渲染器（ph fill / lu stroke）；
+    - RasterPayload → add_picture；
+    - SvgPayload(svg)/SvgTemplatePayload → A1 选定 P2（OOXML SVG picture + svgBlip）；
+    - NativeShapePayload → A5 前未注册渲染器，明确报错。
+    color 是测量出的计算色（CSS color），None 时兜底主题 accent。
+    """
+    payload = resolved.payload
+    rect = context.rect
+    if isinstance(payload, SvgPayload) and payload.render_mode == "freeform_svg":
+        from offipy.assets.providers.icons import icon_render_mode
+        from offipy.icons import render_icon_payload
+
+        if payload.view_box is None:
+            raise InvalidArgumentError("freeform_svg payload missing view_box")
+        return render_icon_payload(
+            slide,
+            payload.svg,
+            mode=icon_render_mode(resolved.provider_meta.provider_id),
+            view_box=payload.view_box,
+            rect=_px_rect(rect),
+            color=color,
+            fallback=_accent_rgb(context),
+        )
+    if isinstance(payload, RasterPayload):
+        return [_render_raster_picture(slide, rect, payload)]
+    if isinstance(payload, SvgTemplatePayload):
+        from offipy.assets.materialize import materialize_svg_template
+
+        payload = materialize_svg_template(payload, context.theme_vars)
+    if isinstance(payload, SvgPayload):
+        return [_render_svg_picture(slide, rect, payload.svg)]
+    if isinstance(payload, NativeShapePayload):
+        raise InvalidArgumentError("native_shape provider renderer not registered")
+    raise InvalidArgumentError(f"unknown asset payload type {type(payload).__name__}")
+
+
+def _render_raster_picture(slide, rect: AssetRect, payload: RasterPayload):
+    from io import BytesIO
+
+    from pptx.util import Emu
+
+    x, y, w, h = (int(round(v * _PX_TO_EMU)) for v in (rect.x, rect.y, rect.width, rect.height))
+    return slide.shapes.add_picture(BytesIO(payload.data), Emu(x), Emu(y), Emu(w), Emu(h))
+
+
+def _render_svg_picture(slide, rect: AssetRect, svg_text: str):
+    """A1 选定 P2 生产路线：OOXML SVG picture（svg 媒体部件 + asvg svgBlip）。
+
+    结构匹配 PowerPoint 自己对 SVG 产出的形式（COM AddPicture 对照验证过），
+    现代 Office 原生渲染 SVG 且保存/重开不丢。
+    """
+    from lxml import etree
+    from pptx.opc.package import Part
+    from pptx.opc.packuri import PackURI
+
+    svg_bytes = svg_text.encode("utf-8")
+    pkg = slide.part.package
+    svg_partname = PackURI(str(pkg.next_partname("/ppt/media/image%d.svg")))
+    svg_part = Part(svg_partname, "image/svg+xml", pkg, svg_bytes)
+    slide_part = slide.part
+    svg_rid = slide_part.relate_to(
+        svg_part, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+    )
+
+    a = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    p = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    asvg = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
+    svg_ext_uri = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}"
+
+    etree.register_namespace("asvg", asvg)
+    x, y, w, h = (int(round(v * _PX_TO_EMU)) for v in (rect.x, rect.y, rect.width, rect.height))
+
+    sp_tree = slide.shapes._spTree
+    pic = etree.SubElement(sp_tree, f"{{{p}}}pic")
+    nvPicPr = etree.SubElement(pic, f"{{{p}}}nvPicPr")
+    etree.SubElement(nvPicPr, f"{{{p}}}cNvPr", id=str(_next_shape_id(slide)), name="SVG Asset")
+    etree.SubElement(nvPicPr, f"{{{p}}}cNvPicPr")
+    etree.SubElement(nvPicPr, f"{{{p}}}nvPr")
+    blipFill = etree.SubElement(pic, f"{{{p}}}blipFill")
+    blip = etree.SubElement(blipFill, f"{{{a}}}blip")
+    extLst = etree.SubElement(blip, f"{{{a}}}extLst")
+    ext = etree.SubElement(extLst, f"{{{a}}}ext", uri=svg_ext_uri)
+    svgBlip = etree.SubElement(ext, f"{{{asvg}}}svgBlip")
+    svgBlip.set(f"{{{r}}}embed", svg_rid)
+    stretch = etree.SubElement(blipFill, f"{{{a}}}stretch")
+    etree.SubElement(stretch, f"{{{a}}}fillRect")
+    spPr = etree.SubElement(pic, f"{{{p}}}spPr")
+    xfrm = etree.SubElement(spPr, f"{{{a}}}xfrm")
+    etree.SubElement(xfrm, f"{{{a}}}off", x=str(x), y=str(y))
+    etree.SubElement(xfrm, f"{{{a}}}ext", cx=str(w), cy=str(h))
+    prstGeom = etree.SubElement(spPr, f"{{{a}}}prstGeom", prst="rect")
+    etree.SubElement(prstGeom, f"{{{a}}}avLst")
+    return pic
+
+
+def _next_shape_id(slide) -> int:
+    """spTree 里下一个可用 cNvPr id（当前最大 id + 1，无则 2）。"""
+    ids = [int(sp.get("id") or 0) for sp in slide.shapes._spTree.iter() if sp.tag.endswith("cNvPr")]
+    return max(ids, default=1) + 1
+
+
+def _as_element(item):
+    """python-pptx shape → 其 XML 元素；lxml 元素原样返回。"""
+    return getattr(item, "_element", item)
+
+
+def place_rendered_elements(slide, placeholder, rendered, placement):
+    """把渲染产物精确放入占位符 XML 槽位，不使用 z_order 猜测或 send_to_back 循环。
+
+    replace/decorative：记录占位符 XML 索引 → 产物按渲染顺序插回该槽 → 移除占位符
+    并验证。background：移除占位符 → 产物移到 grpSpPr 之后、所有内容形状之前（保持
+    内部顺序）。
+    """
+    from pptx.oxml.ns import qn
+
+    sp_tree = slide.shapes._spTree
+    ph_element = placeholder._element
+    elements = [_as_element(r) for r in rendered]
+
+    if placement == "background":
+        sp_tree.remove(ph_element)
+        grp_sp = sp_tree.find(qn("p:grpSpPr"))
+        anchor = list(sp_tree).index(grp_sp) + 1 if grp_sp is not None else 0
+        for el in elements:
+            sp_tree.insert(anchor, el)
+            anchor += 1
+        return
+
+    ph_index = list(sp_tree).index(ph_element)
+    for el in elements:
+        sp_tree.insert(ph_index, el)
+        ph_index += 1
+    sp_tree.remove(ph_element)
+    if ph_element.getparent() is not None:
+        raise RuntimeError(f"asset 占位符 {placeholder.name} 移除失败")
