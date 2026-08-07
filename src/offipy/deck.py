@@ -236,7 +236,7 @@ def _render_tmp(
         # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图标的路径。
         from .icons import postprocess_icons
 
-        _postprocess("图标", postprocess_icons, html, tmp_pptx)
+        _postprocess("图标", postprocess_icons, target, tmp_pptx)
         # 保留 convert 的 <stem>_audit 测量目录（aesthetic/feedback 回路）：
         # 默认立即改到最终名（render / render_with_report 行为不变）；
         # defer_audit_preserve=True（render_with_quality_report）保持 tmp 名，
