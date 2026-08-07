@@ -121,9 +121,9 @@ def _auth_headers(p: int) -> dict:
 def _probe() -> str:
     """探测 8890 上的 server 状态：ok / auth_fail / mismatch / down。
 
-    - ok：/status 鉴权通过且协议匹配（我们可用的 server）
+    - ok：/status 鉴权通过、协议匹配且版本一致（我们可用的 server）
     - auth_fail：端口有进程回 401——进程可能是我们的 server，但 token 失配
-    - mismatch：200 但协议不符——非 offipy 或旧版 server
+    - mismatch：200 但协议不符或版本偏斜——非 offipy、旧版 server 或升级后未重启
     - down：连接失败/超时——无进程
     """
     try:
@@ -132,9 +132,16 @@ def _probe() -> str:
             if r.status != 200:
                 return "auth_fail" if r.status == 401 else "mismatch"
             data = json.loads(r.read().decode("utf-8"))
-            if data.get("result", {}).get("protocol") == "offipy-http/v1":
-                return "ok"
-            return "mismatch"
+            result = data.get("result") or {}
+            if result.get("protocol") != "offipy-http/v1":
+                return "mismatch"
+            # #34 版本盲区：协议匹配但版本偏斜 → mismatch（stale server）。函数级
+            # import 避开包初始化期 __version__ 尚未定义（api→client 在 __init__ 顶部）。
+            from . import __version__
+
+            if result.get("version") != __version__:
+                return "mismatch"
+            return "ok"
     except urllib.error.HTTPError as e:
         # HTTPError 必须在此处理，否则会被下面的宽 except 当 "down"
         return "auth_fail" if e.code == 401 else "mismatch"
@@ -201,9 +208,12 @@ def server_ready() -> bool:
 def server_status() -> dict | None:
     """GET /status 返回字段 dict；server 未运行返回 None。
 
-    只读探测：不调用 ensure_server()，绝不隐式拉起（P0-3）。
+    只读探测：不调用 ensure_server()，绝不隐式拉起（P0-3）。版本偏斜但协议匹配
+    （#34 stale server）同样返回 dict，供调用方查看 version 不一致；非 offipy
+    进程（协议失配）返回 None，不把异质进程暴露成可读 server 状态。
     """
-    if _probe() != "ok":
+    state = _probe()
+    if state not in ("ok", "mismatch"):
         return None
     try:
         req = urllib.request.Request(f"{_base_url()}/status", headers=_auth_headers(port()))
@@ -211,10 +221,17 @@ def server_status() -> dict | None:
             data = json.loads(r.read().decode("utf-8"))
             if not data.get("ok"):
                 return None
-            return data["result"]
+            result = data["result"]
+            if result.get("protocol") != PROTOCOL:
+                return None  # 协议失配：非 offipy 进程，不可读
+            return result
     except urllib.error.HTTPError as e:
+        if state == "mismatch":
+            return None  # 非 offipy 进程：请求失败属预期，保持旧行为
         raise RemoteCallError(f"status 失败: HTTP {e.code}") from e
     except urllib.error.URLError as e:
+        if state == "mismatch":
+            return None
         raise RemoteCallError(f"status 连接失败: {e.reason}") from e
 
 
