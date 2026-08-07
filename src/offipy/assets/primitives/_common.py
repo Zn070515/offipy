@@ -218,6 +218,19 @@ def shape_elements(shapes: Iterable) -> tuple[object, ...]:
     return tuple(getattr(s, "_element", s) for s in shapes)
 
 
+def _char_width_em(ch: str, approx: float) -> float:
+    """Per-glyph width as an em fraction.
+
+    Full-width glyphs (CJK / 全角标点/空格) advance ≈1.0em; latin glyphs average
+    ≈``approx``. The old uniform 0.55em estimate under-measures CJK by ~1.8×,
+    so Chinese text overflowed the measured rect (#56).
+    """
+    cp = ord(ch)
+    if cp > 0x2E80 or cp == 0x3000 or 0xFF01 <= cp <= 0xFF60 or 0xFFE0 <= cp <= 0xFFE6:
+        return 1.0
+    return approx
+
+
 def fit_font_size(
     text: str,
     w_px: float,
@@ -230,16 +243,18 @@ def fit_font_size(
 ) -> float:
     """Largest font size (pt) that fits a single line in w_px×h_px.
 
-    Uses a rough proportional-width estimate (avg glyph width as a fraction of
-    the em box). Never returns below ``min_pt``; if even ``min_pt`` overflows,
-    raises instead of silently producing unreadable output.
+    Uses a rough proportional-width estimate, weighting full-width (CJK) glyphs
+    at 1.0em and latin glyphs at ``approx_char_width``. Never returns below
+    ``min_pt``; if even ``min_pt`` overflows, raises instead of silently
+    producing unreadable output.
     """
     if not text:
         return min(start_pt, max(min_pt, h_px * 72.0 / 96.0 / line_height_pt))
     for size_pt in _descending_pt(start_pt, min_pt):
-        char_w_px = size_pt * (96.0 / 72.0) * approx_char_width
-        line_h_px = size_pt * (96.0 / 72.0) * line_height_pt
-        if char_w_px * len(text) <= w_px and line_h_px <= h_px:
+        em_px = size_pt * (96.0 / 72.0)
+        line_h_px = em_px * line_height_pt
+        text_w_px = em_px * sum(_char_width_em(ch, approx_char_width) for ch in text)
+        if text_w_px <= w_px and line_h_px <= h_px:
             return size_pt
     raise InvalidArgumentError(
         f"text {text[:24]!r} does not fit rect {w_px:.0f}x{h_px:.0f}px at min {min_pt}pt"
@@ -265,9 +280,9 @@ def fit_font_size_wrapped(
     if not text:
         return min(start_pt, max(min_pt, h_px * 72.0 / 96.0 / line_height_pt))
     for size_pt in _descending_pt(start_pt, min_pt):
-        char_w_px = size_pt * (96.0 / 72.0) * approx_char_width
-        line_h_px = size_pt * (96.0 / 72.0) * line_height_pt
-        n_lines, max_line_w = _wrap_measure(text, char_w_px, w_px)
+        em_px = size_pt * (96.0 / 72.0)
+        line_h_px = em_px * line_height_pt
+        n_lines, max_line_w = _wrap_measure(text, em_px, w_px, approx_char_width)
         if max_line_w <= w_px and n_lines * line_h_px <= h_px:
             return size_pt
     raise InvalidArgumentError(
@@ -275,13 +290,15 @@ def fit_font_size_wrapped(
     )
 
 
-def _wrap_measure(text: str, char_w_px: float, w_px: float) -> tuple[int, float]:
-    space_w_px = char_w_px * 0.3
+def _wrap_measure(
+    text: str, em_px: float, w_px: float, approx_char_width: float
+) -> tuple[int, float]:
+    space_w_px = em_px * approx_char_width
     lines = 1
     cur = 0.0
     max_line_w = 0.0
     for token in text.split():
-        token_w = len(token) * char_w_px
+        token_w = em_px * sum(_char_width_em(ch, approx_char_width) for ch in token)
         if cur == 0:
             cur = token_w
         elif cur + space_w_px + token_w <= w_px:
