@@ -70,6 +70,9 @@ from offipy.models import ShapeInfo, SlideTextRecord
 def _ann(t: Any) -> str:
     if t is Any:
         return "Any"
+    if isinstance(t, tuple):
+        # schema 用 tuple 编码 str|float 这类简单联合（见 format_paragraph.line_spacing）
+        return " | ".join(_TYPE_NAMES.get(item, "Any") for item in t)
     return _TYPE_NAMES.get(t, "Any")
 
 

@@ -27,17 +27,26 @@ def test_add_list_rejects_unknown_style():
         app.add_list(["甲"], style="star", doc_id="d1")
 
 
-def test_add_list_accepts_numbered(monkeypatch):
+def _make_add_list_fake(monkeypatch):
+    """构造 add_list 的桩环境：write_line 递增段落计数，记录 ListFormat 调用。
+
+    `start = Count + 1`（写入前）→ N 次写入 → `end = Count`（写入后），与真实
+    Word 的段落演进一致，`Paragraphs(end)`（结构性空尾段）可解析；空尾段的
+    RemoveNumbers 清理调用同样被记录。返回 (app, calls)。
+    """
     from offipy import word
 
-    applied = []
+    calls = []
 
     class _ListFormat:
         def ApplyBulletDefault(self):
-            applied.append("bullet")
+            calls.append("bullet")
 
         def ApplyNumberDefault(self):
-            applied.append("numbered")
+            calls.append("numbered")
+
+        def RemoveNumbers(self):
+            calls.append("removed")
 
     class _Rng:
         def __init__(self):
@@ -45,10 +54,13 @@ def test_add_list_accepts_numbered(monkeypatch):
 
     class _Para:
         def __init__(self, start):
-            self.Range = type("R", (), {"Start": start, "End": start + 1})()
+            self.Range = type(
+                "R", (), {"Start": start, "End": start + 1, "ListFormat": _ListFormat()}
+            )()
 
     class _Paras:
-        Count = 3
+        def __init__(self):
+            self.Count = 0
 
         def __call__(self, idx):
             return _Para(idx)
@@ -64,52 +76,27 @@ def test_add_list_accepts_numbered(monkeypatch):
     doc = _Doc()
     app = word.WordApp.__new__(word.WordApp)
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: doc)
-    monkeypatch.setattr(app, "write_line", lambda text, doc_id=None: None)
+
+    def _fake_write_line(text, doc_id=None):
+        doc.Paragraphs.Count += 1
+
+    monkeypatch.setattr(app, "write_line", _fake_write_line)
+    return app, calls
+
+
+def test_add_list_accepts_numbered(monkeypatch):
+    app, calls = _make_add_list_fake(monkeypatch)
     app.add_list(["甲", "乙"], style="numbered", doc_id="d1")
-    assert applied == ["numbered"]
+    # ApplyNumberDefault 一次 + 尾部空段 RemoveNumbers 清理一次
+    assert calls == ["numbered", "removed"]
 
 
 def test_add_list_bullet_and_bulleted_alias(monkeypatch):
-    from offipy import word
-
-    applied = []
-
-    class _ListFormat:
-        def ApplyBulletDefault(self):
-            applied.append("bullet")
-
-        def ApplyNumberDefault(self):
-            applied.append("numbered")
-
-    class _Rng:
-        def __init__(self):
-            self.ListFormat = _ListFormat()
-
-    class _Para:
-        def __init__(self, start):
-            self.Range = type("R", (), {"Start": start, "End": start + 1})()
-
-    class _Paras:
-        Count = 0
-
-        def __call__(self, idx):
-            return _Para(idx)
-
-    class _Doc:
-        def __init__(self):
-            self.Paragraphs = _Paras()
-            self._rng = _Rng()
-
-        def Range(self, start, end):
-            return self._rng
-
-    doc = _Doc()
-    app = word.WordApp.__new__(word.WordApp)
-    monkeypatch.setattr(app, "_require_doc", lambda doc_id: doc)
-    monkeypatch.setattr(app, "write_line", lambda text, doc_id=None: None)
+    app, calls = _make_add_list_fake(monkeypatch)
     app.add_list(["甲"], style="bullet", doc_id="d1")
     app.add_list(["乙"], style="bulleted", doc_id="d1")
-    assert applied == ["bullet", "bullet"]
+    # 每次 add_list：ApplyBulletDefault 一次 + 尾部空段 RemoveNumbers 清理一次
+    assert calls == ["bullet", "removed", "bullet", "removed"]
 
 
 def test_format_text_paragraph_out_of_range_rejected(monkeypatch):

@@ -16,6 +16,9 @@ DOCS_API = Path(__file__).resolve().parent.parent / "docs" / "api"
 
 
 def _type_name(t) -> str:
+    if isinstance(t, tuple):
+        # schema 用 tuple 编码 str|float 这类简单联合（见 format_paragraph.line_spacing）
+        return " | ".join(_type_name(item) for item in t)
     return {
         str: "str",
         bool: "bool",
@@ -230,13 +233,18 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("word", "format_paragraph"): (
         "Set the paragraph format of the paragraph-th paragraph (1-based). alignment is "
         "left/center/right/justify; line_spacing is single/1.5/double/at_least/exactly/"
-        "multiple; space_before/space_after/left_indent/first_line_indent are in points."
+        "multiple or numeric 1/1.5/2; space_before/space_after/left_indent/first_line_indent "
+        "are in points."
     ),
     ("word", "set_header_text"): "Set the header text of the section-th section.",
     ("word", "set_footer_text"): "Set the footer text of the section-th section.",
     ("word", "add_page_number"): (
         "Insert a page number in the footer. alignment is left/center/right; optional "
-        "color '#RRGGBB' and size (font size); clears any existing footer text."
+        "color '#RRGGBB' and size (font size) style only the page-number field. "
+        "mode is replace (default; clears the footer then inserts the PAGE field, legacy "
+        "behavior) / append (keeps existing footer text and appends the field idempotently) / "
+        "standalone (keeps the text: left flows directly after it, center/right use a tab zone, "
+        "clearing any pre-existing tab stops in the footer)."
     ),
     ("word", "page_setup"): (
         "Page setup. orientation is portrait/landscape; paper is letter/legal/a3/a4/a5; "

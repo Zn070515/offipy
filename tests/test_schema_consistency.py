@@ -77,6 +77,24 @@ def test_schema_param_names_match_app_methods():
             )
 
 
+def test_add_page_number_mode_in_schema():
+    # S4 Task 2：schema 暴露 mode 参数（replace 默认 = legacy 行为），
+    # 供 server/CLI/MCP 三入口与生成 API 使用；描述需说明默认值是 legacy 行为
+    spec = schema.spec("word", "add_page_number")
+    assert spec is not None
+    assert spec.params["mode"] is str
+    assert "replace" in spec.description and "legacy" in spec.description
+
+
+def test_format_paragraph_line_spacing_union_in_schema():
+    # S4 Task 3：line_spacing 以 tuple 编码 str|float 联合（CLI 保留字符串，
+    # Python/JSON 可传数值）；描述需说明数值 1/1.5/2
+    spec = schema.spec("word", "format_paragraph")
+    assert spec is not None
+    assert spec.params["line_spacing"] == (str, float)
+    assert "数值 1/1.5/2" in spec.description
+
+
 def test_schema_flags_internally_consistent():
     for app in schema.apps():
         for op in schema.ops(app):

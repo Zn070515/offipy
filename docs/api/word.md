@@ -114,9 +114,9 @@
 
 ### `format_paragraph`
 
-设置第 paragraph 段（1 基）的段落格式。alignment 取 left/center/right/justify；line_spacing 取 single/1.5/double/at_least/exactly/multiple；space_before/space_after/left_indent/first_line_indent 单位磅。
+设置第 paragraph 段（1 基）的段落格式。alignment 取 left/center/right/justify；line_spacing 取 single/1.5/double/at_least/exactly/multiple 或数值 1/1.5/2；space_before/space_after/left_indent/first_line_indent 单位磅。
 
-- **参数**: `paragraph: int`、`alignment: str`、`line_spacing: str`、`space_before: float`、`space_after: float`、`left_indent: float`、`first_line_indent: float`、`doc_id: str`
+- **参数**: `paragraph: int`、`alignment: str`、`line_spacing: str | float`、`space_before: float`、`space_after: float`、`left_indent: float`、`first_line_indent: float`、`doc_id: str`
 - **返回**: `void`
 - **标志**: 会改动文档/应用状态
 
@@ -144,9 +144,9 @@
 
 ### `add_page_number`
 
-在页脚插入页码。alignment 取 left/center/right；可带 color '#RRGGBB' 和 size 字号（会清空既有页脚文本）。
+在页脚插入页码。alignment 取 left/center/right；color '#RRGGBB' 与 size 字号只作用于页码域；mode 取 replace（默认，清空页脚后插入，legacy 行为）/ append（保留既有文本后追加，幂等）/ standalone（保留文本，左对齐紧跟文本，中/右对齐用制表位分区，会清掉页脚既有制表位）。
 
-- **参数**: `alignment: str`、`color: str`、`size: float`、`doc_id: str`
+- **参数**: `alignment: str`、`color: str`、`size: float`、`mode: str`、`doc_id: str`
 - **返回**: `void`
 - **标志**: 会改动文档/应用状态
 

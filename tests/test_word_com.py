@@ -56,6 +56,19 @@ def test_format_paragraph_alignment_line_spacing():
     assert fmt.LineSpacingRule == 2  # wdLineSpaceDouble
 
 
+def test_format_paragraph_line_spacing_cli_numeric_readback():
+    # CLI 的 --line_spacing 以字符串传入：'1'/'2' 归一成 single/double 键
+    # （final review #2/#5）
+    did = call("word", "new_doc")
+    call("word", "write_line", text="CLI 数值行距", doc_id=did)
+    call("word", "format_paragraph", paragraph=1, line_spacing="2", doc_id=did)
+    assert _word().ActiveDocument.Paragraphs(1).Format.LineSpacingRule == 2
+    call("word", "format_paragraph", paragraph=1, line_spacing="1", doc_id=did)
+    assert _word().ActiveDocument.Paragraphs(1).Format.LineSpacingRule == 0
+    call("word", "format_paragraph", paragraph=1, line_spacing=1.5, doc_id=did)
+    assert _word().ActiveDocument.Paragraphs(1).Format.LineSpacingRule == 1
+
+
 def test_header_footer_text():
     did = call("word", "new_doc")
     call("word", "set_header_text", text="季度报告", doc_id=did)
@@ -69,8 +82,102 @@ def test_add_page_number_center():
     did = call("word", "new_doc")
     call("word", "add_page_number", alignment="center", doc_id=did)
     hf = _word().ActiveDocument.Sections(1).Footers(1)
-    assert hf.PageNumbers.Count == 1
-    assert hf.PageNumbers(1).Alignment == 1  # wdAlignPageNumberCenter
+    # S4：replace 改为直接插 PAGE 域 + 段落对齐（PageNumbers.Add 的对齐实探失效）
+    assert hf.Range.ParagraphFormat.Alignment == 1  # wdAlignParagraphCenter
+    assert any(f.Type == 33 for f in hf.Range.Fields)
+
+
+def test_add_page_number_append_readback():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="append", color="#2251FF", size=18, doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.Text == "公司名1\r"  # 单段落符，无 \r 重复
+    fld = next(f for f in hf.Range.Fields if f.Type == 33)
+    assert fld.Result.Font.Color == _rgb("#2251FF")
+    assert fld.Result.Font.Size == 18
+    # 幂等：重复 append 不叠加
+    call("word", "add_page_number", mode="append", doc_id=did)
+    assert hf.Range.Text == "公司名1\r"
+    assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
+
+
+def test_add_page_number_standalone_readback():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="standalone", color="#2251FF", size=18, doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.Text == "公司名\t1\r"  # \t 是真实制表符，驱动 tab 分区
+    fld = next(f for f in hf.Range.Fields if f.Type == 33)
+    assert fld.Result.Font.Color == _rgb("#2251FF")
+    assert fld.Result.Font.Size == 18
+    # 幂等：重复 standalone 重建（先删既有 PAGE 域），不堆叠页码
+    call("word", "add_page_number", mode="standalone", doc_id=did)
+    assert hf.Range.Text == "公司名\t1\r"
+    assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
+
+
+def test_add_page_number_standalone_preserves_date_field():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    # 先插一个 DATE 域（wdFieldDate=21）模拟既有非 PAGE 域
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    rng = hf.Range
+    rng.MoveEnd(1, -1)  # wdCharacter：排除尾部段落符
+    rng.Collapse(0)  # wdCollapseEnd
+    rng.Fields.Add(rng, 21)  # wdFieldDate
+    date_result = next(f for f in hf.Range.Fields if f.Type == 21).Result.Text
+    # standalone 不得重写整段：DATE 域必须原样保留为活域
+    call("word", "add_page_number", mode="standalone", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    types = [f.Type for f in hf.Range.Fields]
+    assert 21 in types and 33 in types  # DATE 仍是活域，PAGE 域已加
+    assert hf.Range.Text == f"公司名{date_result}\t1\r"
+
+
+def test_add_page_number_standalone_alignment_switch_right_to_left():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="standalone", alignment="right", doc_id=did)
+    doc = _word().ActiveDocument
+    hf = doc.Sections(1).Footers(1)
+    text_w = round(
+        doc.PageSetup.PageWidth - doc.PageSetup.LeftMargin - doc.PageSetup.RightMargin, 1
+    )
+    tabs = [(round(t.Position, 1), t.Alignment) for t in hf.Range.ParagraphFormat.TabStops]
+    assert (text_w, 2) in tabs  # right 制表位存在
+    assert hf.Range.Text == "公司名\t1\r"
+    # 切到 left：旧右制表位被 ClearAll 清掉、遗留尾随制表符被移除，页码紧跟文本
+    call("word", "add_page_number", mode="standalone", alignment="left", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    tabs = [(round(t.Position, 1), t.Alignment) for t in hf.Range.ParagraphFormat.TabStops]
+    assert (text_w, 2) not in tabs  # 旧右制表位已清除
+    assert "\t" not in hf.Range.Text  # 尾随制表符已移除（左模式无制表区）
+    assert hf.Range.Text == "公司名1\r"
+
+
+def test_add_page_number_standalone_left_follows_text():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="standalone", alignment="left", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    # 左模式无制表区：页码紧跟页脚文本自然左排（Word 丢弃 position 0 制表位）
+    assert hf.Range.Text == "公司名1\r"
+    assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
+
+
+def test_add_page_number_standalone_resets_footer_alignment():
+    # append 会按 alignment 设置页脚段落对齐；随后 standalone 靠制表位定位，
+    # 必须把段落对齐重置回 left（final review #1）
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="append", alignment="center", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.ParagraphFormat.Alignment == 1  # wdAlignParagraphCenter
+    call("word", "add_page_number", mode="standalone", alignment="right", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.ParagraphFormat.Alignment == 0  # 重置回 wdAlignParagraphLeft
+    assert hf.Range.Text == "公司名\t1\r"
 
 
 def test_page_setup_landscape_a4_margin():
@@ -113,8 +220,63 @@ def test_add_list_bullets():
     doc = _word().ActiveDocument
     # 空文档首段被复用来承接第一项；第 1-3 段都应是列表项。
     # 只查单段（ListType 只反映 range 首段），不能跨段取 range。
-    assert doc.Paragraphs(1).Range.ListFormat.ListType != -1  # -1 = wdListTypeNoList
-    assert doc.Paragraphs(2).Range.ListFormat.ListType != -1
+    # 列表项 ListType 为 2（bullet）/3（numbered），非列表段运行时返回 0。
+    assert doc.Paragraphs(1).Range.ListFormat.ListType in (2, 3)
+    assert doc.Paragraphs(2).Range.ListFormat.ListType in (2, 3)
+
+
+def test_add_list_bullet_trailing_not_list():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["甲", "乙", "丙"], style="bullet", doc_id=did)
+    doc = _word().ActiveDocument
+    # 列表项正确格式化（bullet=2 / numbered=3，实探值）
+    for i in range(1, 4):
+        assert doc.Paragraphs(i).Range.ListFormat.ListType in (2, 3)
+    # 结构性空尾段（Count 恒含末段）保留但不再显示为列表项
+    trailing = doc.Paragraphs(doc.Paragraphs.Count)
+    assert trailing.Range.ListFormat.ListType == 0
+    assert trailing.Range.Text == "\r"  # 段标记未被删除
+
+
+def test_add_list_numbered_trailing_not_list():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["一", "二"], style="numbered", doc_id=did)
+    doc = _word().ActiveDocument
+    for i in range(1, 3):
+        assert doc.Paragraphs(i).Range.ListFormat.ListType in (2, 3)
+    trailing = doc.Paragraphs(doc.Paragraphs.Count)
+    assert trailing.Range.ListFormat.ListType == 0
+    assert trailing.Range.Text == "\r"
+
+
+def test_add_list_write_line_not_inherit_bullet():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["甲"], style="bullet", doc_id=did)
+    call("word", "write_line", text="后续正文", doc_id=did)
+    doc = _word().ActiveDocument
+    target = None
+    for i in range(1, doc.Paragraphs.Count + 1):
+        if doc.Paragraphs(i).Range.Text.strip() == "后续正文":
+            target = doc.Paragraphs(i)
+            break
+    assert target is not None
+    # 后续正文是普通段，不继承项目符号
+    assert target.Range.ListFormat.ListType == 0
+
+
+def test_add_list_repeated_no_accumulated_empty_bullets():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["甲"], style="bullet", doc_id=did)
+    call("word", "add_list", lines=["乙"], style="bullet", doc_id=did)
+    doc = _word().ActiveDocument
+    # 两批都是列表项
+    assert doc.Paragraphs(1).Range.ListFormat.ListType in (2, 3)
+    assert doc.Paragraphs(2).Range.ListFormat.ListType in (2, 3)
+    # 恰好一个结构性空尾段，且不显示为列表项（不累积可见空项目符号）
+    assert doc.Paragraphs.Count == 3
+    trailing = doc.Paragraphs(doc.Paragraphs.Count)
+    assert trailing.Range.ListFormat.ListType == 0
+    assert trailing.Range.Text == "\r"
 
 
 def test_merge_table_cells():
