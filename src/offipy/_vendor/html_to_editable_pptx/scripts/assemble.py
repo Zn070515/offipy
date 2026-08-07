@@ -562,6 +562,23 @@ def add_shape_box(slide, rec):
             _add_line(slide, x + w, y, x + w, y + h, rgb, bw, alpha)
 
 
+def add_asset_placeholder(slide, rec):
+    """asset 声明的透明占位符：无填充、无描边的普通 RECTANGLE，name 固定为
+    OFFIPY_ASSET::<assetId>，不写文本。render 阶段按 name 定位并整槽替换。
+    用普通 shape 而非 picture：占位符是稳定的 XML 锚点。
+    """
+    asset_id = rec.get("assetId") or ""
+    if not asset_id:
+        raise ValueError("asset record 缺少 assetId")
+    r = rec["rect"]
+    x, y, w, h = px_to_emu(r["x"]), px_to_emu(r["y"]), px_to_emu(r["w"]), px_to_emu(r["h"])
+    shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
+    shape.name = f"OFFIPY_ASSET::{asset_id}"
+    shape.fill.background()
+    shape.line.fill.background()
+    return shape
+
+
 def _round_kind(border_radius: str, w_px: float, h_px: float) -> str:
     """border-radius + 元素宽高 → 'oval' | 'pill' | 'rect'。
 
@@ -1206,6 +1223,26 @@ def add_deco_snapshot(slide, rec):
     return pic
 
 
+def _validate_asset_placeholders(slides_data):
+    """每声明恰一个占位符：assetId 非空、整副 deck 内唯一。
+
+    重复 ID 在装配前拦下，避免生成重名占位符（后续绑定无法定位）。
+    """
+    seen: dict[str, int] = {}
+    for i, sdata in enumerate(slides_data):
+        for rec in sdata.get("records", []):
+            if rec.get("kind") != "asset":
+                continue
+            aid = rec.get("assetId") or ""
+            if not aid:
+                raise ValueError(f"slide {i+1} asset record 缺少 assetId")
+            if aid in seen:
+                raise ValueError(
+                    f"assetId 重复: {aid}（slide {seen[aid]+1} 与 slide {i+1}）"
+                )
+            seen[aid] = i
+
+
 def assemble_slide(slide, data):
     """装配一张 slide。"""
     bg_rgb = parse_rgb(data["slide"]["background"])
@@ -1239,6 +1276,8 @@ def assemble_slide(slide, data):
             add_deco_snapshot(slide, rec)
         elif rec["kind"] == "img":
             add_img_picture(slide, rec)
+        elif rec["kind"] == "asset":
+            add_asset_placeholder(slide, rec)
 
     # Text sits above rasterized SVG/canvas/deco snapshots. Otherwise an opaque
     # picture can cover positioned labels that belong visually on top of it.
@@ -1258,6 +1297,8 @@ def assemble(measurement, out_path: Path):
         slides_data = data["slides"]
     else:
         slides_data = [data]
+
+    _validate_asset_placeholders(slides_data)
 
     prs = Presentation()
     prs.slide_width = SLIDE_W_EMU

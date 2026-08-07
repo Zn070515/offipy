@@ -552,8 +552,8 @@ def _build_icon_shapes(
     rect: dict,
     color: str | None,
     fallback=None,
-) -> None:
-    """在 rect（px）位置画图标：每个子路径一个 freeform shape。"""
+) -> list:
+    """在 rect（px）位置画图标：每个子路径一个 freeform shape。返回创建的 shape 列表。"""
     vbx, vby, vbw, vbh = view_box
     scale = rect["w"] / vbw if vbw else 1.0
     ox = rect["x"] - vbx * scale
@@ -563,6 +563,7 @@ def _build_icon_shapes(
     def to_emu(p: tuple[float, float]) -> tuple[int, int]:
         return int((p[0] * scale + ox) * PX_TO_EMU), int((p[1] * scale + oy) * PX_TO_EMU)
 
+    created: list = []
     for sp in subpaths:
         if len(sp.points) < 2:
             continue
@@ -573,6 +574,27 @@ def _build_icon_shapes(
             fb.add_line_segments(rest, close=sp.close)
         shape = fb.convert_to_shape()
         _style_shape(shape, mode, color, line_width_emu, sp.filled, fallback)
+        created.append(shape)
+    return created
+
+
+def render_icon_payload(
+    slide,
+    svg_text: str,
+    *,
+    mode: str,
+    view_box: tuple[float, float, float, float],
+    rect: dict,
+    color: str | None = None,
+    fallback=None,
+) -> list:
+    """把 asset 图标的 SVG payload 渲染成 freeform 形状，返回创建的 shape 列表。
+
+    mode（fill/stroke）由 provider 决定（ph → fill，lu → stroke），是 freeform
+    引擎的内部元数据，不进公共 Asset 模型。rect 是 px dict {x, y, w, h}。
+    """
+    subpaths, stroke_width = _svg_to_subpaths(svg_text)
+    return _build_icon_shapes(slide, mode, subpaths, stroke_width, view_box, rect, color, fallback)
 
 
 def _remove_placeholder(slide, rect: dict) -> None:

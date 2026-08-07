@@ -154,11 +154,26 @@ class AssetRegistry:
 _default_registry: AssetRegistry | None = None
 
 
+def _build_default_registry() -> AssetRegistry:
+    reg = AssetRegistry()
+    # vendored icon providers register in deterministic order; provider
+    # construction does not scan the asset directories.
+    from offipy.assets.providers.icons import IconProvider
+
+    reg.register(IconProvider("ph"))
+    reg.register(IconProvider("lu"))
+
+    from offipy.assets.providers.procedural import ProceduralProvider
+
+    reg.register(ProceduralProvider())
+    return reg
+
+
 def get_default_registry() -> AssetRegistry:
     """Return the process-wide default registry, constructing it lazily."""
     global _default_registry
     if _default_registry is None:
-        _default_registry = AssetRegistry()
+        _default_registry = _build_default_registry()
     return _default_registry
 
 

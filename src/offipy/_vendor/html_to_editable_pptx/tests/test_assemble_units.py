@@ -10,6 +10,7 @@ import re
 import zipfile
 
 import pytest
+from pptx import Presentation
 
 from assemble import assemble, first_font, DEFAULT_LATIN_FALLBACK
 
@@ -172,3 +173,79 @@ def test_flex_anchor_cjk_not_padded():
     rec = _text_rec(100, 20, ["数据"], display="flex", align_items="center")
     w, _ = _text_box_size_px(rec, 14.0, True)
     assert w == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------- asset 透明占位符
+
+
+def _asset(asset_id, x, y, w, h):
+    return {"kind": "asset", "assetId": asset_id, "rect": {"x": x, "y": y, "w": w, "h": h}}
+
+
+def _open_pptx(tmp_path, records, bg=WHITE):
+    out = tmp_path / "t.pptx"
+    assemble({"slides": [_slide(records, bg)]}, out)
+    return Presentation(out)
+
+
+def test_asset_placeholder_is_invisible_rectangle(tmp_path):
+    # 占位符是普通 sp（非 picture）、无填充、无描边 → 渲染不可见；名字精确 OFFIPY_ASSET::<id>
+    xml = _render_xml(tmp_path, [_asset("asset-s01-001", 20, 30, 120, 60)])
+    assert "<p:pic" not in xml
+    m = re.search(r"<p:spPr[^>]*>(.*?)</p:spPr>", xml, re.S)
+    assert m and "<a:noFill/>" in m.group(1)  # 无填充
+    assert re.search(r"<a:ln[^>]*>\s*<a:noFill/>", xml)  # 无描边
+    assert "OFFIPY_ASSET::asset-s01-001" in xml
+
+
+def test_asset_placeholder_exact_emu_rect(tmp_path):
+    xml = _render_xml(tmp_path, [_asset("asset-s01-001", 20, 30, 120, 60)])
+    assert '<a:off x="127000" y="190500"/>' in xml  # 20/30 px × 6350
+    assert '<a:ext cx="762000" cy="381000"/>' in xml  # 120/60 px × 6350
+
+
+def test_asset_placeholder_present_in_shape_collection(tmp_path):
+    prs = _open_pptx(tmp_path, [_asset("asset-s01-001", 20, 30, 120, 60)])
+    shapes = list(prs.slides[0].shapes)
+    assert len(shapes) == 1
+    sp = shapes[0]
+    assert sp.name == "OFFIPY_ASSET::asset-s01-001"
+    assert (sp.left, sp.top, sp.width, sp.height) == (127000, 190500, 762000, 381000)
+
+
+def test_asset_placeholder_order_follows_record_order(tmp_path):
+    records = [
+        _shape(10, 10, 50, 50, {"hasBg": True, "bg": "rgb(1, 2, 3)", "borderRadius": "0px"}),
+        _asset("asset-s01-001", 20, 30, 120, 60),
+        _text([{"text": "hello", "fontSize": 12, "fontWeight": "400",
+                "fontFamily": "Arial", "color": "rgb(0, 0, 0)"}]),
+    ]
+    xml = _render_xml(tmp_path, records)
+    # 记录迭代顺序：shape 在 asset 前、text 在 asset 后（text 统一后置）
+    assert xml.index("<a:solidFill>") < xml.index("OFFIPY_ASSET::asset-s01-001") < xml.index("hello")
+
+
+def test_duplicate_asset_id_rejected(tmp_path):
+    out = tmp_path / "t.pptx"
+    with pytest.raises(ValueError, match="asset-s01-001"):
+        assemble({"slides": [
+            _slide([_asset("asset-s01-001", 0, 0, 10, 10)]),
+            _slide([_asset("asset-s01-001", 0, 0, 10, 10)]),
+        ]}, out)
+    assert not out.exists()
+
+
+def test_empty_asset_id_rejected(tmp_path):
+    out = tmp_path / "t.pptx"
+    with pytest.raises(ValueError, match="assetId"):
+        assemble({"slides": [_slide([_asset("", 0, 0, 10, 10)])]}, out)
+    assert not out.exists()
+
+
+def test_no_asset_records_no_validation(tmp_path):
+    # 无 asset record → 校验不介入、输出与既有行为一致
+    xml = _render_xml(tmp_path, [
+        _shape(10, 10, 50, 50, {"hasBg": True, "bg": "rgb(1, 2, 3)", "borderRadius": "0px"}),
+    ])
+    assert "OFFIPY_ASSET" not in xml
+    assert xml.count("<p:sp>") == 1

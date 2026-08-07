@@ -401,19 +401,19 @@ def test_render_postprocess_runtimeerror_maps_to_conversion(tmp_path, monkeypatc
     assert isinstance(exc.value.__cause__, RuntimeError)
 
 
-def test_render_postprocess_icons_valueerror_maps(tmp_path, monkeypatch):
+def test_render_postprocess_assets_valueerror_maps(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
     monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
 
     def boom(html_path, pptx_path):
-        raise ValueError("图标数据非法")
+        raise ValueError("资源声明数据非法")
 
-    monkeypatch.setattr("offipy.icons.postprocess_icons", boom)
+    monkeypatch.setattr("offipy.assets.render.postprocess_assets", boom)
     with pytest.raises(deck.InvalidArgumentError) as exc:
         deck.render(str(html), overwrite=True)
-    assert "图标" in str(exc.value)
+    assert "资源" in str(exc.value)
     assert isinstance(exc.value.__cause__, ValueError)
 
 
