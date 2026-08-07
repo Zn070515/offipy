@@ -14,6 +14,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import unquote
 
 from .assets.declarations import preprocess_asset_declarations
 from .audit import AuditConfig, PptxAuditReport, Severity
@@ -104,6 +106,42 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
         )
 
 
+_ATTR_URL_RE = re.compile(r"((?:src|href)\s*=\s*[\"'])([^\"']*)([\"'])")
+_CSS_URL_RE = re.compile(r"(url\(\s*[\"']?)([^\"')]*)([\"']?\s*\))")
+
+
+def _abs_url(base_dir: Path, url: str) -> str:
+    url = url.strip()
+    if not url:
+        return url
+    if url.startswith(("//", "http://", "https://", "data:", "mailto:", "tel:", "file:")):
+        return url
+    frag = ""
+    if "#" in url:
+        url, frag = url.split("#", 1)
+    if not url:
+        return f"#{frag}"
+    # unquote 再 resolve：URL 里的 %20 等编码对应文件系统里的真实名字，as_uri
+    # 会按绝对路径重新编码，避免生成 file:///.../My%2520Photo.png 这类双编码。
+    resolved = (base_dir / unquote(url)).resolve().as_uri()
+    return resolved + (f"#{frag}" if frag else "")
+
+
+def _rewrite_relative_urls(content: str, base_dir: Path) -> str:
+    """把相对 src/href/CSS url() 重写为以 base_dir 为基准的绝对 file:// URL。
+
+    注入副本落在 offipy-deck-* 临时目录，源 HTML 基于自身目录的相对引用
+    （img/、样式、url()）在副本下会解析失败 → 资源加载不到（#57）。写入副本前
+    把相对 URL 全转绝对 file://；scheme/协议相对/纯 fragment 原样保留。
+    """
+    content = _ATTR_URL_RE.sub(
+        lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
+    )
+    return _CSS_URL_RE.sub(
+        lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
+    )
+
+
 def _prepare_target(
     html: str, content: str, theme: str | None, apply_layouts: bool
 ) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
@@ -121,6 +159,7 @@ def _prepare_target(
     content, asset_decls = preprocess_asset_declarations(content)
     if not (apply_layouts or theme is not None or asset_decls):
         return html, None
+    content = _rewrite_relative_urls(content, Path(html).resolve().parent)
     tmp_html_dir = tempfile.TemporaryDirectory(prefix="offipy-deck-")
     tmp_html = os.path.join(tmp_html_dir.name, f"{Path(html).stem}.audited.html")
     with open(tmp_html, "w", encoding="utf-8") as f:
