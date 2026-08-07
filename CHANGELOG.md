@@ -3,6 +3,20 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.14.1] - 2026-08-08
+
+### Fixed
+- **图元 CJK 字形宽度度量（#56）**：`fit_font_size` / `fit_font_size_wrapped` 按字形加权
+  （CJK/全角 1.0em、拉丁 0.55em），中文标签不再溢出测量矩形。
+- **注入副本相对资源路径断裂（#57）**：临时注入 HTML 写入前把相对 `src` / `href` /
+  CSS `url()` 重写为以源 HTML 目录为基准的绝对 `file://` URL。
+- **SVG picture 无栅格回退（#58）**：主 `a:blip` 挂 PNG raster fallback（共享惰性
+  Playwright 渲染），`asvg:svgBlip` 仍指矢量；无 Playwright 时降级纯 SVG。
+- **图元 fill 参数静默失效（#59）**：`fill="accent"` 跟随图元最终 accent，label-pill /
+  timeline-node 的 `fill` 公共参数驱动填充、未传回退 accent。
+- **未定义主题变量误报格式错误（#60）**：空串 token 视为「未定义」，报错不再误导。
+- **deck 宽高比元数据矛盾（#61）**：vendor 转换器显式声明 `<p:sldSz type="screen16x9">`。
+
 ## [0.14.0] - 2026-08-08
 
 ### Added
