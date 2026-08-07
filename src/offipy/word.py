@@ -459,9 +459,12 @@ class WordApp:
 
     @destructive
     def add_heading(self, text: str, level: int = 1, doc_id: str | None = None):
+        if level not in (1, 2, 3):
+            # #43：越界 level 曾静默降级为 Heading 1，调用方不知情——显式拒绝
+            raise InvalidArgumentError(f"add_heading: level 必须为 1/2/3（收到 {level}）")
         self.write_line(text, doc_id)
         doc = self._require_doc(doc_id)
-        style = _HEADING_STYLES.get(level, -2)
+        style = _HEADING_STYLES[level]
         # write_line = Content.InsertAfter(text + "\r\n")：文本落在末尾空段之前的 Count-1 段
         # （Count 是空尾段，实机验证）。若给 Count 上样式，随后正文会继承标题样式，
         # 目录（按标题样式收集）为空。

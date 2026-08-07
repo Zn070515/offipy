@@ -529,3 +529,19 @@ def test_format_paragraph_line_spacing_none_leaves_rule_untouched():
     app = _spacing_app(doc)
     app.format_paragraph(paragraph=1, doc_id="x")
     assert doc.Paragraphs(1).Format.LineSpacingRule is None
+
+
+# --- #43：add_heading level 越界显式拒绝（曾静默降级为 Heading 1） ---
+
+
+def test_add_heading_rejects_out_of_range_level():
+    app = WordApp.__new__(WordApp)
+
+    def _boom(*a, **k):
+        raise AssertionError("越界 level 不应触达 COM 路径")
+
+    app.write_line = _boom
+    app._require_doc = _boom
+    for bad in (0, 4, -1, 99):
+        with pytest.raises(InvalidArgumentError, match="level 必须为 1/2/3"):
+            app.add_heading("x", level=bad, doc_id="x")
