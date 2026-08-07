@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 
 from .design import THEMES, Theme
+from .layouts import chart_dominant_slide_indices
 
 PX_TO_EMU = 6350
 
@@ -490,10 +491,24 @@ def postprocess_charts(html_path: str, pptx_path: str) -> None:
     boxes = load_chart_boxes(meas_path)
     missing = [d.slide_index for d in decls if d.slide_index not in boxes]
     if missing:
-        raise RuntimeError(
-            f'第 {missing} 页没测到图表容器（class="chart"）——请确认 deck 用了 '
-            "chart-dominant 布局且 deck make 带了 --layouts"
-        )
+        # 区分两类丢框：chart-dominant 页（尺寸依赖注入的布局 CSS）vs 自定义布局页
+        # （需要显式可测尺寸），各自给可操作的修复指引。
+        dom_indices = set(chart_dominant_slide_indices(html_text))
+        dom_missing = [i for i in missing if i in dom_indices]
+        custom_missing = [i for i in missing if i not in dom_indices]
+        parts = []
+        if dom_missing:
+            parts.append(
+                f'第 {dom_missing} 页声明了 data-layout="chart-dominant" 但仍没测到'
+                '图表容器（class="chart"）——chart-dominant 的图表尺寸由布局 CSS 提供，'
+                "请确认 render/make 传了 apply_layouts=True（CLI 用 --layouts）"
+            )
+        if custom_missing:
+            parts.append(
+                f'第 {custom_missing} 页没测到图表容器（class="chart"）——自定义布局请给 '
+                ".chart 提供显式可测尺寸（如 width/height），或改用 chart-dominant 布局"
+            )
+        raise RuntimeError("；".join(parts))
     theme_name = _theme_name_from_html(html_text)
     theme = THEMES.get(theme_name) if theme_name else None
     inject_native_charts(pptx_path, decls, boxes, theme)

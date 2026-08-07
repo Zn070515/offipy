@@ -28,7 +28,7 @@ from .audit import AuditConfig, PptxAuditReport, Severity
 from .client import call, ensure_server
 from .design import inject_theme
 from .exceptions import ConversionError, FileConflictError, InvalidArgumentError
-from .layouts import inject_layouts
+from .layouts import chart_dominant_slide_indices, inject_layouts
 from .paths import converter_data_dir
 
 if TYPE_CHECKING:
@@ -39,6 +39,33 @@ if TYPE_CHECKING:
 # vendored 转换器位于包内 _vendor/，site-packages 下经 __file__ 自定位
 _CONVERT_DIR = Path(__file__).resolve().parent / "_vendor" / "html_to_editable_pptx"
 CONVERT_PY = _CONVERT_DIR / "convert.py"
+
+
+def _preflight_chart_layout(
+    html_path: str, apply_layouts: bool, only_slides: list[int] | None
+) -> None:
+    """前置检查：chart-dominant 布局但未启用布局注入 → fail-fast。
+
+    chart-dominant 的 .chart 可测尺寸由布局 CSS（flex/min-height）提供；
+    apply_layouts=False（CLI 缺 --layouts）时 CSS 未注入，post-render 测量必然
+    丢框 → 在启动 chromium / 跑 convert 之前就把用户拦下来，给可操作指引。
+    only_slides 只拦指定页（对齐 convert 的 only-slides 语义）。
+    """
+    if apply_layouts:
+        return
+    with open(html_path, encoding="utf-8") as f:
+        content = f.read()
+    indices = chart_dominant_slide_indices(content)
+    if only_slides:
+        indices = [i for i in indices if i in only_slides]
+    if not indices:
+        return
+    raise InvalidArgumentError(
+        f'第 {indices} 页声明了 data-layout="chart-dominant" 但未启用布局注入'
+        "（apply_layouts=False）：chart-dominant 的图表尺寸由布局 CSS 提供，未注入时"
+        "无法测量。请给 render/make 传 apply_layouts=True（CLI 用 --layouts），或改用"
+        "自定义布局并为 .chart 提供显式可测尺寸。"
+    )
 
 
 def _preflight_browser() -> None:
@@ -156,6 +183,7 @@ def _render_tmp(
     html = os.path.abspath(html)
     if not os.path.exists(html):
         raise InvalidArgumentError(f"源 HTML 文件不存在: {html}")
+    _preflight_chart_layout(html, apply_layouts, only_slides)
     _preflight_browser()
     final_out = os.path.abspath(out) if out else _default_out(html)
     if not overwrite and os.path.exists(final_out):

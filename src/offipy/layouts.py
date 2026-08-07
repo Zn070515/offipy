@@ -400,6 +400,25 @@ def referenced_layouts(html: str) -> list[str]:
     return seen
 
 
+def chart_dominant_slide_indices(html_text: str) -> list[int]:
+    """找出声明 chart-dominant 且内部含图表的 slide 序号（1-based，文档序）。
+
+    条件：section 同时满足 (a) 开标签声明 `data-layout="chart-dominant"`
+    （单/双引号皆可），且 (b) 内部含图表容器（`class="chart"` 或 `data-chart`）。
+    跳过 (b) 避免「声明了布局但没有图表」的页误报。Deck HTML 不嵌套 section，
+    故非贪婪 `(.*?)</section>` 正确。
+    """
+    indices: list[int] = []
+    pattern = re.compile(r"(<section\b[^>]*data-pptx-slide[^>]*>)(.*?)</section>", re.S)
+    for i, m in enumerate(pattern.finditer(html_text), start=1):
+        opening, body = m.group(1), m.group(2)
+        if re.search(r'data-layout=["\']chart-dominant["\']', opening) and (
+            'class="chart"' in body or "data-chart" in body
+        ):
+            indices.append(i)
+    return indices
+
+
 def inject_layouts(html: str) -> str:
     """把 HTML 里引用的布局 CSS 注入到 <head>。
 

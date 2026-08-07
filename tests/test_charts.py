@@ -323,6 +323,73 @@ def test_postprocess_calls_inject(monkeypatch, tmp_path):
     assert any(s.has_chart for s in prs2.slides[0].shapes)
 
 
+def _write_measurements_without_chart(tmp_path, html_text):
+    """写一个「存在但无 chart 记录」的 measurements.json，并返回 (html, pptx) 路径。"""
+    html = tmp_path / "d.html"
+    html.write_text(html_text, encoding="utf-8")
+    pptx = tmp_path / "d.pptx"
+    pptx.write_bytes(b"x")
+    meas_dir = tmp_path / "d_audit" / "_cache"
+    meas_dir.mkdir(parents=True)
+    (meas_dir / "measurements.json").write_text(
+        json.dumps(
+            {
+                "slides": [
+                    {
+                        "slide": {},
+                        "records": [
+                            {
+                                "id": 1,
+                                "kind": "text",
+                                "tag": "h2",
+                                "className": "title",
+                                "rect": {"x": 96, "y": 96, "w": 800, "h": 80},
+                                "text": "x",
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return html, pptx
+
+
+def test_postprocess_missing_box_chart_dominant_mentions_layouts(tmp_path):
+    """chart-dominant 页丢框 → 错误提示聚焦 --layouts（尺寸来自布局 CSS）。"""
+    html, pptx = _write_measurements_without_chart(
+        tmp_path,
+        "<html><body>"
+        '<section class="slide chart-dominant" data-pptx-slide data-layout="chart-dominant">'
+        '<div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+        "</body></html>",
+    )
+    with pytest.raises(RuntimeError) as exc:
+        charts.postprocess_charts(str(html), str(pptx))
+    assert "--layouts" in str(exc.value)
+    assert "chart-dominant" in str(exc.value)
+
+
+def test_postprocess_missing_box_custom_mentions_dimensions(tmp_path):
+    """自定义布局页丢框 → 错误提示引导提供显式可测尺寸 / 换 chart-dominant。"""
+    html, pptx = _write_measurements_without_chart(
+        tmp_path,
+        "<html><body>"
+        '<section class="slide" data-pptx-slide>'
+        '<div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+        "</body></html>",
+    )
+    with pytest.raises(RuntimeError) as exc:
+        charts.postprocess_charts(str(html), str(pptx))
+    assert "显式可测尺寸" in str(exc.value)
+    assert "chart-dominant" in str(exc.value)
+
+
 # ---------------------------------------------------------------------------
 # Task 0: theme-aware palette + chart color overrides 元数据
 # ---------------------------------------------------------------------------
