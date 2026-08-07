@@ -238,6 +238,30 @@ def main() -> int:
         if "usage" not in r.stdout.lower():
             raise SystemExit("[pypi-smoke] FAIL: offipy mcp --help 无 usage 输出")
 
+        print("[pypi-smoke] 资产 API 解析（ph/lu/procedural/primitives）...")
+        # 证明 wheel 内含 vendored 图标/纹理/图元模块与 SVG 文件，且 import offipy.assets
+        # 保持纯标准库（解析不依赖 python-pptx/PIL/playwright）
+        asset_code = (
+            "import json\n"
+            "from offipy.assets import get_default_registry\n"
+            "r = get_default_registry()\n"
+            "names = [\n"
+            "    r.resolve('asset://ph/icon/check').meta.ref.name,\n"
+            "    r.resolve('asset://lu/icon/settings').meta.ref.name,\n"
+            "    r.resolve('asset://procedural/pattern/wave').meta.ref.name,\n"
+            "    r.resolve('asset://primitives/primitive/browser-mockup').meta.ref.name,\n"
+            "]\n"
+            "print(json.dumps(names))\n"
+        )
+        r = _run([py, "-c", asset_code])
+        try:
+            parsed = json.loads(r.stdout)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"[pypi-smoke] FAIL: 资产 API 输出非 JSON: {r.stdout!r}") from exc
+        if parsed != ["check", "settings", "wave", "browser-mockup"]:
+            raise SystemExit(f"[pypi-smoke] FAIL: 资产解析结果 {parsed!r} 不符预期")
+        print("[pypi-smoke] 资产 API 解析 4/4 ✓")
+
         print(f"[pypi-smoke] OK — {args.version} 从 TestPyPI 精确下载 + 干净安装冒烟通过")
         return 0
     finally:
