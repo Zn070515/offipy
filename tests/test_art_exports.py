@@ -41,14 +41,21 @@ def test_art_package_exports():
     import offipy.art as art
 
     for name in (
+        "ART_FEEDBACK_FILE",
+        "DEFAULT_DIR",
+        "ArtFeedbackRecord",
         "ArtScene",
         "ArtReport",
+        "append",
+        "apply_feedback",
         "build_scene",
+        "load_records",
         "merge_scenes",
         "analyze_deck",
         "analyze_scene",
         "get_profile",
         "profile_names",
+        "recommend_adjustments",
         "render_html",
         "render_markdown",
         "report_to_json",

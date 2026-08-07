@@ -128,16 +128,38 @@ def _is_active(spec: RuleSpec, profile: ArtProfile) -> bool:
     return spec.rule_id in profile.enabled_rules and spec.rule_id not in profile.disabled_rules
 
 
-def _apply_profile(
+def _step_severity(severity: Severity, delta: int) -> Severity:
+    """LOW <-> MID <-> HIGH; saturate at endpoints."""
+    return Severity(max(Severity.LOW, min(Severity.HIGH, severity + delta)))
+
+
+def apply_profile_to_finding(
     finding: ArtFinding, profile: ArtProfile, experimental: bool = False
 ) -> ArtFinding:
+    """Canonical severity/confidence precedence (exactly once per finding).
+
+    Precedence (highest wins):
+    1. explicit user severity_overrides (absolute, sets source="user", suppresses feedback delta)
+    2. feedback delta (+-1, bounded) when no user override
+    3. rule-computed severity (the finding's starting point)
+    """
     sev = profile.severity_overrides.get(finding.rule_id)
     conf = profile.confidence_overrides.get(finding.rule_id)
     if sev is not None:
         finding.severity = sev
+        finding.severity_override = True
+        finding.severity_override_source = "user"
+    else:
+        delta = profile.feedback_severity_adjustments.get(finding.rule_id)
+        if delta is not None:
+            original = finding.severity
+            stepped = _step_severity(original, delta)
+            if stepped != original:
+                finding.severity = stepped
+                finding.severity_override = True
+                finding.severity_override_source = "feedback"
     if conf is not None:
         finding.confidence = float(conf)
-    # RuleSpec.experimental 是唯一权威来源；profile.experimental_rules 兼容叠加
     if experimental or finding.rule_id in profile.experimental_rules:
         finding.confidence = min(finding.confidence, 0.3)
     return finding
@@ -184,7 +206,7 @@ def assess_dimension(
             reliability_terms.append(ev.reliability)
             reliability_weights.append(ev.covered_count)
         for f in ev.findings:
-            findings.append(_apply_profile(f, ctx.profile, experimental=rs.experimental))
+            findings.append(apply_profile_to_finding(f, ctx.profile, experimental=rs.experimental))
     coverage = (covered / eligible) if eligible else 0.0
     if coverage < _COVERAGE_MIN:
         # 证据不足 → 不误报：丢弃低置信 finding，只保留 coverage 状态与 warnings

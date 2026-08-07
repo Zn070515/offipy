@@ -1,9 +1,22 @@
-from offipy.art.models import ArtScene, ArtSlide
-from offipy.art.profiles import RULE_TITLE_TOO_SMALL, ArtProfile, get_profile
+from dataclasses import replace
+
+from art_helpers import make_slide as _hs
+from art_helpers import make_text_element as _hte
+from offipy.art.color import RULES as COLOR_RULES
+from offipy.art.features import compute_features
+from offipy.art.models import ArtColor, ArtScene, ArtSlide
+from offipy.art.profiles import (
+    RULE_LOW_CONTRAST,
+    RULE_TITLE_TOO_SMALL,
+    ArtProfile,
+    get_profile,
+)
 from offipy.art.rules import (
     RuleContext,
     RuleEvaluation,
     RuleSpec,
+    _step_severity,
+    apply_profile_to_finding,
     assess_dimension,
     grade_from_findings,
     make_finding,
@@ -259,3 +272,216 @@ def test_dimension_reliability_excludes_profile_experimental():
     d = assess_dimension("typography", [spec], ctx)
     # profile-experimental 规则同样不参与聚合 → 无权重 → 回退场景可靠度
     assert abs(d.reliability - 1.0) < 1e-9  # sources 默认 measurement
+
+
+# ---------------------------------------------------------------------------
+# _step_severity 边界
+# ---------------------------------------------------------------------------
+
+
+def test_step_severity_low_up():
+    assert _step_severity(Severity.LOW, 1) == Severity.MID
+
+
+def test_step_severity_mid_up():
+    assert _step_severity(Severity.MID, 1) == Severity.HIGH
+
+
+def test_step_severity_high_up_saturates():
+    assert _step_severity(Severity.HIGH, 1) == Severity.HIGH
+
+
+def test_step_severity_high_down():
+    assert _step_severity(Severity.HIGH, -1) == Severity.MID
+
+
+def test_step_severity_mid_down():
+    assert _step_severity(Severity.MID, -1) == Severity.LOW
+
+
+def test_step_severity_low_down_saturates():
+    assert _step_severity(Severity.LOW, -1) == Severity.LOW
+
+
+# ---------------------------------------------------------------------------
+# feedback_severity_adjustments via assess_dimension
+# ---------------------------------------------------------------------------
+
+
+def test_feedback_delta_applied_via_assess_dimension():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.MID, "m", 0.7, slide_index=1)
+    specs = [_rule(RULE_TITLE_TOO_SMALL, findings=[f], covered=5, eligible=5)]
+    prof = ArtProfile(name="x", feedback_severity_adjustments={RULE_TITLE_TOO_SMALL: +1})
+    ctx = _ctx(slide, profile=prof)
+    d = assess_dimension("hierarchy", specs, ctx)
+    assert d.status == "assessed"
+    assert d.findings[0].severity == Severity.HIGH
+    assert d.findings[0].severity_override is True
+    assert d.findings[0].severity_override_source == "feedback"
+
+
+def test_feedback_delta_high_up_no_false_provenance():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.HIGH, "m", 0.7, slide_index=1)
+    specs = [_rule(RULE_TITLE_TOO_SMALL, findings=[f], covered=5, eligible=5)]
+    prof = ArtProfile(name="x", feedback_severity_adjustments={RULE_TITLE_TOO_SMALL: +1})
+    ctx = _ctx(slide, profile=prof)
+    d = assess_dimension("hierarchy", specs, ctx)
+    assert d.status == "assessed"
+    assert d.findings[0].severity == Severity.HIGH
+    assert d.findings[0].severity_override is False
+    assert d.findings[0].severity_override_source is None
+
+
+def test_user_override_beats_feedback():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.MID, "m", 0.7, slide_index=1)
+    specs = [_rule(RULE_TITLE_TOO_SMALL, findings=[f], covered=5, eligible=5)]
+    prof = ArtProfile(
+        name="x",
+        severity_overrides={RULE_TITLE_TOO_SMALL: Severity.HIGH},
+        feedback_severity_adjustments={RULE_TITLE_TOO_SMALL: -1},
+    )
+    ctx = _ctx(slide, profile=prof)
+    d = assess_dimension("hierarchy", specs, ctx)
+    assert d.status == "assessed"
+    assert d.findings[0].severity == Severity.HIGH
+    assert d.findings[0].severity_override is True
+    assert d.findings[0].severity_override_source == "user"
+
+
+# ---------------------------------------------------------------------------
+# feedback delta on dynamically-computed severity (color rules)
+# ---------------------------------------------------------------------------
+
+
+def _color_ctx(slide, profile="balanced"):
+    prof = profile if isinstance(profile, ArtProfile) else get_profile(profile)
+    return RuleContext(
+        profile=prof,
+        slide=slide,
+        slide_index=slide.index,
+        features=compute_features(slide),
+        deck=ArtScene(slides=[slide]),
+        sources=frozenset({"measurement"}),
+    )
+
+
+def test_feedback_delta_color_high_to_mid():
+    """contrast ratio < 2.0 → HIGH, with -1 delta → MID, source=feedback."""
+    slide = _hs(
+        1,
+        elements=[
+            _hte("t", "Gray on white", font_size=24.0, foreground=ArtColor(200, 200, 200)),
+        ],
+        background_color=ArtColor(255, 255, 255),
+    )
+    prof = replace(
+        get_profile("balanced"),
+        feedback_severity_adjustments={RULE_LOW_CONTRAST: -1},
+    )
+    d = assess_dimension("color", COLOR_RULES, _color_ctx(slide, profile=prof))
+    assert d.status == "assessed"
+    findings = [f for f in d.findings if f.rule_id == RULE_LOW_CONTRAST]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == Severity.MID
+    assert f.severity_override is True
+    assert f.severity_override_source == "feedback"
+
+
+def test_feedback_delta_color_mid_to_low():
+    """contrast ratio in (2.0, 3.0) → MID, with -1 delta → LOW, source=feedback."""
+    slide = _hs(
+        1,
+        elements=[
+            _hte("t", "Gray on white", font_size=24.0, foreground=ArtColor(160, 160, 160)),
+        ],
+        background_color=ArtColor(255, 255, 255),
+    )
+    prof = replace(
+        get_profile("balanced"),
+        feedback_severity_adjustments={RULE_LOW_CONTRAST: -1},
+    )
+    d = assess_dimension("color", COLOR_RULES, _color_ctx(slide, profile=prof))
+    assert d.status == "assessed"
+    findings = [f for f in d.findings if f.rule_id == RULE_LOW_CONTRAST]
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == Severity.LOW
+    assert f.severity_override is True
+    assert f.severity_override_source == "feedback"
+
+
+# ---------------------------------------------------------------------------
+# experimental confidence cap + feedback delta coexist
+# ---------------------------------------------------------------------------
+
+
+def test_experimental_confidence_cap_with_feedback_delta():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(
+        "art.composition.off_balance", "composition", Severity.MID, "m", 0.8, slide_index=1
+    )
+    specs = [
+        _rule(
+            "art.composition.off_balance",
+            dimension="composition",
+            experimental=True,
+            findings=[f],
+            covered=3,
+            eligible=3,
+        )
+    ]
+    prof = ArtProfile(
+        name="x",
+        feedback_severity_adjustments={"art.composition.off_balance": +1},
+    )
+    ctx = _ctx(slide, profile=prof)
+    d = assess_dimension("composition", specs, ctx)
+    assert d.status == "assessed"
+    found = d.findings[0]
+    # severity bumped by feedback
+    assert found.severity == Severity.HIGH
+    assert found.severity_override is True
+    assert found.severity_override_source == "feedback"
+    # confidence still capped by experimental
+    assert found.confidence <= 0.3
+
+
+# ---------------------------------------------------------------------------
+# apply_profile_to_finding direct (unit)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_profile_to_finding_feedback_delta():
+    f = make_finding("art.color.low_contrast", "color", Severity.LOW, "m", 0.6, slide_index=1)
+    prof = ArtProfile(
+        name="x",
+        feedback_severity_adjustments={"art.color.low_contrast": +1},
+    )
+    result = apply_profile_to_finding(f, prof)
+    assert result.severity == Severity.MID
+    assert result.severity_override is True
+    assert result.severity_override_source == "feedback"
+
+
+def test_apply_profile_to_finding_user_override():
+    f = make_finding("art.color.low_contrast", "color", Severity.LOW, "m", 0.6, slide_index=1)
+    prof = ArtProfile(
+        name="x",
+        severity_overrides={"art.color.low_contrast": Severity.HIGH},
+        feedback_severity_adjustments={"art.color.low_contrast": -1},
+    )
+    result = apply_profile_to_finding(f, prof)
+    assert result.severity == Severity.HIGH
+    assert result.severity_override is True
+    assert result.severity_override_source == "user"
+
+
+def test_apply_profile_to_finding_confidence_override():
+    f = make_finding("art.color.low_contrast", "color", Severity.LOW, "m", 0.6, slide_index=1)
+    prof = ArtProfile(name="x", confidence_overrides={"art.color.low_contrast": 0.9})
+    result = apply_profile_to_finding(f, prof)
+    assert result.confidence == 0.9

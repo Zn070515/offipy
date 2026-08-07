@@ -5,14 +5,22 @@ from offipy.art.profiles import (
     RULE_ACCENT_FLOOD,
     RULE_BACKGROUND_LIKE_AREA,
     RULE_CORNER_CLUSTER,
+    RULE_DIMENSIONS,
     RULE_OFF_BALANCE,
+    RULE_TITLE_TOO_SMALL,
+    ArtProfile,
     get_profile,
     profile_names,
 )
+from offipy.exceptions import InvalidArgumentError
 
 
 def test_all_rules_count():
     assert len(ALL_RULES) == 17
+
+
+def test_rule_dimensions_covers_all_rules():
+    assert set(RULE_DIMENSIONS) == set(ALL_RULES)
 
 
 def test_experimental_rules():
@@ -77,3 +85,30 @@ def test_max_background_like_ratio_per_profile():
 
 def test_profile_names():
     assert set(profile_names()) == {"balanced", "consulting", "academic", "technology", "event"}
+
+
+# ---------------------------------------------------------------------------
+# feedback_severity_adjustments validation
+# ---------------------------------------------------------------------------
+
+
+def test_feedback_severity_adjustments_accepts_minus_one_and_plus_one():
+    p = ArtProfile(
+        name="x",
+        feedback_severity_adjustments={RULE_TITLE_TOO_SMALL: -1},
+    )
+    assert p.feedback_severity_adjustments == {RULE_TITLE_TOO_SMALL: -1}
+    p2 = ArtProfile(
+        name="y",
+        feedback_severity_adjustments={RULE_TITLE_TOO_SMALL: +1},
+    )
+    assert p2.feedback_severity_adjustments == {RULE_TITLE_TOO_SMALL: +1}
+
+
+@pytest.mark.parametrize("bad_delta", [2, 0, -2, 3])
+def test_feedback_severity_adjustments_rejects_invalid(bad_delta):
+    with pytest.raises(InvalidArgumentError):
+        ArtProfile(
+            name="x",
+            feedback_severity_adjustments={RULE_TITLE_TOO_SMALL: bad_delta},
+        )

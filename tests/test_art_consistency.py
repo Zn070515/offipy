@@ -1,7 +1,9 @@
 from art_helpers import make_scene, make_slide, make_text_element
 from offipy.art.consistency import RULE_MARGIN_DRIFT, RULE_TITLE_DRIFT, assess_deck
 from offipy.art.features import infer_slide_role
-from offipy.art.profiles import get_profile
+from offipy.art.profiles import ArtProfile, get_profile
+from offipy.art.rules import apply_profile_to_finding
+from offipy.audit import Severity
 
 
 def _content_slide(index, title_x=0.1, title_size=48.0, body_x=0.1, **kw):
@@ -147,3 +149,54 @@ def test_different_roles_do_not_cross_compare():
     scene = make_scene(covers + contents)
     # content 组标题一致 → 无 title drift
     assert all(f.rule_id != RULE_TITLE_DRIFT for f in assess_deck(scene, get_profile("balanced")))
+
+
+# ---------------------------------------------------------------------------
+# feedback severity adjustments on deck-level findings
+# ---------------------------------------------------------------------------
+
+
+def test_title_drift_receives_feedback_delta():
+    """RULE_TITLE_DRIFT +1 → severity becomes MID, source=feedback."""
+    scene = make_scene(
+        [
+            _content_slide(1, title_x=0.1),
+            _content_slide(2, title_x=0.5),
+            _content_slide(3, title_x=0.1),
+        ]
+    )
+    prof = ArtProfile(
+        name="x",
+        feedback_severity_adjustments={RULE_TITLE_DRIFT: +1},
+    )
+    raw = assess_deck(scene, prof)
+    findings = [apply_profile_to_finding(f, prof) for f in raw]
+    title_findings = [f for f in findings if f.rule_id == RULE_TITLE_DRIFT]
+    assert len(title_findings) == 1
+    f = title_findings[0]
+    assert f.severity == Severity.MID
+    assert f.severity_override is True
+    assert f.severity_override_source == "feedback"
+
+
+def test_margin_drift_user_override():
+    """RULE_MARGIN_DRIFT overridden to HIGH, source=user."""
+    scene = make_scene(
+        [
+            _content_slide(1, body_x=0.1),
+            _content_slide(2, body_x=0.1),
+            _content_slide(3, title_x=0.6, body_x=0.6),
+        ]
+    )
+    prof = ArtProfile(
+        name="x",
+        severity_overrides={RULE_MARGIN_DRIFT: Severity.HIGH},
+    )
+    raw = assess_deck(scene, prof)
+    findings = [apply_profile_to_finding(f, prof) for f in raw]
+    margin_findings = [f for f in findings if f.rule_id == RULE_MARGIN_DRIFT]
+    assert len(margin_findings) == 1
+    f = margin_findings[0]
+    assert f.severity == Severity.HIGH
+    assert f.severity_override is True
+    assert f.severity_override_source == "user"

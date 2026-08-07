@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from offipy.audit import Severity
+from offipy.exceptions import InvalidArgumentError
 
 # ---- 规则 ID 常量（canonical，勿改名）----
 RULE_NO_FOCUS = "art.hierarchy.no_focus"
@@ -48,6 +49,27 @@ ALL_RULES = frozenset(
     }
 )
 
+# 规则 → 维度 规范化注册表：feedback 只依赖此处，不 import 规则实现
+RULE_DIMENSIONS: Mapping[str, str] = {
+    RULE_NO_FOCUS: "hierarchy",
+    RULE_TITLE_TOO_SMALL: "hierarchy",
+    RULE_OFF_BALANCE: "composition",
+    RULE_CORNER_CLUSTER: "composition",
+    RULE_SPACING_DRIFT: "composition",
+    RULE_BACKGROUND_LIKE_AREA: "composition",
+    RULE_MANY_FAMILIES: "typography",
+    RULE_TINY_TEXT: "typography",
+    RULE_FLAT_SCALE: "typography",
+    RULE_LOW_CONTRAST: "color",
+    RULE_ACCENT_FLOOD: "color",
+    RULE_NO_ACCENT: "color",
+    RULE_DISTORTED_IMAGE: "media",
+    RULE_TINY_IMAGE: "media",
+    RULE_MIXED_IMAGE_SIZES: "media",
+    RULE_TITLE_DRIFT: "consistency",
+    RULE_MARGIN_DRIFT: "consistency",
+}
+
 _EXPERIMENTAL = frozenset(
     {
         RULE_OFF_BALANCE,
@@ -81,8 +103,17 @@ class ArtProfile:
     enabled_rules: frozenset[str] = ALL_RULES
     disabled_rules: frozenset[str] = frozenset()
     severity_overrides: Mapping[str, Severity] = field(default_factory=dict)
+    feedback_severity_adjustments: Mapping[str, int] = field(default_factory=dict)
     confidence_overrides: dict[str, float] = field(default_factory=dict)
     experimental_rules: frozenset[str] = _EXPERIMENTAL
+
+    def __post_init__(self) -> None:
+        for rule_id, delta in self.feedback_severity_adjustments.items():
+            if delta not in (-1, 1):
+                raise InvalidArgumentError(
+                    f"feedback_severity_adjustments value for {rule_id!r} "
+                    f"must be -1 or +1, got {delta}"
+                )
 
 
 _BUILTIN = {

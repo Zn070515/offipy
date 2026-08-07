@@ -8,6 +8,8 @@ rev2.1：
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from offipy.audit import audit_pptx
 from offipy.exceptions import InvalidArgumentError
 
@@ -16,6 +18,7 @@ from .color import RULES as COLOR_RULES
 from .composition import RULES as COMPOSITION_RULES
 from .consistency import assess_deck
 from .features import compute_features
+from .feedback import apply_feedback
 from .hierarchy import RULES as HIERARCHY_RULES
 from .media import RULES as MEDIA_RULES
 from .models import (
@@ -28,7 +31,7 @@ from .models import (
     DimensionAssessment,
 )
 from .profiles import ArtProfile, get_profile
-from .rules import RuleContext, assess_dimension
+from .rules import RuleContext, apply_profile_to_finding, assess_dimension
 from .typography import RULES as TYPOGRAPHY_RULES
 
 _DIMENSION_RULES = {
@@ -60,12 +63,25 @@ def _experimental_score(report: ArtReport) -> float | None:
     return round(score, 1)
 
 
+def _resolve_profile(
+    profile: str | ArtProfile | None,
+    *,
+    feedback: bool,
+    feedback_dir: str | Path | None,
+) -> ArtProfile:
+    prof = profile if isinstance(profile, ArtProfile) else get_profile(profile or "balanced")
+    return apply_feedback(prof, feedback_dir=feedback_dir) if feedback else prof
+
+
 def analyze_scene(
     scene: ArtScene,
     profile: str | ArtProfile | None = None,
     include_experimental_score: bool = False,
+    *,
+    feedback: bool = False,
+    feedback_dir: str | Path | None = None,
 ) -> ArtReport:
-    prof = profile if isinstance(profile, ArtProfile) else get_profile(profile or "balanced")
+    prof = _resolve_profile(profile, feedback=feedback, feedback_dir=feedback_dir)
     report = ArtReport(schema_version=ART_REPORT_SCHEMA_VERSION, profile=prof.name)
     for slide in scene.slides:
         feats = compute_features(slide)
@@ -88,7 +104,7 @@ def analyze_scene(
                 visual_balance=feats.get("mass"),
             )
         )
-    report.deck_findings = assess_deck(scene, prof)
+    report.deck_findings = [apply_profile_to_finding(f, prof) for f in assess_deck(scene, prof)]
     if include_experimental_score:
         report.experimental_score = _experimental_score(report)
     return report
@@ -101,6 +117,8 @@ def analyze_deck(
     slides_dir: str | None = None,
     profile: str | ArtProfile | None = None,
     include_experimental_score: bool = False,
+    feedback: bool = False,
+    feedback_dir: str | Path | None = None,
 ) -> DeckQualityReport:
     """组合入口：几何审计（可选）+ 像素（可选）+ 艺术分析（可选）。"""
     if measurements is None and pptx is None and slides_dir is None:
@@ -113,7 +131,11 @@ def analyze_deck(
     if measurements is not None or pptx is not None or slides_dir is not None:
         scene = build_scene(measurements=measurements, pptx_report=geometry, slides_dir=slides_dir)
         art = analyze_scene(
-            scene, profile=profile, include_experimental_score=include_experimental_score
+            scene,
+            profile=profile,
+            include_experimental_score=include_experimental_score,
+            feedback=feedback,
+            feedback_dir=feedback_dir,
         )
         warnings = list(scene.warnings)
         if pptx is not None and measurements is None and slides_dir is None:

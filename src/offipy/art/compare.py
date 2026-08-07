@@ -80,6 +80,13 @@ def _status(before: ArtFinding | None, after: ArtFinding | None) -> ChangeStatus
     a_grade = _finding_grade(after)
     if a_grade is not None and b_grade is not None and a_grade != b_grade:
         return "improved" if a_grade < b_grade else "worsened"
+    # 严重度相同但调整来源变化（feedback / user override 出现或消失）→ 视为 changed。
+    # 跨 schema 安全：ArtFinding 字段默认值（False/None）已覆盖 0.2 旧记录反序列化。
+    if (before.severity_override, before.severity_override_source) != (
+        after.severity_override,
+        after.severity_override_source,
+    ):
+        return "changed"
     if (before.confidence, before.message, before.details) != (
         after.confidence,
         after.message,

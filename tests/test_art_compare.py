@@ -155,3 +155,45 @@ def test_evidence_change_detected():
     after = _report({1: {"hierarchy": [f(frozenset({"pixel"}), "declared_verified")]}})
     diff = compare_reports(before, after)
     assert any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)
+
+
+def test_provenance_change_is_changed():
+    before = _report({1: {"hierarchy": [_finding("a.h", 1)]}})
+    after = _report({1: {"hierarchy": [_finding("a.h", 1)]}})
+    after.slides[0].dimensions[0].findings[0].severity_override = True
+    after.slides[0].dimensions[0].findings[0].severity_override_source = "feedback"
+    diff = compare_reports(before, after)
+    assert any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)
+
+
+def test_severity_delta_with_feedback_still_improved():
+    before = _report({1: {"hierarchy": [_finding("a.h", 1, sev=Severity.HIGH)]}})
+    after = _report({1: {"hierarchy": [_finding("a.h", 1, sev=Severity.MID)]}})
+    after.slides[0].dimensions[0].findings[0].severity_override = True
+    after.slides[0].dimensions[0].findings[0].severity_override_source = "feedback"
+    diff = compare_reports(before, after)
+    assert any(c.rule_id == "a.h" and c.status == "improved" for c in diff.changes)
+    assert not any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)
+
+
+def test_severity_delta_with_user_override_still_worsened():
+    before = _report({1: {"hierarchy": [_finding("a.h", 1, sev=Severity.MID)]}})
+    after = _report({1: {"hierarchy": [_finding("a.h", 1, sev=Severity.HIGH)]}})
+    after.slides[0].dimensions[0].findings[0].severity_override = True
+    after.slides[0].dimensions[0].findings[0].severity_override_source = "user"
+    diff = compare_reports(before, after)
+    assert any(c.rule_id == "a.h" and c.status == "worsened" for c in diff.changes)
+    assert not any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)
+
+
+def test_cross_schema_compare_no_panic_and_warns():
+    # 0.2 基线（无 provenance 字段）对比 0.3：不崩溃，出 schema_mismatch 警告
+    before = _report({1: {"hierarchy": [_finding("a.h", 1)]}})
+    before.schema_version = "0.2"
+    after = _report({1: {"hierarchy": [_finding("a.h", 1)]}})
+    after.schema_version = "0.3"
+    after.slides[0].dimensions[0].findings[0].severity_override = True
+    after.slides[0].dimensions[0].findings[0].severity_override_source = "feedback"
+    diff = compare_reports(before, after)
+    assert any(w.code == "art.compare.schema_mismatch" for w in diff.warnings)
+    assert any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)

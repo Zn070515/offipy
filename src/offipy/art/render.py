@@ -31,6 +31,29 @@ def _finding_evidence(f: ArtFinding) -> str:
     )
 
 
+def _severity_override_label(f: ArtFinding) -> str | None:
+    """严重度调整来源标签：有调整才返回，默认 finding 不产生任何噪音。"""
+    if not f.severity_override:
+        return None
+    if f.severity_override_source == "feedback":
+        return "Severity adjusted: feedback"
+    if f.severity_override_source == "user":
+        return "Severity adjusted: user override"
+    return None
+
+
+def _finding_html(f: ArtFinding) -> str:
+    """单个 finding 的 HTML 片段：发现行 + 严重度调整来源（若有）。"""
+    text = (
+        f"[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
+        f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}"
+    )
+    prov = _severity_override_label(f)
+    if prov:
+        text += f"<br><span class='severity-adjust'>{prov}</span>"
+    return text
+
+
 def render_markdown(report: ArtReport) -> str:
     lines = [f"# 艺术分析报告 (profile: {report.profile})", ""]
     if report.experimental_score is not None:
@@ -51,11 +74,17 @@ def render_markdown(report: ArtReport) -> str:
                 lines.append(
                     f"  - [{f.severity.name}] {f.rule_id}: {f.message}{_finding_evidence(f)}"
                 )
+                prov = _severity_override_label(f)
+                if prov:
+                    lines.append(f"    - {prov}")
         lines.append("")
     if report.deck_findings:
         lines.append("## Deck 级")
         for f in report.deck_findings:
             lines.append(f"- [{f.severity.name}] {f.rule_id}: {f.message}{_finding_evidence(f)}")
+            prov = _severity_override_label(f)
+            if prov:
+                lines.append(f"  - {prov}")
         lines.append("")
     return "\n".join(lines)
 
@@ -115,7 +144,9 @@ def render_html(report: ArtReport) -> str:
         "table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px 10px}"
         ".dim-grade{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px}"
         ".excellent{background:#dcfce7}.good{background:#e0f2fe}"
-        ".attention{background:#fef9c3}.poor{background:#fee2e2}</style></head><body>"
+        ".attention{background:#fef9c3}.poor{background:#fee2e2}"
+        ".severity-adjust{display:block;font-size:11px;color:#b45309;margin-top:2px}"
+        "</style></head><body>"
     )
     lines = [head, f"<h1>艺术分析报告 (profile: {report.profile})</h1>"]
     if report.experimental_score is not None:
@@ -134,14 +165,7 @@ def render_html(report: ArtReport) -> str:
                     f"(evidence {d.evidence_coverage:.2f})</td></tr>"
                 )
                 continue
-            findings = (
-                "<br>".join(
-                    f"[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
-                    f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}"
-                    for f in d.findings
-                )
-                or "-"
-            )
+            findings = "<br>".join(_finding_html(f) for f in d.findings) or "-"
             conf = f"{d.confidence:.2f}"
             if d.reliability is not None:
                 conf += f" / rel {d.reliability:.2f}"
@@ -155,10 +179,7 @@ def render_html(report: ArtReport) -> str:
     if report.deck_findings:
         lines.append("<h2>Deck 级</h2><ul>")
         for f in report.deck_findings:
-            lines.append(
-                f"<li>[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
-                f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}</li>"
-            )
+            lines.append(f"<li>{_finding_html(f)}</li>")
         lines.append("</ul>")
     lines.append("</body></html>")
     return "\n".join(lines)
