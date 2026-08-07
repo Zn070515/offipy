@@ -175,25 +175,41 @@ def test_deck_make_audit_mode_missing_html_exits_2():
 
 def test_deck_outline_missing_file_friendly_error(tmp_path, capsys):
     # 回归：--input 指向不存在的文件时曾裸 FileNotFoundError traceback，
-    # 现在应 SystemExit 带友好提示。
+    # 现在应 SystemExit 带友好提示。S5：运行前非法输入 → exit 2（stderr 含路径）。
     from offipy import cli
 
     missing = tmp_path / "nope.md"
     with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline", "--input", str(missing)])
-    assert "找不到文件" in str(exc.value)
+    assert exc.value.code == 2
+    assert "找不到文件" in capsys.readouterr().err
 
 
 def test_deck_outline_bad_format_friendly_error(tmp_path, capsys):
     # 回归：非法大纲（缺 # 主标题）时曾裸 ValueError traceback，
-    # 现在应 SystemExit 带友好提示。
+    # 现在应 SystemExit 带友好提示。S5：运行前非法输入 → exit 2。
     from offipy import cli
 
     bad = tmp_path / "bad.md"
     bad.write_text("## 只有页面\n- 无标题\n", encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline", "--input", str(bad)])
-    assert "大纲格式错误" in str(exc.value)
+    assert exc.value.code == 2
+    assert "大纲格式错误" in capsys.readouterr().err
+
+
+def test_deck_outline_out_unwritable_dir_exits_2(tmp_path, capsys):
+    # S5：--out 指向不存在目录下的路径 → 曾裸 FileNotFoundError traceback，
+    # 现在 catch OSError → 友好消息 + exit 2（输出路径非法）。
+    from offipy import cli
+
+    md = tmp_path / "outline.md"
+    md.write_text("# T\n\n## 页\n- 甲\n", encoding="utf-8")
+    bad_out = tmp_path / "nope_dir" / "deck.html"
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "outline", "--input", str(md), "--out", str(bad_out)])
+    assert exc.value.code == 2
+    assert "无法写入输出文件" in capsys.readouterr().err
 
 
 def test_check_subcommand_parses():
@@ -335,10 +351,13 @@ def test_parse_kwargs_payload_overrides():
 
 
 def test_parse_kwargs_payload_bad_json_exits():
+    # S5：#29 未清完——--payload JSON 解析失败原 SystemExit(str)→exit 1，
+    # 现统一走 _usage_exit → exit 2（用法错误）。
     from offipy.cli import _parse_kwargs
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         _parse_kwargs(["--payload", "{not json"])
+    assert exc.value.code == 2
 
 
 def test_parse_kwargs_payload_must_be_object():
@@ -356,13 +375,15 @@ def test_parse_kwargs_dash_to_underscore():
     assert _parse_kwargs(["--slide-idx", "2"]) == {"slide_idx": "2"}
 
 
-def test_payload_array_error_hints_list_usage():
-    # --payload 传数组时错误信息要提示 list 参数的正确写法（重复 --key / key 数组）
+def test_payload_array_error_hints_list_usage(capsys):
+    # --payload 传数组时错误信息要提示 list 参数的正确写法（重复 --key / key 数组）。
+    # S5：消息走 _usage_exit 到 stderr，SystemExit 带 int 2。
     from offipy.cli import _parse_kwargs
 
     with pytest.raises(SystemExit) as exc:
         _parse_kwargs(["--payload", "[1, 2]"])
-    msg = str(exc.value)
+    assert exc.value.code == 2
+    msg = capsys.readouterr().err
     assert "list" in msg
     assert "重复 --key" in msg
 
@@ -543,10 +564,12 @@ def test_parse_kwargs_expected_target_json():
 
 
 def test_parse_kwargs_expected_target_bad_json_exits():
+    # S5：#29 未清完——--expected-target JSON 解析失败原 exit 1，现统一 exit 2。
     from offipy.cli import _parse_kwargs
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         _parse_kwargs(["--expected-target", "{not json"])
+    assert exc.value.code == 2
 
 
 def test_parse_kwargs_expected_target_must_be_object():
@@ -690,3 +713,96 @@ def test_mcp_present_runs(monkeypatch):
     monkeypatch.setattr("offipy.mcp_server.main", fake_main)
     assert cli.main(["mcp"]) is None
     assert called == ["mcp"]
+
+
+# --- S5 Task 1：共享 CLI 边界错误处理 ---
+
+
+def test_clean_error_message_strips_trace_frames_and_type_prefix():
+    # S5：client._raise_error 拼出的消息带内部代码帧行与 "{TypeName}: " 前缀，
+    # _clean_error_message 应去掉帧行（空白开头）与类型名前缀，保留 [app::op] 失败: 上下文。
+    from offipy.cli import _clean_error_message
+
+    msg = (
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx\n"
+        '    File "C:\\...\\word.py", line 292, in open_doc\n'
+        "      raise InvalidArgumentError(...)\n"
+        "  InvalidArgumentError: 源文件不存在: C:\\nope.docx"
+    )
+    assert _clean_error_message(msg) == "[word::open_doc] 失败: 源文件不存在: C:\\nope.docx"
+
+
+def test_clean_error_message_keeps_non_type_message():
+    # 无 TypeName 前缀的消息原样保留（不匹配 "{Type}: " 正则）
+    from offipy.cli import _clean_error_message
+
+    msg = "[ppt::export_slides] 失败: [WinError 183] 无法创建文件"
+    assert _clean_error_message(msg) == msg
+
+
+def test_clean_error_message_keeps_connection_failed_reason():
+    # 连接失败消息不以 "[app::op] 失败: " 开头 → 类型名前缀不得被剥离
+    from offipy.cli import _clean_error_message
+
+    msg = "[excel::save] 连接失败: ConnectionRefusedError: [WinError 10061] 拒绝连接"
+    assert _clean_error_message(msg) == msg
+
+
+def test_clean_error_message_all_frame_lines_returns_empty():
+    # 防御：所有行都是帧行（空白开头）时不能原样返回泄漏，应返回空串
+    from offipy.cli import _clean_error_message
+
+    msg = (
+        '    File "C:\\...\\word.py", line 292, in open_doc\n      raise InvalidArgumentError(...)'
+    )
+    assert _clean_error_message(msg) == ""
+
+
+def test_main_invalid_argument_exits_2(monkeypatch, capsys):
+    # S5 核心规则：CLI 边界 InvalidArgumentError → exit 2，且 stderr 简洁无 Traceback
+    from offipy import cli
+    from offipy.exceptions import InvalidArgumentError
+
+    def boom(app, op, **kw):
+        raise InvalidArgumentError(
+            "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx"
+        )
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    assert cli.main(["word", "open_doc", "--path", "C:\\nope.docx"]) == 2
+    err = capsys.readouterr().err
+    assert "源文件不存在" in err
+    assert "Traceback" not in err
+
+
+def test_main_other_offipy_error_exits_1(monkeypatch, capsys):
+    # 其余 OffipyError（运行时领域失败）→ exit 1，消息同样清洗
+    from offipy import cli
+    from offipy.exceptions import TargetNotFoundError
+
+    def boom(app, op, **kw):
+        raise TargetNotFoundError("[excel::save] 失败: TargetNotFoundError: 没有活动工作簿")
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    assert cli.main(["excel", "save", "--path", "x.xlsx", "--follow-active"]) == 1
+    err = capsys.readouterr().err
+    assert "没有活动工作簿" in err
+    assert "Traceback" not in err
+
+
+def test_ensure_writable_missing_parent_dir_raises(tmp_path):
+    # S5 差距 4：save/save_pdf 父目录不存在 → pre-check InvalidArgumentError（exit 2 侧）
+    from offipy.exceptions import InvalidArgumentError
+    from offipy.paths import ensure_writable
+
+    with pytest.raises(InvalidArgumentError, match="输出目录不存在"):
+        ensure_writable(r"C:\nope_dir\x.docx")
+    # 父路径是文件（非目录）→ 同样 InvalidArgumentError（isdir 覆盖）
+    f = tmp_path / "afile"
+    f.write_text("x", encoding="utf-8")
+    with pytest.raises(InvalidArgumentError, match="输出目录不存在"):
+        ensure_writable(str(f / "x.docx"))
+    # 裸文件名（无父目录 → 用 CWD）不抛
+    assert ensure_writable("bare.docx")
+    # tmp_path 存在 → 不抛
+    assert ensure_writable(str(tmp_path / "x.docx"))

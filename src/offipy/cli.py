@@ -27,6 +27,7 @@ import argparse
 import inspect
 import json
 import os
+import re
 import sys
 import tempfile
 import traceback
@@ -36,13 +37,38 @@ from pathlib import Path
 
 from . import excel, ppt, schema, word
 from .client import call, ensure_server, server_status, set_port, stop_server
-from .exceptions import OffipyError
+from .exceptions import InvalidArgumentError, OffipyError
 
 _APP_CLASSES = {
     "excel": excel.ExcelApp,
     "word": word.WordApp,
     "ppt": ppt.PptApp,
 }
+
+_TRACE_FRAME_LINE_RE = re.compile(r"^\s")  # 帧行以空白开头
+# 类型前缀剥离锚定到规范化前缀 "[app::op] 失败: "（client._raise_error 拼消息的
+# 固定形态）：只有它紧跟 "{TypeName}: " 才剥离，避免误伤其它以 "失败: " 结尾的
+# 标签（如 client.py 的 "[excel::save] 连接失败: ConnectionRefusedError: ..."）。
+_TYPE_PREFIX_RE = re.compile(r"^(\[[A-Za-z]+::[A-Za-z_]+\] 失败: )\w+(?:Error|Exception): (.*)$")
+
+
+def _clean_error_message(msg: str) -> str:
+    """去掉 server/client 拼进异常消息里的 trace 帧行与冗余类型名前缀。
+
+    client._raise_error 拼出的消息形如：
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx"
+        + 换行 + 若干以空白开头的内部代码帧行
+    这里去掉空白开头的帧行（内部文件路径泄漏），并去掉第一行里
+    "{TypeName}: "（如 "InvalidArgumentError: "）前缀，保留 [app::op] 失败: 上下文。
+    """
+    lines = [ln for ln in msg.splitlines() if ln and not _TRACE_FRAME_LINE_RE.match(ln)]
+    if not lines:
+        return ""
+    first = lines[0]
+    m = _TYPE_PREFIX_RE.match(first)
+    if m:
+        first = m.group(1) + m.group(2)
+    return "\n".join([first, *lines[1:]])
 
 
 def _parse_kwargs(tokens):
@@ -61,9 +87,9 @@ def _parse_kwargs(tokens):
                 try:
                     payload = json.loads(tokens[i + 1])
                 except (ValueError, TypeError) as e:
-                    raise SystemExit(f"--{tok[2:]} JSON 解析失败: {e}") from None
+                    _usage_exit(f"--{tok[2:]} JSON 解析失败: {e}")
                 if not isinstance(payload, dict):
-                    raise SystemExit(
+                    _usage_exit(
                         f"--{tok[2:]} 必须是 JSON 对象；list 参数用重复 --key "
                         f"或 --payload '{{\"key\": [item1, item2, ...]}}'"
                     )
@@ -79,15 +105,15 @@ def _parse_kwargs(tokens):
                 try:
                     value = json.loads(tokens[i + 1])
                 except (ValueError, TypeError) as e:
-                    raise SystemExit(f"{tok} JSON 解析失败: {e}") from None
+                    _usage_exit(f"{tok} JSON 解析失败: {e}")
                 if not isinstance(value, dict):
-                    raise SystemExit(
+                    _usage_exit(
                         f'{tok} 必须是 JSON 对象（如 --expected-target \'{{"doc_id":"book1"}}\'）'
                     )
                 kwargs["expected_target"] = value
                 i += 2
             else:
-                raise SystemExit(f"{tok} 需要一个 JSON 对象值")
+                _usage_exit(f"{tok} 需要一个 JSON 对象值")
         elif tok in ("--follow-active", "--follow_active"):
             # P0-1/P0-3 传输层参数：显式声明跟随当前活动文档（裸用为 True，
             # 也接受 `--follow-active false`）。
@@ -107,7 +133,7 @@ def _parse_kwargs(tokens):
                 kwargs["request_id"] = tokens[i + 1]
                 i += 2
             else:
-                raise SystemExit(f"{tok} 需要一个值")
+                _usage_exit(f"{tok} 需要一个值")
         elif tok.startswith("--"):
             # 全局归一化 - → _：--doc-id 与 --doc_id 等价，README 双写法不再打架。
             # 传输层参数（--expected-target/--follow-active/--request-id）在上方
@@ -607,13 +633,16 @@ def _main(argv=None):
                 with open(md_path, encoding="utf-8") as f:
                     outline = parse_outline(f.read())
             except FileNotFoundError:
-                raise SystemExit(f"找不到文件: {md_path}") from None
+                _usage_exit(f"找不到文件: {md_path}")
             except ValueError as e:
-                raise SystemExit(f"大纲格式错误: {e}") from None
+                _usage_exit(f"大纲格式错误: {e}")
             html = to_deck_html(outline, theme=args.theme)
             if args.out:
-                with open(args.out, "w", encoding="utf-8") as f:
-                    f.write(html)
+                try:
+                    with open(args.out, "w", encoding="utf-8") as f:
+                        f.write(html)
+                except OSError as e:
+                    _usage_exit(f"无法写入输出文件: {args.out}: {e}")
                 print(json.dumps({"html": os.path.abspath(args.out)}, ensure_ascii=False))
             else:
                 print(outline.to_json())
@@ -631,11 +660,18 @@ def _main(argv=None):
 
 
 def main(argv=None):
-    """offipy CLI 入口：库异常转 stderr + exit 1；SystemExit/argparse 原样放行。"""
+    """offipy CLI 入口：InvalidArgumentError→exit 2；其余 OffipyError→exit 1。
+
+    SystemExit/argparse 原样放行（非 OffipyError 内建异常从 _main 逃逸时
+    保持裸 traceback + Python 默认 exit 1）。
+    """
     try:
         return _main(argv)
+    except InvalidArgumentError as e:
+        print(f"offipy: {_clean_error_message(str(e))}", file=sys.stderr)
+        return 2
     except OffipyError as e:
-        print(f"offipy: {e}", file=sys.stderr)
+        print(f"offipy: {_clean_error_message(str(e))}", file=sys.stderr)
         return 1
 
 
