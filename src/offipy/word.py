@@ -107,13 +107,24 @@ def _resolve_style(name: str | None, table: dict[str, _T], label: str) -> _T:
 
 
 def _normalize_line_spacing(value: str | float | None) -> str | None:
-    """把数值行距归一成 _LINE_SPACING 键；str 原样返回（沿用现有字符串查找）。"""
-    if value is None or isinstance(value, str):
-        return value
+    """把数值行距归一成 _LINE_SPACING 键。
+
+    CLI 的 --line_spacing 以字符串传入（1/1.5/2 皆如此），1/2 需归一到
+    _LINE_SPACING 键，否则 '2' 会落入未知行距；'1.5' 与字符串枚举原样透传。
+    """
     if isinstance(value, bool):  # bool 是 int 子类，显式拒绝而非当作 1/0
         raise InvalidArgumentError(
             f"format_paragraph: 非法行距类型: {value!r}（期望 1/1.5/2 或字符串）"
         )
+    if value is None:
+        return None
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in ("1", "1.0"):
+            return "single"
+        if key in ("2", "2.0"):
+            return "double"
+        return value
     if value in (1, 1.0):
         return "single"
     if value == 1.5:
@@ -601,6 +612,9 @@ class WordApp:
             if not hf.Range.Text[:-1].endswith("\t"):
                 rng.Text = "\t"
                 rng.Collapse(_WD_COLLAPSE_END)  # 重新折叠到插入后的末尾
+            # standalone 靠制表位定位：段落必须左对齐，否则先前的 replace/append
+            # 设置的对齐会让文本与制表位参考错位
+            hf.Range.ParagraphFormat.Alignment = _ALIGN["left"]
             # 清掉旧制表位（右→左切换时旧右制表位会让页码仍落在右边）；
             # 副作用：standalone 也会一并抹掉用户手设的其他制表位
             rng.ParagraphFormat.TabStops.ClearAll()
@@ -614,7 +628,7 @@ class WordApp:
                     rng.Collapse(_WD_COLLAPSE_END)
             else:
                 text_w = _footer_text_width(doc)
-                pos = {0: 0.0, 1: text_w / 2.0, 2: text_w}[tab_align]
+                pos = {1: text_w / 2.0, 2: text_w}[tab_align]
                 rng.ParagraphFormat.TabStops.Add(pos, tab_align)
             fld = _add_page_field_at_end(hf)
         if fld is not None:

@@ -56,6 +56,19 @@ def test_format_paragraph_alignment_line_spacing():
     assert fmt.LineSpacingRule == 2  # wdLineSpaceDouble
 
 
+def test_format_paragraph_line_spacing_cli_numeric_readback():
+    # CLI 的 --line_spacing 以字符串传入：'1'/'2' 归一成 single/double 键
+    # （final review #2/#5）
+    did = call("word", "new_doc")
+    call("word", "write_line", text="CLI 数值行距", doc_id=did)
+    call("word", "format_paragraph", paragraph=1, line_spacing="2", doc_id=did)
+    assert _word().ActiveDocument.Paragraphs(1).Format.LineSpacingRule == 2
+    call("word", "format_paragraph", paragraph=1, line_spacing="1", doc_id=did)
+    assert _word().ActiveDocument.Paragraphs(1).Format.LineSpacingRule == 0
+    call("word", "format_paragraph", paragraph=1, line_spacing=1.5, doc_id=did)
+    assert _word().ActiveDocument.Paragraphs(1).Format.LineSpacingRule == 1
+
+
 def test_header_footer_text():
     did = call("word", "new_doc")
     call("word", "set_header_text", text="季度报告", doc_id=did)
@@ -151,6 +164,20 @@ def test_add_page_number_standalone_left_follows_text():
     # 左模式无制表区：页码紧跟页脚文本自然左排（Word 丢弃 position 0 制表位）
     assert hf.Range.Text == "公司名1\r"
     assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
+
+
+def test_add_page_number_standalone_resets_footer_alignment():
+    # append 会按 alignment 设置页脚段落对齐；随后 standalone 靠制表位定位，
+    # 必须把段落对齐重置回 left（final review #1）
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="append", alignment="center", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.ParagraphFormat.Alignment == 1  # wdAlignParagraphCenter
+    call("word", "add_page_number", mode="standalone", alignment="right", doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.ParagraphFormat.Alignment == 0  # 重置回 wdAlignParagraphLeft
+    assert hf.Range.Text == "公司名\t1\r"
 
 
 def test_page_setup_landscape_a4_margin():

@@ -359,6 +359,19 @@ def test_add_page_number_standalone_preserves_non_page_field():
     assert sorted(_page_fields(doc.footer)) == [21, _WD_FIELD_PAGE]
 
 
+def test_add_page_number_standalone_resets_paragraph_alignment():
+    # standalone 靠制表位定位：必须把段落对齐重置为 left（0），否则先前
+    # replace/append 设的对齐会让文本与制表位参考错位（final review #1）
+    doc = _FakeDoc()
+    doc.footer.Range.Text = "公司名"
+    app = _app(doc)
+    app.add_page_number(mode="append", alignment="center", doc_id="x")
+    assert doc.footer.Range.ParagraphFormat.Alignment == 1  # 先被 append 设为中心
+    app.add_page_number(mode="standalone", alignment="right", doc_id="x")
+    assert doc.footer.Range.ParagraphFormat.Alignment == 0  # 重置回 left
+    assert doc.footer.Range.ParagraphFormat.TabStops.added == [(468.0, 2)]
+
+
 # --- 校验 ----------------------------------------------------------------------
 
 
@@ -478,6 +491,21 @@ def test_format_paragraph_line_spacing_string_still_works():
     assert doc.Paragraphs(1).Format.LineSpacingRule == 0
     app.format_paragraph(paragraph=1, line_spacing="1.5", doc_id="x")
     assert doc.Paragraphs(1).Format.LineSpacingRule == 1
+
+
+def test_format_paragraph_line_spacing_cli_numeric_strings():
+    # CLI 的 --line_spacing 以字符串传入，'1'/'2' 必须归一成 single/double 键，
+    # 否则 '2' 会落入未知行距报错（final review #2）
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing="1", doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 0  # wdLineSpaceSingle
+    app.format_paragraph(paragraph=1, line_spacing="1.0", doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 0
+    app.format_paragraph(paragraph=1, line_spacing="2", doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 2  # wdLineSpaceDouble
+    app.format_paragraph(paragraph=1, line_spacing="2.0", doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 2
 
 
 def test_format_paragraph_line_spacing_invalid_numeric_rejected():
