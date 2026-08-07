@@ -32,6 +32,11 @@ def test_snapshot_seed0_default() -> None:
     assert digest == "5f0142c29568192c72c5e89006bce6a88f235ef5dd3f2b255c0454dde49655a1"
 
 
+def test_snapshot_seed7_default() -> None:
+    digest = hashlib.sha256(_default(seed=7).encode("utf-8")).hexdigest()
+    assert digest == "d505c57cac2edc6a906f5b8a25abc7be5e4f93e5ac6c87de6f27b0a7f779974d"
+
+
 @pytest.mark.parametrize("orb_count", [1, 3, 6])
 def test_exact_orb_count(orb_count: int) -> None:
     svg = gradient_orb.build(seed=0, background="transparent", orb_count=orb_count, blur=0.5)

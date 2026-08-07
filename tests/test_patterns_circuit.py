@@ -35,6 +35,11 @@ def test_snapshot_seed0_default() -> None:
     assert digest == "35b436e355865aed477a286b50089a299d8cbedc9718e37f99bc6776c92b54e7"
 
 
+def test_snapshot_seed7_default() -> None:
+    digest = hashlib.sha256(_default(seed=7).encode("utf-8")).hexdigest()
+    assert digest == "7ace0d34fdcf28043a5c30a04207a0f9d954a25e65ac7dccceb8e06fb3b56415"
+
+
 @pytest.mark.parametrize("nodes", [4, 20, 60])
 def test_exact_unique_node_count(nodes: int) -> None:
     svg = circuit.build(seed=0, background="transparent", nodes=nodes, density=0.5)

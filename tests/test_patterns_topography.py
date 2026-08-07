@@ -39,6 +39,11 @@ def test_snapshot_seed0_default() -> None:
     assert digest == "ede3ff8967cf1a7dfdcffa13c21ad3c67615747810fe2c105adf7b3039fce6a4"
 
 
+def test_snapshot_seed7_default() -> None:
+    digest = hashlib.sha256(_default(seed=7).encode("utf-8")).hexdigest()
+    assert digest == "f99e588af4164e36c135a4fa45762d24e5ba9db3244d58565a8945b31d353b01"
+
+
 def test_exact_line_count() -> None:
     assert len(_paths(_default())) == 10
 

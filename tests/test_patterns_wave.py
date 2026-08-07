@@ -37,6 +37,11 @@ def test_snapshot_seed0_default() -> None:
     assert digest == "1952eb18c22840171e254478190c3e58278879c6af71a4145282f3d049b3a317"
 
 
+def test_snapshot_seed7_default() -> None:
+    digest = hashlib.sha256(_default(seed=7).encode("utf-8")).hexdigest()
+    assert digest == "e3c96ad0c518dd88287633305355a9d6722a51cd53e0b22afe30311b04267e14"
+
+
 def test_seed1_differs() -> None:
     assert _default(0) != _default(1)
 
