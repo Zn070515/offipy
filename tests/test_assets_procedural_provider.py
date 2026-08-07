@@ -1,7 +1,8 @@
-"""A4 Task 2 — procedural provider parameter contracts.
+"""A4 Tasks 2+10 — procedural provider contracts and resolve -> SvgTemplatePayload.
 
 Full boundary table, strict type conversion, unknown-param rejection, color
-syntax via the A2 helper, deterministic search order, and provider metadata.
+syntax via the A2 helper, deterministic search order, provider metadata, and
+resolve wiring into the pattern builders with conditional color slots.
 """
 
 from __future__ import annotations
@@ -9,7 +10,9 @@ from __future__ import annotations
 import pytest
 
 from offipy.assets.license import LicensePolicy
-from offipy.assets.model import AssetRef, AssetRequest
+from offipy.assets.materialize import materialize_svg_template
+from offipy.assets.model import AssetRef, AssetRequest, SvgTemplatePayload
+from offipy.assets.patterns._common import BG, FG
 from offipy.assets.providers.procedural import (
     _PATTERN_ORDER,
     ProceduralProvider,
@@ -17,6 +20,7 @@ from offipy.assets.providers.procedural import (
     _parse_float,
     _parse_int,
 )
+from offipy.assets.registry import get_default_registry
 from offipy.exceptions import InvalidArgumentError
 
 _INT32_MIN = -(1 << 31)
@@ -262,3 +266,105 @@ def test_resolve_rejects_unknown_pattern() -> None:
     req = AssetRequest(AssetRef("procedural", "pattern", "nope"))
     with pytest.raises(InvalidArgumentError):
         ProceduralProvider().resolve(req)
+
+
+# -- resolve -> SvgTemplatePayload (Task 10) --------------------------------
+
+
+def test_resolve_default_returns_svg_template() -> None:
+    req = AssetRequest(AssetRef("procedural", "pattern", "wave"))
+    resolved = ProceduralProvider().resolve(req)
+    assert isinstance(resolved.payload, SvgTemplatePayload)
+    assert resolved.payload.render_mode == "svg"
+    assert resolved.payload.view_box == (0.0, 0.0, 1000.0, 1000.0)
+    assert resolved.request == req
+    assert resolved.meta.ref == req.ref
+
+
+@pytest.mark.parametrize("pattern", list(_PATTERN_ORDER))
+def test_resolve_every_pattern_default(pattern: str) -> None:
+    req = AssetRequest(AssetRef("procedural", "pattern", pattern))
+    resolved = ProceduralProvider().resolve(req)
+    payload = resolved.payload
+    assert isinstance(payload, SvgTemplatePayload)
+    assert dict(payload.color_slots)[FG] == "accent"
+
+
+def test_color_slots_exactly_cover_template_sentinels() -> None:
+    for pattern in _PATTERN_ORDER:
+        resolved = ProceduralProvider().resolve(
+            AssetRequest(AssetRef("procedural", "pattern", pattern))
+        )
+        payload = resolved.payload
+        assert isinstance(payload, SvgTemplatePayload)
+        slots = dict(payload.color_slots)
+        for sentinel in (FG, BG):
+            assert (sentinel in payload.template) == (sentinel in slots)
+
+
+def test_dot_grid_radius_zero_omits_fg_slot() -> None:
+    req = AssetRequest(AssetRef("procedural", "pattern", "dot-grid"), (("radius", "0"),))
+    payload = ProceduralProvider().resolve(req).payload
+    assert isinstance(payload, SvgTemplatePayload)
+    assert FG not in payload.template
+    assert FG not in dict(payload.color_slots)
+
+
+def test_resolve_params_flow_into_template() -> None:
+    req = AssetRequest(
+        AssetRef("procedural", "pattern", "gradient-orb"),
+        (("orb-count", "6"), ("blur", "1")),
+    )
+    payload = ProceduralProvider().resolve(req).payload
+    assert isinstance(payload, SvgTemplatePayload)
+    assert payload.template.count("<circle") == 6
+    assert "<radialGradient" in payload.template
+    assert 'id="orb-5"' in payload.template
+
+
+def test_resolved_template_materializes() -> None:
+    req = AssetRequest(AssetRef("procedural", "pattern", "wave"), (("seed", "7"),))
+    resolved = ProceduralProvider().resolve(req)
+    assert isinstance(resolved.payload, SvgTemplatePayload)
+    svg = materialize_svg_template(resolved.payload, {"accent": "#112233"}).svg
+    assert "__OFFIPY_ASSET" not in svg
+    assert "#112233" in svg
+
+
+def test_explicit_default_same_template_different_request() -> None:
+    provider = ProceduralProvider()
+    plain = provider.resolve(AssetRequest(AssetRef("procedural", "pattern", "rings")))
+    explicit = provider.resolve(
+        AssetRequest(AssetRef("procedural", "pattern", "rings"), (("seed", "0"),))
+    )
+    assert isinstance(plain.payload, SvgTemplatePayload)
+    assert isinstance(explicit.payload, SvgTemplatePayload)
+    assert plain.payload.template == explicit.payload.template
+    assert plain.request != explicit.request
+
+
+def test_resolve_meta_title_and_tags() -> None:
+    resolved = ProceduralProvider().resolve(
+        AssetRequest(AssetRef("procedural", "pattern", "topography"))
+    )
+    assert resolved.meta.title == "Topography Contours"
+    assert "contour" in resolved.meta.tags
+
+
+def test_resolve_keeps_explicit_color_values() -> None:
+    req = AssetRequest(
+        AssetRef("procedural", "pattern", "rings"),
+        (("foreground", "#ff00aa"), ("background", "#123456")),
+    )
+    payload = ProceduralProvider().resolve(req).payload
+    assert isinstance(payload, SvgTemplatePayload)
+    slots = dict(payload.color_slots)
+    assert slots[FG] == "#FF00AA"
+    assert slots[BG] == "#123456"
+
+
+def test_default_registry_resolves_procedural_uri() -> None:
+    resolved = get_default_registry().resolve("asset://procedural/pattern/wave?seed=1")
+    assert isinstance(resolved.payload, SvgTemplatePayload)
+    assert resolved.provider_meta.first_party is True
+    assert resolved.provider_meta.license == "MIT"

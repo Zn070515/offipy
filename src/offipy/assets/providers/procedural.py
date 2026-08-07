@@ -1,13 +1,15 @@
 """offipy.assets.providers.procedural — deterministic pattern provider (A4).
 
 Owns the parameter schema and strict validation for the eight procedural
-patterns. Generation lives in ``offipy.assets.patterns.*`` and is wired into
-``resolve`` in A4 Task 10; until then resolve validates and raises, so the
-provider can be developed and tested schema-first.
+patterns. ``resolve`` validates the request, dispatches to the matching
+``offipy.assets.patterns.*`` builder, and wraps the generated sentinel template
+in an ``SvgTemplatePayload`` whose color slots mirror exactly the sentinels the
+template actually contains.
 """
 
 from __future__ import annotations
 
+import importlib
 import math
 import re
 from dataclasses import dataclass
@@ -20,7 +22,9 @@ from offipy.assets.model import (
     AssetRef,
     AssetRequest,
     ResolvedAsset,
+    SvgTemplatePayload,
 )
+from offipy.assets.patterns._common import BG, FG
 from offipy.exceptions import InvalidArgumentError
 
 _PROVIDER_ID = "procedural"
@@ -58,6 +62,18 @@ _PATTERN_TAGS: dict[str, tuple[str, ...]] = {
     "topography": ("background", "line", "contour"),
     "circuit": ("background", "tech", "circuit"),
     "gradient-orb": ("background", "orb", "glow"),
+}
+
+# Canonical hyphenated pattern name -> module file name (underscored).
+_PATTERN_MODULES: dict[str, str] = {
+    "wave": "wave",
+    "blob": "blob",
+    "dot-grid": "dot_grid",
+    "square-grid": "square_grid",
+    "rings": "rings",
+    "topography": "topography",
+    "circuit": "circuit",
+    "gradient-orb": "gradient_orb",
 }
 
 # Frozen shared params (rev1.2 §3.2): seed / foreground / background.
@@ -205,8 +221,26 @@ class ProceduralProvider:
         ref = request.ref
         if ref.kind != "pattern":
             raise InvalidArgumentError(f"procedural provider does not support kind {ref.kind!r}")
-        _coerce_params(ref.name, request.params)
-        # Generation + SvgTemplatePayload construction lands in A4 Task 10.
-        raise NotImplementedError(
-            f"procedural pattern {ref.name!r} generation is wired in A4 Task 10"
+        typed = _coerce_params(ref.name, request.params)
+        module = importlib.import_module(f"offipy.assets.patterns.{_PATTERN_MODULES[ref.name]}")
+        # Builders take keyword args named after the canonical keys with `-` -> `_`
+        # (orb-count -> orb_count); foreground drives only the color slot, not geometry.
+        build_kwargs = {
+            key.replace("-", "_"): value for key, value in typed.items() if key != "foreground"
+        }
+        template = module.build(**build_kwargs)
+        slots: list[tuple[str, str]] = []
+        if FG in template:
+            slots.append((FG, str(typed["foreground"])))
+        if BG in template:
+            slots.append((BG, str(typed["background"])))
+        payload = SvgTemplatePayload(
+            template=template,
+            render_mode="svg",
+            view_box=(0.0, 0.0, 1000.0, 1000.0),
+            color_slots=tuple(slots),
+        )
+        meta = AssetMeta(ref=ref, title=_PATTERN_TITLES[ref.name], tags=_PATTERN_TAGS[ref.name])
+        return ResolvedAsset(
+            request=request, meta=meta, provider_meta=self.provider_meta, payload=payload
         )

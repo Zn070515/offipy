@@ -162,6 +162,10 @@ def _build_default_registry() -> AssetRegistry:
 
     reg.register(IconProvider("ph"))
     reg.register(IconProvider("lu"))
+
+    from offipy.assets.providers.procedural import ProceduralProvider
+
+    reg.register(ProceduralProvider())
     return reg
 
 
