@@ -19,7 +19,13 @@ from .exceptions import (
     InvalidArgumentError,
     TargetNotFoundError,
 )
-from .models import CoordinateSpace, SlideTextRecord, placeholder_type_name
+from .models import (
+    CoordinateSpace,
+    ShapeInfo,
+    SlideTextRecord,
+    placeholder_type_name,
+    shape_type_name,
+)
 from .paths import default_save_path, ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -83,6 +89,7 @@ def _shape_has_text_frame(shape) -> bool:
 
 MSO_GROUP = 6  # MsoShapeType.msoGroup
 MSO_PLACEHOLDER = 14  # MsoShapeType.msoPlaceholder
+MSO_FILL_SOLID = 1  # MsoFillType.msoFillSolid（仅 solid fill 给色）
 
 
 def _shape_is_group(shape) -> bool:
@@ -192,6 +199,226 @@ def _placeholder_info(shape) -> tuple[bool, int | None, str | None]:
         return True, ph_type, placeholder_type_name(ph_type)
     except Exception:
         return False, None, None
+
+
+def _require_shape_id(shape) -> int:
+    """严格 shape 身份：读不到 Id 抛 ComOperationError（read_shapes 无 0 兜底）。"""
+    try:
+        return int(shape.Id)
+    except Exception as e:
+        raise ComOperationError(f"shape.Id 读取失败（无稳定身份）: {e}") from e
+
+
+def _rgb_to_hex(rgb: int) -> str:
+    """COM RGB（BGR 打包）→ #RRGGBB。"""
+    rgb = int(rgb) & 0xFFFFFF
+    r = rgb & 0xFF
+    g = (rgb >> 8) & 0xFF
+    b = (rgb >> 16) & 0xFF
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _shape_type(shape) -> tuple[int, str]:
+    """(MsoShapeType 数值, 名称)；读不到 Type → (0, "unknown_0")。"""
+    try:
+        t = int(shape.Type)
+    except Exception:
+        t = 0
+    return t, shape_type_name(t)
+
+
+def _shape_rotation(shape) -> float:
+    try:
+        return float(shape.Rotation)
+    except Exception:
+        return 0.0
+
+
+def _shape_visible(shape) -> bool | None:
+    """MsoTriState 正规化：-1/1→True、0→False、混合态→None。"""
+    try:
+        return _tri_state_to_bool(shape.Visible)
+    except Exception:
+        return None
+
+
+def _shape_fill(shape) -> tuple[str | None, float | None]:
+    """(hex_color, transparency)。仅 solid fill 给色；gradient/pattern/picture → None。"""
+    try:
+        fill = shape.Fill
+        if int(fill.Type) != MSO_FILL_SOLID:
+            return None, None
+    except Exception:
+        return None, None
+    color = None
+    try:
+        color = _rgb_to_hex(fill.ForeColor.RGB)
+    except Exception:
+        color = None
+    transparency = None
+    try:
+        transparency = float(fill.Transparency)
+    except Exception:
+        transparency = None
+    return color, transparency
+
+
+def _shape_line(shape) -> tuple[str | None, float | None]:
+    """(hex_color, width)。仅可见 line 给色；隐藏 line → 均 None。"""
+    try:
+        line = shape.Line
+        visible = _tri_state_to_bool(line.Visible)
+    except Exception:
+        return None, None
+    if visible is False:
+        return None, None
+    color = None
+    try:
+        color = _rgb_to_hex(line.ForeColor.RGB)
+    except Exception:
+        color = None
+    width = None
+    try:
+        width = float(line.Weight)
+    except Exception:
+        width = None
+    return color, width
+
+
+def _shape_font(shape) -> tuple[float | None, str | None, str | None]:
+    """(size, name, color_hex) 首 run 语义；无文本/空文本 → 全 None。"""
+    if not _shape_has_text_frame(shape):
+        return None, None, None
+    try:
+        tr = shape.TextFrame.TextRange
+    except Exception:
+        return None, None, None
+    try:
+        if not str(tr.Text):
+            return None, None, None
+    except Exception:
+        return None, None, None
+    try:
+        font = tr.Runs(1).Font
+    except Exception:
+        return None, None, None
+    size = name = color = None
+    try:
+        size = float(font.Size)
+    except Exception:
+        size = None
+    try:
+        name = str(font.Name)
+    except Exception:
+        name = None
+    try:
+        color = _rgb_to_hex(font.Color.RGB)
+    except Exception:
+        color = None
+    return size, name, color
+
+
+def _local_z_order_rank(shapes) -> list[int]:
+    """所在集合内每 shape 的 1-based z-order rank（与 shapes 元素顺序对齐）。
+
+    顶层（slide.Shapes）ZOrderPosition 即 1..Count，rank 恒等于 ZOrderPosition；
+    group 子元素 ZOrderPosition 带偏移（探针 #6），按兄弟 ZOrderPosition 排序推出的
+    rank 还原为 group-local 1..Count。读不到 ZOrderPosition 的排最后（稳定兜底）。
+    """
+    zs = [_shape_z_order(sh) for sh in shapes]
+    return [1 + sum(1 for oz in zs if oz < z) for z in zs]
+
+
+def _iter_shape_records(
+    shapes,
+    *,
+    recursive: bool,
+    parent_shape_id: int | None = None,
+    group_path: tuple[int, ...] = (),
+    rotated: bool = False,
+):
+    """read_shapes 专用遍历：产出 (shape, parent_shape_id, group_path, rotated, z_order)。
+
+    - shape_id 严格：任何 shape Id 读不到 → _require_shape_id 抛 ComOperationError。
+    - z_order 为所在集合内 1-based rank（_local_z_order_rank）。
+    - rotated：是否处于旋转 group 内 → coordinate_space="unknown"。
+    - 先判 Type==6 再访问 GroupItems（COM Group() 拍平嵌套 group 时直接访问抛错，探针实证）。
+    """
+    items: list = []
+    try:
+        count = int(shapes.Count)
+    except Exception:
+        return
+    for i in range(1, count + 1):
+        try:
+            items.append(shapes(i))
+        except Exception:
+            continue
+    ranks = _local_z_order_rank(items)
+    for shape, z_order in zip(items, ranks, strict=True):
+        sid = _require_shape_id(shape)
+        is_group = _shape_is_group(shape)
+        yield (shape, parent_shape_id, group_path, rotated, z_order)
+        if is_group and recursive:
+            try:
+                group_items = shape.GroupItems
+            except Exception:
+                continue
+            child_rotated = rotated or _shape_is_rotated(shape)
+            yield from _iter_shape_records(
+                group_items,
+                recursive=True,
+                parent_shape_id=sid,
+                group_path=group_path + (sid,),
+                rotated=child_rotated,
+            )
+
+
+def _record_shape_info(
+    shape,
+    *,
+    parent_shape_id: int | None,
+    group_path: tuple[int, ...],
+    rotated: bool,
+    z_order: int,
+) -> ShapeInfo:
+    """读 shape → ShapeInfo。可选字段逐 try/except 兜底（诚实读，不编假值）。"""
+    is_ph, ph_type, ph_name = _placeholder_info(shape)
+    has_text = _shape_has_text_frame(shape)
+    font_size, font_name, font_color = _shape_font(shape)
+    fill_color, fill_transparency = _shape_fill(shape)
+    line_color, line_width = _shape_line(shape)
+    st, st_name = _shape_type(shape)
+    coordinate_space: CoordinateSpace = "unknown" if rotated else "slide"
+    return {
+        "shape_id": _require_shape_id(shape),
+        "name": _shape_name(shape),
+        "shape_type": st,
+        "shape_type_name": st_name,
+        "left": _shape_float(shape, "Left"),
+        "top": _shape_float(shape, "Top"),
+        "width": _shape_float(shape, "Width"),
+        "height": _shape_float(shape, "Height"),
+        "coordinate_space": coordinate_space,
+        "coordinate_unit": "pt",
+        "rotation": _shape_rotation(shape),
+        "visible": _shape_visible(shape),
+        "fill_color": fill_color,
+        "fill_transparency": fill_transparency,
+        "line_color": line_color,
+        "line_width": line_width,
+        "has_text_frame": has_text,
+        "text": _shape_text(shape),
+        "font_size": font_size,
+        "font_name": font_name,
+        "font_color": font_color,
+        "is_placeholder": is_ph,
+        "placeholder_type": ph_type,
+        "placeholder_type_name": ph_name,
+        "parent_shape_id": parent_shape_id,
+        "group_path": list(group_path),
+        "z_order": z_order,
+    }
 
 
 def _record_from_shape(
@@ -764,6 +991,29 @@ class PptApp:
         pw, ph = _page_size_pt(pres)
         return [
             _summarize_slide(pres.Slides(i), i, pw, ph) for i in range(1, pres.Slides.Count + 1)
+        ]
+
+    @readonly_guard
+    def read_shapes(
+        self,
+        slide_idx: int,
+        *,
+        recursive: bool = True,
+        doc_id: str | None = None,
+    ) -> list[ShapeInfo]:
+        """读取第 slide_idx 页全部 shape 的完整信息（含 group 内后代），不裁剪无文本 shape。
+
+        - shape_id 严格：任何 shape 的 Id 读不到 → ComOperationError（无 0 兜底）。
+        - recursive=True 返回 group 容器 + 后代（group_path 外层→内层）；False 仅顶层。
+        - coordinate_space：非旋转 group 子元素为 "slide"；旋转 group 内 "unknown"。
+        - z_order 为所在集合内 1-based 排序（顶层=ZOrderPosition；group 子元素按兄弟还原）。
+        - 颜色 #RRGGBB：仅 solid fill / 可见 line 给色；其余 None（不编假值）。
+        - 字体为首 run 语义；空文本 → 全 None。
+        """
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        return [
+            _record_shape_info(shape, parent_shape_id=pid, group_path=gp, rotated=rot, z_order=z)
+            for shape, pid, gp, rot, z in _iter_shape_records(slide.Shapes, recursive=recursive)
         ]
 
     def quit(self, force: bool = False):
