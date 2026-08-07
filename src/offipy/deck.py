@@ -231,7 +231,7 @@ def _render_tmp(
         # 其余（measurements 缺失/XML/zip 损坏）→ ConversionError，均保留 __cause__。
         from .charts import postprocess_charts
 
-        _postprocess("图表", postprocess_charts, html, tmp_pptx)
+        _postprocess("图表", postprocess_charts, target, tmp_pptx)
         # 图标后处理：HTML 声明了 data-icon → 替换成 freeform 矢量图标（同 charts 架构）。
         # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图标的路径。
         from .icons import postprocess_icons
