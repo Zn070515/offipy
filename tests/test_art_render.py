@@ -205,3 +205,91 @@ def test_render_html_escapes_evidence_method():
     html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
     assert "&lt;b&gt;bad&lt;/b&gt;" in html
     assert "<b>bad</b>" not in html
+
+
+def test_render_markdown_shows_feedback_provenance():
+    f = _finding()
+    f.severity_override = True
+    f.severity_override_source = "feedback"
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    md = render_markdown(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Severity adjusted: feedback" in md
+    assert "Severity adjusted: user override" not in md
+
+
+def test_render_markdown_shows_user_override_provenance():
+    f = _finding()
+    f.severity_override = True
+    f.severity_override_source = "user"
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    md = render_markdown(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Severity adjusted: user override" in md
+
+
+def test_render_markdown_deck_provenance():
+    f = _finding()
+    f.severity_override = True
+    f.severity_override_source = "feedback"
+    md = render_markdown(ArtReport(deck_findings=[f]))
+    assert "Severity adjusted: feedback" in md
+
+
+def test_render_markdown_no_provenance_for_untouched_finding():
+    f = _finding()
+    assert f.severity_override is False
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    md = render_markdown(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Severity adjusted:" not in md
+
+
+def test_render_html_shows_feedback_provenance():
+    f = _finding()
+    f.severity_override = True
+    f.severity_override_source = "feedback"
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Severity adjusted: feedback" in html
+
+
+def test_render_html_deck_provenance():
+    f = _finding()
+    f.severity_override = True
+    f.severity_override_source = "user"
+    html = render_html(ArtReport(deck_findings=[f]))
+    assert "Severity adjusted: user override" in html
+
+
+def test_render_html_no_provenance_for_untouched_finding():
+    f = _finding()
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "Severity adjusted:" not in html
+
+
+def test_report_to_json_schema_version_0_3():
+    from offipy.art.models import ART_REPORT_SCHEMA_VERSION
+
+    assert report_to_json(_report())["schema_version"] == ART_REPORT_SCHEMA_VERSION
+
+
+def test_report_to_json_emits_override_provenance():
+    f = _finding()
+    f.severity_override = True
+    f.severity_override_source = "feedback"
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    rep = ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])])
+    fd = report_to_json(rep)["slides"][0]["dimensions"][0]["findings"][0]
+    assert fd["severity_override"] is True
+    assert fd["severity_override_source"] == "feedback"
