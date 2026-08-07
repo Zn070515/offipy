@@ -27,7 +27,7 @@ def test_add_list_rejects_unknown_style():
         app.add_list(["甲"], style="star", doc_id="d1")
 
 
-def _make_add_list_fake(monkeypatch, initial_count=0):
+def _make_add_list_fake(monkeypatch):
     """构造 add_list 的桩环境：write_line 递增段落计数，记录 ListFormat 调用。
 
     `start = Count + 1`（写入前）→ N 次写入 → `end = Count`（写入后），与真实
@@ -60,7 +60,7 @@ def _make_add_list_fake(monkeypatch, initial_count=0):
 
     class _Paras:
         def __init__(self):
-            self.Count = initial_count
+            self.Count = 0
 
         def __call__(self, idx):
             return _Para(idx)

@@ -180,8 +180,9 @@ def test_add_list_bullets():
     doc = _word().ActiveDocument
     # 空文档首段被复用来承接第一项；第 1-3 段都应是列表项。
     # 只查单段（ListType 只反映 range 首段），不能跨段取 range。
-    assert doc.Paragraphs(1).Range.ListFormat.ListType != -1  # -1 = wdListTypeNoList
-    assert doc.Paragraphs(2).Range.ListFormat.ListType != -1
+    # 列表项 ListType 为 2（bullet）/3（numbered），非列表段运行时返回 0。
+    assert doc.Paragraphs(1).Range.ListFormat.ListType in (2, 3)
+    assert doc.Paragraphs(2).Range.ListFormat.ListType in (2, 3)
 
 
 def test_add_list_bullet_trailing_not_list():
