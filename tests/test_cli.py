@@ -1045,3 +1045,154 @@ def test_excel_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
         "输出目录不存在",
         "C:\\nope_dir",
     )
+
+
+# --- S5 Task 4：PowerPoint CLI 错误契约对齐 ---
+
+
+def test_ppt_open_pres_missing_file_exits_2(monkeypatch, capsys):
+    # S5：ppt open_pres 运行前非法输入（源文件不存在）→ exit 2，stderr 含 op/路径无 Traceback。
+    # open_pres 非破坏性 op，不带 --follow-active。
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "open_pres", "--path", "C:\\nope.pptx"],
+        InvalidArgumentError,
+        "[ppt::open_pres] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.pptx",
+        2,
+        "ppt",
+        "open_pres",
+        "源文件不存在",
+        "C:\\nope.pptx",
+    )
+
+
+def test_ppt_open_pres_com_failure_exits_1(monkeypatch, capsys):
+    # S5：ppt open_pres 运行时 COM 失败（非法格式）→ exit 1；
+    # stderr 清洗掉内部代码帧行（ppt.py）与类型名前缀（ComOperationError）
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "open_pres", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[ppt::open_pres] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\ppt.py", line 864, in open_pres\n'
+        "      return self._register(self.app.Presentations.Open(os.path.abspath(path)))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        "ppt",
+        "open_pres",
+        "无法打开",
+        "C:\\notes.txt",
+        absent=("ppt.py", "ComOperationError"),
+    )
+
+
+def test_ppt_save_conflict_exits_1(monkeypatch, capsys):
+    # S5：ppt save 目标已存在未 overwrite → FileConflictError（运行时领域失败）→ exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save", "--path", "C:\\out.pptx", "--follow-active"],
+        FileConflictError,
+        "[ppt::save] 失败: FileConflictError: 目标文件已存在: C:\\out.pptx"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save",
+        "目标文件已存在",
+        "C:\\out.pptx",
+    )
+
+
+def test_ppt_save_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：ppt save 父目录不存在 → InvalidArgumentError（运行前非法输出路径）→ exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save", "--path", "C:\\nope_dir\\out.pptx", "--follow-active"],
+        InvalidArgumentError,
+        "[ppt::save] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+def test_ppt_save_pdf_conflict_exits_1(monkeypatch, capsys):
+    # S5：ppt save_pdf 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save_pdf", "--path", "C:\\out.pdf", "--follow-active"],
+        FileConflictError,
+        "[ppt::save_pdf] 失败: FileConflictError: 目标文件已存在: C:\\out.pdf"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save_pdf",
+        "目标文件已存在",
+        "C:\\out.pdf",
+    )
+
+
+def test_ppt_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：ppt save_pdf 父目录不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save_pdf", "--path", "C:\\nope_dir\\out.pdf", "--follow-active"],
+        InvalidArgumentError,
+        "[ppt::save_pdf] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save_pdf",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+def test_ppt_export_slides_out_dir_is_file_exits_1(monkeypatch, capsys):
+    # S5：ppt export_slides 输出目录是已存在文件 → FileConflictError（运行时领域失败）→ exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "export_slides", "--out_dir", "C:\\afile", "--doc_id", "p1"],
+        FileConflictError,
+        "[ppt::export_slides] 失败: FileConflictError: 输出目录已存在且不是目录: C:\\afile",
+        1,
+        "export_slides",
+        "输出目录已存在且不是目录",
+        "C:\\afile",
+    )
+
+
+def test_ppt_add_picture_missing_file_exits_2(monkeypatch, capsys):
+    # S5：ppt add_picture 源图片不存在 → InvalidArgumentError（运行前非法输入）→ exit 2。
+    # add_picture 是破坏性 op → 带 --follow-active；slide_idx/left/top/width/height 均必填
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        [
+            "ppt",
+            "add_picture",
+            "--slide_idx",
+            "1",
+            "--path",
+            "C:\\nope.png",
+            "--left",
+            "0",
+            "--top",
+            "0",
+            "--width",
+            "100",
+            "--height",
+            "100",
+            "--follow-active",
+        ],
+        InvalidArgumentError,
+        "[ppt::add_picture] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.png",
+        2,
+        "ppt",
+        "add_picture",
+        "源文件不存在",
+        "C:\\nope.png",
+    )

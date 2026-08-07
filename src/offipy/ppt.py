@@ -859,6 +859,8 @@ class PptApp:
 
     def open_pres(self, path: str) -> str:
         """打开现有演示文稿并设为活动。返回 doc_id。"""
+        if not os.path.isfile(path):
+            raise InvalidArgumentError(f"源文件不存在: {path}")
         return self._register(self.app.Presentations.Open(os.path.abspath(path)))
 
     @destructive
@@ -1045,6 +1047,8 @@ class PptApp:
             existing = [p for p in targets if os.path.exists(p)]
             if existing:
                 raise FileConflictError(f"导出目标已存在: {existing[0]}（overwrite=True 覆盖）")
+        if os.path.exists(out_dir) and not os.path.isdir(out_dir):
+            raise FileConflictError(f"输出目录已存在且不是目录: {out_dir}")
         os.makedirs(out_dir, exist_ok=True)
         staging = tempfile.mkdtemp(prefix=".offipy-slides-", dir=os.path.dirname(out_dir) or ".")
         try:

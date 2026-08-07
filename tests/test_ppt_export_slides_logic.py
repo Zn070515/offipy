@@ -70,3 +70,16 @@ def test_export_slides_failure_cleans_staging(tmp_path):
         app.export_slides(str(out), doc_id="pres1")
     assert not (out / "slide_01.png").exists()  # 半成品未落最终位置
     assert _staging_dirs(tmp_path) == []  # 失败也清理 staging
+
+
+def test_export_slides_out_dir_is_file_refuses(tmp_path):
+    # S5：out_dir 是已存在文件 → 拦成 FileConflictError（原 os.makedirs 抛裸
+    # FileExistsError → server 归一 RemoteCallError 消息丑）。目录是文件时无论如何
+    # 都不能导出进它，overwrite=True 也要拦（在 makedirs 之前拦截）。
+    out_file = tmp_path / "afile"
+    out_file.write_bytes(b"x")
+    app = _app(_Pres())
+    with pytest.raises(FileConflictError, match="输出目录已存在且不是目录"):
+        app.export_slides(str(out_file), doc_id="pres1")
+    with pytest.raises(FileConflictError, match="输出目录已存在且不是目录"):
+        app.export_slides(str(out_file), overwrite=True, doc_id="pres1")
