@@ -184,6 +184,60 @@ def test_add_list_bullets():
     assert doc.Paragraphs(2).Range.ListFormat.ListType != -1
 
 
+def test_add_list_bullet_trailing_not_list():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["甲", "乙", "丙"], style="bullet", doc_id=did)
+    doc = _word().ActiveDocument
+    # 列表项正确格式化（bullet=2 / numbered=3，实探值）
+    for i in range(1, 4):
+        assert doc.Paragraphs(i).Range.ListFormat.ListType in (2, 3)
+    # 结构性空尾段（Count 恒含末段）保留但不再显示为列表项
+    trailing = doc.Paragraphs(doc.Paragraphs.Count)
+    assert trailing.Range.ListFormat.ListType == 0
+    assert trailing.Range.Text == "\r"  # 段标记未被删除
+
+
+def test_add_list_numbered_trailing_not_list():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["一", "二"], style="numbered", doc_id=did)
+    doc = _word().ActiveDocument
+    for i in range(1, 3):
+        assert doc.Paragraphs(i).Range.ListFormat.ListType in (2, 3)
+    trailing = doc.Paragraphs(doc.Paragraphs.Count)
+    assert trailing.Range.ListFormat.ListType == 0
+    assert trailing.Range.Text == "\r"
+
+
+def test_add_list_write_line_not_inherit_bullet():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["甲"], style="bullet", doc_id=did)
+    call("word", "write_line", text="后续正文", doc_id=did)
+    doc = _word().ActiveDocument
+    target = None
+    for i in range(1, doc.Paragraphs.Count + 1):
+        if doc.Paragraphs(i).Range.Text.strip() == "后续正文":
+            target = doc.Paragraphs(i)
+            break
+    assert target is not None
+    # 后续正文是普通段，不继承项目符号
+    assert target.Range.ListFormat.ListType == 0
+
+
+def test_add_list_repeated_no_accumulated_empty_bullets():
+    did = call("word", "new_doc")
+    call("word", "add_list", lines=["甲"], style="bullet", doc_id=did)
+    call("word", "add_list", lines=["乙"], style="bullet", doc_id=did)
+    doc = _word().ActiveDocument
+    # 两批都是列表项
+    assert doc.Paragraphs(1).Range.ListFormat.ListType in (2, 3)
+    assert doc.Paragraphs(2).Range.ListFormat.ListType in (2, 3)
+    # 恰好一个结构性空尾段，且不显示为列表项（不累积可见空项目符号）
+    assert doc.Paragraphs.Count == 3
+    trailing = doc.Paragraphs(doc.Paragraphs.Count)
+    assert trailing.Range.ListFormat.ListType == 0
+    assert trailing.Range.Text == "\r"
+
+
 def test_merge_table_cells():
     did = call("word", "new_doc")
     call("word", "add_table", rows=2, cols=2, doc_id=did)

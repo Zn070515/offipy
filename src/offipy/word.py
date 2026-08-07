@@ -673,6 +673,9 @@ class WordApp:
             rng.ListFormat.ApplyNumberDefault()
         else:
             rng.ListFormat.ApplyBulletDefault()
+        # 尾部空段（Word 结构性末段，index = end）显式清除列表格式：
+        # 不删段落标记，只去掉其 ListFormat/编号，避免可见空项目符号。
+        doc.Paragraphs(end).Range.ListFormat.RemoveNumbers()
         return len(lines)
 
     # --- 表格增强 ---
