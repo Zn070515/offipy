@@ -112,7 +112,7 @@ warning——绝不静默丢弃。
 | hierarchy | no_focus / focus_conflict / active_title | 焦点是否明确、是否与标题冲突 |
 | composition | off_balance / corner_cluster / spacing_drift / background_like_area | 重心、角落聚集、间距漂移、页面级留白提示 |
 | typography | tiny_text / many_families / flat_scale | 字号过小、字体族过多、层级扁平 |
-| color | no_accent / accent_flood / low_contrast | 无强调色、强调色过载、前景/背景对比不足（`low_contrast` 有像素证据时走声明色像素验证路径） |
+| color | no_accent / accent_flood / low_contrast | 无强调色、强调色过载、前景/背景对比不足（`low_contrast` 用声明/有效背景算对比度，像素仅提供 `declared_not_found` 低置信提示） |
 | media | distorted_image / oversized_image / image_overlap | 图片失真、过大、互相重叠 |
 
 规则全部**确定性**：同一场景必得同一结果。全部 `rule_id` 冻结（含 6 条 experimental，
