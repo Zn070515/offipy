@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from . import core
@@ -593,6 +594,169 @@ def _summarize_slide(slide, index: int, pw: float, ph: float) -> dict:
             and item.record["text"]
         )
     return {"index": index, "title": title, "body": body, "notes": _read_notes(slide)}
+
+
+# ------------------------------------------------------------------ 编辑定位 / 校验（S1）
+
+
+@dataclass
+class _LocatedShape:
+    """编辑操作定位结果：shape 本身 + 所在集合（slide.Shapes 或父 GroupItems）。
+
+    - containing_collection：z-order / 删除在正确的集合内操作（group 子元素在父
+      GroupItems，绝不跨集合）。
+    - parent_shape_id / group_path：与 read_shapes 的语义一致（外层→内层）。
+    - rotated_group_ancestor：是否处于旋转 group 内（几何读值不可信）。
+    """
+
+    shape: object
+    containing_collection: object
+    parent_shape_id: int | None
+    group_path: tuple[int, ...]
+    rotated_group_ancestor: bool
+
+
+def _locate_in_shapes(
+    shapes,
+    shape_id: int,
+    *,
+    parent_shape_id: int | None,
+    group_path: tuple[int, ...],
+    rotated: bool,
+) -> _LocatedShape | None:
+    """在 shapes 集合内按 shape_id 递归找 shape；未命中返回 None。
+
+    shapes 是 slide.Shapes 或某 group 的 GroupItems；parent_shape_id/group_path 描述
+    shapes 的**子元素**的父级关系（top-level → (None, ())；group 子元素 → 父 id +
+    祖先链）。shape_id 严格：遍历途中任何 Id 读不到 → ComOperationError（与
+    read_shapes 一致）。绝不调用 Shapes.Range([id])（COM Range 按名称/序号索引，
+    id 匹配不可靠，探针 #4 建议逐 shape 扫描）。
+    """
+    try:
+        count = int(shapes.Count)
+    except Exception:
+        return None
+    for i in range(1, count + 1):
+        try:
+            shape = shapes(i)
+        except Exception:
+            continue
+        sid = _require_shape_id(shape)
+        if sid == shape_id:
+            return _LocatedShape(
+                shape=shape,
+                containing_collection=shapes,
+                parent_shape_id=parent_shape_id,
+                group_path=group_path,
+                rotated_group_ancestor=rotated,
+            )
+        if _shape_is_group(shape):
+            try:
+                items = shape.GroupItems
+            except Exception:
+                continue
+            child_rotated = rotated or _shape_is_rotated(shape)
+            hit = _locate_in_shapes(
+                items,
+                shape_id,
+                parent_shape_id=sid,
+                group_path=group_path + (sid,),
+                rotated=child_rotated,
+            )
+            if hit is not None:
+                return hit
+    return None
+
+
+def _find_shape_by_id(slide, shape_id: int) -> _LocatedShape:
+    """递归定位 shape（顶层 + group 后代）；找不到 → TargetNotFoundError。"""
+    hit = _locate_in_shapes(
+        slide.Shapes, shape_id, parent_shape_id=None, group_path=(), rotated=False
+    )
+    if hit is None:
+        raise TargetNotFoundError(
+            f"shape {shape_id} 不存在于该页（shape_id 是 PowerPoint 的 Shape.Id；"
+            f"用 read_shapes 核对当前页 shape_id 列表）"
+        )
+    return hit
+
+
+def _validate_hex_color(value, name: str = "color") -> str:
+    """严格 #RRGGBB（6 位十六进制）；非法抛 InvalidArgumentError。返回规范大写。"""
+    if not isinstance(value, str):
+        raise InvalidArgumentError(f"{name} 必须是 #RRGGBB 字符串，收到 {type(value).__name__}")
+    s = value.strip().upper()
+    if len(s) != 7 or not s.startswith("#"):
+        raise InvalidArgumentError(f"{name} 必须是 #RRGGBB 格式（7 字符含 #），收到 {value!r}")
+    try:
+        int(s[1:], 16)
+    except ValueError:
+        raise InvalidArgumentError(f"{name} 含非法十六进制字符: {value!r}") from None
+    return s
+
+
+def _rgb_to_com(hex_color: str) -> int:
+    """#RRGGBB → COM RGB（BGR 打包，低字节 R）。"""
+    s = hex_color.lstrip("#")
+    r = int(s[0:2], 16)
+    g = int(s[2:4], 16)
+    b = int(s[4:6], 16)
+    return r | (g << 8) | (b << 16)
+
+
+def _validate_fraction_0_1(value, name: str = "transparency") -> float:
+    """透明度 [0,1]；非法抛 InvalidArgumentError。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise InvalidArgumentError(f"{name} 必须是数值，收到 {value!r}") from None
+    if not math.isfinite(f) or f < 0.0 or f > 1.0:
+        raise InvalidArgumentError(f"{name} 必须在 [0,1] 内，收到 {value!r}")
+    return f
+
+
+def _validate_positive_float(value, name: str) -> float:
+    """> 0 的有限正数（width/height/font size）；非法抛 InvalidArgumentError。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise InvalidArgumentError(f"{name} 必须是数值，收到 {value!r}") from None
+    if not math.isfinite(f) or f <= 0.0:
+        raise InvalidArgumentError(f"{name} 必须是 > 0 的有限正数，收到 {value!r}")
+    return f
+
+
+def _validate_finite_float(value, name: str) -> float:
+    """有限数值（坐标/旋转）；NaN/Inf 抛 InvalidArgumentError。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise InvalidArgumentError(f"{name} 必须是数值，收到 {value!r}") from None
+    if not math.isfinite(f):
+        raise InvalidArgumentError(f"{name} 必须是有限数值，收到 {value!r}")
+    return f
+
+
+def _require_text_frame(shape, op_desc: str) -> None:
+    """shape 必须有文本能力；图片/线条/无文本图形 → InvalidArgumentError。"""
+    if not _shape_has_text_frame(shape):
+        raise InvalidArgumentError(f"{op_desc} 需要文本能力，但目标 shape 无 TextFrame")
+
+
+def _require_fill_capability(shape, op_desc: str) -> None:
+    """shape 必须支持 Fill；读不到 Fill 对象 → InvalidArgumentError。"""
+    try:
+        shape.Fill  # noqa: B018 — 访问成功即证明有 Fill 能力，忽略返回值
+    except Exception:
+        raise InvalidArgumentError(f"{op_desc} 需要填充能力，但目标 shape 不支持 Fill") from None
+
+
+def _require_line_capability(shape, op_desc: str) -> None:
+    """shape 必须支持 Line；读不到 Line 对象 → InvalidArgumentError。"""
+    try:
+        shape.Line  # noqa: B018 — 访问成功即证明有 Line 能力，忽略返回值
+    except Exception:
+        raise InvalidArgumentError(f"{op_desc} 需要轮廓能力，但目标 shape 不支持 Line") from None
 
 
 @guard_com
