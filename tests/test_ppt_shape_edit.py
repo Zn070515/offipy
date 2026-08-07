@@ -9,6 +9,8 @@
 - set_shape_geometry 部分/全量更新、校验、旋转 group 后代 left/top 拒绝、绝对坐标
 - set_shape_text 替换文本保留样式、无文本能力拒绝、空串允许
 - set_shape_font 各属性部分更新、整范围传播多 run、校验拒绝
+- delete_shape 顶层/组内删除、删除后不可再定位
+- set_shape_z_order 顶层/组内相对移动命令收敛、越界与非 int 拒绝
 """
 
 from types import SimpleNamespace
@@ -167,6 +169,19 @@ class _FakeShape:
             self.Fill = fill
         if line is not None:
             self.Line = line
+        self._coll = None
+
+    def ZOrder(self, cmd):
+        """相对 z-order 移动命令（探针 #6：BringForward/SendBackward）。"""
+        if cmd == ppt.MSO_ZORDER_BRING_FORWARD:
+            self._coll._move(self, +1)
+        elif cmd == ppt.MSO_ZORDER_SEND_BACKWARD:
+            self._coll._move(self, -1)
+        else:
+            raise ValueError(f"unexpected ZOrder cmd {cmd}")
+
+    def Delete(self):
+        self._coll.delete(self)
 
 
 class _FakePlaceholders:
@@ -183,9 +198,30 @@ class _FakeShapes:
         self._shapes = list(shapes)
         self.Count = len(self._shapes)
         self.Placeholders = _FakePlaceholders([s for s in self._shapes if s.Type == 14])
+        for s in self._shapes:
+            s._coll = self
+        self._reindex()
 
     def __call__(self, idx):
         return self._shapes[idx - 1]
+
+    def _reindex(self):
+        """移动/删除后按列表序重排 ZOrderPosition（集合内 1-based rank）。"""
+        for i, s in enumerate(self._shapes):
+            s.ZOrderPosition = i + 1
+
+    def _move(self, shape, direction):
+        idx = self._shapes.index(shape)
+        target = idx + direction
+        if 0 <= target < len(self._shapes):
+            self._shapes[idx], self._shapes[target] = self._shapes[target], self._shapes[idx]
+            self._reindex()
+
+    def delete(self, shape):
+        self._shapes.remove(shape)
+        self.Count = len(self._shapes)
+        self.Placeholders = _FakePlaceholders([s for s in self._shapes if s.Type == 14])
+        self._reindex()
 
 
 class _FakeSlide:
@@ -760,3 +796,92 @@ def test_set_shape_visible_non_bool_rejects(bad):
     app, _ = _app(_txt(2, "T", "hi"))
     with pytest.raises(InvalidArgumentError):
         app.set_shape_visible(1, 2, bad, doc_id="doc")
+
+
+# ------------------------------------------------------------------ delete_shape
+
+
+def test_delete_shape_top_level():
+    app, pres = _app(_FakeSlide(_txt(2, "A"), _txt(3, "B"), _txt(4, "C")))
+    app.delete_shape(1, 3, doc_id="doc")
+    coll = pres.Slides(1).Shapes
+    assert coll.Count == 2
+    assert [coll(i).Id for i in (1, 2)] == [2, 4]
+
+
+def test_delete_shape_group_child():
+    child = _txt(302, "C")
+    grp = _grp(300, "G", child)
+    app, _ = _app(grp)
+    app.delete_shape(1, 302, doc_id="doc")
+    assert grp.GroupItems.Count == 0
+
+
+def test_delete_shape_missing_id_raises():
+    app, _ = _app(_txt(2, "A"))
+    with pytest.raises(TargetNotFoundError):
+        app.delete_shape(1, 999, doc_id="doc")
+
+
+def test_delete_shape_deleted_shape_no_longer_found():
+    app, _ = _app(_FakeSlide(_txt(2, "A"), _txt(3, "B")))
+    app.delete_shape(1, 2, doc_id="doc")
+    with pytest.raises(TargetNotFoundError):
+        app.set_shape_visible(1, 2, True, doc_id="doc")
+
+
+# ------------------------------------------------------------------ set_shape_z_order
+
+
+def test_set_shape_z_order_move_to_bottom():
+    app, pres = _app(_FakeSlide(_txt(2, "A"), _txt(3, "B"), _txt(4, "C")))
+    app.set_shape_z_order(1, 4, 1, doc_id="doc")
+    coll = pres.Slides(1).Shapes
+    assert [coll(i).Id for i in (1, 2, 3)] == [4, 2, 3]
+    assert [coll(i).ZOrderPosition for i in (1, 2, 3)] == [1, 2, 3]
+
+
+def test_set_shape_z_order_move_to_front():
+    app, pres = _app(_FakeSlide(_txt(2, "A"), _txt(3, "B"), _txt(4, "C")))
+    app.set_shape_z_order(1, 2, 3, doc_id="doc")
+    coll = pres.Slides(1).Shapes
+    assert [coll(i).Id for i in (1, 2, 3)] == [3, 4, 2]
+
+
+def test_set_shape_z_order_group_child():
+    child_a = _txt(302, "A")
+    child_b = _txt(303, "B")
+    grp = _grp(300, "G", child_a, child_b)
+    app, _ = _app(grp)
+    app.set_shape_z_order(1, 302, 2, doc_id="doc")
+    assert grp.GroupItems(1).Id == 303
+    assert grp.GroupItems(2).Id == 302
+
+
+@pytest.mark.parametrize("bad", [0, 4, -1])
+def test_set_shape_z_order_out_of_range_rejects(bad):
+    app, _ = _app(_FakeSlide(_txt(2, "A"), _txt(3, "B"), _txt(4, "C")))
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_z_order(1, 2, bad, doc_id="doc")
+
+
+@pytest.mark.parametrize("bad", ["2", 2.0, None, True])
+def test_set_shape_z_order_non_int_rejects(bad):
+    app, _ = _app(_FakeSlide(_txt(2, "A"), _txt(3, "B"), _txt(4, "C")))
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_z_order(1, 2, bad, doc_id="doc")
+
+
+def test_set_shape_z_order_missing_id_raises():
+    app, _ = _app(_txt(2, "A"))
+    with pytest.raises(TargetNotFoundError):
+        app.set_shape_z_order(1, 999, 1, doc_id="doc")
+
+
+def test_local_rank_of_rank_and_raises_when_gone():
+    a, b, c = _txt(2, "A"), _txt(3, "B"), _txt(4, "C")
+    slide = _FakeSlide(a, b, c)
+    assert ppt._local_rank_of(b, slide.Shapes) == 2
+    orphan = _txt(9, "X")
+    with pytest.raises(TargetNotFoundError):
+        ppt._local_rank_of(orphan, slide.Shapes)

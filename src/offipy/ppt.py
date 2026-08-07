@@ -91,6 +91,8 @@ def _shape_has_text_frame(shape) -> bool:
 MSO_GROUP = 6  # MsoShapeType.msoGroup
 MSO_PLACEHOLDER = 14  # MsoShapeType.msoPlaceholder
 MSO_FILL_SOLID = 1  # MsoFillType.msoFillSolid（仅 solid fill 给色）
+MSO_ZORDER_BRING_FORWARD = 2  # MsoZOrderCmd.msoBringForward（rank 增）
+MSO_ZORDER_SEND_BACKWARD = 3  # MsoZOrderCmd.msoSendBackward（rank 减）
 
 
 def _shape_is_group(shape) -> bool:
@@ -679,6 +681,30 @@ def _find_shape_by_id(slide, shape_id: int) -> _LocatedShape:
             f"用 read_shapes 核对当前页 shape_id 列表）"
         )
     return hit
+
+
+def _local_rank_of(shape, collection) -> int:
+    """shape 在所在集合内的 1-based z-order rank。
+
+    与 read_shapes 的 _local_z_order_rank 同语义（group 子元素 ZOrderPosition 带
+    偏移，按兄弟排序还原本地 rank）。shape 已不在集合内 → TargetNotFoundError。
+    """
+    items: list = []
+    try:
+        count = int(collection.Count)
+    except Exception:
+        raise TargetNotFoundError("shape 所在集合已不可读") from None
+    for i in range(1, count + 1):
+        try:
+            items.append(collection(i))
+        except Exception:
+            continue
+    ranks = _local_z_order_rank(items)
+    target_id = _require_shape_id(shape)
+    for item, rank in zip(items, ranks, strict=True):
+        if _require_shape_id(item) == target_id:
+            return rank
+    raise TargetNotFoundError(f"shape {target_id} 已不在所在集合内")
 
 
 def _validate_hex_color(value, name: str = "color") -> str:
@@ -1420,6 +1446,62 @@ class PptApp:
         located = _find_shape_by_id(slide, shape_id)
         located.shape.Visible = -1 if visible else 0
         return None
+
+    @destructive
+    def delete_shape(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        doc_id: str | None = None,
+    ):
+        """删除 shape（顶层或 group 子元素，递归定位）。
+
+        先完整解析出 shape 对象再 Delete，绝不在递归遍历生成器过程中改集合
+        （探针 #5：缓存 group 引用在 Delete 后完全失效）。
+        """
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        located.shape.Delete()
+        return None
+
+    @destructive
+    def set_shape_z_order(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        z: int,
+        doc_id: str | None = None,
+    ):
+        """移动 shape 在所在集合内的 z-order 到 1-based 目标位 z。
+
+        z=1 是最底层；顶层在 slide.Shapes 内移动，group 子元素在父 GroupItems
+        内移动（定位器给出的 containing_collection）。z 超出 1..Count → 不收敛不
+        截断，直接 InvalidArgumentError。PowerPoint 只有相对移动命令，逐级
+        BringForward/SendBackward 直至本地 rank==z；带循环安全上限，不收敛抛错。
+        """
+        if not isinstance(z, int) or isinstance(z, bool):
+            raise InvalidArgumentError(
+                f"set_shape_z_order: z 必须是 int（1-based），收到 {type(z).__name__}"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        try:
+            count = int(located.containing_collection.Count)
+        except Exception:
+            raise ComOperationError("无法读取 shape 所在集合的 Count") from None
+        if z < 1 or z > count:
+            raise InvalidArgumentError(
+                f"set_shape_z_order: z 须在 1..{count}（所在集合 1-based），收到 {z}"
+            )
+        for _ in range(count + 5):  # 循环安全上限（每次移动收敛一步）
+            rank = _local_rank_of(located.shape, located.containing_collection)
+            if rank == z:
+                return None
+            if rank < z:
+                located.shape.ZOrder(MSO_ZORDER_BRING_FORWARD)
+            else:
+                located.shape.ZOrder(MSO_ZORDER_SEND_BACKWARD)
+        raise ComOperationError(f"set_shape_z_order: shape {shape_id} 无法收敛到 z={z}")
 
     def quit(self, force: bool = False):
         """退出 PowerPoint 会话。
