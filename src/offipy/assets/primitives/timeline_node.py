@@ -38,6 +38,8 @@ def render(slide, params, context) -> tuple[object, ...]:
     marker_y = y + (h - d) / 2
 
     if phase == "current":
+        # fill 公共参数驱动 marker 填充；未传（transparent 默认）回退 accent（#59）
+        marker_fill = colors["fill"] if colors["fill"] != "transparent" else colors["accent"]
         marker = add_shape(
             slide,
             MSO_SHAPE.OVAL,
@@ -45,7 +47,7 @@ def render(slide, params, context) -> tuple[object, ...]:
             marker_y,
             d,
             d,
-            fill=colors["accent"],
+            fill=marker_fill,
             line="transparent",
         )
     elif phase == "past":

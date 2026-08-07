@@ -61,10 +61,21 @@ def resolve_native_colors(params: Mapping[str, str], ctx: AssetRenderContext) ->
     accent/fill come from the validated payload params; unknown theme tokens
     there raise (matches A2). ink/muted are internal and fall back to safe
     defaults when the theme does not define them.
+
+    The ``fill`` default for some primitives is the ``accent`` token (e.g.
+    label-pill); that must follow the primitive's final accent (incl. an
+    explicit ``accent`` param), not resolve against theme vars independently,
+    otherwise an accent override is silently lost (#59).
     """
+    accent = resolve_asset_color(params.get("accent", "accent"), ctx.theme_vars)
+    fill_raw = params.get("fill", "transparent")
+    if fill_raw == "accent":
+        fill = accent
+    else:
+        fill = resolve_asset_color(fill_raw, ctx.theme_vars)
     return {
-        "accent": resolve_asset_color(params.get("accent", "accent"), ctx.theme_vars),
-        "fill": resolve_asset_color(params.get("fill", "transparent"), ctx.theme_vars),
+        "accent": accent,
+        "fill": fill,
         "ink": _resolve_text_token(ctx, "ink", "#222222"),
         "muted": _resolve_text_token(ctx, "muted", "#667085"),
     }
