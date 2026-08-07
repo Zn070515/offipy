@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.12.2 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.13.0 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -35,6 +35,12 @@ Built for Python developers and AI agents to independently produce **polished, a
   `analyze_deck` evaluates all three sources (measurements + pptx geometry + slides_dir per-page PNG
   pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
+- **Shape-level PPT reading and editing**: `ppt read_shapes` reads the shape tree (frozen `ShapeInfo` /
+  shape-type contract), with `set_shape_geometry/text/font/fill/outline/visible`, `delete_shape`, and
+  `set_shape_z_order` to edit real PowerPoint objects incrementally
+- **CLI error contract**: `InvalidArgumentError → exit 2` (usage / argument / pre-runtime invalid input),
+  `OffipyError → exit 1` (runtime domain failure), stderr without leaked tracebacks; `audit` keeps its
+  0/1/2/3 and `deck audit` keeps its 0/1 dedicated contracts
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
 
 ## Requirements

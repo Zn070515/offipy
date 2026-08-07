@@ -29,7 +29,10 @@
 
 ## 边界处理
 
-- **CLI**：在边界捕获这些异常，转成退出码 + stderr 提示。
+- **CLI**：边界捕获异常转退出码——`InvalidArgumentError` → 2（使用 / 参数 / 预运行无效输入），
+  `OffipyError` 其余子类 → 1（运行时领域失败）；stderr 清洗后输出，不泄露 traceback。
+  `offipy audit` 保留专属 0/1/2/3 契约、`deck audit` 保留 0/1（见
+  [docs/usage.md](usage.md)「CLI 退出码契约」）。
 - **MCP server**：捕获后转成工具错误返回给模型（`is_error: true`）。
 - **库调用方**：直接捕获对应领域异常即可。
 
