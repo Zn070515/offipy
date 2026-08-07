@@ -284,6 +284,16 @@ def test_measurement_theme_vars_drive_materialization(tmp_path, monkeypatch, the
     assert f'stroke="{expected}"' in svg
 
 
+def test_zero_size_rect_fails_postprocess(tmp_path, monkeypatch):
+    """CSS 量到 0×60 的 rect → 绑定阶段 InvalidArgumentError，deck 报错不产出。"""
+    _, decls = preprocess_asset_declarations(_HTML_RINGS)
+    override = lambda rec, aid: {**rec, "rect": {"x": 20, "y": 30, "w": 0, "h": 60}}  # noqa: E731
+    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls, meas_override=override))
+
+    with pytest.raises(InvalidArgumentError, match="positive"):
+        _render_deck(tmp_path, _HTML_RINGS)
+
+
 # ---------------------------------------------------------------------------
 # Task 13 — z-order 结构：背景沉底、装饰居中、占位符全消
 # ---------------------------------------------------------------------------
