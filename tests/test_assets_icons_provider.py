@@ -206,5 +206,5 @@ class TestDefaultRegistryIcons:
     def test_search_counts_match_manifest_sum(self):
         metas = get_default_registry().search("", limit=10000)
         assert len(metas) == (
-            _MANIFEST["phosphor"]["count"] + _MANIFEST["lucide"]["count"] + 8
-        )  # 8 procedural patterns
+            _MANIFEST["phosphor"]["count"] + _MANIFEST["lucide"]["count"] + 16
+        )  # 8 procedural patterns + 8 native primitives
