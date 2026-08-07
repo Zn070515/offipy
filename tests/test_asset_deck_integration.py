@@ -377,3 +377,67 @@ def test_failed_postprocess_preserves_old_pptx_and_manifest(tmp_path, monkeypatc
     assert pptx.read_bytes() == old_pptx
     assert (tmp_path / "d_audit" / "assets.json").read_bytes() == old_manifest
     assert not list(tmp_path.glob(".*_audit"))  # 本次失败渲染的临时审计目录已清理
+
+
+# ---------------------------------------------------------------------------
+# Task 12 — 失败原子性补全：非法 URI / 缺失占位符
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_asset_uri_preserves_final_output(tmp_path, monkeypatch):
+    """data-asset 非法 URI：preprocess 阶段 InvalidArgumentError，最终输出不被替换。"""
+    html, pptx = _write(
+        tmp_path, '<section data-pptx-slide><div data-asset="not-a-uri"></div></section>'
+    )
+    original = pptx.read_bytes()
+    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: None)
+
+    with pytest.raises(deck.InvalidArgumentError, match="asset://"):
+        deck.render(str(html), out=str(pptx), overwrite=True)
+
+    assert pptx.read_bytes() == original  # 旧最终输出原样保留
+    assert not list(tmp_path.glob("offipy-deck-*"))  # 无残留注入副本
+
+
+def test_missing_placeholder_preserves_final_output(tmp_path, monkeypatch):
+    """measurements 有记录但转换器漏放 OFFIPY_ASSET 占位符：绑定失败，旧产物保留。"""
+    html, pptx = _write(tmp_path, _ASSET_ORDER_HTML)
+    _, decls = preprocess_asset_declarations(_ASSET_ORDER_HTML)
+    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+
+    # 第一次成功渲染 → 产出 d.pptx + d_audit/assets.json
+    deck.render(str(html), out=str(pptx), overwrite=True)
+    old_pptx = pptx.read_bytes()
+    old_manifest = (tmp_path / "d_audit" / "assets.json").read_bytes()
+
+    # 第二次：fake convert 写 measurements.json 但不放占位符（converter 产物缺损）
+    def fake_no_placeholder(cmd, *a, **k):
+        out = cmd[cmd.index("--out") + 1]
+        prs = Presentation()
+        while len(prs.slides) < 2:
+            prs.slides.add_slide(prs.slide_layouts[6])
+        prs.save(out)
+        audit = Path(out).with_name(f"{Path(out).stem}_audit")
+        meas_dir = audit / "_cache"
+        meas_dir.mkdir(parents=True)
+        (meas_dir / "measurements.json").write_text(
+            json.dumps(
+                {
+                    "slides": [
+                        {"records": [_asset_meas("asset-s01-001")]},
+                        {"records": [_asset_meas("asset-s02-001")]},
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(deck.subprocess, "run", fake_no_placeholder)
+    with pytest.raises(deck.InvalidArgumentError, match="占位符"):
+        deck.render(str(html), out=str(pptx), overwrite=True)
+
+    assert pptx.read_bytes() == old_pptx  # 失败不替换最终输出
+    assert (tmp_path / "d_audit" / "assets.json").read_bytes() == old_manifest  # 旧清单原样
+    assert not list(tmp_path.glob(".*_audit"))  # 本次失败渲染的临时审计目录已清理
