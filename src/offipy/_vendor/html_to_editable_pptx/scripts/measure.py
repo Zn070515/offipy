@@ -438,6 +438,29 @@ EXTRACT_JS = r"""
     if (!el || el.nodeType !== 1) return;
     if (isHidden(el)) return;
 
+    // Asset 声明（data-offipy-asset-id）：converter 只量占位框 + 主题 token，
+    // 具体渲染交给 offipy 后处理。整体一个 record、不下钻子节点、不打截图 marker。
+    // 顺序在 SVG/img/text 分支之前：注入副本里 legacy <svg data-icon> 也带
+    // data-offipy-asset-id，必须量成 kind='asset' 而非 kind='svg'。
+    if (el.hasAttribute('data-offipy-asset-id')) {
+      const ar = el.getBoundingClientRect();
+      const as = getComputedStyle(el);
+      const themeVars = {};
+      for (const key of ['bg', 'surface', 'ink', 'muted', 'accent', 'accent-soft', 'divider']) {
+        themeVars[key] = as.getPropertyValue('--' + key);
+      }
+      records.push({
+        id: nodeId++,
+        kind: 'asset',
+        tag: el.tagName.toLowerCase(),
+        assetId: el.getAttribute('data-offipy-asset-id'),
+        rect: rectRel(ar),
+        themeVars,
+        color: as.color,
+      });
+      return; // 占位容器内部不做任何分割
+    }
+
     // SVG 整体作为一个节点导出
     if (el.tagName.toLowerCase() === 'svg') {
       const r = el.getBoundingClientRect();
