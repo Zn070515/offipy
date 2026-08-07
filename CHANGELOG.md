@@ -3,6 +3,19 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.13.1] - 2026-08-07
+
+### Fixed
+- **#39 deck audit 预运行无效输入退出码**：缺失文件 / 非法 `--profile` 等无效输入统一映射
+  exit 2（参数或输入错），不再误报 exit 1；`docs/usage` deck audit 契约表同步为
+  `2=参数或输入错`。
+- **#38 art low_contrast 像素归因假阳性**：组合 PNG 不再把遮挡 / 邻近图片区域主色归因为文本
+  背景；元素级对比度一律用声明 / 有效背景（`effective_background`），像素仅保留
+  `declared_not_found` 低置信提示，修复白色文本被图片遮挡时误报 HIGH「对比度 1.14」。
+
+### Notes
+- 纯 PATCH 修复（#38 / #39），无破坏性 API / CLI / 契约变化。
+
 ## [0.13.0] - 2026-08-07
 
 ### Added
