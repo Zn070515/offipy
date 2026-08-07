@@ -352,6 +352,49 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Read the title/body/notes summary of each slide of the presentation (doc_id defaults "
         "to the active one) (read-only), returning [{index, title, body, notes}]."
     ),
+    ("ppt", "read_shapes"): (
+        "Read structured records for every shape on the slide_idx-th slide, returning ShapeInfo "
+        "entries (shape_id/name/type/geometry/fill/outline/text/font/placeholder/group path/"
+        "z-order). recursive=False lists only the top level; group descendants (including nested) "
+        "are expanded only when recursive=True. shape_id is strict: any shape whose Id is "
+        "unreadable raises an error, never emitting 0."
+    ),
+    ("ppt", "set_shape_geometry"): (
+        "Modify the geometry of shape_id on the slide_idx-th slide: left/top/width/height/"
+        "rotation (coordinates in points, angle in degrees); only the passed attributes are "
+        "updated and at least one is required. Group-child left/top are written as absolute slide "
+        "coordinates; descendants of a rotated group reject left/top changes. width/height must be >0."
+    ),
+    ("ppt", "set_shape_text"): (
+        "Replace the text of shape_id on the slide_idx-th slide (preserving the original font "
+        "styles). Shapes without a text frame (pictures, lines, etc.) raise an error."
+    ),
+    ("ppt", "set_shape_font"): (
+        "Set the font of shape_id text on the slide_idx-th slide: font_name/size/bold/italic/"
+        "color ('#RRGGBB'). At least one attribute is required; the whole text range is affected."
+    ),
+    ("ppt", "set_shape_fill"): (
+        "Set the fill of shape_id on the slide_idx-th slide: color takes '#RRGGBB' for a solid "
+        "fill, transparency takes 0..1; passing neither clears the fill. Shapes without fill "
+        "capability raise an error."
+    ),
+    ("ppt", "set_shape_outline"): (
+        "Set the outline of shape_id on the slide_idx-th slide: color '#RRGGBB'/width in points/"
+        "visible boolean. At least one is required; visible controls the final display state. "
+        "Shapes without outline capability raise an error."
+    ),
+    ("ppt", "set_shape_visible"): (
+        "Show (true) or hide (false) shape_id on the slide_idx-th slide."
+    ),
+    ("ppt", "delete_shape"): (
+        "Delete shape_id on the slide_idx-th slide (top-level or group child, resolved "
+        "recursively)."
+    ),
+    ("ppt", "set_shape_z_order"): (
+        "Move shape_id on the slide_idx-th slide to the 1-based target position z within its "
+        "containing collection (1 = bottom). Top-level shapes move within slide.Shapes; group "
+        "children move within the parent GroupItems. z outside 1..Count raises an error (no clamping)."
+    ),
     (
         "ppt",
         "activate",
