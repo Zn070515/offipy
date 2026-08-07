@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from typing import cast
 
 from offipy.assets.model import (
     _PLACEMENTS,
@@ -159,6 +160,70 @@ class _DeclarationExtractor(HTMLParser):
         return placement  # type: ignore[return-value]
 
 
+class _InjectedExtractor(HTMLParser):
+    """读回注入副本里已有的 asset 声明（postprocess 用）。
+
+    与 _DeclarationExtractor 相反：不重写、不生成新 id、不拒绝已存在的
+    data-offipy-asset-id；直接复用注入的 id/request/placement。slide_index 由
+    <section data-pptx-slide> 出现顺序决定（与预处理计数一致）。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=False)
+        self.declarations: list[AssetDeclaration] = []
+        self._slide_opened = 0
+        self._slide_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized: list[tuple[str, str]] = [(k, v or "") for k, v in attrs]
+        d = dict(normalized)
+        if tag == "section" and "data-pptx-slide" in d:
+            self._slide_opened += 1
+            self._slide_depth += 1
+        declaration_id = d.get("data-offipy-asset-id")
+        if not declaration_id:
+            return
+        uri = d.get("data-asset", "")
+        if not uri:
+            raise InvalidArgumentError(
+                f"injected asset declaration {declaration_id} missing data-asset"
+            )
+        request = self._build_request(uri, normalized, declaration_id)
+        placement = d.get("data-asset-placement", "") or "replace"
+        if placement not in _PLACEMENTS:
+            raise InvalidArgumentError(
+                f"injected asset declaration {declaration_id} has invalid placement {placement!r}"
+            )
+        self.declarations.append(
+            AssetDeclaration(
+                declaration_id=declaration_id,
+                slide_index=self._slide_opened,
+                request=request,
+                placement=cast(AssetPlacement, placement),
+                html_tag=tag,
+            )
+        )
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "section" and self._slide_depth > 0:
+            self._slide_depth -= 1
+
+    def _build_request(
+        self, uri: str, attrs: list[tuple[str, str]], declaration_id: str
+    ) -> AssetRequest:
+        base = parse_asset_uri(uri)
+        attr_params = [
+            (k[len(_PARAM_PREFIX) :], v) for k, v in attrs if k.startswith(_PARAM_PREFIX)
+        ]
+        if not attr_params:
+            return base
+        try:
+            params = canonical_params(list(base.params) + attr_params)
+        except InvalidArgumentError as exc:
+            raise InvalidArgumentError(f"asset declaration {declaration_id}: {exc}") from exc
+        return AssetRequest(base.ref, params)
+
+
 def preprocess_asset_declarations(html_text: str) -> tuple[str, list[AssetDeclaration]]:
     """Parse asset declarations and return (rewritten HTML, declarations).
 
@@ -176,3 +241,18 @@ def preprocess_asset_declarations(html_text: str) -> tuple[str, list[AssetDeclar
     for pos, s in sorted(extractor._insertions, key=lambda t: t[0], reverse=True):
         out = out[:pos] + s + out[pos:]
     return out, extractor.declarations
+
+
+def parse_injected_asset_declarations(html_text: str) -> list[AssetDeclaration]:
+    """Read existing asset declarations back from an injected copy.
+
+    This is the read-back counterpart of `preprocess_asset_declarations` for the
+    postprocess stage: the injected target already carries canonical data-asset,
+    resolved data-asset-placement and deterministic data-offipy-asset-id, so no
+    rewrite happens here. slide_index follows <section data-pptx-slide> order
+    (1-based), matching how measurements are indexed.
+    """
+    extractor = _InjectedExtractor()
+    extractor.feed(html_text)
+    extractor.close()
+    return extractor.declarations

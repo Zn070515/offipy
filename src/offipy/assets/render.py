@@ -14,8 +14,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from offipy.assets.declarations import AssetDeclaration
+from offipy.assets.declarations import (
+    AssetDeclaration,
+    parse_injected_asset_declarations,
+)
 from offipy.assets.model import (
+    AssetPlacement,
+    AssetProviderMeta,
     AssetRect,
     AssetRenderContext,
     NativeShapePayload,
@@ -24,7 +29,10 @@ from offipy.assets.model import (
     SvgPayload,
     SvgTemplatePayload,
 )
+from offipy.assets.registry import get_default_registry
+from offipy.assets.uri import format_asset_uri
 from offipy.exceptions import InvalidArgumentError
+from offipy.icons import _measurements_path
 
 PLACEHOLDER_PREFIX = "OFFIPY_ASSET::"
 
@@ -301,3 +309,89 @@ def place_rendered_elements(slide, placeholder, rendered, placement):
     sp_tree.remove(ph_element)
     if ph_element.getparent() is not None:
         raise RuntimeError(f"asset 占位符 {placeholder.name} 移除失败")
+
+
+# ---------------------------------------------------------------------------
+# 编排（Task 8）
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AssetUsageRecord:
+    """一次 asset 渲染的确定性用量记录（内部面；Task 9 序列化进 assets.json）。"""
+
+    declaration_id: str
+    slide_index: int
+    request: str
+    placement: AssetPlacement
+    provider: AssetProviderMeta
+
+
+@dataclass(frozen=True)
+class AssetUsageReport:
+    """一次 postprocess_assets 的用量汇总，按声明顺序保存。"""
+
+    records: tuple[AssetUsageRecord, ...]
+
+
+def _theme_name(html_text: str) -> str | None:
+    m = re.search(r'<style\s+data-theme="([a-z0-9-]+)"', html_text)
+    return m.group(1) if m else None
+
+
+def postprocess_assets(html_path: str, pptx_path: str) -> AssetUsageReport:
+    """转换后调用：注入副本 asset 声明 → 测量绑定 → 解析/渲染/落位，返回用量报告。
+
+    无 asset 声明 → 空报告，原样返回（不打开 PPTX）。measurements.json 缺失 →
+    RuntimeError（deck._postprocess 统一映射为 ConversionError）。打开/保存 PPTX
+    各一次，绝不逐资产重复。
+    """
+    import os
+
+    with open(html_path, encoding="utf-8") as f:
+        html_text = f.read()
+    if "data-offipy-asset-id" not in html_text:
+        return AssetUsageReport(())
+    decls = parse_injected_asset_declarations(html_text)
+    if not decls:
+        return AssetUsageReport(())
+    meas_path = _measurements_path(pptx_path)
+    if not os.path.exists(meas_path):
+        raise RuntimeError(
+            f"找不到 convert 审计产物 {meas_path}——asset 注入需要 measurements.json，"
+            "请勿用 --no-visual-audit"
+        )
+    measurements = load_asset_measurements(meas_path)
+    bound = bind_asset_measurements(decls, measurements)
+    registry = get_default_registry()
+    theme_name = _theme_name(html_text)
+
+    from pptx import Presentation
+
+    prs = Presentation(pptx_path)
+    records: list[AssetUsageRecord] = []
+    for decl in decls:
+        slide = prs.slides[decl.slide_index - 1]
+        measurement = bound[decl.declaration_id]
+        context = AssetRenderContext(
+            slide_index=decl.slide_index,
+            rect=measurement.rect,
+            theme_name=theme_name,
+            theme_vars=measurement.theme_vars,
+            placement=decl.placement,
+        )
+        placeholder = find_asset_placeholder(slide, decl.declaration_id)
+        resolved = registry.resolve(decl.request)
+        rendered = render_asset(slide, resolved, context, color=measurement.color)
+        place_rendered_elements(slide, placeholder, rendered, decl.placement)
+        records.append(
+            AssetUsageRecord(
+                declaration_id=decl.declaration_id,
+                slide_index=decl.slide_index,
+                request=format_asset_uri(decl.request),
+                placement=decl.placement,
+                provider=resolved.provider_meta,
+            )
+        )
+    prs.save(pptx_path)
+    return AssetUsageReport(tuple(records))
