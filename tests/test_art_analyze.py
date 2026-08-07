@@ -50,7 +50,7 @@ def _finding(report, rule_id):
     return None
 
 
-def _content_slide_measurement(index, title_x=0.1, body_x=0.1):
+def _content_slide_measurement(title_x=0.1, body_x=0.1):
     def el(rec_id, x, y, w, h, font_size, cls, text):
         return {
             "id": rec_id,
@@ -313,9 +313,9 @@ def test_analyze_deck_feedback_adjusts_consistency_rule(tmp_path):
         append("balanced", RULE_TITLE_DRIFT, "fixed", Severity.MID, feedback_dir=tmp_path)
     m = {
         "slides": [
-            _content_slide_measurement(1, title_x=0.1),
-            _content_slide_measurement(2, title_x=0.5),
-            _content_slide_measurement(3, title_x=0.1),
+            _content_slide_measurement(title_x=0.1),
+            _content_slide_measurement(title_x=0.5),
+            _content_slide_measurement(title_x=0.1),
         ]
     }
     baseline = analyze_deck(measurements=m, profile="balanced")
