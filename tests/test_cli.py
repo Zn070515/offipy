@@ -3,6 +3,12 @@
 import pytest
 
 from offipy.cli import build_parser
+from offipy.exceptions import (
+    ComOperationError,
+    FileConflictError,
+    InvalidArgumentError,
+    TargetNotFoundError,
+)
 
 
 def test_no_subcommand_errors_with_usage():
@@ -175,25 +181,41 @@ def test_deck_make_audit_mode_missing_html_exits_2():
 
 def test_deck_outline_missing_file_friendly_error(tmp_path, capsys):
     # 回归：--input 指向不存在的文件时曾裸 FileNotFoundError traceback，
-    # 现在应 SystemExit 带友好提示。
+    # 现在应 SystemExit 带友好提示。S5：运行前非法输入 → exit 2（stderr 含路径）。
     from offipy import cli
 
     missing = tmp_path / "nope.md"
     with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline", "--input", str(missing)])
-    assert "找不到文件" in str(exc.value)
+    assert exc.value.code == 2
+    assert "找不到文件" in capsys.readouterr().err
 
 
 def test_deck_outline_bad_format_friendly_error(tmp_path, capsys):
     # 回归：非法大纲（缺 # 主标题）时曾裸 ValueError traceback，
-    # 现在应 SystemExit 带友好提示。
+    # 现在应 SystemExit 带友好提示。S5：运行前非法输入 → exit 2。
     from offipy import cli
 
     bad = tmp_path / "bad.md"
     bad.write_text("## 只有页面\n- 无标题\n", encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         cli.main(["deck", "outline", "--input", str(bad)])
-    assert "大纲格式错误" in str(exc.value)
+    assert exc.value.code == 2
+    assert "大纲格式错误" in capsys.readouterr().err
+
+
+def test_deck_outline_out_unwritable_dir_exits_2(tmp_path, capsys):
+    # S5：--out 指向不存在目录下的路径 → 曾裸 FileNotFoundError traceback，
+    # 现在 catch OSError → 友好消息 + exit 2（输出路径非法）。
+    from offipy import cli
+
+    md = tmp_path / "outline.md"
+    md.write_text("# T\n\n## 页\n- 甲\n", encoding="utf-8")
+    bad_out = tmp_path / "nope_dir" / "deck.html"
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["deck", "outline", "--input", str(md), "--out", str(bad_out)])
+    assert exc.value.code == 2
+    assert "无法写入输出文件" in capsys.readouterr().err
 
 
 def test_check_subcommand_parses():
@@ -335,10 +357,13 @@ def test_parse_kwargs_payload_overrides():
 
 
 def test_parse_kwargs_payload_bad_json_exits():
+    # S5：#29 未清完——--payload JSON 解析失败原 SystemExit(str)→exit 1，
+    # 现统一走 _usage_exit → exit 2（用法错误）。
     from offipy.cli import _parse_kwargs
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         _parse_kwargs(["--payload", "{not json"])
+    assert exc.value.code == 2
 
 
 def test_parse_kwargs_payload_must_be_object():
@@ -356,13 +381,15 @@ def test_parse_kwargs_dash_to_underscore():
     assert _parse_kwargs(["--slide-idx", "2"]) == {"slide_idx": "2"}
 
 
-def test_payload_array_error_hints_list_usage():
-    # --payload 传数组时错误信息要提示 list 参数的正确写法（重复 --key / key 数组）
+def test_payload_array_error_hints_list_usage(capsys):
+    # --payload 传数组时错误信息要提示 list 参数的正确写法（重复 --key / key 数组）。
+    # S5：消息走 _usage_exit 到 stderr，SystemExit 带 int 2。
     from offipy.cli import _parse_kwargs
 
     with pytest.raises(SystemExit) as exc:
         _parse_kwargs(["--payload", "[1, 2]"])
-    msg = str(exc.value)
+    assert exc.value.code == 2
+    msg = capsys.readouterr().err
     assert "list" in msg
     assert "重复 --key" in msg
 
@@ -543,10 +570,12 @@ def test_parse_kwargs_expected_target_json():
 
 
 def test_parse_kwargs_expected_target_bad_json_exits():
+    # S5：#29 未清完——--expected-target JSON 解析失败原 exit 1，现统一 exit 2。
     from offipy.cli import _parse_kwargs
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         _parse_kwargs(["--expected-target", "{not json"])
+    assert exc.value.code == 2
 
 
 def test_parse_kwargs_expected_target_must_be_object():
@@ -690,3 +719,603 @@ def test_mcp_present_runs(monkeypatch):
     monkeypatch.setattr("offipy.mcp_server.main", fake_main)
     assert cli.main(["mcp"]) is None
     assert called == ["mcp"]
+
+
+# --- S5 Task 1：共享 CLI 边界错误处理 ---
+
+
+def test_clean_error_message_strips_trace_frames_and_type_prefix():
+    # S5：client._raise_error 拼出的消息带内部代码帧行与 "{TypeName}: " 前缀，
+    # _clean_error_message 应去掉帧行（空白开头）与类型名前缀，保留 [app::op] 失败: 上下文。
+    from offipy.cli import _clean_error_message
+
+    msg = (
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx\n"
+        '    File "C:\\...\\word.py", line 292, in open_doc\n'
+        "      raise InvalidArgumentError(...)\n"
+        "  InvalidArgumentError: 源文件不存在: C:\\nope.docx"
+    )
+    assert _clean_error_message(msg) == "[word::open_doc] 失败: 源文件不存在: C:\\nope.docx"
+
+
+def test_clean_error_message_keeps_non_type_message():
+    # 无 TypeName 前缀的消息原样保留（不匹配 "{Type}: " 正则）
+    from offipy.cli import _clean_error_message
+
+    msg = "[ppt::export_slides] 失败: [WinError 183] 无法创建文件"
+    assert _clean_error_message(msg) == msg
+
+
+def test_clean_error_message_keeps_connection_failed_reason():
+    # 连接失败消息不以 "[app::op] 失败: " 开头 → 类型名前缀不得被剥离
+    from offipy.cli import _clean_error_message
+
+    msg = "[excel::save] 连接失败: ConnectionRefusedError: [WinError 10061] 拒绝连接"
+    assert _clean_error_message(msg) == msg
+
+
+def test_clean_error_message_all_frame_lines_returns_empty():
+    # 防御：所有行都是帧行（空白开头）时不能原样返回泄漏，应返回空串
+    from offipy.cli import _clean_error_message
+
+    msg = (
+        '    File "C:\\...\\word.py", line 292, in open_doc\n      raise InvalidArgumentError(...)'
+    )
+    assert _clean_error_message(msg) == ""
+
+
+def test_main_invalid_argument_exits_2(monkeypatch, capsys):
+    # S5 核心规则：CLI 边界 InvalidArgumentError → exit 2，且 stderr 简洁无 Traceback
+    from offipy import cli
+    from offipy.exceptions import InvalidArgumentError
+
+    def boom(app, op, **kw):
+        raise InvalidArgumentError(
+            "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx"
+        )
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    assert cli.main(["word", "open_doc", "--path", "C:\\nope.docx"]) == 2
+    err = capsys.readouterr().err
+    assert "源文件不存在" in err
+    assert "Traceback" not in err
+
+
+def test_main_other_offipy_error_exits_1(monkeypatch, capsys):
+    # 其余 OffipyError（运行时领域失败）→ exit 1，消息同样清洗
+    from offipy import cli
+    from offipy.exceptions import TargetNotFoundError
+
+    def boom(app, op, **kw):
+        raise TargetNotFoundError("[excel::save] 失败: TargetNotFoundError: 没有活动工作簿")
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    assert cli.main(["excel", "save", "--path", "x.xlsx", "--follow-active"]) == 1
+    err = capsys.readouterr().err
+    assert "没有活动工作簿" in err
+    assert "Traceback" not in err
+
+
+def test_ensure_writable_missing_parent_dir_raises(tmp_path):
+    # S5 差距 4：save/save_pdf 父目录不存在 → pre-check InvalidArgumentError（exit 2 侧）
+    from offipy.exceptions import InvalidArgumentError
+    from offipy.paths import ensure_writable
+
+    with pytest.raises(InvalidArgumentError, match="输出目录不存在"):
+        ensure_writable(r"C:\nope_dir\x.docx")
+    # 父路径是文件（非目录）→ 同样 InvalidArgumentError（isdir 覆盖）
+    f = tmp_path / "afile"
+    f.write_text("x", encoding="utf-8")
+    with pytest.raises(InvalidArgumentError, match="输出目录不存在"):
+        ensure_writable(str(f / "x.docx"))
+    # 裸文件名（无父目录 → 用 CWD）不抛
+    assert ensure_writable("bare.docx")
+    # tmp_path 存在 → 不抛
+    assert ensure_writable(str(tmp_path / "x.docx"))
+
+
+# --- S5 Task 2：Word CLI 错误契约对齐 ---
+
+
+def _assert_cli_error(monkeypatch, capsys, args, exc_cls, msg, code, *snippets, absent=()):
+    """断言 cli.main 抛出的领域异常按 CLI 契约落 exit code + 清洗 stderr。
+
+    mock offipy.cli.call 抛 exc_cls(msg)，验证边界把异常翻译成 exit code 2/1、
+    stderr 含 snippets（op/路径/文案）、无 Traceback、且 absent 缺席
+    （如内部代码帧行、类型名前缀）。Task 2 的三类异常都接受纯 message 字符串。
+    """
+    from offipy import cli
+
+    def boom(app, op, **kw):
+        raise exc_cls(msg)
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    assert cli.main(args) == code
+    err = capsys.readouterr().err
+    for s in snippets:
+        assert s in err
+    assert "Traceback" not in err
+    for a in absent:
+        assert a not in err
+
+
+def test_word_open_doc_missing_file_exits_2(monkeypatch, capsys):
+    # S5：word open_doc 运行前非法输入（源文件不存在）→ exit 2，stderr 含路径无 Traceback
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "open_doc", "--path", "C:\\nope.docx"],
+        InvalidArgumentError,
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx",
+        2,
+        "源文件不存在",
+        "C:\\nope.docx",
+        "open_doc",
+    )
+
+
+def test_word_open_doc_com_failure_exits_1(monkeypatch, capsys):
+    # S5：word open_doc 运行时 COM 失败 → exit 1；stderr 清洗掉内部帧行与类型名前缀
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "open_doc", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[word::open_doc] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\word.py", line 293, in open_doc\n'
+        "      return self._register(self.app.Documents.Open(path))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        "无法打开文件",
+        "C:\\notes.txt",
+        "open_doc",
+        absent=("word.py", "ComOperationError"),
+    )
+
+
+def test_word_save_conflict_exits_1(monkeypatch, capsys):
+    # S5：word save 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save", "--path", "C:\\out.docx", "--follow-active"],
+        FileConflictError,
+        "[word::save] 失败: FileConflictError: 目标文件已存在: C:\\out.docx"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "目标文件已存在",
+        "C:\\out.docx",
+        "save",
+    )
+
+
+def test_word_save_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：word save 父目录不存在 → InvalidArgumentError（运行前非法输出路径）→ exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save", "--path", "C:\\nope_dir\\out.docx", "--follow-active"],
+        InvalidArgumentError,
+        "[word::save] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "输出目录不存在",
+        "C:\\nope_dir",
+        "save",
+    )
+
+
+def test_word_save_pdf_conflict_exits_1(monkeypatch, capsys):
+    # S5：word save_pdf 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save_pdf", "--path", "C:\\out.pdf", "--follow-active"],
+        FileConflictError,
+        "[word::save_pdf] 失败: FileConflictError: 目标文件已存在: C:\\out.pdf"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "目标文件已存在",
+        "C:\\out.pdf",
+        "save_pdf",
+    )
+
+
+def test_word_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：word save_pdf 父目录不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save_pdf", "--path", "C:\\nope_dir\\out.pdf", "--follow-active"],
+        InvalidArgumentError,
+        "[word::save_pdf] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "输出目录不存在",
+        "C:\\nope_dir",
+        "save_pdf",
+    )
+
+
+def test_word_insert_image_missing_file_exits_2(monkeypatch, capsys):
+    # S5：word insert_image 源图片不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "insert_image", "--path", "C:\\nope.png", "--follow-active"],
+        InvalidArgumentError,
+        "[word::insert_image] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.png",
+        2,
+        "源文件不存在",
+        "C:\\nope.png",
+        "insert_image",
+    )
+
+
+# --- S5 Task 3：Excel CLI 错误契约对齐 ---
+
+
+def test_excel_open_book_missing_file_exits_2(monkeypatch, capsys):
+    # S5：excel open_book 运行前非法输入（源文件不存在）→ exit 2，stderr 含 op/路径无 Traceback
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "open_book", "--path", "C:\\nope.xlsx"],
+        InvalidArgumentError,
+        "[excel::open_book] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.xlsx",
+        2,
+        "excel",
+        "open_book",
+        "源文件不存在",
+        "C:\\nope.xlsx",
+    )
+
+
+def test_excel_open_book_com_failure_exits_1(monkeypatch, capsys):
+    # S5：excel open_book 运行时 COM 失败（非法格式）→ exit 1；
+    # stderr 清洗掉内部代码帧行（excel.py）与类型名前缀（ComOperationError）
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "open_book", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[excel::open_book] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\excel.py", line 254, in open_book\n'
+        "      return self._register(self.app.Workbooks.Open(path))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        "excel",
+        "open_book",
+        "无法打开",
+        "C:\\notes.txt",
+        absent=("excel.py", "ComOperationError"),
+    )
+
+
+def test_excel_save_conflict_exits_1(monkeypatch, capsys):
+    # S5：excel save 目标已存在未 overwrite → FileConflictError（运行时领域失败）→ exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save", "--path", "C:\\out.xlsx", "--follow-active"],
+        FileConflictError,
+        "[excel::save] 失败: FileConflictError: 目标文件已存在: C:\\out.xlsx"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save",
+        "目标文件已存在",
+        "C:\\out.xlsx",
+    )
+
+
+def test_excel_save_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：excel save 父目录不存在 → InvalidArgumentError（运行前非法输出路径）→ exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save", "--path", "C:\\nope_dir\\out.xlsx", "--follow-active"],
+        InvalidArgumentError,
+        "[excel::save] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+def test_excel_save_pdf_conflict_exits_1(monkeypatch, capsys):
+    # S5：excel save_pdf 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save_pdf", "--path", "C:\\out.pdf", "--follow-active"],
+        FileConflictError,
+        "[excel::save_pdf] 失败: FileConflictError: 目标文件已存在: C:\\out.pdf"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save_pdf",
+        "目标文件已存在",
+        "C:\\out.pdf",
+    )
+
+
+def test_excel_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：excel save_pdf 父目录不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save_pdf", "--path", "C:\\nope_dir\\out.pdf", "--follow-active"],
+        InvalidArgumentError,
+        "[excel::save_pdf] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save_pdf",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+# --- S5 Task 4：PowerPoint CLI 错误契约对齐 ---
+
+
+def test_ppt_open_pres_missing_file_exits_2(monkeypatch, capsys):
+    # S5：ppt open_pres 运行前非法输入（源文件不存在）→ exit 2，stderr 含 op/路径无 Traceback。
+    # open_pres 非破坏性 op，不带 --follow-active。
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "open_pres", "--path", "C:\\nope.pptx"],
+        InvalidArgumentError,
+        "[ppt::open_pres] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.pptx",
+        2,
+        "ppt",
+        "open_pres",
+        "源文件不存在",
+        "C:\\nope.pptx",
+    )
+
+
+def test_ppt_open_pres_com_failure_exits_1(monkeypatch, capsys):
+    # S5：ppt open_pres 运行时 COM 失败（非法格式）→ exit 1；
+    # stderr 清洗掉内部代码帧行（ppt.py）与类型名前缀（ComOperationError）
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "open_pres", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[ppt::open_pres] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\ppt.py", line 864, in open_pres\n'
+        "      return self._register(self.app.Presentations.Open(os.path.abspath(path)))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        "ppt",
+        "open_pres",
+        "无法打开",
+        "C:\\notes.txt",
+        absent=("ppt.py", "ComOperationError"),
+    )
+
+
+def test_ppt_save_conflict_exits_1(monkeypatch, capsys):
+    # S5：ppt save 目标已存在未 overwrite → FileConflictError（运行时领域失败）→ exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save", "--path", "C:\\out.pptx", "--follow-active"],
+        FileConflictError,
+        "[ppt::save] 失败: FileConflictError: 目标文件已存在: C:\\out.pptx"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save",
+        "目标文件已存在",
+        "C:\\out.pptx",
+    )
+
+
+def test_ppt_save_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：ppt save 父目录不存在 → InvalidArgumentError（运行前非法输出路径）→ exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save", "--path", "C:\\nope_dir\\out.pptx", "--follow-active"],
+        InvalidArgumentError,
+        "[ppt::save] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+def test_ppt_save_pdf_conflict_exits_1(monkeypatch, capsys):
+    # S5：ppt save_pdf 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save_pdf", "--path", "C:\\out.pdf", "--follow-active"],
+        FileConflictError,
+        "[ppt::save_pdf] 失败: FileConflictError: 目标文件已存在: C:\\out.pdf"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save_pdf",
+        "目标文件已存在",
+        "C:\\out.pdf",
+    )
+
+
+def test_ppt_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：ppt save_pdf 父目录不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "save_pdf", "--path", "C:\\nope_dir\\out.pdf", "--follow-active"],
+        InvalidArgumentError,
+        "[ppt::save_pdf] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save_pdf",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+def test_ppt_export_slides_out_dir_is_file_exits_1(monkeypatch, capsys):
+    # S5：ppt export_slides 输出目录是已存在文件 → FileConflictError（运行时领域失败）→ exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["ppt", "export_slides", "--out_dir", "C:\\afile", "--doc_id", "p1"],
+        FileConflictError,
+        "[ppt::export_slides] 失败: FileConflictError: 输出目录已存在且不是目录: C:\\afile",
+        1,
+        "export_slides",
+        "输出目录已存在且不是目录",
+        "C:\\afile",
+    )
+
+
+def test_ppt_add_picture_missing_file_exits_2(monkeypatch, capsys):
+    # S5：ppt add_picture 源图片不存在 → InvalidArgumentError（运行前非法输入）→ exit 2。
+    # add_picture 是破坏性 op → 带 --follow-active；slide_idx/left/top/width/height 均必填
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        [
+            "ppt",
+            "add_picture",
+            "--slide_idx",
+            "1",
+            "--path",
+            "C:\\nope.png",
+            "--left",
+            "0",
+            "--top",
+            "0",
+            "--width",
+            "100",
+            "--height",
+            "100",
+            "--follow-active",
+        ],
+        InvalidArgumentError,
+        "[ppt::add_picture] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.png",
+        2,
+        "ppt",
+        "add_picture",
+        "源文件不存在",
+        "C:\\nope.png",
+    )
+
+
+# --- S5 Task 5：跨命令冒烟矩阵（冻结退出码策略 + 无 traceback） ---
+
+_CLI_SMOKE_MATRIX = [
+    # (args, exc_cls, msg, exit_code, snippets, absent)
+    # word —— 运行前非法输入（缺源文件）→ 2
+    (
+        ["word", "open_doc", "--path", "C:\\nope.docx"],
+        InvalidArgumentError,
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx",
+        2,
+        ("word", "open_doc", "源文件不存在", "C:\\nope.docx"),
+        (),
+    ),
+    # excel —— 运行前非法输入（缺源文件）→ 2
+    (
+        ["excel", "open_book", "--path", "C:\\nope.xlsx"],
+        InvalidArgumentError,
+        "[excel::open_book] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.xlsx",
+        2,
+        ("excel", "open_book", "源文件不存在", "C:\\nope.xlsx"),
+        (),
+    ),
+    # ppt —— 运行前非法输入（缺源文件）→ 2
+    (
+        ["ppt", "open_pres", "--path", "C:\\nope.pptx"],
+        InvalidArgumentError,
+        "[ppt::open_pres] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.pptx",
+        2,
+        ("ppt", "open_pres", "源文件不存在", "C:\\nope.pptx"),
+        (),
+    ),
+    # ppt —— 运行时 COM 失败（存在但非法格式）→ 1，帧行/类型前缀被清洗
+    (
+        ["ppt", "open_pres", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[ppt::open_pres] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\ppt.py", line 864, in open_pres\n'
+        "      return self._register(self.app.Presentations.Open(os.path.abspath(path)))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        ("ppt", "open_pres", "无法打开", "C:\\notes.txt"),
+        ("ppt.py", "ComOperationError"),
+    ),
+    # shape —— 非法参数（几何属性全缺）→ 2（运行前非法输入）
+    (
+        [
+            "ppt",
+            "set_shape_geometry",
+            "--slide_idx",
+            "1",
+            "--shape_id",
+            "1",
+            "--follow-active",
+        ],
+        InvalidArgumentError,
+        "[ppt::set_shape_geometry] 失败: InvalidArgumentError: "
+        "set_shape_geometry: 至少提供 left/top/width/height/rotation 之一",
+        2,
+        ("ppt", "set_shape_geometry", "至少提供"),
+        (),
+    ),
+    # shape —— 目标 shape 不存在 → 1（TargetNotFoundError 运行时领域失败）
+    (
+        [
+            "ppt",
+            "set_shape_text",
+            "--slide_idx",
+            "1",
+            "--shape_id",
+            "999",
+            "--text",
+            "hi",
+            "--follow-active",
+        ],
+        TargetNotFoundError,
+        "[ppt::set_shape_text] 失败: TargetNotFoundError: shape 999 已不在所在集合内",
+        1,
+        ("ppt", "set_shape_text", "已不在"),
+        (),
+    ),
+    # shape —— COM 写失败不泄漏 HRESULT traceback → 1，帧行/类型前缀被清洗
+    (
+        [
+            "ppt",
+            "set_shape_geometry",
+            "--slide_idx",
+            "1",
+            "--shape_id",
+            "1",
+            "--left",
+            "1",
+            "--follow-active",
+        ],
+        ComOperationError,
+        "[ppt::set_shape_geometry] 失败: ComOperationError: 设置形状几何失败\n"
+        '    File "C:\\...\\ppt.py", line 1260, in set_shape_geometry\n'
+        "      shape.Left = left\n"
+        "  ComOperationError: 设置形状几何失败",
+        1,
+        ("ppt", "set_shape_geometry", "设置形状几何失败"),
+        ("ppt.py", "ComOperationError"),
+    ),
+]
+
+
+_CLI_SMOKE_IDS = [f"{row[0][1]}::{row[0][2]}" for row in _CLI_SMOKE_MATRIX]
+
+
+@pytest.mark.parametrize(
+    "args,exc_cls,msg,code,snippets,absent",
+    _CLI_SMOKE_MATRIX,
+    ids=_CLI_SMOKE_IDS,
+)
+def test_cli_smoke_matrix(monkeypatch, capsys, args, exc_cls, msg, code, snippets, absent):
+    # S5 冒烟矩阵：逐代表性路径钉 exit code（1/2 按冻结策略）+ stderr 清洗 + 无 traceback
+    _assert_cli_error(monkeypatch, capsys, args, exc_cls, msg, code, *snippets, absent=absent)

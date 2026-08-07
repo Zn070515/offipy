@@ -11,7 +11,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .exceptions import FileConflictError, OffipyError
+from .exceptions import FileConflictError, InvalidArgumentError, OffipyError
 
 _APP_DIRNAME = "offipy"
 _CONVERTER_DATA_ENV = "OFFIPY_CONVERTER_DATA_DIR"
@@ -54,8 +54,15 @@ def ensure_writable(path: str, overwrite: bool = False) -> str:
     防止 agent 或脚本无意间覆盖已有文件。FileConflictError 是 OffipyError
     子类，CLI/MCP 能统一处理；同时继承 FileExistsError，`except FileExistsError`
     的既有调用方不受影响。
+
+    S5 差距 4：父目录不存在（或父路径是文件）→ 运行前非法输出路径 →
+    InvalidArgumentError（CLI 边界转 exit 2）。父目录为空串（裸文件名，
+    用 CWD）时跳过检查。
     """
     abs_path = os.path.abspath(path)
+    parent = os.path.dirname(abs_path)
+    if parent and not os.path.isdir(parent):
+        raise InvalidArgumentError(f"输出目录不存在: {parent}")
     if not overwrite and os.path.exists(abs_path):
         raise FileConflictError(f"目标文件已存在: {abs_path}（如确要覆盖请传 overwrite=True）")
     return abs_path
