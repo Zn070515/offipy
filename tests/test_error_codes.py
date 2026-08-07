@@ -326,3 +326,15 @@ def test_dispatch_quit_skips_rebuild_when_dead(monkeypatch):
     monkeypatch.setattr(server, "_rebuild", lambda app: rebuild_calls.append(app) or app)
     assert server.dispatch(FakeApp(), "quit", {}, "x") is None
     assert rebuild_calls == []  # quit 目标就是退出，不反拉起新实例
+
+
+def test_dispatch_quit_rejects_follow_active(monkeypatch):
+    # #46：protocol.md quit 不接受 expected_target/follow_active 任一——
+    # follow_active 曾静默消费，现对称拒绝（与 expected_target 一致）。
+    class FakeApp:
+        def quit(self):
+            return None
+
+    monkeypatch.setattr(server, "_alive", lambda a: True)
+    with pytest.raises(InvalidArgumentError, match="quit 不接受 follow_active"):
+        server.dispatch(FakeApp(), "quit", {"follow_active": True}, "x")

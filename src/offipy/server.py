@@ -580,6 +580,10 @@ def dispatch(app, op: str, args: dict, app_name: str):
         app = _rebuild(app)
     expected = args.pop("expected_target", None)
     follow_active = bool(args.pop("follow_active", False))
+    if op == "quit" and follow_active:
+        # #46：protocol.md quit 不接受 expected_target/follow_active 任一——
+        # follow_active 曾静默消费，对称拒绝防调用方误以为生效。
+        raise InvalidArgumentError("quit 不接受 follow_active（无 doc_id 目标语义）")
     binds_target = schema.supports_expected_target(app_name, op)  # destructive ∪ requires_target
     if expected is not None and binds_target and op != "quit":
         # P0-4/5 + P0-3：破坏性/导出 op 绑定目标——不跟随用户焦点。resolve-once：
