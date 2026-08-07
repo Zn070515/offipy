@@ -404,7 +404,9 @@ def chart_dominant_slide_indices(html_text: str) -> list[int]:
     """找出声明 chart-dominant 且内部含图表的 slide 序号（1-based，文档序）。
 
     条件：section 同时满足 (a) 开标签声明 `data-layout="chart-dominant"`
-    （单/双引号皆可），且 (b) 内部含图表容器（`class="chart"` 或 `data-chart`）。
+    （单/双引号皆可），且 (b) 内部含真实图表容器——`class="chart"` 的 div，或带
+    `data-chart="<type>"` 属性的元素（`data-chart=` 必须带 `=`，避免
+    `data-chart-target` 这类近似属性误匹配）。
     跳过 (b) 避免「声明了布局但没有图表」的页误报。Deck HTML 不嵌套 section，
     故非贪婪 `(.*?)</section>` 正确。
     """
@@ -413,7 +415,7 @@ def chart_dominant_slide_indices(html_text: str) -> list[int]:
     for i, m in enumerate(pattern.finditer(html_text), start=1):
         opening, body = m.group(1), m.group(2)
         if re.search(r'data-layout=["\']chart-dominant["\']', opening) and (
-            'class="chart"' in body or "data-chart" in body
+            'class="chart"' in body or "data-chart=" in body
         ):
             indices.append(i)
     return indices

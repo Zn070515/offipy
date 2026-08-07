@@ -56,6 +56,48 @@ _CHART_DOM_NO_CHART_HTML = (
     "</body></html>"
 )
 
+_CHART_DOM_SINGLE_QUOTE_HTML = (
+    "<html><head></head><body>"
+    "<section class=\"slide chart-dominant\" data-pptx-slide data-layout='chart-dominant'>"
+    '<div class="chart-area"><div class="chart" data-chart="bar" '
+    'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div></div>'
+    "</section>"
+    "</body></html>"
+)
+
+_TWO_CHART_DOM_HTML = (
+    "<html><head></head><body>"
+    '<section class="slide chart-dominant" data-pptx-slide data-layout="chart-dominant">'
+    '<div class="chart" data-chart="bar" '
+    'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div>'
+    "</section>"
+    '<section class="slide chart-dominant" data-pptx-slide data-layout="chart-dominant">'
+    '<div class="chart" data-chart="bar" '
+    'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div>'
+    "</section>"
+    "</body></html>"
+)
+
+_CHART_DOM_PLUS_PLAIN_HTML = (
+    "<html><head></head><body>"
+    '<section class="slide chart-dominant" data-pptx-slide data-layout="chart-dominant">'
+    '<div class="chart" data-chart="bar" '
+    'data-chart-data=\'{"categories":["a"],"series":[{"name":"s","values":[1]}]}\'></div>'
+    "</section>"
+    "<section data-pptx-slide><h2>plain</h2></section>"
+    "</body></html>"
+)
+
+_CHART_DOM_SCRIPT_TARGET_HTML = (
+    "<html><head></head><body>"
+    '<section class="slide chart-dominant" data-pptx-slide data-layout="chart-dominant">'
+    '<script type="application/json" data-chart-target="#c1">'
+    '{"categories":["a"],"series":[{"name":"s","values":[1]}]}'
+    "</script>"
+    "</section>"
+    "</body></html>"
+)
+
 
 def _write(html: Path, pptx: Path, text: str) -> None:
     html.write_text(text, encoding="utf-8")
@@ -146,6 +188,68 @@ def test_chart_dominant_no_chart_inside_not_preflighted(tmp_path, monkeypatch):
     html = tmp_path / "d.html"
     pptx = tmp_path / "d.pptx"
     _write(html, pptx, _CHART_DOM_NO_CHART_HTML)
+
+    monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+
+    out = deck.render(str(html), out=str(pptx), overwrite=True)
+    assert out == str(pptx)
+
+
+def test_chart_dominant_single_quote_layout(tmp_path, monkeypatch):
+    """单引号 data-layout='chart-dominant' 同样触发 preflight（两种引号都支持）。"""
+    html = tmp_path / "d.html"
+    pptx = tmp_path / "d.pptx"
+    _write(html, pptx, _CHART_DOM_SINGLE_QUOTE_HTML)
+
+    run_calls: list[list] = []
+    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: run_calls.append(a))
+
+    with pytest.raises(InvalidArgumentError) as exc:
+        deck.render(str(html), out=str(pptx), overwrite=True)
+    msg = str(exc.value)
+    assert "--layouts" in msg
+    assert "[1]" in msg
+    assert run_calls == []  # fail-fast：convert 子进程未被调用
+
+
+def test_chart_dominant_only_slides_filter(tmp_path, monkeypatch):
+    """only_slides 把 preflight 收窄到实际渲染的页（未渲染的 chart-dominant 页被过滤）。"""
+    html = tmp_path / "d.html"
+    pptx = tmp_path / "d.pptx"
+    _write(html, pptx, _TWO_CHART_DOM_HTML)
+
+    # only_slides=[1]：只渲染第 1 页 → 拦，且消息只列第 1 页（第 2 页被过滤）
+    with pytest.raises(InvalidArgumentError) as exc:
+        deck.render(str(html), out=str(pptx), overwrite=True, only_slides=[1])
+    msg = str(exc.value)
+    assert "[1]" in msg
+    assert "[2]" not in msg
+
+    # only_slides=[1,2]：两页都渲染 → 两页都列出
+    with pytest.raises(InvalidArgumentError) as exc:
+        deck.render(str(html), out=str(pptx), overwrite=True, only_slides=[1, 2])
+    assert "[1, 2]" in str(exc.value)
+
+    # 只渲染第 2 页（非 chart-dominant）→ 第 1 页被过滤 → preflight 放行
+    mixed = tmp_path / "mixed.html"
+    mixed_pptx = tmp_path / "mixed.pptx"
+    _write(mixed, mixed_pptx, _CHART_DOM_PLUS_PLAIN_HTML)
+    monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    out = deck.render(str(mixed), out=str(mixed_pptx), overwrite=True, only_slides=[2])
+    assert out == str(mixed_pptx)
+
+
+def test_chart_dominant_script_target_not_preflighted(tmp_path, monkeypatch):
+    """chart-dominant 页只有 data-chart-target 脚本、无真实图表容器 → 不拦。
+
+    回归：条件 (b) 必须匹配真实图表容器（data-chart= / class="chart"），
+    data-chart-target 里的子串 data-chart 不应误触发 preflight。
+    """
+    html = tmp_path / "d.html"
+    pptx = tmp_path / "d.pptx"
+    _write(html, pptx, _CHART_DOM_SCRIPT_TARGET_HTML)
 
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
     monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
