@@ -1,12 +1,10 @@
 """颜色规则：对比度 / 强调色泛滥 / 无强调色。
 
-rev2.1：前景色 foreground / run color；背景 effective_background 为 None 时
-covered 降级（无对比可判）；accent 只认前景色。
+rev2.2：前景色 foreground / run color；背景一律 effective_background（声明路径），
+像素仅用于 declared_not_found 低置信提示，不参与对比度归因（冻结契约，#38）。
 """
 
 from __future__ import annotations
-
-from typing import TypedDict
 
 from offipy.audit import Severity
 
@@ -41,18 +39,6 @@ def _effective_fg(el) -> list[ArtColor]:
     return []
 
 
-# 像素证据的 color_confidence 达到该值时才信任其背景判断（否则回退声明路径）
-_PIXEL_CONFIDENCE_MIN = 0.6
-
-
-class _PixelEvidenceKw(TypedDict, total=False):
-    """像素路径 make_finding 的 evidence_* 具名参数。"""
-
-    evidence_sources: set[str]
-    evidence_reliability: float
-    evidence_method: str
-
-
 def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     out = []
     eligible = [e for e in slide.elements if e.has_text()]
@@ -62,23 +48,7 @@ def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
         if not fgs:
             continue
         pe = e.pixel_evidence
-        bg: ArtColor | None = None
-        evidence_kw: _PixelEvidenceKw = {}
-        suffix = ""
-        # 像素路径：背景由像素验证（color_confidence 足够高时）
         if (
-            pe is not None
-            and pe.color_confidence >= _PIXEL_CONFIDENCE_MIN
-            and pe.background is not None
-        ):
-            bg = pe.background
-            evidence_kw = {
-                "evidence_sources": {"pixel"},
-                "evidence_reliability": 0.85,
-                "evidence_method": pe.method,
-            }
-            suffix = "（像素验证）"
-        elif (
             pe is not None
             and pe.method == "declared_not_found"
             and pe.foreground_match_ratio is not None
@@ -102,10 +72,9 @@ def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                 )
             )
             continue
-        else:
-            bg = effective_background(e, slide)
-            if bg is None:
-                continue  # 背景未知 → 无对比可判，covered 不加
+        bg = effective_background(e, slide)
+        if bg is None:
+            continue  # 背景未知 → 无对比可判，covered 不加
         covered += 1
         for c in fgs:
             if c is None:
@@ -120,12 +89,11 @@ def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                         RULE_LOW_CONTRAST,
                         "color",
                         sev,
-                        f"文本与背景对比度 {ratio:.2f} 低于 {ctx.profile.min_contrast}{suffix}。",
+                        f"文本与背景对比度 {ratio:.2f} 低于 {ctx.profile.min_contrast}。",
                         0.95,
                         slide.index,
                         primary=e,  # rev2.1：实测对比度 → 高置信
                         details={"ratio": round(ratio, 3)},
-                        **evidence_kw,
                     )
                 )
                 break
