@@ -138,12 +138,10 @@ def apply_profile_to_finding(
 ) -> ArtFinding:
     """Canonical severity/confidence precedence (exactly once per finding).
 
-    Precedence:
-    1. rule-computed severity (starting point, already on the finding)
-    2. feedback delta (+-1, bounded)  -- only when no user override
-    3. explicit user severity_overrides (highest, absolute)
-
-    A feedback delta and a user override never both apply.
+    Precedence (highest wins):
+    1. explicit user severity_overrides (absolute, sets source="user", suppresses feedback delta)
+    2. feedback delta (+-1, bounded) when no user override
+    3. rule-computed severity (the finding's starting point)
     """
     sev = profile.severity_overrides.get(finding.rule_id)
     conf = profile.confidence_overrides.get(finding.rule_id)
