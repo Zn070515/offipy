@@ -1,14 +1,23 @@
 import dataclasses
 import json
+from pathlib import Path
 
 import pytest
 
 from art_helpers import make_scene, make_slide, make_text_element
+from offipy.art.adapters import build_scene
 from offipy.art.analyze import analyze_deck, analyze_scene
-from offipy.art.feedback import append
-from offipy.art.profiles import RULE_CORNER_CLUSTER, RULE_TITLE_DRIFT, get_profile
+from offipy.art.feedback import ART_FEEDBACK_FILE, append, apply_feedback
+from offipy.art.profiles import (
+    RULE_CORNER_CLUSTER,
+    RULE_NO_ACCENT,
+    RULE_TITLE_DRIFT,
+    get_profile,
+)
 from offipy.audit import Severity
 from offipy.exceptions import InvalidArgumentError
+
+FIXTURES = Path(__file__).parent / "fixtures" / "art"
 
 
 def _build_scene():
@@ -328,3 +337,93 @@ def test_analyze_deck_feedback_adjusts_consistency_rule(tmp_path):
     assert fs[0].severity == Severity.MID
     assert fs[0].severity_override is True
     assert fs[0].severity_override_source == "feedback"
+
+
+def _findings_map(report):
+    """{(slide_index, dimension, rule_id): finding}，用于跨报告逐条对比。"""
+    return {
+        (s.slide_index, d.dimension, f.rule_id): f
+        for s in report.slides
+        for d in s.dimensions
+        for f in d.findings
+    }
+
+
+def test_analyze_scene_real_fixture_feedback_flow(tmp_path):
+    """S2 端到端：真实 v0.12.2 报告 + 反馈闭环。
+
+    - feedback 默认不加载（baseline 无任何 override 标记）；
+    - corner_cluster 3×fixed → +1 → LOW→MID（source=feedback）；
+    - no_accent 3×accepted → −1 → LOW 饱和不变，且不产生虚假 provenance 标记；
+    - 仅目标规则变化一级，其余 finding 逐条与 baseline 一致；
+    - 用户显式 override 压过反馈 delta（绝对 severity，source=user）；
+    - 内置 profile 共享对象从未被 mutate。
+    """
+    raw = (FIXTURES / "real_measurements.json").read_text(encoding="utf-8")
+    scene = build_scene(measurements=raw)
+
+    baseline = analyze_scene(scene, profile="balanced")  # feedback 默认 False
+    assert baseline.schema_version == "0.3"  # 报告 schema 0.3
+    assert _finding(baseline, RULE_CORNER_CLUSTER).severity == Severity.LOW
+    assert _finding(baseline, RULE_NO_ACCENT).severity == Severity.LOW
+
+    for _ in range(3):
+        append("balanced", RULE_CORNER_CLUSTER, "fixed", Severity.MID, feedback_dir=tmp_path)
+        append("balanced", RULE_NO_ACCENT, "accepted", Severity.MID, feedback_dir=tmp_path)
+
+    report = analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path)
+    cc = _finding(report, RULE_CORNER_CLUSTER)
+    assert cc.severity == Severity.MID  # LOW +1，只升一级
+    assert cc.severity_override is True
+    assert cc.severity_override_source == "feedback"
+    na = _finding(report, RULE_NO_ACCENT)
+    assert na.severity == Severity.LOW  # −1 在 LOW 饱和
+    assert na.severity_override is False  # 饱和不改值 → 无虚假标记
+    assert na.severity_override_source is None
+
+    # 只有 corner_cluster LOW→MID，其余 finding 逐条与 baseline 一致
+    for key, b in _findings_map(baseline).items():
+        r = _findings_map(report)[key]
+        if b.rule_id == RULE_CORNER_CLUSTER:
+            assert b.severity == Severity.LOW and r.severity == Severity.MID
+        else:
+            assert r.severity == b.severity
+            assert r.severity_override == b.severity_override
+            assert r.severity_override_source == b.severity_override_source
+
+    # 用户显式 override 压过反馈 delta
+    prof = dataclasses.replace(
+        get_profile("balanced"),
+        name="custom",
+        severity_overrides={RULE_CORNER_CLUSTER: Severity.HIGH},
+    )
+    report2 = analyze_scene(scene, profile=prof, feedback=True, feedback_dir=tmp_path)
+    cc2 = _finding(report2, RULE_CORNER_CLUSTER)
+    assert cc2.severity == Severity.HIGH  # 绝对 user override，不叠加反馈 +1
+    assert cc2.severity_override is True
+    assert cc2.severity_override_source == "user"
+
+    # 内置 profile 共享对象从未被 mutate；store 聚合喂给了本轮运行
+    p = get_profile("balanced")
+    assert p.feedback_severity_adjustments == {}
+    assert p.severity_overrides == {}
+    assert apply_feedback("balanced", feedback_dir=tmp_path).feedback_severity_adjustments == {
+        RULE_CORNER_CLUSTER: 1,
+        RULE_NO_ACCENT: -1,
+    }
+
+
+def test_analyze_scene_corrupt_feedback_line_skipped(tmp_path):
+    """脏反馈行不破坏分析：坏行跳过，有效记录仍生效。"""
+    raw = (FIXTURES / "real_measurements.json").read_text(encoding="utf-8")
+    scene = build_scene(measurements=raw)
+    for _ in range(3):
+        append("balanced", RULE_CORNER_CLUSTER, "fixed", Severity.MID, feedback_dir=tmp_path)
+    f = tmp_path / ART_FEEDBACK_FILE
+    lines = f.read_text(encoding="utf-8").splitlines()
+    f.write_text("not-json\n" + "\n".join(lines), encoding="utf-8")
+    report = analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path)
+    cc = _finding(report, RULE_CORNER_CLUSTER)
+    assert cc.severity == Severity.MID
+    assert cc.severity_override is True
+    assert cc.severity_override_source == "feedback"
