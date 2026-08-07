@@ -243,7 +243,7 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "color '#RRGGBB' and size (font size) style only the page-number field. "
         "mode is replace (default; clears the footer then inserts the PAGE field, legacy "
         "behavior) / append (keeps existing footer text and appends the field idempotently) / "
-        "standalone (keeps the text and places the page number in a left/center/right tab zone, "
+        "standalone (keeps the text: left flows directly after it, center/right use a tab zone, "
         "clearing any pre-existing tab stops in the footer)."
     ),
     ("word", "page_setup"): (

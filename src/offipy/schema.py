@@ -418,7 +418,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "color '#RRGGBB' 与 size 字号只作用于页码域；"
                 "mode 取 replace（默认，清空页脚后插入，legacy 行为）/ "
                 "append（保留既有文本后追加，幂等）/ "
-                "standalone（保留文本，页码放入左/中/右制表区，会清掉页脚既有制表位）。"
+                "standalone（保留文本，左对齐紧跟文本，中/右对齐用制表位分区，会清掉页脚既有制表位）。"
             ),
             destructive=True,
             params={
