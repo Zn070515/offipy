@@ -609,8 +609,8 @@ class _LocatedShape:
     - rotated_group_ancestor：是否处于旋转 group 内（几何读值不可信）。
     """
 
-    shape: object
-    containing_collection: object
+    shape: Any
+    containing_collection: Any
     parent_shape_id: int | None
     group_path: tuple[int, ...]
     rotated_group_ancestor: bool
@@ -1179,6 +1179,145 @@ class PptApp:
             _record_shape_info(shape, parent_shape_id=pid, group_path=gp, rotated=rot, z_order=z)
             for shape, pid, gp, rot, z in _iter_shape_records(slide.Shapes, recursive=recursive)
         ]
+
+    # --- S1 破坏性编辑 op（读回走 read_shapes） ---
+    @destructive
+    def set_shape_geometry(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        left: float | None = None,
+        top: float | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        rotation: float | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 几何（磅）：left/top/width/height/rotation，只更新传入属性。
+
+        - 至少传一个属性；width/height 必须 > 0；全部数值必须有限（NaN/Inf 拒绝）。
+        - group 子元素 left/top 写为**绝对坐标**（探针 #1）；group 包围盒自动重算。
+        - 旋转 group 后代：读值被 group 旋转变换不可信（probe #2）→ 传 left/top 抛
+          InvalidArgumentError；width/height/rotation 仍可用。
+        - 顶层 shape 旋转不影响 Left/Top 读写（probe #2），无特殊顺序要求。
+        """
+        if all(v is None for v in (left, top, width, height, rotation)):
+            raise InvalidArgumentError(
+                "set_shape_geometry: 至少提供 left/top/width/height/rotation 之一"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        if located.rotated_group_ancestor and (left is not None or top is not None):
+            raise InvalidArgumentError(
+                "set_shape_geometry: 旋转 group 内后代 left/top 读值不可信"
+                "（coordinate_space='unknown'），仅允许 width/height/rotation"
+            )
+        if left is not None:
+            left = _validate_finite_float(left, "left")
+        if top is not None:
+            top = _validate_finite_float(top, "top")
+        if width is not None:
+            width = _validate_positive_float(width, "width")
+        if height is not None:
+            height = _validate_positive_float(height, "height")
+        if rotation is not None:
+            rotation = _validate_finite_float(rotation, "rotation")
+        # 实际 COM 写失败由 @guard_com 统一转 ComOperationError（保留 HRESULT）
+        if left is not None:
+            shape.Left = left
+        if top is not None:
+            shape.Top = top
+        if width is not None:
+            shape.Width = width
+        if height is not None:
+            shape.Height = height
+        if rotation is not None:
+            shape.Rotation = rotation
+        return None
+
+    @destructive
+    def set_shape_text(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        text: str,
+        doc_id: str | None = None,
+    ):
+        """整体替换 shape 文本（保留样式）。
+
+        - 需要 TextFrame；图片/线条/无文本图形 → InvalidArgumentError。
+        - 探针 #4：替换后字体样式完全保留（新单 run 继承原首 run 格式），本 op
+          不新增任何样式参数（spec 冻结签名）。
+        """
+        if not isinstance(text, str):
+            raise InvalidArgumentError(
+                f"set_shape_text: text 必须是字符串，收到 {type(text).__name__}"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_text_frame(shape, "set_shape_text")
+        shape.TextFrame.TextRange.Text = text
+        return None
+
+    @destructive
+    def set_shape_font(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        font_name: str | None = None,
+        size: float | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        color: str | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 字体：font_name/size/bold/italic/color，只更新传入属性。
+
+        - 至少传一个属性；需要 TextFrame。
+        - 探针 #3：整范围 TextRange.Font 赋值会传播到**全部 run**，且只赋传入
+          属性、其余保留；读取仍走 Runs(1).Font 首 run 语义。
+        - color 严格 #RRGGBB；bold/italic 只收真 bool；size > 0。
+        """
+        if all(v is None for v in (font_name, size, bold, italic, color)):
+            raise InvalidArgumentError(
+                "set_shape_font: 至少提供 font_name/size/bold/italic/color 之一"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_text_frame(shape, "set_shape_font")
+        if font_name is not None and not isinstance(font_name, str):
+            raise InvalidArgumentError(
+                f"set_shape_font: font_name 必须是字符串，收到 {type(font_name).__name__}"
+            )
+        if size is not None:
+            size = _validate_positive_float(size, "size")
+        if bold is not None and not isinstance(bold, bool):
+            raise InvalidArgumentError(
+                f"set_shape_font: bold 必须是 bool，收到 {type(bold).__name__}"
+            )
+        if italic is not None and not isinstance(italic, bool):
+            raise InvalidArgumentError(
+                f"set_shape_font: italic 必须是 bool，收到 {type(italic).__name__}"
+            )
+        if color is not None:
+            color = _validate_hex_color(color, "color")
+        tr = shape.TextFrame.TextRange
+        if font_name is not None:
+            tr.Font.Name = font_name
+        if size is not None:
+            tr.Font.Size = size
+        if bold is not None:
+            tr.Font.Bold = -1 if bold else 0
+        if italic is not None:
+            tr.Font.Italic = -1 if italic else 0
+        if color is not None:
+            tr.Font.Color.RGB = _rgb_to_com(color)
+        return None
 
     def quit(self, force: bool = False):
         """退出 PowerPoint 会话。
