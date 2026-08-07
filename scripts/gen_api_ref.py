@@ -16,6 +16,9 @@ DOCS_API = Path(__file__).resolve().parent.parent / "docs" / "api"
 
 
 def _type_name(t) -> str:
+    if isinstance(t, tuple):
+        # schema 用 tuple 编码 str|float 这类简单联合（见 format_paragraph.line_spacing）
+        return " | ".join(_type_name(item) for item in t)
     return {
         str: "str",
         bool: "bool",
@@ -230,7 +233,8 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("word", "format_paragraph"): (
         "Set the paragraph format of the paragraph-th paragraph (1-based). alignment is "
         "left/center/right/justify; line_spacing is single/1.5/double/at_least/exactly/"
-        "multiple; space_before/space_after/left_indent/first_line_indent are in points."
+        "multiple or numeric 1/1.5/2; space_before/space_after/left_indent/first_line_indent "
+        "are in points."
     ),
     ("word", "set_header_text"): "Set the header text of the section-th section.",
     ("word", "set_footer_text"): "Set the footer text of the section-th section.",

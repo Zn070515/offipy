@@ -47,6 +47,16 @@ def test_every_schema_op_has_stub_method():
             assert op in _class_sigs(text, remote), f"{app}.{op} 缺 remote stub 方法"
 
 
+def test_format_paragraph_line_spacing_union_stub():
+    # S4 Task 3：stub 把 schema 的 (str, float) 联合渲染成 str | float | None
+    gen = _gen()
+    text = gen.render()
+    direct = _class_sigs(text, "Word")["format_paragraph"]
+    assert "line_spacing: str | float | None = None" in direct, direct
+    remote = _class_sigs(text, "RemoteWord")["format_paragraph"]
+    assert "line_spacing: str | float | None = None" in remote, remote
+
+
 def test_transport_params_match_entrypoint():
     gen = _gen()
     text = gen.render()

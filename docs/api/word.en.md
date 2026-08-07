@@ -114,9 +114,9 @@ Set the text format of the paragraph-th paragraph (1-based). bold/italic take bo
 
 ### `format_paragraph`
 
-Set the paragraph format of the paragraph-th paragraph (1-based). alignment is left/center/right/justify; line_spacing is single/1.5/double/at_least/exactly/multiple; space_before/space_after/left_indent/first_line_indent are in points.
+Set the paragraph format of the paragraph-th paragraph (1-based). alignment is left/center/right/justify; line_spacing is single/1.5/double/at_least/exactly/multiple or numeric 1/1.5/2; space_before/space_after/left_indent/first_line_indent are in points.
 
-- **Parameters**: `paragraph: int`, `alignment: str`, `line_spacing: str`, `space_before: float`, `space_after: float`, `left_indent: float`, `first_line_indent: float`, `doc_id: str`
+- **Parameters**: `paragraph: int`, `alignment: str`, `line_spacing: str | float`, `space_before: float`, `space_after: float`, `left_indent: float`, `first_line_indent: float`, `doc_id: str`
 - **Returns**: `void`
 - **Flags**: mutates document/app state
 

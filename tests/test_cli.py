@@ -426,6 +426,19 @@ def test_coerce_kwargs_int_invalid_exits(capsys):
     assert "整数" in capsys.readouterr().err
 
 
+def test_coerce_kwargs_line_spacing_keeps_string():
+    from offipy.cli import _coerce_kwargs
+
+    # S4 Task 3：CLI 的 --line_spacing 1.5 必须保留字符串（str|float 联合不做
+    # 数值转换——line_spacing 语义上既接受字符串枚举也接受数值）
+    assert _coerce_kwargs("word", "format_paragraph", {"line_spacing": "1.5"}) == {
+        "line_spacing": "1.5"
+    }
+    assert _coerce_kwargs("word", "format_paragraph", {"line_spacing": "single"}) == {
+        "line_spacing": "single"
+    }
+
+
 def test_coerce_kwargs_list_wraps_scalar():
     from offipy.cli import _coerce_kwargs
 

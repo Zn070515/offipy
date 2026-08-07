@@ -387,14 +387,14 @@ OPS: dict[str, dict[str, OpSpec]] = {
             description=(
                 "设置第 paragraph 段（1 基）的段落格式。alignment 取 "
                 "left/center/right/justify；line_spacing 取 "
-                "single/1.5/double/at_least/exactly/multiple；"
+                "single/1.5/double/at_least/exactly/multiple 或数值 1/1.5/2；"
                 "space_before/space_after/left_indent/first_line_indent 单位磅。"
             ),
             destructive=True,
             params={
                 "paragraph": int,
                 "alignment": str,
-                "line_spacing": str,
+                "line_spacing": (str, float),
                 "space_before": float,
                 "space_after": float,
                 "left_indent": float,

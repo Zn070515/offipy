@@ -106,6 +106,23 @@ def _resolve_style(name: str | None, table: dict[str, _T], label: str) -> _T:
     return table[key]
 
 
+def _normalize_line_spacing(value: str | float | None) -> str | None:
+    """把数值行距归一成 _LINE_SPACING 键；str 原样返回（沿用现有字符串查找）。"""
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bool):  # bool 是 int 子类，显式拒绝而非当作 1/0
+        raise InvalidArgumentError(
+            f"format_paragraph: 非法行距类型: {value!r}（期望 1/1.5/2 或字符串）"
+        )
+    if value in (1, 1.0):
+        return "single"
+    if value == 1.5:
+        return "1.5"
+    if value in (2, 2.0):
+        return "double"
+    raise InvalidArgumentError(f"format_paragraph: 非法数值行距: {value!r}（可选: 1 / 1.5 / 2）")
+
+
 def _resolve_table_sides(sides: str | None) -> list[int]:
     """把 all/outside/inside 或逗号分隔的边名解析成 wdBorderType 列表。"""
     name = (sides or "all").strip().lower()
@@ -493,7 +510,7 @@ class WordApp:
         self,
         paragraph: int,
         alignment: str | None = None,
-        line_spacing: str | None = None,
+        line_spacing: str | float | None = None,
         space_before: float | None = None,
         space_after: float | None = None,
         left_indent: float | None = None,
@@ -506,7 +523,9 @@ class WordApp:
         if alignment is not None:
             fmt.Alignment = _resolve_style(alignment, _ALIGN, "对齐")
         if line_spacing is not None:
-            fmt.LineSpacingRule = _resolve_style(line_spacing, _LINE_SPACING, "行距")
+            fmt.LineSpacingRule = _resolve_style(
+                _normalize_line_spacing(line_spacing), _LINE_SPACING, "行距"
+            )
         if space_before is not None:
             fmt.SpaceBefore = space_before
         if space_after is not None:

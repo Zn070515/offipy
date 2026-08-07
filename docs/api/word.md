@@ -114,9 +114,9 @@
 
 ### `format_paragraph`
 
-设置第 paragraph 段（1 基）的段落格式。alignment 取 left/center/right/justify；line_spacing 取 single/1.5/double/at_least/exactly/multiple；space_before/space_after/left_indent/first_line_indent 单位磅。
+设置第 paragraph 段（1 基）的段落格式。alignment 取 left/center/right/justify；line_spacing 取 single/1.5/double/at_least/exactly/multiple 或数值 1/1.5/2；space_before/space_after/left_indent/first_line_indent 单位磅。
 
-- **参数**: `paragraph: int`、`alignment: str`、`line_spacing: str`、`space_before: float`、`space_after: float`、`left_indent: float`、`first_line_indent: float`、`doc_id: str`
+- **参数**: `paragraph: int`、`alignment: str`、`line_spacing: str | float`、`space_before: float`、`space_after: float`、`left_indent: float`、`first_line_indent: float`、`doc_id: str`
 - **返回**: `void`
 - **标志**: 会改动文档/应用状态
 

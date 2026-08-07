@@ -382,3 +382,103 @@ def test_add_page_number_size_nonpositive_rejected():
         app.add_page_number(size=-1.5, doc_id="x")
     # 正数放行（不抛）
     app.add_page_number(size=12, doc_id="x")
+
+
+# --- S4 Task 3：line_spacing 数值/字符串双轨（fake-COM） ----------------------
+
+
+class _FakeParagraphFormat2:
+    def __init__(self):
+        self.Alignment = None
+        self.LineSpacingRule = None
+        self.SpaceBefore = None
+        self.SpaceAfter = None
+        self.LeftIndent = None
+        self.FirstLineIndent = None
+
+
+class _FakeSpacingParas:
+    def __init__(self, count=1):
+        self.Count = count
+        self._fmt = _FakeParagraphFormat2()
+
+    def __call__(self, idx):
+        return type("_P", (), {"Format": self._fmt})()
+
+
+class _FakeSpacingDoc:
+    def __init__(self, count=1):
+        self.Paragraphs = _FakeSpacingParas(count)
+
+
+def _spacing_app(doc):
+    app = WordApp.__new__(WordApp)
+    app._require_doc = lambda doc_id=None: doc
+    return app
+
+
+def test_format_paragraph_line_spacing_1_is_single():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing=1, doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 0  # wdLineSpaceSingle
+
+
+def test_format_paragraph_line_spacing_1_0_is_single():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing=1.0, doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 0
+
+
+def test_format_paragraph_line_spacing_1_5_is_one_and_half():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing=1.5, doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 1  # wdLineSpace1pt5
+
+
+def test_format_paragraph_line_spacing_2_is_double():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing=2, doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 2  # wdLineSpaceDouble
+
+
+def test_format_paragraph_line_spacing_2_0_is_double():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing=2.0, doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 2
+
+
+def test_format_paragraph_line_spacing_string_still_works():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, line_spacing="single", doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 0
+    app.format_paragraph(paragraph=1, line_spacing="1.5", doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule == 1
+
+
+def test_format_paragraph_line_spacing_invalid_numeric_rejected():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    with pytest.raises(InvalidArgumentError, match="非法数值行距"):
+        app.format_paragraph(paragraph=1, line_spacing=1.7, doc_id="x")
+
+
+def test_format_paragraph_line_spacing_bool_rejected():
+    # bool 是 int 子类：True/False 不得被当作 1/0 行距
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    for bad in (True, False):
+        with pytest.raises(InvalidArgumentError, match="非法行距类型"):
+            app.format_paragraph(paragraph=1, line_spacing=bad, doc_id="x")
+
+
+def test_format_paragraph_line_spacing_none_leaves_rule_untouched():
+    doc = _FakeSpacingDoc()
+    app = _spacing_app(doc)
+    app.format_paragraph(paragraph=1, doc_id="x")
+    assert doc.Paragraphs(1).Format.LineSpacingRule is None
