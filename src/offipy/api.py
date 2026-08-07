@@ -16,6 +16,7 @@ import inspect
 
 from . import client, schema
 from .excel import ExcelApp
+from .exceptions import InvalidArgumentError
 from .ppt import PptApp
 from .word import WordApp
 
@@ -203,6 +204,6 @@ def op(app: str, op_name: str, **kw):
     """
     factory = _APP_FACTORIES.get(app)
     if factory is None:
-        raise ValueError(f"未知应用: {app}，可选 {list(_APP_FACTORIES)}")
+        raise InvalidArgumentError(f"未知应用: {app}，可选 {list(_APP_FACTORIES)}")
     with factory() as f:
         return getattr(f, op_name)(**kw)

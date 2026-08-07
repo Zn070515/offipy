@@ -9,6 +9,7 @@ from offipy.excel import (
     _LINE_STYLE,
     _ORIENTATION,
     _PAPER_SIZE,
+    ExcelApp,
     _parse_cell,
     _resolve_sides,
     _resolve_style,
@@ -98,3 +99,49 @@ def test_parse_cell_malformed_rejected():
 def test_parse_cell_case_insensitive():
     assert _parse_cell("a1") == (1, 1)
     assert _parse_cell("xfd1048576") == (1048576, 16384)
+
+
+# --- #41：三个 range op 畸形地址先于触 COM 抛 InvalidArgumentError ---
+
+
+def _raise_if_called(*args, **kwargs):
+    raise AssertionError("畸形地址不应触达 COM 层 _ws")
+
+
+@pytest.fixture
+def excel_stub(monkeypatch):
+    app = object.__new__(ExcelApp)
+    monkeypatch.setattr(ExcelApp, "_ws", _raise_if_called)
+    return app
+
+
+@pytest.mark.parametrize(
+    "op, kwargs",
+    [
+        ("set_number_format", {"range_addr": "???", "fmt": "#,##0"}),
+        (
+            "add_conditional_format",
+            {"range_addr": "???:", "rule": "cell", "operator": "greater", "value": 1},
+        ),
+        ("autofit", {"range_addr": "1A1"}),
+    ],
+)
+def test_malformed_range_rejected_before_com(excel_stub, op, kwargs):
+    with pytest.raises(InvalidArgumentError, match="非法区域"):
+        getattr(excel_stub, op)("sheet1", doc_id="d1", **kwargs)
+
+
+@pytest.mark.parametrize(
+    "op, kwargs",
+    [
+        ("set_number_format", {"range_addr": "A1:B2", "fmt": "#,##0"}),
+        (
+            "add_conditional_format",
+            {"range_addr": "A1:B2", "rule": "cell", "operator": "greater", "value": 1},
+        ),
+        ("autofit", {"range_addr": "A1:B2"}),
+    ],
+)
+def test_valid_range_reaches_com(excel_stub, op, kwargs):
+    with pytest.raises(AssertionError, match="不应触达"):
+        getattr(excel_stub, op)("sheet1", doc_id="d1", **kwargs)

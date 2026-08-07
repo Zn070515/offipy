@@ -82,6 +82,13 @@ def test_facade_propagates_offipy_exception(monkeypatch):
         p.add_slide()
 
 
+def test_op_unknown_app_raises_invalid_argument(monkeypatch):
+    # #42：op() 分发未知应用抛 InvalidArgumentError（OffipyError 子类），
+    # 而非裸 ValueError——CLI/MCP 按 exit 2 契约统一捕获才能正确映射。
+    with pytest.raises(exceptions.InvalidArgumentError, match="未知应用"):
+        api.op("bogus", "noop")
+
+
 def test_facade_missing_op_raises_attribute_error(monkeypatch):
     class FakeApp:
         pass

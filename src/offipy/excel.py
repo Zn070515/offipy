@@ -611,6 +611,7 @@ class ExcelApp:
         doc_id: str | None = None,
     ):
         rule = rule.strip().lower()
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
         rng = ws.Range(range_addr)
         if rule == "cell":
@@ -649,6 +650,7 @@ class ExcelApp:
 
     @destructive
     def set_number_format(self, sheet, range_addr: str, fmt: str, doc_id: str | None = None):
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         self._ws(sheet, doc_id).Range(range_addr).NumberFormat = fmt
 
     @destructive
@@ -660,6 +662,8 @@ class ExcelApp:
         rows: bool = True,
         doc_id: str | None = None,
     ):
+        if range_addr is not None:
+            _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
         target = ws.Range(range_addr) if range_addr else ws.UsedRange
         if columns:

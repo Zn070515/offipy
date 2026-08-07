@@ -115,6 +115,45 @@ def test_bad_line_skipped(tmp_path):
     assert records[0].dimension == "palette"
 
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"dimension": "bogus", "action": "fixed"},  # 未知维度
+        {"dimension": "palette", "action": "wat"},  # 未知处置
+    ],
+)
+def test_invalid_dimension_action_row_skipped(tmp_path, bad):
+    """#40：读取路径对非法 dimension/action 坏行跳过，dimension_weights 不裸抛 KeyError。"""
+    f = tmp_path / feedback.FEEDBACK_FILE
+    f.parent.mkdir(parents=True, exist_ok=True)
+    good = {
+        "ts": "2026-01-01T00:00:00+00:00",
+        "dimension": "palette",
+        "severity": "MID",
+        "page": 1,
+        "message": "ok",
+        "action": "fixed",
+    }
+    bad_row = {
+        "ts": "2026-01-01T00:00:00+00:00",
+        "severity": "MID",
+        "page": 1,
+        "message": "x",
+        **bad,
+    }
+    f.write_text(
+        json.dumps(bad_row, ensure_ascii=False)
+        + "\n"
+        + json.dumps(good, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    records = load_records(tmp_path)
+    assert len(records) == 1
+    assert records[0].dimension == "palette"
+    assert dimension_weights(tmp_path)["palette"] == pytest.approx(1.5)  # 只吃到 good 行
+
+
 def test_weights_feed_into_audit(tmp_path):
     """端到端：反馈权重可直接传给审计。"""
     from offipy import aesthetic

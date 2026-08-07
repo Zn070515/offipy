@@ -68,6 +68,34 @@ def test_request_unknown_code_falls_back_to_remote(monkeypatch):
         client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
 
 
+def test_request_400_with_error_code_maps_domain(monkeypatch):
+    # #47：400 带可识别 error_code → 领域异常（invalid_argument），非 RemoteCallError。
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+
+    def raiser(req, timeout=None):
+        raise _http_error(req, 400, "invalid_argument")
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    with pytest.raises(InvalidArgumentError):
+        client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
+
+
+def test_request_400_without_error_code_falls_back_to_remote(monkeypatch):
+    # #47：400 无 error_code（如坏 body）→ RemoteCallError。
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+
+    def raiser(req, timeout=None):
+        body = {"ok": False, "error": "bad"}
+        data = json.dumps(body).encode()
+        raise urllib.error.HTTPError(req.full_url, 400, "Error", {}, io.BytesIO(data))
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    from offipy.exceptions import RemoteCallError
+
+    with pytest.raises(RemoteCallError):
+        client.request("excel", "set_cell", sheet=1, cell="A1", value=1)
+
+
 # --- 契约4/5：request 应用层失败抛异常（非返回 dict）+ ComOperationError 透传 hresult ---
 
 
@@ -326,3 +354,15 @@ def test_dispatch_quit_skips_rebuild_when_dead(monkeypatch):
     monkeypatch.setattr(server, "_rebuild", lambda app: rebuild_calls.append(app) or app)
     assert server.dispatch(FakeApp(), "quit", {}, "x") is None
     assert rebuild_calls == []  # quit 目标就是退出，不反拉起新实例
+
+
+def test_dispatch_quit_rejects_follow_active(monkeypatch):
+    # #46：protocol.md quit 不接受 expected_target/follow_active 任一——
+    # follow_active 曾静默消费，现对称拒绝（与 expected_target 一致）。
+    class FakeApp:
+        def quit(self):
+            return None
+
+    monkeypatch.setattr(server, "_alive", lambda a: True)
+    with pytest.raises(InvalidArgumentError, match="quit 不接受 follow_active"):
+        server.dispatch(FakeApp(), "quit", {"follow_active": True}, "x")

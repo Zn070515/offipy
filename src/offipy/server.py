@@ -580,6 +580,10 @@ def dispatch(app, op: str, args: dict, app_name: str):
         app = _rebuild(app)
     expected = args.pop("expected_target", None)
     follow_active = bool(args.pop("follow_active", False))
+    if op == "quit" and follow_active:
+        # #46：protocol.md quit 不接受 expected_target/follow_active 任一——
+        # follow_active 曾静默消费，对称拒绝防调用方误以为生效。
+        raise InvalidArgumentError("quit 不接受 follow_active（无 doc_id 目标语义）")
     binds_target = schema.supports_expected_target(app_name, op)  # destructive ∪ requires_target
     if expected is not None and binds_target and op != "quit":
         # P0-4/5 + P0-3：破坏性/导出 op 绑定目标——不跟随用户焦点。resolve-once：
@@ -826,18 +830,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             _COM_QUEUE.put_nowait((app_name, op, raw_args, None, entry))
         except queue.Full:
-            # op 未入队：回滚 entry，调用方同 id 重试时重建（不 merge 到永不完成的死锁）
+            # op 未入队：回滚 entry（移除缓存项），调用方同 id 重试时重建（不 merge 到
+            # 永不完成的死锁）。_complete_entry 同步 result + event——否则已合并等待的
+            # 非 owner 线程空等 _CALL_TIMEOUT 后误报 504（#45）。
+            busy = {
+                "ok": False,
+                "error": "server 忙（COM 队列已满），请稍后重试",
+                "error_code": "busy",
+            }
             with _REQUEST_LOCK:
                 if _REQUEST_ID_CACHE.get(request_id) is entry:
                     _REQUEST_ID_CACHE.pop(request_id, None)
-            return self._reply(
-                {
-                    "ok": False,
-                    "error": "server 忙（COM 队列已满），请稍后重试",
-                    "error_code": "busy",
-                },
-                status=503,
-            )
+            _complete_entry(entry, busy)
+            return self._reply(dict(busy), status=503)
         if not entry.event.wait(_CALL_TIMEOUT):
             # 超时：entry 留 inflight（同 ID 重试仍合并不重执行——绝不双写）
             return self._reply(

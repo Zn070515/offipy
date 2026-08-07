@@ -134,9 +134,11 @@ def load_records(feedback_dir: str | Path | None = None) -> list[FeedbackRecord]
         if not line.strip():
             continue
         try:
-            records.append(FeedbackRecord.from_dict(json.loads(line)))
+            rec = FeedbackRecord.from_dict(json.loads(line))
+            _validate(rec.dimension, rec.action)
+            records.append(rec)
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            continue  # 跳过坏行（含非数字 page），不因一条脏数据破坏整体
+            continue  # 跳过坏行（含非数字 page / 未知维度 / 未知处置），不因一条脏数据破坏整体
     return records
 
 

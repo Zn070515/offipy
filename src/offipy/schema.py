@@ -419,14 +419,15 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "mode 取 replace（默认，清空页脚后插入，legacy 行为）/ "
                 "append（保留既有文本后追加，幂等）/ "
                 "standalone（保留文本，左对齐紧跟文本，中/右对齐用制表位分区，会清掉页脚既有制表位）。"
+                "mode 为关键字专用参数（keyword-only）。"
             ),
             destructive=True,
             params={
                 "alignment": str,
                 "color": str,
                 "size": float,
-                "mode": str,
                 "doc_id": str,
+                "mode": str,
             },
         ),
         "page_setup": OpSpec(

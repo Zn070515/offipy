@@ -244,7 +244,8 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "mode is replace (default; clears the footer then inserts the PAGE field, legacy "
         "behavior) / append (keeps existing footer text and appends the field idempotently) / "
         "standalone (keeps the text: left flows directly after it, center/right use a tab zone, "
-        "clearing any pre-existing tab stops in the footer)."
+        "clearing any pre-existing tab stops in the footer). "
+        "mode is keyword-only."
     ),
     ("word", "page_setup"): (
         "Page setup. orientation is portrait/landscape; paper is letter/legal/a3/a4/a5; "
