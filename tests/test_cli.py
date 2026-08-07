@@ -3,7 +3,12 @@
 import pytest
 
 from offipy.cli import build_parser
-from offipy.exceptions import ComOperationError, FileConflictError, InvalidArgumentError
+from offipy.exceptions import (
+    ComOperationError,
+    FileConflictError,
+    InvalidArgumentError,
+    TargetNotFoundError,
+)
 
 
 def test_no_subcommand_errors_with_usage():
@@ -1196,3 +1201,121 @@ def test_ppt_add_picture_missing_file_exits_2(monkeypatch, capsys):
         "源文件不存在",
         "C:\\nope.png",
     )
+
+
+# --- S5 Task 5：跨命令冒烟矩阵（冻结退出码策略 + 无 traceback） ---
+
+_CLI_SMOKE_MATRIX = [
+    # (args, exc_cls, msg, exit_code, snippets, absent)
+    # word —— 运行前非法输入（缺源文件）→ 2
+    (
+        ["word", "open_doc", "--path", "C:\\nope.docx"],
+        InvalidArgumentError,
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx",
+        2,
+        ("word", "open_doc", "源文件不存在", "C:\\nope.docx"),
+        (),
+    ),
+    # excel —— 运行前非法输入（缺源文件）→ 2
+    (
+        ["excel", "open_book", "--path", "C:\\nope.xlsx"],
+        InvalidArgumentError,
+        "[excel::open_book] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.xlsx",
+        2,
+        ("excel", "open_book", "源文件不存在", "C:\\nope.xlsx"),
+        (),
+    ),
+    # ppt —— 运行前非法输入（缺源文件）→ 2
+    (
+        ["ppt", "open_pres", "--path", "C:\\nope.pptx"],
+        InvalidArgumentError,
+        "[ppt::open_pres] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.pptx",
+        2,
+        ("ppt", "open_pres", "源文件不存在", "C:\\nope.pptx"),
+        (),
+    ),
+    # ppt —— 运行时 COM 失败（存在但非法格式）→ 1，帧行/类型前缀被清洗
+    (
+        ["ppt", "open_pres", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[ppt::open_pres] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\ppt.py", line 864, in open_pres\n'
+        "      return self._register(self.app.Presentations.Open(os.path.abspath(path)))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        ("ppt", "open_pres", "无法打开", "C:\\notes.txt"),
+        ("ppt.py", "ComOperationError"),
+    ),
+    # shape —— 非法参数（几何属性全缺）→ 2（运行前非法输入）
+    (
+        [
+            "ppt",
+            "set_shape_geometry",
+            "--slide_idx",
+            "1",
+            "--shape_id",
+            "1",
+            "--follow-active",
+        ],
+        InvalidArgumentError,
+        "[ppt::set_shape_geometry] 失败: InvalidArgumentError: "
+        "set_shape_geometry: 至少提供 left/top/width/height/rotation 之一",
+        2,
+        ("ppt", "set_shape_geometry", "至少提供"),
+        (),
+    ),
+    # shape —— 目标 shape 不存在 → 1（TargetNotFoundError 运行时领域失败）
+    (
+        [
+            "ppt",
+            "set_shape_text",
+            "--slide_idx",
+            "1",
+            "--shape_id",
+            "999",
+            "--text",
+            "hi",
+            "--follow-active",
+        ],
+        TargetNotFoundError,
+        "[ppt::set_shape_text] 失败: TargetNotFoundError: shape 999 已不在所在集合内",
+        1,
+        ("ppt", "set_shape_text", "已不在"),
+        (),
+    ),
+    # shape —— COM 写失败不泄漏 HRESULT traceback → 1，帧行/类型前缀被清洗
+    (
+        [
+            "ppt",
+            "set_shape_geometry",
+            "--slide_idx",
+            "1",
+            "--shape_id",
+            "1",
+            "--left",
+            "1",
+            "--follow-active",
+        ],
+        ComOperationError,
+        "[ppt::set_shape_geometry] 失败: ComOperationError: 设置形状几何失败\n"
+        '    File "C:\\...\\ppt.py", line 1260, in set_shape_geometry\n'
+        "      shape.Left = left\n"
+        "  ComOperationError: 设置形状几何失败",
+        1,
+        ("ppt", "set_shape_geometry", "设置形状几何失败"),
+        ("ppt.py", "ComOperationError"),
+    ),
+]
+
+
+_CLI_SMOKE_IDS = [f"{row[0][1]}::{row[0][2]}" for row in _CLI_SMOKE_MATRIX]
+
+
+@pytest.mark.parametrize(
+    "args,exc_cls,msg,code,snippets,absent",
+    _CLI_SMOKE_MATRIX,
+    ids=_CLI_SMOKE_IDS,
+)
+def test_cli_smoke_matrix(monkeypatch, capsys, args, exc_cls, msg, code, snippets, absent):
+    # S5 冒烟矩阵：逐代表性路径钉 exit code（1/2 按冻结策略）+ stderr 清洗 + 无 traceback
+    _assert_cli_error(monkeypatch, capsys, args, exc_cls, msg, code, *snippets, absent=absent)
