@@ -1,8 +1,8 @@
-"""offipy.assets — public asset core (A2).
+"""offipy.assets — public asset core (Asset System v1).
 
 Pure stdlib import surface: model/uri/registry/license/color/materialize
-contracts live here. Providers (icons, procedural, primitives) are added in
-A3/A4/A5.
+contracts live here. Default providers: ph/lu (icons), procedural (patterns),
+primitives (native presentation primitives).
 """
 
 from offipy.assets.color import validate_color_value

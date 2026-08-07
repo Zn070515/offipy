@@ -53,6 +53,7 @@ pointing at `offipy mcp`.
 - [Compatibility matrix](compatibility.en.md): Windows / Office / Python / extras support.
 - [Deprecation policy](deprecation.en.md): deprecation workflow and the response `warning` field.
 - [Migration guide](migration.md): 0.9 → 0.10 breaking changes and migration steps.
+- [Asset System](assets.en.md): `asset://` icons / textures / native primitives, providers and `assets.json` provenance.
 
 ## Building the docs
 

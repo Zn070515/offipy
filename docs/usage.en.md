@@ -123,6 +123,10 @@ live presentation and free the copy with `deck.close_live(doc_id)`; if a target 
 otherwise held open, `render` raises an actionable error (suggesting `close_live` /
 `offipy quit ppt`, or a different output name).
 
+For `data-asset` / `data-primitive` / `data-asset-param-*` / `data-asset-placement`
+asset declarations, the `asset://` URI, providers and `assets.json` provenance, see
+[Asset System](assets.en.md).
+
 ## Python API
 
 ```python

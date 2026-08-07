@@ -109,6 +109,9 @@ playwright install chromium
 可反复重渲染（#22）。用 `deck.close_live(doc_id)` 关闭实况演示并清理副本；目标文件被
 占用时 `render` 会给出可操作错误（提示先 `close_live` / `offipy quit ppt`，或换输出名）。
 
+`data-asset` / `data-primitive` / `data-asset-param-*` / `data-asset-placement` 资源
+声明与 `asset://` URI、provider 与 `assets.json` 溯源，见 [资源系统](assets.md)。
+
 ## Python API
 
 ```python

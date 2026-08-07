@@ -1,3 +1,28 @@
+## v0.13.2 → v0.14.0
+
+v0.14 引入**资源系统（Asset System v1）**：统一 `asset://` 资源管线（provider →
+测量 → 占位符注入 → 渲染落位）。对既有 deck HTML **无破坏**，旧 `data-icon` 图标写法
+**无需改动**，内部迁移到 `ph` / `lu` provider。
+
+- **新规范声明（新增，可选）**：`data-asset="asset://<provider>/<kind>/<name>"` +
+  `data-asset-param-*`（按 provider schema 传参）+ `data-asset-placement`
+  （`replace` 默认 / `decorative` / `background`）。原生图元可用 `data-primitive`
+  简写（预处理展开成规范 `data-asset`）。完整语法见 [资源系统](assets.md)。
+- **`no_visual_audit` 前置检查扩大（行为变化）**：`--no-visual-audit` 现在除了
+  拒绝 `data-chart` / `data-icon`，也拒绝 `data-asset` / `data-primitive` 声明
+  （fail-fast，chromium 启动前）——资源注入依赖 visual audit 的 `measurements.json`。
+- **visual-audit 渲染产出 `assets.json`（新增）**：输出目录（如 `out_audit/`）内新增
+  `assets.json` 用法清单，记录每个资源的 provider / 许可证 / 来源 / 落位。
+- **`no_visual_audit` 不产资产清单（行为约束）**：`no_visual_audit` 渲染没有审计目录，
+  也不产出 `assets.json`。
+- **原生图元不带嵌套资源（v0.14 限制）**：`device-frame` / `browser-mockup` 没有
+  `screenshot` / `src` / `image` 参数，屏幕是空的可编辑区域；`background` 落位对
+  原生图元显式报错。
+- **内置 provider**：`ph`（1512 Phosphor 图标）/ `lu`（1756 Lucide 图标）/
+  `procedural`（8 个确定性纹理）/ `primitives`（8 个原生图元）。
+
+---
+
 ## v0.12.2 → v0.13.0
 
 v0.13 是**纯新增 + CLI 行为对齐**版本：不破坏任何 0.12 的既有 API / 返回契约。现有代码**无需改动**，
