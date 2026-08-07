@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 from . import core
@@ -19,7 +20,13 @@ from .exceptions import (
     InvalidArgumentError,
     TargetNotFoundError,
 )
-from .models import CoordinateSpace, SlideTextRecord, placeholder_type_name
+from .models import (
+    CoordinateSpace,
+    ShapeInfo,
+    SlideTextRecord,
+    placeholder_type_name,
+    shape_type_name,
+)
 from .paths import default_save_path, ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
@@ -83,6 +90,9 @@ def _shape_has_text_frame(shape) -> bool:
 
 MSO_GROUP = 6  # MsoShapeType.msoGroup
 MSO_PLACEHOLDER = 14  # MsoShapeType.msoPlaceholder
+MSO_FILL_SOLID = 1  # MsoFillType.msoFillSolid（仅 solid fill 给色）
+MSO_ZORDER_BRING_FORWARD = 2  # MsoZOrderCmd.msoBringForward（rank 增）
+MSO_ZORDER_SEND_BACKWARD = 3  # MsoZOrderCmd.msoSendBackward（rank 减）
 
 
 def _shape_is_group(shape) -> bool:
@@ -192,6 +202,226 @@ def _placeholder_info(shape) -> tuple[bool, int | None, str | None]:
         return True, ph_type, placeholder_type_name(ph_type)
     except Exception:
         return False, None, None
+
+
+def _require_shape_id(shape) -> int:
+    """严格 shape 身份：读不到 Id 抛 ComOperationError（read_shapes 无 0 兜底）。"""
+    try:
+        return int(shape.Id)
+    except Exception as e:
+        raise ComOperationError(f"shape.Id 读取失败（无稳定身份）: {e}") from e
+
+
+def _rgb_to_hex(rgb: int) -> str:
+    """COM RGB（BGR 打包）→ #RRGGBB。"""
+    rgb = int(rgb) & 0xFFFFFF
+    r = rgb & 0xFF
+    g = (rgb >> 8) & 0xFF
+    b = (rgb >> 16) & 0xFF
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _shape_type(shape) -> tuple[int, str]:
+    """(MsoShapeType 数值, 名称)；读不到 Type → (0, "unknown_0")。"""
+    try:
+        t = int(shape.Type)
+    except Exception:
+        t = 0
+    return t, shape_type_name(t)
+
+
+def _shape_rotation(shape) -> float:
+    try:
+        return float(shape.Rotation)
+    except Exception:
+        return 0.0
+
+
+def _shape_visible(shape) -> bool | None:
+    """MsoTriState 正规化：-1/1→True、0→False、混合态→None。"""
+    try:
+        return _tri_state_to_bool(shape.Visible)
+    except Exception:
+        return None
+
+
+def _shape_fill(shape) -> tuple[str | None, float | None]:
+    """(hex_color, transparency)。仅 solid fill 给色；gradient/pattern/picture → None。"""
+    try:
+        fill = shape.Fill
+        if int(fill.Type) != MSO_FILL_SOLID:
+            return None, None
+    except Exception:
+        return None, None
+    color = None
+    try:
+        color = _rgb_to_hex(fill.ForeColor.RGB)
+    except Exception:
+        color = None
+    transparency = None
+    try:
+        transparency = float(fill.Transparency)
+    except Exception:
+        transparency = None
+    return color, transparency
+
+
+def _shape_line(shape) -> tuple[str | None, float | None]:
+    """(hex_color, width)。仅可见 line 给色；隐藏 line → 均 None。"""
+    try:
+        line = shape.Line
+        visible = _tri_state_to_bool(line.Visible)
+    except Exception:
+        return None, None
+    if visible is False:
+        return None, None
+    color = None
+    try:
+        color = _rgb_to_hex(line.ForeColor.RGB)
+    except Exception:
+        color = None
+    width = None
+    try:
+        width = float(line.Weight)
+    except Exception:
+        width = None
+    return color, width
+
+
+def _shape_font(shape) -> tuple[float | None, str | None, str | None]:
+    """(size, name, color_hex) 首 run 语义；无文本/空文本 → 全 None。"""
+    if not _shape_has_text_frame(shape):
+        return None, None, None
+    try:
+        tr = shape.TextFrame.TextRange
+    except Exception:
+        return None, None, None
+    try:
+        if not str(tr.Text):
+            return None, None, None
+    except Exception:
+        return None, None, None
+    try:
+        font = tr.Runs(1).Font
+    except Exception:
+        return None, None, None
+    size = name = color = None
+    try:
+        size = float(font.Size)
+    except Exception:
+        size = None
+    try:
+        name = str(font.Name)
+    except Exception:
+        name = None
+    try:
+        color = _rgb_to_hex(font.Color.RGB)
+    except Exception:
+        color = None
+    return size, name, color
+
+
+def _local_z_order_rank(shapes) -> list[int]:
+    """所在集合内每 shape 的 1-based z-order rank（与 shapes 元素顺序对齐）。
+
+    顶层（slide.Shapes）ZOrderPosition 即 1..Count，rank 恒等于 ZOrderPosition；
+    group 子元素 ZOrderPosition 带偏移（探针 #6），按兄弟 ZOrderPosition 排序推出的
+    rank 还原为 group-local 1..Count。读不到 ZOrderPosition 的排最后（稳定兜底）。
+    """
+    zs = [_shape_z_order(sh) for sh in shapes]
+    return [1 + sum(1 for oz in zs if oz < z) for z in zs]
+
+
+def _iter_shape_records(
+    shapes,
+    *,
+    recursive: bool,
+    parent_shape_id: int | None = None,
+    group_path: tuple[int, ...] = (),
+    rotated: bool = False,
+):
+    """read_shapes 专用遍历：产出 (shape, parent_shape_id, group_path, rotated, z_order)。
+
+    - shape_id 严格：任何 shape Id 读不到 → _require_shape_id 抛 ComOperationError。
+    - z_order 为所在集合内 1-based rank（_local_z_order_rank）。
+    - rotated：是否处于旋转 group 内 → coordinate_space="unknown"。
+    - 先判 Type==6 再访问 GroupItems（COM Group() 拍平嵌套 group 时直接访问抛错，探针实证）。
+    """
+    items: list = []
+    try:
+        count = int(shapes.Count)
+    except Exception:
+        return
+    for i in range(1, count + 1):
+        try:
+            items.append(shapes(i))
+        except Exception:
+            continue
+    ranks = _local_z_order_rank(items)
+    for shape, z_order in zip(items, ranks, strict=True):
+        sid = _require_shape_id(shape)
+        is_group = _shape_is_group(shape)
+        yield (shape, parent_shape_id, group_path, rotated, z_order)
+        if is_group and recursive:
+            try:
+                group_items = shape.GroupItems
+            except Exception:
+                continue
+            child_rotated = rotated or _shape_is_rotated(shape)
+            yield from _iter_shape_records(
+                group_items,
+                recursive=True,
+                parent_shape_id=sid,
+                group_path=group_path + (sid,),
+                rotated=child_rotated,
+            )
+
+
+def _record_shape_info(
+    shape,
+    *,
+    parent_shape_id: int | None,
+    group_path: tuple[int, ...],
+    rotated: bool,
+    z_order: int,
+) -> ShapeInfo:
+    """读 shape → ShapeInfo。可选字段逐 try/except 兜底（诚实读，不编假值）。"""
+    is_ph, ph_type, ph_name = _placeholder_info(shape)
+    has_text = _shape_has_text_frame(shape)
+    font_size, font_name, font_color = _shape_font(shape)
+    fill_color, fill_transparency = _shape_fill(shape)
+    line_color, line_width = _shape_line(shape)
+    st, st_name = _shape_type(shape)
+    coordinate_space: CoordinateSpace = "unknown" if rotated else "slide"
+    return {
+        "shape_id": _require_shape_id(shape),
+        "name": _shape_name(shape),
+        "shape_type": st,
+        "shape_type_name": st_name,
+        "left": _shape_float(shape, "Left"),
+        "top": _shape_float(shape, "Top"),
+        "width": _shape_float(shape, "Width"),
+        "height": _shape_float(shape, "Height"),
+        "coordinate_space": coordinate_space,
+        "coordinate_unit": "pt",
+        "rotation": _shape_rotation(shape),
+        "visible": _shape_visible(shape),
+        "fill_color": fill_color,
+        "fill_transparency": fill_transparency,
+        "line_color": line_color,
+        "line_width": line_width,
+        "has_text_frame": has_text,
+        "text": _shape_text(shape),
+        "font_size": font_size,
+        "font_name": font_name,
+        "font_color": font_color,
+        "is_placeholder": is_ph,
+        "placeholder_type": ph_type,
+        "placeholder_type_name": ph_name,
+        "parent_shape_id": parent_shape_id,
+        "group_path": list(group_path),
+        "z_order": z_order,
+    }
 
 
 def _record_from_shape(
@@ -366,6 +596,193 @@ def _summarize_slide(slide, index: int, pw: float, ph: float) -> dict:
             and item.record["text"]
         )
     return {"index": index, "title": title, "body": body, "notes": _read_notes(slide)}
+
+
+# ------------------------------------------------------------------ 编辑定位 / 校验（S1）
+
+
+@dataclass
+class _LocatedShape:
+    """编辑操作定位结果：shape 本身 + 所在集合（slide.Shapes 或父 GroupItems）。
+
+    - containing_collection：z-order / 删除在正确的集合内操作（group 子元素在父
+      GroupItems，绝不跨集合）。
+    - parent_shape_id / group_path：与 read_shapes 的语义一致（外层→内层）。
+    - rotated_group_ancestor：是否处于旋转 group 内（几何读值不可信）。
+    """
+
+    shape: Any
+    containing_collection: Any
+    parent_shape_id: int | None
+    group_path: tuple[int, ...]
+    rotated_group_ancestor: bool
+
+
+def _locate_in_shapes(
+    shapes,
+    shape_id: int,
+    *,
+    parent_shape_id: int | None,
+    group_path: tuple[int, ...],
+    rotated: bool,
+) -> _LocatedShape | None:
+    """在 shapes 集合内按 shape_id 递归找 shape；未命中返回 None。
+
+    shapes 是 slide.Shapes 或某 group 的 GroupItems；parent_shape_id/group_path 描述
+    shapes 的**子元素**的父级关系（top-level → (None, ())；group 子元素 → 父 id +
+    祖先链）。shape_id 严格：遍历途中任何 Id 读不到 → ComOperationError（与
+    read_shapes 一致）。绝不调用 Shapes.Range([id])（COM Range 按名称/序号索引，
+    id 匹配不可靠，探针 #4 建议逐 shape 扫描）。
+    """
+    try:
+        count = int(shapes.Count)
+    except Exception:
+        return None
+    for i in range(1, count + 1):
+        try:
+            shape = shapes(i)
+        except Exception:
+            continue
+        sid = _require_shape_id(shape)
+        if sid == shape_id:
+            return _LocatedShape(
+                shape=shape,
+                containing_collection=shapes,
+                parent_shape_id=parent_shape_id,
+                group_path=group_path,
+                rotated_group_ancestor=rotated,
+            )
+        if _shape_is_group(shape):
+            try:
+                items = shape.GroupItems
+            except Exception:
+                continue
+            child_rotated = rotated or _shape_is_rotated(shape)
+            hit = _locate_in_shapes(
+                items,
+                shape_id,
+                parent_shape_id=sid,
+                group_path=group_path + (sid,),
+                rotated=child_rotated,
+            )
+            if hit is not None:
+                return hit
+    return None
+
+
+def _find_shape_by_id(slide, shape_id: int) -> _LocatedShape:
+    """递归定位 shape（顶层 + group 后代）；找不到 → TargetNotFoundError。"""
+    hit = _locate_in_shapes(
+        slide.Shapes, shape_id, parent_shape_id=None, group_path=(), rotated=False
+    )
+    if hit is None:
+        raise TargetNotFoundError(
+            f"shape {shape_id} 不存在于该页（shape_id 是 PowerPoint 的 Shape.Id；"
+            f"用 read_shapes 核对当前页 shape_id 列表）"
+        )
+    return hit
+
+
+def _local_rank_of(shape, collection) -> int:
+    """shape 在所在集合内的 1-based z-order rank。
+
+    与 read_shapes 的 _local_z_order_rank 同语义（group 子元素 ZOrderPosition 带
+    偏移，按兄弟排序还原本地 rank）。shape 已不在集合内 → TargetNotFoundError。
+    """
+    items: list = []
+    try:
+        count = int(collection.Count)
+    except Exception:
+        raise TargetNotFoundError("shape 所在集合已不可读") from None
+    for i in range(1, count + 1):
+        try:
+            items.append(collection(i))
+        except Exception:
+            continue
+    ranks = _local_z_order_rank(items)
+    target_id = _require_shape_id(shape)
+    for item, rank in zip(items, ranks, strict=True):
+        if _require_shape_id(item) == target_id:
+            return rank
+    raise TargetNotFoundError(f"shape {target_id} 已不在所在集合内")
+
+
+def _validate_hex_color(value, name: str = "color") -> str:
+    """严格 #RRGGBB（6 位十六进制）；非法抛 InvalidArgumentError。返回规范大写。"""
+    if not isinstance(value, str):
+        raise InvalidArgumentError(f"{name} 必须是 #RRGGBB 字符串，收到 {type(value).__name__}")
+    s = value.strip().upper()
+    if len(s) != 7 or not s.startswith("#"):
+        raise InvalidArgumentError(f"{name} 必须是 #RRGGBB 格式（7 字符含 #），收到 {value!r}")
+    try:
+        int(s[1:], 16)
+    except ValueError:
+        raise InvalidArgumentError(f"{name} 含非法十六进制字符: {value!r}") from None
+    return s
+
+
+def _rgb_to_com(hex_color: str) -> int:
+    """#RRGGBB → COM RGB（BGR 打包，低字节 R）。"""
+    s = hex_color.lstrip("#")
+    r = int(s[0:2], 16)
+    g = int(s[2:4], 16)
+    b = int(s[4:6], 16)
+    return r | (g << 8) | (b << 16)
+
+
+def _validate_fraction_0_1(value, name: str = "transparency") -> float:
+    """透明度 [0,1]；非法抛 InvalidArgumentError。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise InvalidArgumentError(f"{name} 必须是数值，收到 {value!r}") from None
+    if not math.isfinite(f) or f < 0.0 or f > 1.0:
+        raise InvalidArgumentError(f"{name} 必须在 [0,1] 内，收到 {value!r}")
+    return f
+
+
+def _validate_positive_float(value, name: str) -> float:
+    """> 0 的有限正数（width/height/font size）；非法抛 InvalidArgumentError。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise InvalidArgumentError(f"{name} 必须是数值，收到 {value!r}") from None
+    if not math.isfinite(f) or f <= 0.0:
+        raise InvalidArgumentError(f"{name} 必须是 > 0 的有限正数，收到 {value!r}")
+    return f
+
+
+def _validate_finite_float(value, name: str) -> float:
+    """有限数值（坐标/旋转）；NaN/Inf 抛 InvalidArgumentError。"""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        raise InvalidArgumentError(f"{name} 必须是数值，收到 {value!r}") from None
+    if not math.isfinite(f):
+        raise InvalidArgumentError(f"{name} 必须是有限数值，收到 {value!r}")
+    return f
+
+
+def _require_text_frame(shape, op_desc: str) -> None:
+    """shape 必须有文本能力；图片/线条/无文本图形 → InvalidArgumentError。"""
+    if not _shape_has_text_frame(shape):
+        raise InvalidArgumentError(f"{op_desc} 需要文本能力，但目标 shape 无 TextFrame")
+
+
+def _require_fill_capability(shape, op_desc: str) -> None:
+    """shape 必须支持 Fill；读不到 Fill 对象 → InvalidArgumentError。"""
+    try:
+        shape.Fill  # noqa: B018 — 访问成功即证明有 Fill 能力，忽略返回值
+    except Exception:
+        raise InvalidArgumentError(f"{op_desc} 需要填充能力，但目标 shape 不支持 Fill") from None
+
+
+def _require_line_capability(shape, op_desc: str) -> None:
+    """shape 必须支持 Line；读不到 Line 对象 → InvalidArgumentError。"""
+    try:
+        shape.Line  # noqa: B018 — 访问成功即证明有 Line 能力，忽略返回值
+    except Exception:
+        raise InvalidArgumentError(f"{op_desc} 需要轮廓能力，但目标 shape 不支持 Line") from None
 
 
 @guard_com
@@ -765,6 +1182,327 @@ class PptApp:
         return [
             _summarize_slide(pres.Slides(i), i, pw, ph) for i in range(1, pres.Slides.Count + 1)
         ]
+
+    @readonly_guard
+    def read_shapes(
+        self,
+        slide_idx: int,
+        *,
+        recursive: bool = True,
+        doc_id: str | None = None,
+    ) -> list[ShapeInfo]:
+        """读取第 slide_idx 页全部 shape 的完整信息（含 group 内后代），不裁剪无文本 shape。
+
+        - shape_id 严格：任何 shape 的 Id 读不到 → ComOperationError（无 0 兜底）。
+        - recursive=True 返回 group 容器 + 后代（group_path 外层→内层）；False 仅顶层。
+        - coordinate_space：非旋转 group 子元素为 "slide"；旋转 group 内 "unknown"。
+        - z_order 为所在集合内 1-based 排序（顶层=ZOrderPosition；group 子元素按兄弟还原）。
+        - 颜色 #RRGGBB：仅 solid fill / 可见 line 给色；其余 None（不编假值）。
+        - 字体为首 run 语义；空文本 → 全 None。
+        """
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        return [
+            _record_shape_info(shape, parent_shape_id=pid, group_path=gp, rotated=rot, z_order=z)
+            for shape, pid, gp, rot, z in _iter_shape_records(slide.Shapes, recursive=recursive)
+        ]
+
+    # --- S1 破坏性编辑 op（读回走 read_shapes） ---
+    @destructive
+    def set_shape_geometry(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        left: float | None = None,
+        top: float | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        rotation: float | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 几何（磅）：left/top/width/height/rotation，只更新传入属性。
+
+        - 至少传一个属性；width/height 必须 > 0；全部数值必须有限（NaN/Inf 拒绝）。
+        - group 子元素 left/top 写为**绝对坐标**（探针 #1）；group 包围盒自动重算。
+        - 旋转 group 后代：读值被 group 旋转变换不可信（probe #2）→ 传 left/top 抛
+          InvalidArgumentError；width/height/rotation 仍可用。
+        - 顶层 shape 旋转不影响 Left/Top 读写（probe #2），无特殊顺序要求。
+        """
+        if all(v is None for v in (left, top, width, height, rotation)):
+            raise InvalidArgumentError(
+                "set_shape_geometry: 至少提供 left/top/width/height/rotation 之一"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        if located.rotated_group_ancestor and (left is not None or top is not None):
+            raise InvalidArgumentError(
+                "set_shape_geometry: 旋转 group 内后代 left/top 读值不可信"
+                "（coordinate_space='unknown'），仅允许 width/height/rotation"
+            )
+        if left is not None:
+            left = _validate_finite_float(left, "left")
+        if top is not None:
+            top = _validate_finite_float(top, "top")
+        if width is not None:
+            width = _validate_positive_float(width, "width")
+        if height is not None:
+            height = _validate_positive_float(height, "height")
+        if rotation is not None:
+            rotation = _validate_finite_float(rotation, "rotation")
+        # 实际 COM 写失败由 @guard_com 统一转 ComOperationError（保留 HRESULT）
+        if left is not None:
+            shape.Left = left
+        if top is not None:
+            shape.Top = top
+        if width is not None:
+            shape.Width = width
+        if height is not None:
+            shape.Height = height
+        if rotation is not None:
+            shape.Rotation = rotation
+        return None
+
+    @destructive
+    def set_shape_text(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        text: str,
+        doc_id: str | None = None,
+    ):
+        """整体替换 shape 文本（保留样式）。
+
+        - 需要 TextFrame；图片/线条/无文本图形 → InvalidArgumentError。
+        - 探针 #4：替换后字体样式完全保留（新单 run 继承原首 run 格式），本 op
+          不新增任何样式参数（spec 冻结签名）。
+        """
+        if not isinstance(text, str):
+            raise InvalidArgumentError(
+                f"set_shape_text: text 必须是字符串，收到 {type(text).__name__}"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_text_frame(shape, "set_shape_text")
+        shape.TextFrame.TextRange.Text = text
+        return None
+
+    @destructive
+    def set_shape_font(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        font_name: str | None = None,
+        size: float | None = None,
+        bold: bool | None = None,
+        italic: bool | None = None,
+        color: str | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 字体：font_name/size/bold/italic/color，只更新传入属性。
+
+        - 至少传一个属性；需要 TextFrame。
+        - 探针 #3：整范围 TextRange.Font 赋值会传播到**全部 run**，且只赋传入
+          属性、其余保留；读取仍走 Runs(1).Font 首 run 语义。
+        - color 严格 #RRGGBB；bold/italic 只收真 bool；size > 0。
+        """
+        if all(v is None for v in (font_name, size, bold, italic, color)):
+            raise InvalidArgumentError(
+                "set_shape_font: 至少提供 font_name/size/bold/italic/color 之一"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_text_frame(shape, "set_shape_font")
+        if font_name is not None and not isinstance(font_name, str):
+            raise InvalidArgumentError(
+                f"set_shape_font: font_name 必须是字符串，收到 {type(font_name).__name__}"
+            )
+        if size is not None:
+            size = _validate_positive_float(size, "size")
+        if bold is not None and not isinstance(bold, bool):
+            raise InvalidArgumentError(
+                f"set_shape_font: bold 必须是 bool，收到 {type(bold).__name__}"
+            )
+        if italic is not None and not isinstance(italic, bool):
+            raise InvalidArgumentError(
+                f"set_shape_font: italic 必须是 bool，收到 {type(italic).__name__}"
+            )
+        if color is not None:
+            color = _validate_hex_color(color, "color")
+        tr = shape.TextFrame.TextRange
+        if font_name is not None:
+            tr.Font.Name = font_name
+        if size is not None:
+            tr.Font.Size = size
+        if bold is not None:
+            tr.Font.Bold = -1 if bold else 0
+        if italic is not None:
+            tr.Font.Italic = -1 if italic else 0
+        if color is not None:
+            tr.Font.Color.RGB = _rgb_to_com(color)
+        return None
+
+    @destructive
+    def set_shape_fill(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        color: str | None = None,
+        transparency: float | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 填充：color/transparency（0-1），只更新传入属性。
+
+        - color 与 transparency 都未传 → 清除填充（Fill.Visible=0）。
+        - 设 color 强制 solid fill（Fill.Solid()）并显示填充；只设 transparency
+          时保留原颜色。
+        - color 严格 #RRGGBB；transparency [0,1]。
+        - shape 不支持 Fill（如线条）→ InvalidArgumentError。
+        """
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_fill_capability(shape, "set_shape_fill")
+        if color is None and transparency is None:
+            shape.Fill.Visible = 0  # 清除填充
+            return None
+        if color is not None:
+            color = _validate_hex_color(color, "color")
+        if transparency is not None:
+            transparency = _validate_fraction_0_1(transparency, "transparency")
+        fill = shape.Fill
+        if color is not None:
+            fill.Solid()
+            fill.Visible = -1
+            fill.ForeColor.RGB = _rgb_to_com(color)
+        if transparency is not None:
+            fill.Transparency = transparency
+        return None
+
+    @destructive
+    def set_shape_outline(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        color: str | None = None,
+        width: float | None = None,
+        visible: bool | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 轮廓：color/width/visible，只更新传入属性。
+
+        - 至少传一个属性；width > 0；color 严格 #RRGGBB。
+        - visible=False 显式隐藏/移除线条；visible=True 显示并尽量保留原色/宽。
+        - 设 color 用实线语义（Line.ForeColor.RGB）；width 用磅。
+        - shape 不支持 Line → InvalidArgumentError。
+        """
+        if all(v is None for v in (color, width, visible)):
+            raise InvalidArgumentError("set_shape_outline: 至少提供 color/width/visible 之一")
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_line_capability(shape, "set_shape_outline")
+        if color is not None:
+            color = _validate_hex_color(color, "color")
+        if width is not None:
+            width = _validate_positive_float(width, "width")
+        if visible is not None and not isinstance(visible, bool):
+            raise InvalidArgumentError(
+                f"set_shape_outline: visible 必须是 bool，收到 {type(visible).__name__}"
+            )
+        line = shape.Line
+        if visible is not None:
+            # 先设可见性：PowerPoint 对不可见线的 ForeColor.RGB 赋值不生效，
+            # 且随后置可见会把颜色重置为自动/黑——必须先显示再上色/宽度
+            line.Visible = -1 if visible else 0
+        if color is not None:
+            line.ForeColor.RGB = _rgb_to_com(color)
+        if width is not None:
+            line.Weight = width
+        return None
+
+    @destructive
+    def set_shape_visible(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        visible: bool,
+        doc_id: str | None = None,
+    ):
+        """显示/隐藏 shape。
+
+        只收真 bool；映射到 Office 三态常量（-1 显示 / 0 隐藏），与
+        read_shapes 的 visible 读取（_shape_visible）一致。
+        """
+        if not isinstance(visible, bool):
+            raise InvalidArgumentError(
+                f"set_shape_visible: visible 必须是 bool，收到 {type(visible).__name__}"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        located.shape.Visible = -1 if visible else 0
+        return None
+
+    @destructive
+    def delete_shape(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        doc_id: str | None = None,
+    ):
+        """删除 shape（顶层或 group 子元素，递归定位）。
+
+        先完整解析出 shape 对象再 Delete，绝不在递归遍历生成器过程中改集合
+        （探针 #5：缓存 group 引用在 Delete 后完全失效）。
+        """
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        located.shape.Delete()
+        return None
+
+    @destructive
+    def set_shape_z_order(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        z: int,
+        doc_id: str | None = None,
+    ):
+        """移动 shape 在所在集合内的 z-order 到 1-based 目标位 z。
+
+        z=1 是最底层；顶层在 slide.Shapes 内移动，group 子元素在父 GroupItems
+        内移动（定位器给出的 containing_collection）。z 超出 1..Count → 不收敛不
+        截断，直接 InvalidArgumentError。PowerPoint 只有相对移动命令，逐级
+        BringForward/SendBackward 直至本地 rank==z；带循环安全上限，不收敛抛错。
+        """
+        if not isinstance(z, int) or isinstance(z, bool):
+            raise InvalidArgumentError(
+                f"set_shape_z_order: z 必须是 int（1-based），收到 {type(z).__name__}"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        try:
+            count = int(located.containing_collection.Count)
+        except Exception:
+            raise ComOperationError("无法读取 shape 所在集合的 Count") from None
+        if z < 1 or z > count:
+            raise InvalidArgumentError(
+                f"set_shape_z_order: z 须在 1..{count}（所在集合 1-based），收到 {z}"
+            )
+        for _ in range(count + 5):  # 循环安全上限（每次移动收敛一步）
+            rank = _local_rank_of(located.shape, located.containing_collection)
+            if rank == z:
+                return None
+            if rank < z:
+                located.shape.ZOrder(MSO_ZORDER_BRING_FORWARD)
+            else:
+                located.shape.ZOrder(MSO_ZORDER_SEND_BACKWARD)
+        raise ComOperationError(f"set_shape_z_order: shape {shape_id} 无法收敛到 z={z}")
 
     def quit(self, force: bool = False):
         """退出 PowerPoint 会话。

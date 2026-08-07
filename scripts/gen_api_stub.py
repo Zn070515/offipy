@@ -45,6 +45,7 @@ _RETURNS = {
     "str|null": "str | None",
     "list": "list",
     "list[SlideTextRecord]": "list[SlideTextRecord]",
+    "list[ShapeInfo]": "list[ShapeInfo]",
     "dict": "dict",
     "any": "Any",
 }
@@ -62,7 +63,7 @@ direct facade 绑定创建它的线程（STA COM），非线程安全；跨线�
 
 from typing import Any
 
-from offipy.models import SlideTextRecord
+from offipy.models import ShapeInfo, SlideTextRecord
 """
 
 

@@ -103,6 +103,62 @@ def test_read_slide_texts_stub_signature_snapshot():
     assert "request_id: str | None = None" in remote
 
 
+def test_read_shapes_stub_signature_snapshot():
+    # v0.13 S1：read_shapes 返回 list[ShapeInfo]；keyword-only recursive 忠实保留；
+    # 只读 op 同带 follow_active（#25 放行）
+    gen = _gen()
+    text = gen.render()
+    direct = _class_sigs(text, "Ppt")["read_shapes"]
+    assert "-> list[ShapeInfo]" in direct
+    assert "list[dict]" not in direct
+    assert direct.startswith("def read_shapes(self, slide_idx: int, *, recursive: bool = True"), (
+        direct
+    )
+    assert ", doc_id: str | None = None, follow_active: bool = False)" in direct
+    remote = _class_sigs(text, "RemotePpt")["read_shapes"]
+    assert "request_id: str | None = None" in remote
+
+
+def test_mypy_user_example_reveals_shapeinfo_types(tmp_path):
+    # v0.13 S1：ShapeInfo 是 TypedDict，read_shapes 的 list[ShapeInfo] 必须对 mypy
+    # 可见具体字段类型（int/str/Literal）——退化成 list[dict] 就是 Any。
+    snippet = (
+        "from offipy import Ppt\n\n"
+        "shapes = Ppt().read_shapes(1)\n"
+        "reveal_type(shapes)\n"
+        "reveal_type(shapes[0]['shape_id'])\n"
+        "reveal_type(shapes[0]['text'])\n"
+        "reveal_type(shapes[0]['coordinate_space'])\n"
+    )
+    src_file = tmp_path / "user_shapes.py"
+    src_file.write_text(snippet, encoding="utf-8")
+
+    env = os.environ.copy()
+    env["MYPYPATH"] = str(ROOT / "src")
+    env["PYTHONIOENCODING"] = "utf-8"
+    cmd = _mypy_cmd() + [
+        "--platform",
+        "win32",
+        "--ignore-missing-imports",
+        "--no-incremental",
+        str(src_file),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=180)
+    except FileNotFoundError:
+        pytest.skip("环境无 mypy")
+    out = proc.stdout + proc.stderr
+    if "No module named mypy" in out:
+        pytest.skip("环境无 mypy")  # python -m mypy 会正常启动，只是解释器找不到模块
+    if "Cannot find implementation or library stub" in out:
+        pytest.skip(f"mypy 无法解析 offipy 类型（{out.strip()}）")
+    assert "ShapeInfo" in out, out
+    assert 'Revealed type is "int"' in out, out
+    assert 'Revealed type is "str"' in out, out
+    assert "Literal['slide'" in out, out  # coordinate_space 类型流透传，非 str/Any
+    assert 'Revealed type is "Any"' not in out, out
+
+
 def test_mypy_user_example_reveals_sliderecord_types(tmp_path):
     # P1-6：真实用户代码在 api.pyi 上的类型推导门禁。SlideTextRecord 是 TypedDict，
     # 字段类型（int/str/Literal）必须对 mypy 可见——退化成 list[dict] 就是 Any。

@@ -62,7 +62,13 @@ from .exceptions import (
     TargetNotFoundError,
     UnsupportedPlatformError,
 )
-from .models import PLACEHOLDER_TYPE_NAMES, SlideTextRecord
+from .models import (
+    PLACEHOLDER_TYPE_NAMES,
+    SHAPE_TYPE_NAMES,
+    ShapeInfo,
+    SlideTextRecord,
+    shape_type_name,
+)
 
 __version__ = "0.12.2"
 
@@ -94,6 +100,9 @@ __all__ = [
     "ProtocolError",
     "SlideTextRecord",
     "PLACEHOLDER_TYPE_NAMES",
+    "ShapeInfo",
+    "SHAPE_TYPE_NAMES",
+    "shape_type_name",
     "Severity",
     "AuditConfig",
     "AuditFinding",

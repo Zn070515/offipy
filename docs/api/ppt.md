@@ -122,6 +122,86 @@
 
 ---
 
+### `set_shape_geometry`
+
+修改第 slide_idx 页 shape_id 的几何：left/top/width/height/rotation（坐标单位磅、角度单位度），只更新传入属性，至少传一个。group 子元素 left/top 写幻灯片绝对坐标；旋转 group 内后代不支持改 left/top。width/height 必须 >0。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`left: float`、`top: float`、`width: float`、`height: float`、`rotation: float`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `set_shape_text`
+
+整体替换第 slide_idx 页 shape_id 的文本（保留原字体样式）。无文本能力的 shape（图片/线条等）报错。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`text: str`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `set_shape_font`
+
+设置第 slide_idx 页 shape_id 文本的字体：font_name/size/bold/italic/color（'#RRGGBB'）。至少传一个属性；整段文本统一生效。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`font_name: str`、`size: float`、`bold: bool`、`italic: bool`、`color: str`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `set_shape_fill`
+
+设置第 slide_idx 页 shape_id 的填充：color 传 '#RRGGBB' 实色填充，transparency 传 0..1 透明度；都不传则清除填充。无填充能力报错。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`color: str`、`transparency: float`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `set_shape_outline`
+
+设置第 slide_idx 页 shape_id 的轮廓：color '#RRGGBB'/width 磅/visible 布尔，至少传一个；visible 控制最终显示态。无轮廓能力报错。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`color: str`、`width: float`、`visible: bool`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `set_shape_visible`
+
+显示（true）或隐藏（false）第 slide_idx 页 shape_id。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`visible: bool`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `delete_shape`
+
+删除第 slide_idx 页 shape_id（顶层或 group 子元素，递归定位）。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
+### `set_shape_z_order`
+
+把第 slide_idx 页 shape_id 在所在集合内移到 1-based 目标位 z（1=最底）。顶层在 slide.Shapes 内移动，group 子元素在父 GroupItems 内；z 超出 1..Count 报错，不做截断。
+
+- **参数**: `slide_idx: int`、`shape_id: int`、`z: int`、`doc_id: str`
+- **返回**: `void`
+- **标志**: 会改动文档/应用状态
+
+---
+
 ### `read_slide_texts`
 
 读取第 slide_idx 页全部具有文本能力的 shape（含 group 内文本），返回 SlideTextRecord（shape_id/name/text/坐标/占位符/group 路径）。include_empty=True 连空文本 shape 也返回；recursive=False 不递归 group。
@@ -138,6 +218,16 @@
 
 - **参数**: `doc_id: str`
 - **返回**: `list`
+- **标志**: 只读
+
+---
+
+### `read_shapes`
+
+读取第 slide_idx 页全部 shape 的结构化记录，返回 ShapeInfo（shape_id/name/类型/几何/填充/轮廓/文本/字体/占位符/group 路径/z-order）。recursive=False 只列顶层；group 后代（含嵌套）仅在 recursive=True 时展开。shape_id 严格：任何 shape 的 Id 读不到即抛错，绝不出 0。
+
+- **参数**: `slide_idx: int`、`recursive: bool`、`doc_id: str`
+- **返回**: `list[ShapeInfo]`
 - **标志**: 只读
 
 ---
