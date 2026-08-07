@@ -194,6 +194,34 @@ def test_deck_audit_ppt_missing_file_friendly(monkeypatch, capsys):
     assert "Traceback" not in err
 
 
+def test_deck_audit_invalid_profile_friendly(monkeypatch, capsys):
+    # 未知 --profile → get_profile 抛 KeyError，CLI 必须转友好 offipy: error + exit 1，
+    # 绝不留裸 traceback（违反「库异常转 stderr + exit 1」契约）
+    from offipy import cli
+
+    # PPTX 流
+    def boom_ppt(**kw):
+        raise KeyError("unknown art profile: bogus")
+
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", boom_ppt)
+    assert cli.main(["deck", "audit", "--pptx", "x.pptx", "--profile", "bogus"]) == 1
+    err = capsys.readouterr().err
+    assert "offipy: error:" in err
+    assert "bogus" in err
+    assert "Traceback" not in err
+
+    # HTML 流
+    def boom_html(*a, **kw):
+        raise KeyError("unknown art profile: bogus")
+
+    monkeypatch.setattr("offipy.deck.render_with_quality_report", boom_html)
+    assert cli.main(["deck", "audit", "x.html", "--profile", "bogus"]) == 1
+    err2 = capsys.readouterr().err
+    assert "offipy: error:" in err2
+    assert "bogus" in err2
+    assert "Traceback" not in err2
+
+
 # ---------------------------------------------------------------- 输出确定性
 
 
@@ -243,6 +271,21 @@ def test_deck_audit_text_deterministic(monkeypatch, capsys):
     cli.main(["deck", "audit", "x.html"])
     second = capsys.readouterr().out
     assert first == second
+
+
+def test_deck_audit_deck_finding_text_renders_all_deck(monkeypatch, capsys):
+    # deck 级 finding（slide_index=None）文本渲染为（全篇），不显示 页 None；
+    # JSON 记录仍保留 slide_index=null（数据不美化，仅文本层美化）
+    from offipy import cli
+
+    monkeypatch.setattr(
+        "offipy.deck.render_with_quality_report", lambda html, **kw: _render_result()
+    )
+    cli.main(["deck", "audit", "x.html"])
+    out = capsys.readouterr().out
+    assert "页 None" not in out
+    assert "（全篇）" in out
+    assert "art.consistency.suite" in out
 
 
 # ---------------------------------------------------------------- 建议投影

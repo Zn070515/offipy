@@ -766,17 +766,22 @@ def _deck_audit(args) -> int | None:
         # 惰性 import：让测试能 patch offipy.deck.render_with_quality_report
         from .deck import render_with_quality_report
 
-        with tempfile.TemporaryDirectory(prefix="offipy-deck-audit-") as td:
-            result = render_with_quality_report(
-                args.source,
-                out=os.path.join(td, "audit.pptx"),
-                theme=args.theme,
-                apply_layouts=args.layouts,
-                overwrite=True,
-                profile=args.profile,
-                pixel_analysis="off",
-            )
-            report = result.deck_quality
+        try:
+            with tempfile.TemporaryDirectory(prefix="offipy-deck-audit-") as td:
+                result = render_with_quality_report(
+                    args.source,
+                    out=os.path.join(td, "audit.pptx"),
+                    theme=args.theme,
+                    apply_layouts=args.layouts,
+                    overwrite=True,
+                    profile=args.profile,
+                    pixel_analysis="off",
+                )
+                report = result.deck_quality
+        except KeyError as e:
+            # 未知 --profile：get_profile 抛 KeyError，转友好 offipy: error + exit 1
+            print(f"offipy: error: {e.args[0] if e.args else e}", file=sys.stderr)
+            return 1
         if report is None:
             # 契约上不会发生：render_with_quality_report 总是产出 DeckQualityReport
             return 1
@@ -793,6 +798,10 @@ def _deck_audit(args) -> int | None:
                 print(f"offipy: error: 找不到文件: {args.pptx}", file=sys.stderr)
                 return 1
             raise
+        except KeyError as e:
+            # 未知 --profile：analyze_deck → get_profile 抛 KeyError，转友好报错
+            print(f"offipy: error: {e.args[0] if e.args else e}", file=sys.stderr)
+            return 1
     return _emit_deck_audit(report, args)
 
 
@@ -832,8 +841,9 @@ def _print_deck_audit_text(args, warnings, suggestions) -> None:
                 lines.append("")
                 lines.append(f"维度: {dim}")
                 last_dim = dim
+            slide_label = rec["slide_index"] if rec["slide_index"] is not None else "（全篇）"
             lines.append(
-                f"  页 {rec['slide_index']} [{rec['severity']}] {rec['rule_id']}: {rec['message']}"
+                f"  页 {slide_label} [{rec['severity']}] {rec['rule_id']}: {rec['message']}"
             )
             lines.append(f"    建议: {rec['suggestion']}")
     print("\n".join(lines))
