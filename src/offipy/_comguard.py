@@ -8,6 +8,7 @@ dispatch 据此识别断连 HRESULT 触发重建重试；client 也能把 COM �
 """
 
 import functools
+import time
 
 from .exceptions import ComOperationError
 
@@ -41,3 +42,27 @@ def _guarded(fn):
 
     wrapper._offipy_guarded = True
     return wrapper
+
+
+# #37：SaveAs/ExportAsFixedFormat 的锁感知短重试。目标文件可能被其他进程（残留的
+# Office 实例）持有文件锁，首次保存抛 COM 错误；短重试（200ms×5）后仍失败 → 抛
+# 带可读提示的 ComOperationError，而非透传裸 hresult。save_call 为无参 callable
+# （调用方已绑定目标/参数），what 用于错误文案（如「保存演示文稿」）。
+SAVE_RETRY_ATTEMPTS = 5
+SAVE_RETRY_DELAY = 0.2
+
+
+def save_with_lock_retry(save_call, *, what: str) -> None:
+    """执行带锁感知短重试的保存调用；超时给可读错误，绝不透传裸 COM 失败。"""
+    last: Exception | None = None
+    for _ in range(SAVE_RETRY_ATTEMPTS):
+        try:
+            save_call()
+            return
+        except _COM_ERROR as e:
+            last = e
+            time.sleep(SAVE_RETRY_DELAY)
+    raise ComOperationError(
+        f"{what}失败: 目标文件可能被其他进程占用（如残留的 Office 进程持有文件锁）。"
+        f"请关闭占用该文件的 Office 进程后重试。原因: {last}"
+    ) from last

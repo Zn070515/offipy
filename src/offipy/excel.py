@@ -10,7 +10,7 @@ from contextlib import contextmanager, suppress
 from typing import Any
 
 from . import core
-from ._comguard import _COM_ERROR, guard_com
+from ._comguard import _COM_ERROR, guard_com, save_with_lock_retry
 from .core import destructive, readonly_guard, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
@@ -391,7 +391,7 @@ class ExcelApp:
             book = self._require_book(doc_id)
             with self._alerts_scope():
                 # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
-                book.SaveAs(dest)
+                save_with_lock_retry(lambda: book.SaveAs(dest), what="保存工作簿")
             return dest
         book = self._require_book(doc_id)
         with self._alerts_scope():
@@ -406,7 +406,10 @@ class ExcelApp:
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():
-            self._require_book(doc_id).ExportAsFixedFormat(XL_TYPE_PDF, dest)
+            save_with_lock_retry(
+                lambda: self._require_book(doc_id).ExportAsFixedFormat(XL_TYPE_PDF, dest),
+                what="导出 PDF",
+            )
 
     # --- 工作表 ---
     def _ws(self, sheet, doc_id: str | None = None):

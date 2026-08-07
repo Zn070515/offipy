@@ -11,7 +11,7 @@ from contextlib import contextmanager, suppress
 from typing import Any, NamedTuple
 
 from . import core
-from ._comguard import _COM_ERROR, guard_com
+from ._comguard import _COM_ERROR, guard_com, save_with_lock_retry
 from .core import destructive, readonly_guard, requires_target
 from .exceptions import (
     ComOperationError,
@@ -580,7 +580,7 @@ class PptApp:
             dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
             pres = self._require_pres(doc_id)
             with self._alerts_scope():
-                pres.SaveAs(dest)
+                save_with_lock_retry(lambda: pres.SaveAs(dest), what="保存演示文稿")
             return dest
         pres = self._require_pres(doc_id)
         with self._alerts_scope():
@@ -599,8 +599,11 @@ class PptApp:
         # PrintRange 是 VT_DISPATCH 槽位，必须显式 None——makepy 生成的默认值
         # 0 是 int，直接塞进 dispatch 槽会 COM 转换失败。
         with self._alerts_scope():
-            self._require_pres(doc_id).ExportAsFixedFormat(
-                dest, FixedFormatType=PP_FIXED_FORMAT_TYPE_PDF, Intent=2, PrintRange=None
+            save_with_lock_retry(
+                lambda: self._require_pres(doc_id).ExportAsFixedFormat(
+                    dest, FixedFormatType=PP_FIXED_FORMAT_TYPE_PDF, Intent=2, PrintRange=None
+                ),
+                what="导出 PDF",
             )
 
     @requires_target
@@ -787,8 +790,18 @@ class PptApp:
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 PowerPoint 失败: {e}") from e
         # Quit 已返回但进程可能残留（RCW/COM server 保持）：按 PID 精确清理
-        if not core.wait_process_exit(pid, timeout=2.0):
-            core.reap_process(pid)
+        if pid is not None:
+            if not core.wait_process_exit(pid, timeout=2.0):
+                core.reap_process(pid)
+        else:
+            # PID 解析失败（启动早期 ActiveWindow.Hwnd 未就绪）：无法按 PID 清理。
+            # liveness 探针兜底——进程仍存活 → 明确失败（force=True 保证退出），
+            # 绝不静默 no-op（残留进程会持有文件锁，污染后续覆盖保存）。
+            if core.doc_alive(self.app):
+                raise ComOperationError(
+                    "无法确认 PowerPoint 进程已退出（进程 PID 解析失败）且进程仍存活；"
+                    "请手动关闭 PowerPoint 后重试（残留进程会持有文件锁）"
+                )
         return None
 
     def reap_own_process(self) -> None:
