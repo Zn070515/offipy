@@ -95,6 +95,49 @@ def test_connect_raises_on_permission_com_error(monkeypatch):
         core.connect("ppt")
 
 
+def test_connect_com_not_initialized_raises_readable(monkeypatch):
+    # #36：CO_E_NOTINITIALIZED（0x800401F0）是线程未 CoInitialize，不是「连不上」。
+    # 必须抛带 com_apartment() 提示的可读 ComOperationError，且 HRESULT 显示 two's
+    # complement 0x800401f0（非 -0x7ffbfe10）。
+    class FakeComError(Exception):
+        hresult = -2147221008  # CO_E_NOTINITIALIZED
+
+    class FakePywintypes:
+        com_error = FakeComError
+
+    class FakeWin32:
+        def GetActiveObject(self, progid):
+            raise FakePywintypes.com_error()
+
+    bundle = core._ComBundle(pywintypes=FakePywintypes(), win32com=FakeWin32(), gencache=None)
+    monkeypatch.setattr(core, "_com", lambda: bundle)
+    with pytest.raises(ComOperationError) as exc:
+        core.connect("ppt")
+    msg = str(exc.value)
+    assert "com_apartment" in msg
+    assert "0x800401f0" in msg
+    assert "-0x7ffbfe10" not in msg
+
+
+def test_connect_formats_negative_hresult_twos_complement(monkeypatch):
+    # #36：负 HRESULT 显示必须用 two's complement（0x80004005），非 -0x7ffbfe05。
+    class FakeComError(Exception):
+        hresult = -2147467259  # 0x80004005 E_FAIL（有符号 int）
+
+    class FakePywintypes:
+        com_error = FakeComError
+
+    class FakeWin32:
+        def GetActiveObject(self, progid):
+            raise FakePywintypes.com_error()
+
+    bundle = core._ComBundle(pywintypes=FakePywintypes(), win32com=FakeWin32(), gencache=None)
+    monkeypatch.setattr(core, "_com", lambda: bundle)
+    with pytest.raises(ComOperationError) as exc:
+        core.connect("ppt")
+    assert "0x80004005" in str(exc.value)
+
+
 def test_ensure_app_raises_office_unavailable_when_launch_fails(monkeypatch):
     monkeypatch.setattr(core, "connect", lambda app: None)
 
