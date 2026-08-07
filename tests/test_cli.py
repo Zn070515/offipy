@@ -3,6 +3,7 @@
 import pytest
 
 from offipy.cli import build_parser
+from offipy.exceptions import ComOperationError, FileConflictError, InvalidArgumentError
 
 
 def test_no_subcommand_errors_with_usage():
@@ -806,3 +807,139 @@ def test_ensure_writable_missing_parent_dir_raises(tmp_path):
     assert ensure_writable("bare.docx")
     # tmp_path 存在 → 不抛
     assert ensure_writable(str(tmp_path / "x.docx"))
+
+
+# --- S5 Task 2：Word CLI 错误契约对齐 ---
+
+
+def _assert_cli_error(monkeypatch, capsys, args, exc_cls, msg, code, *snippets, absent=()):
+    """断言 cli.main 抛出的领域异常按 CLI 契约落 exit code + 清洗 stderr。
+
+    mock offipy.cli.call 抛 exc_cls(msg)，验证边界把异常翻译成 exit code 2/1、
+    stderr 含 snippets（op/路径/文案）、无 Traceback、且 absent 缺席
+    （如内部代码帧行、类型名前缀）。Task 2 的三类异常都接受纯 message 字符串。
+    """
+    from offipy import cli
+
+    def boom(app, op, **kw):
+        raise exc_cls(msg)
+
+    monkeypatch.setattr("offipy.cli.call", boom)
+    assert cli.main(args) == code
+    err = capsys.readouterr().err
+    for s in snippets:
+        assert s in err
+    assert "Traceback" not in err
+    for a in absent:
+        assert a not in err
+
+
+def test_word_open_doc_missing_file_exits_2(monkeypatch, capsys):
+    # S5：word open_doc 运行前非法输入（源文件不存在）→ exit 2，stderr 含路径无 Traceback
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "open_doc", "--path", "C:\\nope.docx"],
+        InvalidArgumentError,
+        "[word::open_doc] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.docx",
+        2,
+        "源文件不存在",
+        "C:\\nope.docx",
+        "open_doc",
+    )
+
+
+def test_word_open_doc_com_failure_exits_1(monkeypatch, capsys):
+    # S5：word open_doc 运行时 COM 失败 → exit 1；stderr 清洗掉内部帧行与类型名前缀
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "open_doc", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[word::open_doc] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\word.py", line 293, in open_doc\n'
+        "      return self._register(self.app.Documents.Open(path))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        "无法打开文件",
+        "C:\\notes.txt",
+        "open_doc",
+        absent=("word.py", "ComOperationError"),
+    )
+
+
+def test_word_save_conflict_exits_1(monkeypatch, capsys):
+    # S5：word save 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save", "--path", "C:\\out.docx", "--follow-active"],
+        FileConflictError,
+        "[word::save] 失败: FileConflictError: 目标文件已存在: C:\\out.docx"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "目标文件已存在",
+        "C:\\out.docx",
+        "save",
+    )
+
+
+def test_word_save_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：word save 父目录不存在 → InvalidArgumentError（运行前非法输出路径）→ exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save", "--path", "C:\\nope_dir\\out.docx", "--follow-active"],
+        InvalidArgumentError,
+        "[word::save] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "输出目录不存在",
+        "C:\\nope_dir",
+        "save",
+    )
+
+
+def test_word_save_pdf_conflict_exits_1(monkeypatch, capsys):
+    # S5：word save_pdf 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save_pdf", "--path", "C:\\out.pdf", "--follow-active"],
+        FileConflictError,
+        "[word::save_pdf] 失败: FileConflictError: 目标文件已存在: C:\\out.pdf"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "目标文件已存在",
+        "C:\\out.pdf",
+        "save_pdf",
+    )
+
+
+def test_word_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：word save_pdf 父目录不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "save_pdf", "--path", "C:\\nope_dir\\out.pdf", "--follow-active"],
+        InvalidArgumentError,
+        "[word::save_pdf] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "输出目录不存在",
+        "C:\\nope_dir",
+        "save_pdf",
+    )
+
+
+def test_word_insert_image_missing_file_exits_2(monkeypatch, capsys):
+    # S5：word insert_image 源图片不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["word", "insert_image", "--path", "C:\\nope.png", "--follow-active"],
+        InvalidArgumentError,
+        "[word::insert_image] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.png",
+        2,
+        "源文件不存在",
+        "C:\\nope.png",
+        "insert_image",
+    )
