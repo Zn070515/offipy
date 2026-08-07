@@ -167,6 +167,36 @@ def set_text_style(
         run.font.bold = bold
 
 
+def set_shape_text(
+    sp,
+    text: str,
+    *,
+    font_size_pt: float,
+    color: str,
+    align: PP_ALIGN = PP_ALIGN.CENTER,
+    anchor: MSO_ANCHOR = MSO_ANCHOR.MIDDLE,
+    word_wrap: bool = True,
+) -> None:
+    """Populate an autoshape's text frame with a single editable run.
+
+    Margins are zeroed so text fills the shape deterministically.
+    """
+    tf = sp.text_frame
+    tf.word_wrap = word_wrap
+    tf.margin_left = 0
+    tf.margin_right = 0
+    tf.margin_top = 0
+    tf.margin_bottom = 0
+    tf.vertical_anchor = anchor
+    p = tf.paragraphs[0]
+    p.alignment = align
+    run = p.add_run()
+    run.text = text
+    run.font.name = PRIMITIVE_FONT
+    run.font.size = Pt(font_size_pt)
+    run.font.color.rgb = _rgb(color)
+
+
 def shape_elements(shapes: Iterable) -> tuple[object, ...]:
     """Normalize python-pptx shapes / XML elements to their XML elements.
 
