@@ -1416,13 +1416,14 @@ class PptApp:
                 f"set_shape_outline: visible 必须是 bool，收到 {type(visible).__name__}"
             )
         line = shape.Line
+        if visible is not None:
+            # 先设可见性：PowerPoint 对不可见线的 ForeColor.RGB 赋值不生效，
+            # 且随后置可见会把颜色重置为自动/黑——必须先显示再上色/宽度
+            line.Visible = -1 if visible else 0
         if color is not None:
             line.ForeColor.RGB = _rgb_to_com(color)
         if width is not None:
             line.Weight = width
-        if visible is not None:
-            # 最后设可见性：显式 visible 控制最终显示态，色/宽不影响它
-            line.Visible = -1 if visible else 0
         return None
 
     @destructive
