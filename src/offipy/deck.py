@@ -149,15 +149,15 @@ def _default_out(html: str) -> str:
     return str(p.with_suffix(".pptx"))
 
 
-def _postprocess(label: str, fn, html: str, pptx: str) -> None:
-    """统一包装图表/图标后处理：解析/数据错 → InvalidArgumentError，其余 → ConversionError。
+def _postprocess(label: str, fn, html: str, pptx: str):
+    """统一包装图表/资源后处理：解析/数据错 → InvalidArgumentError，其余 → ConversionError。
 
-    ValueError（HTML 图表/图标声明非法、数据缺失/损坏）属用户输入问题；
+    ValueError（HTML 图表/资源声明非法、数据缺失/损坏）属用户输入问题；
     其余异常（measurements 缺失、python-pptx/XML/zip 损坏）属转换产物问题。
-    均 from e 保留 __cause__。
+    均 from e 保留 __cause__。返回 fn 的返回值（postprocess_assets 的用量报告）。
     """
     try:
-        fn(html, pptx)
+        return fn(html, pptx)
     except InvalidArgumentError:
         raise
     except ConversionError:
@@ -288,11 +288,20 @@ def _render_tmp(
         from .charts import postprocess_charts
 
         _postprocess("图表", postprocess_charts, target, tmp_pptx)
-        # 图标后处理：HTML 声明了 data-icon → 替换成 freeform 矢量图标（同 charts 架构）。
-        # 惰性 import：icons.py 内部 import python-pptx，不拖慢无图标的路径。
-        from .icons import postprocess_icons
+        # 资源后处理：data-icon/data-asset/data-primitive → 统一 asset 管线（取代
+        # postprocess_icons）。图表必须先于资源：图表用自己测量的占位符替换，不应受
+        # 随后添加的 asset 形状影响。返回用量报告供 assets.json 清单。
+        # 惰性 import：assets.render 内部才 import python-pptx，不拖慢无资产路径。
+        from .assets.manifest import write_asset_manifest
+        from .assets.render import postprocess_assets
 
-        _postprocess("图标", postprocess_icons, target, tmp_pptx)
+        report = _postprocess("资源", postprocess_assets, target, tmp_pptx)
+        # assets.json provenance 清单：只写进 visual-audit 的 <tmp>_audit 目录
+        # （随 _preserve_audit_dir 整体改名进最终输出）；no_visual_audit 无审计
+        # 目录 → 不写，资产已渲染进 PPTX、仅缺清单。
+        tmp_audit_dir = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
+        if os.path.isdir(tmp_audit_dir):
+            write_asset_manifest(os.path.join(tmp_audit_dir, "assets.json"), report)
         # 保留 convert 的 <stem>_audit 测量目录（aesthetic/feedback 回路）：
         # 默认立即改到最终名（render / render_with_report 行为不变）；
         # defer_audit_preserve=True（render_with_quality_report）保持 tmp 名，

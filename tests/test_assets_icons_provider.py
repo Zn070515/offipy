@@ -20,9 +20,7 @@ _MANIFEST = json.loads((_ICONS_DIR / "manifest.json").read_text(encoding="utf-8"
 _MANIFEST_KEY = {"ph": "phosphor", "lu": "lucide"}
 
 
-def _req(
-    provider: str, name: str, params: tuple[tuple[str, str], ...] = ()
-) -> AssetRequest:
+def _req(provider: str, name: str, params: tuple[tuple[str, str], ...] = ()) -> AssetRequest:
     return AssetRequest(AssetRef(provider, "icon", name), params)
 
 

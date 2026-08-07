@@ -108,9 +108,7 @@ class IconProvider:
             raise InvalidArgumentError(f"icon {self.provider_id}:{name} has no viewBox")
         parts = vb.split()
         if len(parts) != 4:
-            raise InvalidArgumentError(
-                f"icon {self.provider_id}:{name} viewBox malformed: {vb!r}"
-            )
+            raise InvalidArgumentError(f"icon {self.provider_id}:{name} viewBox malformed: {vb!r}")
         view_box = (float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
         return svg, view_box
 
@@ -136,9 +134,7 @@ class IconProvider:
 
     def resolve(self, request: AssetRequest) -> ResolvedAsset:
         if request.params:
-            raise InvalidArgumentError(
-                f"icon provider {self.provider_id!r} does not accept params"
-            )
+            raise InvalidArgumentError(f"icon provider {self.provider_id!r} does not accept params")
         ref = request.ref
         if ref.kind != "icon":
             raise InvalidArgumentError(

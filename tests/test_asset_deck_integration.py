@@ -6,12 +6,16 @@ A3 Task 3：asset 声明（data-asset/data-primitive/legacy data-icon）与图�
 与转换子进程，任何环境可跑。
 """
 
+import json
 import subprocess as _sp
 from pathlib import Path
 
 import pytest
+from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE
 
 from offipy import charts, deck
+from offipy.assets.declarations import preprocess_asset_declarations
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +48,14 @@ def _record_target(recorded: dict):
         recorded["content_at_call"] = Path(html_path).read_text(encoding="utf-8")
 
     return record
+
+
+def _patch_assets_noop(monkeypatch):
+    """本批用例只关心 charts 收 target；asset 主链另由本文件 manifest 生命周期
+    用例覆盖（真实 postprocess_assets），这里打桩避免 measurements 缺失抛错。"""
+    monkeypatch.setattr(
+        "offipy.assets.render.postprocess_assets", lambda html_path, pptx_path: None
+    )
 
 
 _HTML = """<!doctype html>
@@ -152,6 +164,7 @@ def test_asset_only_passes_temp_injected_target(tmp_path, monkeypatch):
 
     recorded = {}
     monkeypatch.setattr(charts, "postprocess_charts", _record_target(recorded))
+    _patch_assets_noop(monkeypatch)
     monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
@@ -185,6 +198,7 @@ def test_theme_plus_asset_target_has_theme_and_ids(tmp_path, monkeypatch):
     html, pptx = _write(tmp_path)
     recorded = {}
     monkeypatch.setattr(charts, "postprocess_charts", _record_target(recorded))
+    _patch_assets_noop(monkeypatch)
     monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, theme="mckinsey")
@@ -223,6 +237,7 @@ def test_only_slides_keeps_full_html_declaration_ordinals(tmp_path, monkeypatch)
     html, pptx = _write(tmp_path)
     recorded = {}
     monkeypatch.setattr(charts, "postprocess_charts", _record_target(recorded))
+    _patch_assets_noop(monkeypatch)
     monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, only_slides=[2])
@@ -233,3 +248,132 @@ def test_only_slides_keeps_full_html_declaration_ordinals(tmp_path, monkeypatch)
     content = recorded["content_at_call"]
     # 声明按全 HTML 第 2 页编号（asset-s02-001），不被 only_slides 重排
     assert 'data-offipy-asset-id="asset-s02-001"' in content
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — manifest 生命周期：postprocess_assets 报告 → assets.json 落盘
+# ---------------------------------------------------------------------------
+
+
+_ASSET_ORDER_HTML = """<!doctype html>
+<html><head></head><body>
+<section data-pptx-slide><div data-asset="asset://ph/icon/check"></div></section>
+<section data-pptx-slide>
+  <div data-asset="asset://lu/icon/settings" data-asset-placement="background"></div>
+</section>
+</body></html>"""
+
+_PLAIN_HTML = "<html><head></head><body><section data-pptx-slide><p>x</p></section></body></html>"
+
+
+def _asset_meas(asset_id, x=20, y=30, w=120, h=60, color="rgb(255, 0, 0)"):
+    return {
+        "id": 1,
+        "kind": "asset",
+        "tag": "div",
+        "assetId": asset_id,
+        "rect": {"x": x, "y": y, "w": w, "h": h},
+        "themeVars": {"bg": "#ffffff", "surface": "#f3f4f6", "accent": "#2251ff"},
+        "color": color,
+    }
+
+
+def _make_fake_convert(decls, *, create_audit=True):
+    """fake subprocess.run：读 --out，造带 OFFIPY_ASSET:: 占位符的真实 pptx，
+    并按需产出 <stem>_audit/_cache/measurements.json（与真实 convert 审计同形）。"""
+
+    def fake_run(cmd, *a, **k):
+        out = cmd[cmd.index("--out") + 1]
+        prs = Presentation()
+        for d in decls:
+            while len(prs.slides) < d.slide_index:
+                prs.slides.add_slide(prs.slide_layouts[6])
+            slide = prs.slides[d.slide_index - 1]
+            sp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, 100, 100)
+            sp.name = f"OFFIPY_ASSET::{d.declaration_id}"
+        prs.save(out)
+        if create_audit:
+            max_slide = max((d.slide_index for d in decls), default=0)
+            slides = [{"records": []} for _ in range(max_slide)]
+            for d in decls:
+                slides[d.slide_index - 1]["records"].append(_asset_meas(d.declaration_id))
+            audit = Path(out).with_name(f"{Path(out).stem}_audit")
+            meas_dir = audit / "_cache"
+            meas_dir.mkdir(parents=True)
+            (meas_dir / "measurements.json").write_text(
+                json.dumps({"slides": slides}, ensure_ascii=False), encoding="utf-8"
+            )
+        return _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    return fake_run
+
+
+def _load_manifest(tmp_path):
+    p = tmp_path / "d_audit" / "assets.json"
+    if not p.exists():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def test_visual_audit_zero_assets_writes_empty_manifest(tmp_path, monkeypatch):
+    """纯文本 deck + visual audit：审计目录存在 → 空用量报告落成空 assets 列表。"""
+    html, pptx = _write(tmp_path, _PLAIN_HTML)
+    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert([]))
+
+    deck.render(str(html), out=str(pptx), overwrite=True)
+
+    assert _load_manifest(tmp_path) == {"schema": 1, "assets": []}
+
+
+def test_assets_written_in_declaration_order_with_provider_meta(tmp_path, monkeypatch):
+    """真实 asset 主链：用量清单按声明顺序落盘，provider 元数据（ph→MIT / lu→ISC）正确。"""
+    html, pptx = _write(tmp_path, _ASSET_ORDER_HTML)
+    _, decls = preprocess_asset_declarations(_ASSET_ORDER_HTML)
+    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+
+    deck.render(str(html), out=str(pptx), overwrite=True)
+
+    manifest = _load_manifest(tmp_path)
+    assert manifest["schema"] == 1
+    assets = manifest["assets"]
+    assert [a["declaration_id"] for a in assets] == ["asset-s01-001", "asset-s02-001"]
+    assert [a["provider"]["license"] for a in assets] == ["MIT", "ISC"]
+    assert assets[0]["placement"] == "replace"
+    assert assets[1]["placement"] == "background"
+
+
+def test_no_visual_audit_writes_no_audit_dir_or_manifest(tmp_path, monkeypatch):
+    """no_visual_audit：无审计目录 → 不写 assets.json，纯 deck 正常产出。"""
+    html, pptx = _write(tmp_path, _PLAIN_HTML)
+    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert([], create_audit=False))
+
+    deck.render(str(html), out=str(pptx), overwrite=True, no_visual_audit=True)
+
+    assert pptx.exists()
+    assert not (tmp_path / "d_audit").exists()
+    assert not list(tmp_path.rglob("assets.json"))
+
+
+def test_failed_postprocess_preserves_old_pptx_and_manifest(tmp_path, monkeypatch):
+    """后处理失败：不产生新的最终清单，旧 PPTX 与旧 d_audit/assets.json 原样保留。"""
+    html, pptx = _write(tmp_path, _ASSET_ORDER_HTML)
+    _, decls = preprocess_asset_declarations(_ASSET_ORDER_HTML)
+    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+
+    # 第一次成功渲染 → 产出 d.pptx + d_audit/assets.json
+    deck.render(str(html), out=str(pptx), overwrite=True)
+    old_pptx = pptx.read_bytes()
+    old_manifest = (tmp_path / "d_audit" / "assets.json").read_bytes()
+
+    # 第二次渲染：postprocess_assets 抛错 → 失败不碰旧产物
+    def boom(html_path, pptx_path):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("offipy.assets.render.postprocess_assets", boom)
+    with pytest.raises(deck.ConversionError) as exc:
+        deck.render(str(html), out=str(pptx), overwrite=True)
+    assert "资源" in str(exc.value)
+
+    assert pptx.read_bytes() == old_pptx
+    assert (tmp_path / "d_audit" / "assets.json").read_bytes() == old_manifest
+    assert not list(tmp_path.glob(".*_audit"))  # 本次失败渲染的临时审计目录已清理
