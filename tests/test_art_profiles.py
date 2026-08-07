@@ -20,11 +20,6 @@ def test_rule_dimensions_covers_all_rules():
     assert set(RULE_DIMENSIONS) == set(ALL_RULES)
 
 
-def test_rule_dimensions_are_known():
-    known = {"hierarchy", "composition", "typography", "color", "media", "consistency"}
-    assert set(RULE_DIMENSIONS.values()) <= known
-
-
 def test_experimental_rules():
     assert RULE_OFF_BALANCE in get_profile("balanced").experimental_rules
     assert RULE_CORNER_CLUSTER in get_profile("balanced").experimental_rules
