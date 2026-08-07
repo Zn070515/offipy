@@ -3,6 +3,31 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.13.0] - 2026-08-07
+
+### Added
+- **PPT 形状读取与编辑（S1）**：新增 `read_shapes()`（严格定位 + 冻结的 `ShapeInfo` / 形状类型
+  契约）与形状编辑操作——几何 / 文本 / 字体、填充 / 轮廓 / 可见性、删除 / z-order，跨
+  Python API / RPC / MCP / CLI 暴露。
+- **艺术分析规则级反馈学习 v2（S2）**：art 报告 schema 升 0.3，反馈经
+  `feedback_severity_adjustments` 有界调整规则严重度并带来源溯源（provenance），
+  `build_scene` / `analyze_deck` 可 opt-in 反馈。
+- **主题感知图表注入 + deck audit CLI（S3）**：图表颜色按幻灯片主题变体派生（确定性调色板 +
+  覆盖）；chart-dominant 布局预检更精确；新增 `offipy deck audit` 临时渲染审计工作流
+  （未知 profile 友好报错）。
+- **Word 跟进（S4）**：`add_page_number` 新增 append / standalone（left/center/right）三模式；
+  数值行距在 API 各面安全接受；去除列表可见的尾部空项。
+
+### Changed
+- **CLI 错误契约对齐（S5）**：冻结 CLI 退出码——`InvalidArgumentError` → exit 2（使用 / 参数 /
+  预运行无效输入）、`OffipyError` 系 → exit 1（运行时领域失败）；`audit` 保留 0/1/2/3、
+  `deck audit` 保留 0/1 专属契约。库层 fail-fast（`ppt.open_pres` 缺失源文件 /
+  `ppt.export_slides` 输出目录是文件 / Excel 畸形区域）；stderr 消息清洗不泄露 traceback。
+
+### Notes
+- v0.13 五个 S（S1-S5）全量合入，无破坏性 API 变更；迁移说明见
+  [`docs/migration.md`](docs/migration.md)。
+
 ## [0.12.2] - 2026-08-07
 
 ### Fixed
