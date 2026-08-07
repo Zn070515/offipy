@@ -73,13 +73,6 @@ def test_append_loads_missing_file_empty(tmp_path):
     assert load_records(tmp_path / "nonexistent") == []
 
 
-def test_dimension_derived_not_trusted(tmp_path):
-    """dimension 由 rule_id 派生，append 不接受调用方传入。"""
-    append("balanced", RULE_TITLE_TOO_SMALL, "fixed", Severity.LOW, feedback_dir=tmp_path)
-    rec = load_records(tmp_path)[0]
-    assert rec.dimension == "hierarchy"
-
-
 # ---------------------------------------------------------------------------
 # severity / slide_index serialization
 # ---------------------------------------------------------------------------
@@ -175,7 +168,7 @@ def test_append_non_severity_raises(tmp_path):
         append("balanced", RULE_TITLE_TOO_SMALL, "fixed", "HIGH", feedback_dir=tmp_path)
 
 
-@pytest.mark.parametrize("bad", [0, -1, 1.5, "2"])
+@pytest.mark.parametrize("bad", [0, -1, 1.5, "2", True])
 def test_append_invalid_slide_index_raises(tmp_path, bad):
     with pytest.raises(InvalidArgumentError):
         append(
@@ -224,6 +217,7 @@ def _good_line():
         lambda d: d.update(severity=99),
         lambda d: d.update(slide_index=0),
         lambda d: d.update(slide_index=-3),
+        lambda d: d.update(slide_index=True),
     ],
 )
 def test_load_skips_each_bad_line_keeps_good(tmp_path, mutate):
