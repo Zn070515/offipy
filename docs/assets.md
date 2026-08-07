@@ -66,7 +66,7 @@ asset://primitives/primitive/metric-badge
 | 模式 | 含义 |
 |------|------|
 | `freeform_svg` | 源 SVG 解析为 PowerPoint native freeform（`p:sp` + `a:custGeom`），双击显示可编辑路径（图标） |
-| `svg` | SVG 以 OOXML `svgBlip` SVG picture 写入（procedural 纹理） |
+| `svg` | SVG 以 OOXML SVG picture 写入：主 `a:blip` 挂 PNG 栅格回退，`asvg:svgBlip` 指矢量（procedural 纹理；无 Playwright 时降级纯 SVG） |
 | `svg_template` | 模板 SVG 经颜色插槽（如 `__ACCENT__`）实体化后写为 SVG picture |
 | `raster` | 位图 payload（`add_picture`） |
 | `native_shape` | 原生形状 + 文本框 + freeform 组合（图元） |
