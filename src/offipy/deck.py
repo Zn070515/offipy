@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from .assets.declarations import preprocess_asset_declarations
 from .audit import AuditConfig, PptxAuditReport, Severity
 from .client import call, ensure_server
 from .design import inject_theme
@@ -78,6 +79,53 @@ def _preflight_browser() -> None:
             "HTML→PPTX 渲染需要 Chromium："
             f"{check.detail}。请运行: python -m playwright install chromium"
         )
+
+
+_NOVA_DECLARATION_MARKERS = (
+    ("data-chart", "图表(data-chart)"),
+    ("data-icon", "图标(data-icon)"),
+    ("data-asset", "资源(data-asset)"),
+    ("data-primitive", "图元(data-primitive)"),
+)
+
+
+def _reject_no_visual_audit_declarations(content: str) -> None:
+    """no_visual_audit 与声明注入不兼容 → fail-fast（chromium / convert 之前）。
+
+    图表/图标/资源/图元的注入都依赖 visual audit 的 measurements.json；no_visual_audit
+    不产出 → 命中任一声明类型就报错，信息列出具体类型。
+    """
+    found = [label for marker, label in _NOVA_DECLARATION_MARKERS if marker in content]
+    if found:
+        raise InvalidArgumentError(
+            "no_visual_audit=True 但 HTML 声明了"
+            + "、".join(found)
+            + "：注入需要 measurements.json，请去掉 no_visual_audit 或用 visual audit 渲染"
+        )
+
+
+def _prepare_target(
+    html: str, content: str, theme: str | None, apply_layouts: bool
+) -> tuple[str, tempfile.TemporaryDirectory[str] | None]:
+    """把源 HTML 整理成转换输入：layout → theme → asset 声明，写注入副本或原样返回。
+
+    顺序固定：先注入布局/主题再解析 asset 声明，converter 才能量到最终 CSS token
+    下的资源尺寸。任一变换发生就写临时注入副本（.audited.html 命名 → convert 跳过
+    work-copy 分支），TemporaryDirectory 保证副本不落源目录、随 finally 清理；
+    全无变换则返回源路径，不产临时文件。
+    """
+    if apply_layouts:
+        content = inject_layouts(content)
+    if theme:
+        content = inject_theme(content, theme)
+    content, asset_decls = preprocess_asset_declarations(content)
+    if not (apply_layouts or theme is not None or asset_decls):
+        return html, None
+    tmp_html_dir = tempfile.TemporaryDirectory(prefix="offipy-deck-")
+    tmp_html = os.path.join(tmp_html_dir.name, f"{Path(html).stem}.audited.html")
+    with open(tmp_html, "w", encoding="utf-8") as f:
+        f.write(content)
+    return tmp_html, tmp_html_dir
 
 
 def _convert_cmd(
@@ -184,39 +232,19 @@ def _render_tmp(
     if not os.path.exists(html):
         raise InvalidArgumentError(f"源 HTML 文件不存在: {html}")
     _preflight_chart_layout(html, apply_layouts, only_slides)
+    with open(html, encoding="utf-8") as f:
+        content = f.read()
+    if no_visual_audit:
+        # 声明注入依赖 visual audit 的 measurements.json；no_visual_audit 不产出
+        # → 启动 chromium / 跑 convert 之前 fail-fast，省一次白跑的渲染。
+        _reject_no_visual_audit_declarations(content)
     _preflight_browser()
     final_out = os.path.abspath(out) if out else _default_out(html)
     if not overwrite and os.path.exists(final_out):
         raise FileConflictError(
             f"输出 .pptx 已存在（overwrite=False，可传 overwrite=True 覆盖）: {final_out}"
         )
-    target = html
-    tmp_html_dir = None
-    if no_visual_audit:
-        # 图表/图标注入依赖 visual audit 的 measurements.json；no_visual_audit 不产出
-        # → 转换开始前 fail-fast，省一次白跑的 chromium 渲染。
-        with open(html, encoding="utf-8") as f:
-            content = f.read()
-        if "data-chart" in content or "data-icon" in content:
-            raise InvalidArgumentError(
-                "no_visual_audit=True 但 HTML 声明了图表/图标（data-chart/data-icon）："
-                "注入需要 measurements.json，请去掉 no_visual_audit 或用 visual audit 渲染"
-            )
-    if theme or apply_layouts:
-        with open(html, encoding="utf-8") as f:
-            content = f.read()
-        if apply_layouts:
-            content = inject_layouts(content)
-        if theme:
-            content = inject_theme(content, theme)
-        # 以 .audited.html 结尾 → convert 跳过 work-copy 分支，不留 .audited 残留。
-        # TemporaryDirectory：注入副本不再落在源目录（避免污染用户目录/并发互踩），
-        # finally 随整目录清理。
-        tmp_html_dir = tempfile.TemporaryDirectory(prefix="offipy-deck-")
-        tmp_html = os.path.join(tmp_html_dir.name, f"{Path(html).stem}.audited.html")
-        with open(tmp_html, "w", encoding="utf-8") as f:
-            f.write(content)
-        target = tmp_html
+    target, tmp_html_dir = _prepare_target(html, content, theme, apply_layouts)
     tmp_pptx = None
     try:
         # 原子替换：mkstemp 生成与最终输出同目录的临时 .pptx（同卷、随机名）。

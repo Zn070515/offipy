@@ -43,7 +43,12 @@ def test_render_wires_chart_then_icon_postprocess(tmp_path, monkeypatch):
         def f(*a, **k):
             calls.append(name)
             tmp_seen[name] = a[1]
-            assert a[0] == str(html)
+            # A3 Task 3：data-icon 声明也走注入副本 target（含确定性 ID 供绑定），
+            # 不再把源 HTML 直接传给后处理。
+            injected = Path(a[0])
+            assert injected.name == "d.audited.html"
+            assert injected.parent.name.startswith("offipy-deck-")
+            assert 'data-offipy-asset-id="asset-s01-001"' in injected.read_text(encoding="utf-8")
             # P0-6：后处理作用于临时 .pptx，不是最终路径
             # mkstemp 命名：与最终输出同目录、隐藏前缀、随机名、.pptx 后缀
             assert Path(a[1]).name.startswith(".")
