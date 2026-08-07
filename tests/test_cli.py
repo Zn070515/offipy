@@ -801,8 +801,9 @@ def test_ensure_writable_missing_parent_dir_raises(tmp_path):
     from offipy.exceptions import InvalidArgumentError
     from offipy.paths import ensure_writable
 
+    # 父目录不存在 → InvalidArgumentError（tmp_path 构造，平台无关）
     with pytest.raises(InvalidArgumentError, match="输出目录不存在"):
-        ensure_writable(r"C:\nope_dir\x.docx")
+        ensure_writable(str(tmp_path / "missing" / "x.docx"))
     # 父路径是文件（非目录）→ 同样 InvalidArgumentError（isdir 覆盖）
     f = tmp_path / "afile"
     f.write_text("x", encoding="utf-8")
