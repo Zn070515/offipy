@@ -582,7 +582,8 @@ class WordApp:
             if not hf.Range.Text[:-1].endswith("\t"):
                 rng.Text = "\t"
                 rng.Collapse(_WD_COLLAPSE_END)  # 重新折叠到插入后的末尾
-            # 清掉旧制表位（右→左切换时旧右制表位会让页码仍落在右边）
+            # 清掉旧制表位（右→左切换时旧右制表位会让页码仍落在右边）；
+            # 副作用：standalone 也会一并抹掉用户手设的其他制表位
             rng.ParagraphFormat.TabStops.ClearAll()
             text_w = _footer_text_width(doc)
             pos = {0: 0.0, 1: text_w / 2.0, 2: text_w}[tab_align]
