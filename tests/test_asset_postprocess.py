@@ -18,6 +18,10 @@ from offipy.assets.model import AssetRef
 from offipy.assets.render import AssetUsageReport, postprocess_assets
 from offipy.exceptions import InvalidArgumentError
 
+_ASVG_NS = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
+_R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
 HTML_TWO = """<!doctype html>
 <html><head><style data-theme="dark"></style></head>
 <body>
@@ -172,6 +176,40 @@ class TestPostprocessAssets:
         html, _, pptx = _fixture(tmp_path, HTML_TWO, drop_ids=("asset-s02-001",))
         with pytest.raises(InvalidArgumentError, match="asset-s02-001"):
             postprocess_assets(html, pptx)
+
+    def test_svg_asset_gets_png_fallback(self, tmp_path, monkeypatch):
+        # #58：postprocess 用共享 PNG 渲染器给 SVG picture 补 raster fallback。
+        # Playwright 渲染器本身 mock 掉，只验证接线与最终 blip 结构：主 <a:blip>
+        # 指向 PNG、svgBlip 仍指向 SVG。
+        import offipy.assets.render as render_mod
+
+        calls = []
+        monkeypatch.setattr(
+            render_mod,
+            "_make_svg_to_png",
+            lambda: (lambda svg: (calls.append(svg) or b"fake-png"), lambda: None),
+        )
+        html_src = (
+            "<html><body><section data-pptx-slide>"
+            '<div data-asset="asset://procedural/pattern/wave"></div>'
+            "</section></body></html>"
+        )
+        html, _, pptx = _fixture(tmp_path, html_src)
+        postprocess_assets(html, pptx)
+        assert calls, "PNG 渲染器应被 SVG asset 调用"
+
+        from pptx import Presentation
+
+        prs = Presentation(pptx)
+        slide = prs.slides[0]
+        blip = slide.shapes._spTree.find(f".//{{{_A}}}blip")
+        assert blip is not None
+        png_rid = blip.get(_R)
+        assert png_rid
+        assert slide.part.related_part(png_rid).partname.endswith(".png")
+        svg_blip = slide.shapes._spTree.find(f".//{{{_ASVG_NS}}}svgBlip")
+        assert svg_blip is not None
+        assert slide.part.related_part(svg_blip.get(_R)).partname.endswith(".svg")
 
 
 # ---------------------------------------------------------------------------
