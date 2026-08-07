@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -170,6 +171,7 @@ def render_asset(
     context: AssetRenderContext,
     *,
     color: str | None = None,
+    svg_to_png: Callable[[str], bytes | None] | None = None,
 ) -> list:
     """按 payload 类型把 ResolvedAsset 渲染进 slide，返回创建的形状/元素列表。
 
@@ -178,6 +180,8 @@ def render_asset(
     - SvgPayload(svg)/SvgTemplatePayload → A1 选定 P2（OOXML SVG picture + svgBlip）；
     - NativeShapePayload → A5 前未注册渲染器，明确报错。
     color 是测量出的计算色（CSS color），None 时兜底主题 accent。
+    svg_to_png 把 SVG 渲染成 PNG 字节（供不支持 SVG 的查看器回退），返回 None 时
+    保持纯 SVG picture（#58）。
     """
     payload = resolved.payload
     rect = context.rect
@@ -203,7 +207,8 @@ def render_asset(
 
         payload = materialize_svg_template(payload, context.theme_vars)
     if isinstance(payload, SvgPayload):
-        return [_render_svg_picture(slide, rect, payload.svg)]
+        png = svg_to_png(payload.svg) if svg_to_png is not None else None
+        return [_render_svg_picture(slide, rect, payload.svg, png)]
     if isinstance(payload, NativeShapePayload):
         if context.placement == "background":
             raise InvalidArgumentError(
@@ -226,11 +231,13 @@ def _render_raster_picture(slide, rect: AssetRect, payload: RasterPayload):
     return slide.shapes.add_picture(BytesIO(payload.data), Emu(x), Emu(y), Emu(w), Emu(h))
 
 
-def _render_svg_picture(slide, rect: AssetRect, svg_text: str):
-    """A1 选定 P2 生产路线：OOXML SVG picture（svg 媒体部件 + asvg svgBlip）。
+def _render_svg_picture(slide, rect: AssetRect, svg_text: str, png_bytes: bytes | None = None):
+    """OOXML SVG picture（asvg svgBlip + 可选 raster fallback blip）。
 
-    结构匹配 PowerPoint 自己对 SVG 产出的形式（COM AddPicture 对照验证过），
-    现代 Office 原生渲染 SVG 且保存/重开不丢。
+    结构匹配 PowerPoint 自己对 SVG 产出的形式（COM AddPicture 对照验证过）。
+    提供 png_bytes 时主 <a:blip r:embed> 指向 PNG、asvg:svgBlip 指向 SVG——支持 SVG
+    的宿主渲染矢量，不支持的查看器回退 PNG，两端都不空白（#58）；无 png_bytes
+    保持纯 SVG（blip 不挂 embed）。
     """
     from lxml import etree
     from pptx.opc.package import Part
@@ -238,12 +245,18 @@ def _render_svg_picture(slide, rect: AssetRect, svg_text: str):
 
     svg_bytes = svg_text.encode("utf-8")
     pkg = slide.part.package
+    slide_part = slide.part
+    image_rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+
     svg_partname = PackURI(str(pkg.next_partname("/ppt/media/image%d.svg")))
     svg_part = Part(svg_partname, "image/svg+xml", pkg, svg_bytes)
-    slide_part = slide.part
-    svg_rid = slide_part.relate_to(
-        svg_part, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
-    )
+    svg_rid = slide_part.relate_to(svg_part, image_rel)
+
+    png_rid = None
+    if png_bytes is not None:
+        png_partname = PackURI(str(pkg.next_partname("/ppt/media/image%d.png")))
+        png_part = Part(png_partname, "image/png", pkg, png_bytes)
+        png_rid = slide_part.relate_to(png_part, image_rel)
 
     a = "http://schemas.openxmlformats.org/drawingml/2006/main"
     p = "http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -262,6 +275,8 @@ def _render_svg_picture(slide, rect: AssetRect, svg_text: str):
     etree.SubElement(nvPicPr, f"{{{p}}}nvPr")
     blipFill = etree.SubElement(pic, f"{{{p}}}blipFill")
     blip = etree.SubElement(blipFill, f"{{{a}}}blip")
+    if png_rid is not None:
+        blip.set(f"{{{r}}}embed", png_rid)
     extLst = etree.SubElement(blip, f"{{{a}}}extLst")
     ext = etree.SubElement(extLst, f"{{{a}}}ext", uri=svg_ext_uri)
     svgBlip = etree.SubElement(ext, f"{{{asvg}}}svgBlip")
@@ -275,6 +290,72 @@ def _render_svg_picture(slide, rect: AssetRect, svg_text: str):
     prstGeom = etree.SubElement(spPr, f"{{{a}}}prstGeom", prst="rect")
     etree.SubElement(prstGeom, f"{{{a}}}avLst")
     return pic
+
+
+def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
+    """用浏览器页面把 SVG 渲染成 PNG；viewBox 尺寸定画布，失败返回 None。"""
+    import math
+    import re
+
+    m = re.search(r'viewBox="([^"]+)"', svg_text)
+    if m:
+        vx, vy, vw, vh = (float(v) for v in m.group(1).split())
+    else:
+        vx, vy, vw, vh = 0.0, 0.0, 512.0, 512.0
+    clip_x, clip_y = max(0.0, vx), max(0.0, vy)
+    width, height = int(math.ceil(clip_x + vw)), int(math.ceil(clip_y + vh))
+    page.set_viewport_size({"width": max(1, width), "height": max(1, height)})
+    page.set_content(
+        "<html><head><style>html,body{margin:0;padding:0}"
+        "svg{width:100%;height:100%;display:block}</style></head>"
+        f"<body><div style='width:{width}px;height:{height}px'>{svg_text}</div></body></html>"
+    )
+    return page.screenshot(
+        clip={"x": clip_x, "y": clip_y, "width": int(vw), "height": int(vh)}, type="png"
+    )
+
+
+def _make_svg_to_png():
+    """惰性共享 Playwright chromium 的 SVG→PNG 渲染器（#58）。
+
+    首次 convert 调用启动一次 browser，之后复用；返回 (convert, close)。Playwright
+    或 chromium 缺失、任一 SVG 渲染失败 → convert 返回 None（调用方降级为纯 SVG），
+    绝不因 fallback 失败中断资产注入。
+    """
+    browser = None
+    pw = None
+
+    def convert(svg_text: str) -> bytes | None:
+        nonlocal browser, pw
+        if pw is None:
+            try:
+                from playwright.sync_api import sync_playwright
+            except ImportError:
+                return None
+            pw = sync_playwright().start()
+        if browser is None:
+            try:
+                browser = pw.chromium.launch()
+            except Exception:
+                return None
+        page = browser.new_page()
+        try:
+            return _svg_page_screenshot(page, svg_text)
+        except Exception:
+            return None
+        finally:
+            page.close()
+
+    def close() -> None:
+        nonlocal browser, pw
+        if browser is not None:
+            browser.close()
+            browser = None
+        if pw is not None:
+            pw.stop()
+            pw = None
+
+    return convert, close
 
 
 def _next_shape_id(slide) -> int:
@@ -377,29 +458,35 @@ def postprocess_assets(html_path: str, pptx_path: str) -> AssetUsageReport:
     from pptx import Presentation
 
     prs = Presentation(pptx_path)
+    svg_to_png, close_svg_png = _make_svg_to_png()
     records: list[AssetUsageRecord] = []
-    for decl in decls:
-        slide = prs.slides[decl.slide_index - 1]
-        measurement = bound[decl.declaration_id]
-        context = AssetRenderContext(
-            slide_index=decl.slide_index,
-            rect=measurement.rect,
-            theme_name=theme_name,
-            theme_vars=measurement.theme_vars,
-            placement=decl.placement,
-        )
-        placeholder = find_asset_placeholder(slide, decl.declaration_id)
-        resolved = registry.resolve(decl.request)
-        rendered = render_asset(slide, resolved, context, color=measurement.color)
-        place_rendered_elements(slide, placeholder, rendered, decl.placement)
-        records.append(
-            AssetUsageRecord(
-                declaration_id=decl.declaration_id,
+    try:
+        for decl in decls:
+            slide = prs.slides[decl.slide_index - 1]
+            measurement = bound[decl.declaration_id]
+            context = AssetRenderContext(
                 slide_index=decl.slide_index,
-                request=format_asset_uri(decl.request),
+                rect=measurement.rect,
+                theme_name=theme_name,
+                theme_vars=measurement.theme_vars,
                 placement=decl.placement,
-                provider=resolved.provider_meta,
             )
-        )
+            placeholder = find_asset_placeholder(slide, decl.declaration_id)
+            resolved = registry.resolve(decl.request)
+            rendered = render_asset(
+                slide, resolved, context, color=measurement.color, svg_to_png=svg_to_png
+            )
+            place_rendered_elements(slide, placeholder, rendered, decl.placement)
+            records.append(
+                AssetUsageRecord(
+                    declaration_id=decl.declaration_id,
+                    slide_index=decl.slide_index,
+                    request=format_asset_uri(decl.request),
+                    placement=decl.placement,
+                    provider=resolved.provider_meta,
+                )
+            )
+    finally:
+        close_svg_png()
     prs.save(pptx_path)
     return AssetUsageReport(tuple(records))

@@ -187,6 +187,33 @@ class TestRenderAssetDispatch:
         with pytest.raises(InvalidArgumentError, match="unknown native primitive"):
             render_asset(_blank_slide(), _resolved(payload), _context())
 
+    def test_svg_payload_png_fallback_embeds_png_and_svg(self):
+        # #58：svg_to_png 提供时主 <a:blip> 挂 PNG embed，svgBlip 仍指 SVG——
+        # 支持 SVG 的宿主用矢量，不支持的查看器回退 PNG。
+        svg = _rect_svg()
+        resolved = _resolved(SvgPayload(svg=svg, render_mode="svg", view_box=(0, 0, 24, 24)))
+        slide = _blank_slide()
+        rendered = render_asset(slide, resolved, _context(), svg_to_png=lambda s: _tiny_png())
+        pic = rendered[0]
+        blip = pic.find(f".//{{{_A}}}blip")
+        png_rid = blip.get(_R)
+        assert png_rid
+        png_part = slide.part.related_part(png_rid)
+        assert png_part.partname.endswith(".png")
+        assert png_part.blob == _tiny_png()
+        svg_rid = pic.find(f".//{{{_ASVG_NS}}}svgBlip").get(_R)
+        assert slide.part.related_part(svg_rid).blob.decode("utf-8") == svg
+
+    def test_svg_payload_without_svg_to_png_keeps_pure_svg(self):
+        svg = _rect_svg()
+        resolved = _resolved(SvgPayload(svg=svg, render_mode="svg", view_box=(0, 0, 24, 24)))
+        slide = _blank_slide()
+        rendered = render_asset(slide, resolved, _context())
+        pic = rendered[0]
+        assert pic.find(f".//{{{_A}}}blip").get(_R) is None  # 纯 SVG：主 blip 无 embed
+        svg_rid = pic.find(f".//{{{_ASVG_NS}}}svgBlip").get(_R)
+        assert slide.part.related_part(svg_rid).blob.decode("utf-8") == svg
+
 
 # ---------------------------------------------------------------------------
 # place_rendered_elements z-order

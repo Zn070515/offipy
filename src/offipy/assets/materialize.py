@@ -40,7 +40,10 @@ def resolve_asset_color(value: str, theme_vars: Mapping[str, str]) -> str:
     if canon == "transparent" or canon.startswith("#"):
         return canon
     resolved = _normalized_theme_vars(theme_vars).get(canon)
-    if resolved is None:
+    if not resolved:
+        # None 或空串都视为「token 未定义」：deck 侧 measure 对未定义 CSS 变量
+        # getPropertyValue 返回空串而非 None，空值按 not defined 报错，避免
+        # 误导用户去检查 hex 格式（#60）。
         raise InvalidArgumentError(f"theme color token {canon!r} not defined")
     if not isinstance(resolved, str):
         raise InvalidArgumentError(f"theme color {canon!r} value must be a string")

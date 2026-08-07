@@ -647,3 +647,61 @@ def test_atomic_replace_win32_locked_raises_actionable(tmp_path, monkeypatch):
     else:
         with pytest.raises(PermissionError):
             deck._atomic_replace("tmp.pptx", target)
+
+
+# --- #57 相对资源 URL：注入副本重写为绝对 file:// ---
+
+
+def test_render_rewrites_relative_urls_in_injected_copy(tmp_path, monkeypatch):
+    (tmp_path / "img").mkdir()
+    (tmp_path / "img" / "logo.png").write_bytes(b"x")
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><head><style data-theme="mckinsey"></style>'
+        "<style>.hero{background:url(bg.png)}</style>"
+        "</head><body><section class='slide' data-pptx-slide>"
+        '<img src="img/logo.png"><a href="about.html">x</a>'
+        "</section></body></html>",
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    deck.render(str(html), theme="mckinsey")
+    content = created["injected_content"]
+    base = Path(html).resolve().parent
+    logo_uri = (base / "img" / "logo.png").resolve().as_uri()
+    about_uri = (base / "about.html").resolve().as_uri()
+    bg_uri = (base / "bg.png").resolve().as_uri()
+    assert f'src="{logo_uri}"' in content
+    assert f'href="{about_uri}"' in content
+    assert f"url({bg_uri})" in content
+
+
+def test_render_keeps_absolute_and_fragment_urls(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(
+        '<html><head><style data-theme="mckinsey"></style></head><body>'
+        '<section class="slide" data-pptx-slide>'
+        '<img src="https://example.com/a.png"><img src="data:image/png;base64,AAA">'
+        '<img src="//cdn.example.com/b.png"><a href="#top">x</a>'
+        "</section></body></html>",
+        encoding="utf-8",
+    )
+    created = {}
+    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+
+    deck.render(str(html), theme="mckinsey")
+    content = created["injected_content"]
+    assert 'src="https://example.com/a.png"' in content
+    assert 'src="data:image/png;base64,AAA"' in content
+    assert 'src="//cdn.example.com/b.png"' in content
+    assert 'href="#top"' in content
+
+
+def test_rewrite_relative_urls_decodes_percent_encoding(tmp_path):
+    base = tmp_path.resolve()
+    content = '<img src="img/My%20Photo.png">'
+    rewritten = deck._rewrite_relative_urls(content, base)
+    expected = (base / "img" / "My Photo.png").resolve().as_uri()
+    assert rewritten == f'<img src="{expected}">'

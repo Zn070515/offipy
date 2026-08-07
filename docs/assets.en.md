@@ -72,7 +72,7 @@ asset://primitives/primitive/metric-badge
 | mode | meaning |
 |------|---------|
 | `freeform_svg` | source SVG parsed into a native PowerPoint freeform (`p:sp` + `a:custGeom`), double-click to edit the path (icons) |
-| `svg` | SVG written as an OOXML `svgBlip` SVG picture (procedural textures) |
+| `svg` | SVG written as an OOXML SVG picture — primary `a:blip` embeds a PNG raster fallback, `asvg:svgBlip` points at the vector (procedural textures; degrades to pure SVG without Playwright) |
 | `svg_template` | template SVG materialized via color slots (e.g. `__ACCENT__`) then written as an SVG picture |
 | `raster` | bitmap payload (`add_picture`) |
 | `native_shape` | native shapes + text boxes + freeforms combined (primitives) |

@@ -249,3 +249,14 @@ def test_no_asset_records_no_validation(tmp_path):
     ])
     assert "OFFIPY_ASSET" not in xml
     assert xml.count("<p:sp>") == 1
+
+
+def test_sld_sz_declares_screen16x9(tmp_path):
+    # #61：python-pptx 只改 cx/cy 不改 sldSz@type（新建默认 screen4x3），Office 按
+    # type 识别宽高比 → type 与 16:9 宽高矛盾。assemble 必须显式标 screen16x9。
+    out = tmp_path / "t.pptx"
+    assemble({"slides": [_slide([])]}, out)
+    xml = zipfile.ZipFile(out).read("ppt/presentation.xml").decode("utf-8")
+    assert 'type="screen16x9"' in xml
+    assert 'cx="12192000"' in xml
+    assert 'cy="6858000"' in xml

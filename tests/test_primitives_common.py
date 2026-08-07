@@ -153,6 +153,36 @@ def test_fit_font_size_wrapped_empty_text() -> None:
     assert fit_font_size_wrapped("", 400, 200, start_pt=20, min_pt=8) > 0
 
 
+def _real_wrapped_max_width_px(text: str, size_pt: float, w_px: float) -> float:
+    """真实字形宽度（CJK 全角 ≈1.0em，拉丁/空格 ≈0.55em）下 greedy wrap 的最宽行。"""
+    em_px = size_pt * (96.0 / 72.0)
+    space_w_px = em_px * 0.55
+    cur = 0.0
+    max_w = 0.0
+    for token in text.split():
+        token_w = em_px * sum(1.0 if ord(ch) > 0x2E80 else 0.55 for ch in token)
+        if cur == 0 or cur + space_w_px + token_w <= w_px:
+            cur += (space_w_px if cur else 0.0) + token_w
+        else:
+            max_w = max(max_w, cur)
+            cur = token_w
+    return max(max_w, cur)
+
+
+def test_fit_font_size_cjk_does_not_overflow() -> None:
+    # #56：0.55em 统一估算低估 CJK 全角字形（实际 ~1.0em）→ 中文文本溢出测量矩形。
+    # 修复后返回字号下按真实字形宽度模拟 wrapped 折行，最宽行必须 ≤ 矩形宽。
+    cases = [
+        ("操作点 漏检/误检", 420.0, 240.0),
+        ("城市环境智能治理", 400.0, 100.0),
+        ("让每处垃圾都被看见", 420.0, 200.0),
+    ]
+    for text, w, h in cases:
+        pt = fit_font_size_wrapped(text, w, h, start_pt=60.0, min_pt=8.0)
+        real_w = _real_wrapped_max_width_px(text, pt, w)
+        assert real_w <= w + 1e-6, f"{text!r} pt={pt:.1f} real_w={real_w:.1f} > box {w}"
+
+
 # -- shape helpers ---------------------------------------------------------
 
 

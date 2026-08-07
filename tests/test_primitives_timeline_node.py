@@ -98,6 +98,18 @@ def test_timeline_node_current_uses_accent() -> None:
     assert str(_marker(slide).fill.fore_color.rgb) == "2251FF"
 
 
+def test_timeline_node_current_fill_param_applies() -> None:
+    # #59：fill 公共参数应驱动 current marker 填充
+    slide = _render({"phase": "current", "fill": "#E8635A"})
+    assert str(_marker(slide).fill.fore_color.rgb) == "E8635A"
+
+
+def test_timeline_node_current_accent_override_follows_fill() -> None:
+    # fill 默认 transparent → 回退 accent；accent param 应生效
+    slide = _render({"phase": "current", "accent": "#FF0000"})
+    assert str(_marker(slide).fill.fore_color.rgb) == "FF0000"
+
+
 def test_timeline_node_future_is_outline() -> None:
     slide = _render({"phase": "future"})
     marker = _marker(slide)

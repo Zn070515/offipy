@@ -1,10 +1,9 @@
 """offipy.assets.primitives.label_pill — editable label pill (A5).
 
-Frozen style: rounded rectangle filled with the resolved accent (default theme
-accent; the ``accent`` common param overrides it), with a single line of
-contrast text centered both axes. Text color is white on dark accents and ink
-on light accents. The ``fill`` common param is validated for schema uniformity
-but the pill card is driven by accent. A text too long for the rect shrinks;
+Frozen style: rounded rectangle filled with the resolved ``fill`` common
+param (falls back to the accent token / ``accent`` param when fill is unset),
+with a single line of contrast text centered both axes. Text color is white
+on dark fills and ink on light fills. A text too long for the rect shrinks;
 if it cannot fit even at the 8pt floor the renderer raises rather than
 enlarging the pill or truncating the text.
 """
@@ -41,6 +40,8 @@ def render(slide, params, context) -> tuple[object, ...]:
     colors = resolve_native_colors(params, context)
     x, y, w, h = rect.x, rect.y, rect.width, rect.height
     accent = colors["accent"]
+    # fill 公共参数驱动卡片填充；未传（transparent 是默认）时回退 accent（#59）
+    pill_fill = colors["fill"] if colors["fill"] != "transparent" else accent
 
     pill = add_shape(
         slide,
@@ -49,7 +50,7 @@ def render(slide, params, context) -> tuple[object, ...]:
         y,
         w,
         h,
-        fill=accent,
+        fill=pill_fill,
         line="transparent",
     )
     text_pt = fit_font_size(params["text"], w, h, start_pt=h * 0.6, min_pt=_MIN_PT)
@@ -61,7 +62,7 @@ def render(slide, params, context) -> tuple[object, ...]:
         h,
         text=params["text"],
         font_size_pt=text_pt,
-        color=_contrast_text(accent),
+        color=_contrast_text(pill_fill),
         bold=True,
         align=PP_ALIGN.CENTER,
         anchor=MSO_ANCHOR.MIDDLE,

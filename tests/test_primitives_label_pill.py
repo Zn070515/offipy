@@ -130,6 +130,20 @@ def test_label_pill_light_accent_override_dark_text() -> None:
     assert _run_color(slide, "Onboard") == "222222"
 
 
+def test_label_pill_fill_param_applies() -> None:
+    # #59：fill 公共参数应驱动卡片填充（docs/assets.md:182 声明 fill 为共有可选参数）
+    slide = _render({"text": "Hot", "fill": "#E8635A"})
+    pill = _autoshapes(slide)[0]
+    assert str(pill.fill.fore_color.rgb) == "E8635A"
+
+
+def test_label_pill_fill_unset_falls_back_to_accent() -> None:
+    # 未传 fill 时回退 accent，不破坏既有视觉
+    slide = _render({"text": "Hot", "accent": "#112233"})
+    pill = _autoshapes(slide)[0]
+    assert str(pill.fill.fore_color.rgb) == "112233"
+
+
 def test_label_pill_font_shrinks_in_rect() -> None:
     slide = _render({"text": "x" * 50})
     box = _find_textbox(slide, "x" * 50)

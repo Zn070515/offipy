@@ -54,6 +54,12 @@ class TestResolveAssetColor:
         with pytest.raises(InvalidArgumentError):
             resolve_asset_color("", {})
 
+    def test_empty_theme_value_reports_not_defined(self):
+        # deck 侧 measure 对未定义 CSS 变量 getPropertyValue 返回空串而非 None；
+        # 空值应按「token 未定义」报错，不能落到「must be #RRGGBB」格式误报。
+        with pytest.raises(InvalidArgumentError, match="not defined"):
+            resolve_asset_color("accent", {"accent": ""})
+
 
 # ---------------------------------------------------------------------------
 # materialize_svg_template
