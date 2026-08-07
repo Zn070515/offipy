@@ -166,6 +166,10 @@ def _build_default_registry() -> AssetRegistry:
     from offipy.assets.providers.procedural import ProceduralProvider
 
     reg.register(ProceduralProvider())
+
+    from offipy.assets.providers.primitives import PrimitivesProvider
+
+    reg.register(PrimitivesProvider())
     return reg
 
 
