@@ -20,6 +20,7 @@ from offipy.assets.declarations import preprocess_asset_declarations
 from offipy.assets.materialize import materialize_svg_template
 from offipy.assets.model import AssetRef, AssetRequest
 from offipy.assets.providers.procedural import ProceduralProvider
+from offipy.envcheck import _check_browser
 from offipy.exceptions import InvalidArgumentError
 
 _DEFAULT_VARS = {"bg": "#ffffff", "surface": "#f3f4f6", "accent": "#2251ff"}
@@ -427,3 +428,46 @@ def test_50_procedural_assets_deterministic(tmp_path, monkeypatch):
     deck.render(str(tmp_path / "d.html"), out=str(out2), overwrite=True)
     blobs2 = _pic_blobs(Presentation(str(out2)).slides[0])
     assert blobs2 == blobs
+
+
+# ---------------------------------------------------------------------------
+# Task 11 — 真实 Chromium 渲染（deck_render 门禁，CI 无浏览器则 skip）
+# ---------------------------------------------------------------------------
+
+_HTML_REAL = """<!doctype html>
+<html><head><style>
+  :root { --bg:#ffffff; --surface:#f3f4f6; --ink:#222222; --muted:#667085;
+          --accent:#2251ff; --accent-soft:#e9edff; --divider:#e5e7eb; }
+</style></head><body>
+<section data-pptx-slide>
+  <h1>Probe</h1>
+  <div data-asset="asset://procedural/pattern/topography?seed=42"
+       data-asset-placement="background"
+       style="position:absolute;left:0;top:0;width:100%;height:100%"></div>
+  <div data-asset="asset://procedural/pattern/rings?count=7"
+       style="position:absolute;left:120px;top:160px;width:500px;height:500px"></div>
+</section>
+</body></html>"""
+
+
+@pytest.mark.deck_render
+@pytest.mark.skipif(
+    not deck.CONVERT_PY.exists() or not _check_browser().ok,
+    reason="vendored 转换器缺失或 chromium 不可用",
+)
+def test_real_render_procedural_background_and_decorative(tmp_path):
+    """真实浏览器渲染：procedural 资产按声明进 P2 图片，占位符全消。"""
+    html = tmp_path / "real.html"
+    html.write_text(_HTML_REAL, encoding="utf-8")
+    out = tmp_path / "real.pptx"
+    deck.render(str(html), out=str(out), overwrite=True, timeout=240)
+
+    slide = Presentation(str(out)).slides[0]
+    assert not any(s.name.startswith("OFFIPY_ASSET::") for s in slide.shapes)
+    blobs = _pic_blobs(slide)
+    assert len(blobs) == 2
+    assert all("__OFFIPY_ASSET" not in b for b in blobs)
+    assert all("#2251FF" in b for b in blobs)  # 主题 accent 物化
+    # 背景 topography 在装饰 rings 之前（spTree 顺序）
+    assert "<circle" not in blobs[0] and blobs[0].count("<path") > 0
+    assert blobs[1].count("<circle") == 7
