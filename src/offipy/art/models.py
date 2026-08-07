@@ -13,7 +13,7 @@ from typing import Literal
 from offipy.audit import Severity
 
 ART_SCHEMA_VERSION = "0.2"
-ART_REPORT_SCHEMA_VERSION = "0.2"
+ART_REPORT_SCHEMA_VERSION = "0.3"
 
 Grade = Literal["excellent", "good", "attention", "poor"]
 AssessmentStatus = Literal["assessed", "insufficient_evidence", "not_applicable"]
@@ -414,6 +414,8 @@ class ArtFinding:
     evidence_sources: frozenset[str] = frozenset()
     evidence_reliability: float | None = None
     evidence_method: str | None = None
+    severity_override: bool = False
+    severity_override_source: Literal["user", "feedback"] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -429,6 +431,12 @@ class ArtFinding:
             "evidence_sources": sorted(self.evidence_sources),
             "evidence_reliability": self.evidence_reliability,
             "evidence_method": self.evidence_method,
+            **({"severity_override": True} if self.severity_override else {}),
+            **(
+                {"severity_override_source": self.severity_override_source}
+                if self.severity_override_source is not None
+                else {}
+            ),
         }
 
 

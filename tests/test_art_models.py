@@ -23,7 +23,7 @@ def _el(**kw):
 
 def test_schema_versions():
     assert ART_SCHEMA_VERSION == "0.2"
-    assert ART_REPORT_SCHEMA_VERSION == "0.2"
+    assert ART_REPORT_SCHEMA_VERSION == "0.3"
 
 
 def test_alpha_composite():
@@ -222,6 +222,65 @@ def test_finding_evidence_serialization():
     assert d["evidence_sources"] == ["measurement", "pixel"]
     assert d["evidence_reliability"] == 0.85
     assert d["evidence_method"] == "declared_verified"
+
+
+def test_finding_default_omits_severity_override():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+    )
+    d = f.to_dict()
+    assert "severity_override" not in d
+    assert "severity_override_source" not in d
+    # 0.2 报告字典可被旧解析路径读取：默认 finding 序列化须与 0.2 逐字节一致
+    assert d == {
+        "rule_id": "a.h",
+        "dimension": "hierarchy",
+        "severity": "MID",
+        "message": "m",
+        "confidence": 0.6,
+        "slide_index": None,
+        "primary": None,
+        "related": [],
+        "details": {},
+        "evidence_sources": [],
+        "evidence_reliability": None,
+        "evidence_method": None,
+    }
+
+
+def test_finding_severity_override_serialized():
+    for src in ("user", "feedback"):
+        f = ArtFinding(
+            rule_id="a.h",
+            dimension="hierarchy",
+            severity=Severity.LOW,
+            message="m",
+            confidence=0.6,
+            severity_override=True,
+            severity_override_source=src,
+        )
+        d = f.to_dict()
+        assert d["severity_override"] is True
+        assert d["severity_override_source"] == src
+
+
+def test_finding_severity_override_source_omitted_when_none():
+    # override=True 但无来源时，source 仍按契约省略
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.6,
+        severity_override=True,
+    )
+    d = f.to_dict()
+    assert d["severity_override"] is True
+    assert "severity_override_source" not in d
 
 
 def test_dimension_reliability_serialization():
