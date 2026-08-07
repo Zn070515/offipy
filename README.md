@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.13.2（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.14.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -285,6 +285,23 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   大纲里用 `@icons: <名字>[:标签]; ...` 声明图标行（默认 `ph:` 前缀），骨架自动落
   `icons-row` 布局（超过 3 个图标自动换行，3 列/行）。示例见
   [`examples/outline/icons-demo.md`](https://github.com/Zn070515/offipy/blob/main/examples/outline/icons-demo.md)。
+- **资源系统（Asset System v1）**：图标 / 纹理 / 图元统一走 `asset://` 资源管线
+  （`data-asset` / `data-asset-param-*` / `data-asset-placement`），渲染成**可编辑的
+  PowerPoint 原生对象**而非位图。内置 provider：`ph`（1512 Phosphor 图标）、`lu`
+  （1756 Lucide 图标）、`procedural`（8 个确定性纹理：wave / blob / dot-grid /
+  square-grid / rings / topography / circuit / gradient-orb）、`primitives`
+  （8 个原生图元：quote-mark / section-number / label-pill / metric-badge /
+  timeline-node / process-arrow / device-frame / browser-mockup）。`data-primitive`
+  是原生图元的简写语法糖。每次 visual-audit 渲染产出 `assets.json` 溯源清单。
+  文档见 [`docs/assets.md`](https://github.com/Zn070515/offipy/blob/main/docs/assets.md)。
+
+  ```html
+  <div data-asset="asset://procedural/pattern/topography?seed=42" data-asset-placement="background"
+       style="position:absolute;left:0;top:0;width:100%;height:100%"></div>
+  <div data-asset="asset://primitives/primitive/metric-badge"
+       data-asset-param-value="24%" data-asset-param-label="YoY" data-asset-param-delta="+3.2%"
+       style="position:absolute;left:100px;top:200px;width:420px;height:220px"></div>
+  ```
 - **反馈学习**：审计后处置（fixed / accepted / ignored）记入 `~/.offipy/feedback.jsonl`，`feedback.dimension_weights()` 折算审计权重，越修越严（P2 验证版）
 
 ```python

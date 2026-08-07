@@ -3,6 +3,36 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.14.0] - 2026-08-08
+
+### Added
+- **资源系统（Asset System v1）**：`asset://` 统一资源管线（provider → 确定性测量 →
+  占位符注入 → 渲染落位），产出 PowerPoint **可编辑原生对象**而非位图。
+  `AssetRef` / `AssetRequest` / `AssetRegistry` / `get_default_registry()` 抽象 +
+  `asset://<provider>/<kind>/<name>?k=v` URI 语法（参数规范化、`%23` 十六进制色往返）。
+- **procedural provider（8 个确定性纹理）**：wave / blob / dot-grid / square-grid /
+  rings / topography / circuit / gradient-orb，纯参数确定性生成，支持
+  `data-asset-placement="background"` / `decorative` 沉底与装饰落位。
+- **primitives provider（8 个可编辑原生图元）**：quote-mark / section-number /
+  label-pill / metric-badge / timeline-node / process-arrow / device-frame /
+  browser-mockup，全部由原生形状 + 文本框构成，文字可编辑；`background` 落位显式拒绝。
+- **`assets.json` 溯源清单**：visual-audit 渲染产出用法清单（provider / 许可证 /
+  来源 / 落位），满足合规审计。
+- **HTML 声明语法**：`data-asset` + `data-asset-param-*` + `data-asset-placement`，
+  原生图元简写 `data-primitive` 语法糖。
+
+### Changed
+- **ph/lu 图标内部迁移到 provider**：`data-icon="<集>:<名字>"` 内部走
+  `ph` / `lu` provider 与统一 asset 管线，对外行为不变。
+- **通用确定性测量/占位符管线**：资源声明有稳定 ID（`asset-s<slide>-<seq>`），
+  每次渲染结构一致。
+- **`no_visual_audit` 前置检查扩大**：除 `data-chart` / `data-icon` 外，也拒绝
+  `data-asset` / `data-primitive` 声明（fail-fast，资源注入依赖 measurements.json）。
+
+### Compatibility
+- 旧 `data-icon` 图标写法**无需改动**，无迁移步骤。
+- `import offipy.assets` 仍为纯标准库表面，不加载 python-pptx / Pillow / playwright。
+
 ## [0.13.2] - 2026-08-07
 
 ### Fixed

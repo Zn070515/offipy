@@ -184,7 +184,7 @@ class TestRenderAssetDispatch:
 
     def test_native_shape_payload_not_registered(self):
         payload = NativeShapePayload(primitive="rect", params=())
-        with pytest.raises(InvalidArgumentError, match="native_shape"):
+        with pytest.raises(InvalidArgumentError, match="unknown native primitive"):
             render_asset(_blank_slide(), _resolved(payload), _context())
 
 

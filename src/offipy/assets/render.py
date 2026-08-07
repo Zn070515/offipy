@@ -205,7 +205,15 @@ def render_asset(
     if isinstance(payload, SvgPayload):
         return [_render_svg_picture(slide, rect, payload.svg)]
     if isinstance(payload, NativeShapePayload):
-        raise InvalidArgumentError("native_shape provider renderer not registered")
+        if context.placement == "background":
+            raise InvalidArgumentError(
+                "native primitives do not support background placement in v0.14"
+            )
+        from offipy.assets.primitives import get_native_renderer
+
+        renderer = get_native_renderer(payload.primitive)
+        shapes = renderer(slide, dict(payload.params), context)
+        return list(shapes)
     raise InvalidArgumentError(f"unknown asset payload type {type(payload).__name__}")
 
 
