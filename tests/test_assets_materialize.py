@@ -17,6 +17,7 @@ def _template(svg: str, slots):
 # resolve_asset_color
 # ---------------------------------------------------------------------------
 
+
 class TestResolveAssetColor:
     def test_explicit_hex_bypasses_theme(self):
         assert resolve_asset_color("#2251ff", {}) == "#2251FF"
@@ -58,12 +59,13 @@ class TestResolveAssetColor:
 # materialize_svg_template
 # ---------------------------------------------------------------------------
 
+
 class TestMaterializeSvgTemplate:
     def test_substitutes_theme_colors(self):
         tpl = _template(
-            '<svg viewBox="0 0 100 100"><path fill="__A__"/>'
-            '<rect fill="__B__"/></svg>',
-            (("__A__", "accent"), ("__B__", "ink")))
+            '<svg viewBox="0 0 100 100"><path fill="__A__"/><rect fill="__B__"/></svg>',
+            (("__A__", "accent"), ("__B__", "ink")),
+        )
         out = materialize_svg_template(tpl, {"accent": "#0052FF", "ink": "#111111"})
         assert isinstance(out, SvgPayload)
         assert out.render_mode == "svg"
@@ -74,62 +76,55 @@ class TestMaterializeSvgTemplate:
         assert "#111111" in out.svg
 
     def test_explicit_hex_in_slot_bypasses_theme(self):
-        tpl = _template('<svg><path fill="__A__"/></svg>',
-                        (("__A__", "#2251FF"),))
+        tpl = _template('<svg><path fill="__A__"/></svg>', (("__A__", "#2251FF"),))
         out = materialize_svg_template(tpl, {})
         assert "#2251FF" in out.svg
 
     def test_transparent_slot(self):
-        tpl = _template('<svg><path fill="__A__"/></svg>',
-                        (("__A__", "transparent"),))
+        tpl = _template('<svg><path fill="__A__"/></svg>', (("__A__", "transparent"),))
         out = materialize_svg_template(tpl, {})
         assert 'fill="transparent"' in out.svg
 
     def test_light_and_dark_maps(self):
-        tpl = _template('<svg><path fill="__A__"/></svg>',
-                        (("__A__", "accent"),))
+        tpl = _template('<svg><path fill="__A__"/></svg>', (("__A__", "accent"),))
         dark = materialize_svg_template(tpl, {"accent": "#0052FF"})
         light = materialize_svg_template(tpl, {"accent": "#66B3FF"})
         assert "#0052FF" in dark.svg
         assert "#66B3FF" in light.svg
 
     def test_missing_token_fails(self):
-        tpl = _template('<svg><path fill="__A__"/></svg>',
-                        (("__A__", "accent"),))
+        tpl = _template('<svg><path fill="__A__"/></svg>', (("__A__", "accent"),))
         with pytest.raises(InvalidArgumentError):
             materialize_svg_template(tpl, {})
 
     def test_declared_sentinel_absent_in_template_fails(self):
-        tpl = _template('<svg><path fill="__A__"/></svg>',
-                        (("__A__", "accent"), ("__B__", "ink")))
+        tpl = _template('<svg><path fill="__A__"/></svg>', (("__A__", "accent"), ("__B__", "ink")))
         with pytest.raises(InvalidArgumentError):
-            materialize_svg_template(
-                tpl, {"accent": "#0052FF", "ink": "#111111"})
+            materialize_svg_template(tpl, {"accent": "#0052FF", "ink": "#111111"})
 
     def test_undeclared_sentinel_in_template_fails(self):
         tpl = _template(
-            '<svg><path fill="__A__"/><circle fill="__OFFIPY_X__"/></svg>',
-            (("__A__", "accent"),))
+            '<svg><path fill="__A__"/><circle fill="__OFFIPY_X__"/></svg>', (("__A__", "accent"),)
+        )
         with pytest.raises(InvalidArgumentError):
             materialize_svg_template(tpl, {"accent": "#0052FF"})
 
     def test_malformed_svg_fails(self):
-        tpl = _template('<svg><path fill="__A__"></svg>',
-                        (("__A__", "accent"),))
+        tpl = _template('<svg><path fill="__A__"></svg>', (("__A__", "accent"),))
         with pytest.raises(InvalidArgumentError):
             materialize_svg_template(tpl, {"accent": "#0052FF"})
 
     def test_output_deterministic(self):
         tpl = _template(
             '<svg><path fill="__A__"/><rect fill="__B__"/></svg>',
-            (("__A__", "accent"), ("__B__", "ink")))
+            (("__A__", "accent"), ("__B__", "ink")),
+        )
         theme = {"accent": "#0052FF", "ink": "#111111"}
         a = materialize_svg_template(tpl, theme).svg
         b = materialize_svg_template(tpl, theme).svg
         assert a == b
 
     def test_materialized_svg_parses(self):
-        tpl = _template('<svg><path fill="__A__"/></svg>',
-                        (("__A__", "accent"),))
+        tpl = _template('<svg><path fill="__A__"/></svg>', (("__A__", "accent"),))
         out = materialize_svg_template(tpl, {"accent": "#0052FF"})
         ET.fromstring(out.svg)

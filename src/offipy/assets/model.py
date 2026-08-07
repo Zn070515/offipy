@@ -8,20 +8,36 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from offipy.exceptions import InvalidArgumentError
 
 AssetKind = Literal[
-    "icon", "illustration", "pattern", "primitive", "map", "flag", "logo", "photo",
+    "icon",
+    "illustration",
+    "pattern",
+    "primitive",
+    "map",
+    "flag",
+    "logo",
+    "photo",
 ]
 AssetRenderMode = Literal["freeform_svg", "svg", "raster", "native_shape"]
 AssetPlacement = Literal["replace", "background", "decorative"]
 
-_ASSET_KINDS: frozenset[str] = frozenset({
-    "icon", "illustration", "pattern", "primitive", "map", "flag", "logo", "photo",
-})
+_ASSET_KINDS: frozenset[str] = frozenset(
+    {
+        "icon",
+        "illustration",
+        "pattern",
+        "primitive",
+        "map",
+        "flag",
+        "logo",
+        "photo",
+    }
+)
 _PLACEMENTS: frozenset[str] = frozenset({"replace", "background", "decorative"})
 
 _PROVIDER_RE = re.compile(r"[a-z][a-z0-9-]*\Z")
@@ -40,7 +56,7 @@ def canonical_params(items: Iterable[tuple[str, str]]) -> tuple[tuple[str, str],
     for key, value in items:
         k = key.strip().lower().replace("_", "-")
         if not k:
-            raise InvalidArgumentError(f"empty asset param key")
+            raise InvalidArgumentError("empty asset param key")
         if not _PARAM_KEY_RE.match(k):
             raise InvalidArgumentError(f"invalid asset param key {key!r}")
         if k in canon:
@@ -73,7 +89,7 @@ class AssetRef:
         if not name:
             raise InvalidArgumentError("asset name must be non-empty")
         if name != name.strip():
-            raise InvalidArgumentError(f"asset name must not have surrounding whitespace")
+            raise InvalidArgumentError("asset name must not have surrounding whitespace")
         if "/" in name or "\\" in name or ".." in name or "\x00" in name:
             raise InvalidArgumentError(f"invalid asset name {name!r}")
 
@@ -117,7 +133,8 @@ class SvgPayload:
     def __post_init__(self) -> None:
         if self.render_mode not in ("freeform_svg", "svg"):
             raise InvalidArgumentError(
-                f"SvgPayload render_mode must be freeform_svg or svg, got {self.render_mode!r}")
+                f"SvgPayload render_mode must be freeform_svg or svg, got {self.render_mode!r}"
+            )
 
 
 @dataclass(frozen=True)
@@ -130,14 +147,14 @@ class SvgTemplatePayload:
     def __post_init__(self) -> None:
         if self.render_mode != "svg":
             raise InvalidArgumentError(
-                f"SvgTemplatePayload render_mode must be svg, got {self.render_mode!r}")
+                f"SvgTemplatePayload render_mode must be svg, got {self.render_mode!r}"
+            )
         seen: set[str] = set()
         for placeholder, _value in self.color_slots:
             if not placeholder:
                 raise InvalidArgumentError("color_slots placeholder must be non-empty")
             if placeholder in seen:
-                raise InvalidArgumentError(
-                    f"duplicate color_slots placeholder {placeholder!r}")
+                raise InvalidArgumentError(f"duplicate color_slots placeholder {placeholder!r}")
             seen.add(placeholder)
 
 
@@ -188,7 +205,8 @@ class AssetRect:
         if self.width <= 0 or self.height <= 0:
             raise InvalidArgumentError(
                 f"AssetRect width/height must be positive for render, got "
-                f"{self.width}x{self.height}")
+                f"{self.width}x{self.height}"
+            )
 
 
 @dataclass(frozen=True)
@@ -206,6 +224,7 @@ class AssetRenderContext:
 @dataclass(frozen=True)
 class RenderedAssetElements:
     """Renderer output; internal-facing. Elements are OOXML XML elements."""
+
     elements: tuple[object, ...]
 
 
@@ -214,6 +233,7 @@ class AssetProvider(Protocol):
     kinds: frozenset[AssetKind]
     provider_meta: AssetProviderMeta
 
-    def search(self, query: str, *, kind: AssetKind | None = None,
-               limit: int = 20) -> list[AssetMeta]: ...
+    def search(
+        self, query: str, *, kind: AssetKind | None = None, limit: int = 20
+    ) -> list[AssetMeta]: ...
     def resolve(self, request: AssetRequest) -> ResolvedAsset: ...

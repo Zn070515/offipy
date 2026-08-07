@@ -19,8 +19,13 @@ _NOTICES = _REPO_ROOT / "THIRD_PARTY_NOTICES.md"
 
 def _meta(**kw) -> AssetProviderMeta:
     defaults = dict(
-        provider_id="ph", license="ISC", source_url=None, source_commit=None,
-        attribution=None, redistributable=True, first_party=False,
+        provider_id="ph",
+        license="ISC",
+        source_url=None,
+        source_commit=None,
+        attribution=None,
+        redistributable=True,
+        first_party=False,
     )
     defaults.update(kw)
     return AssetProviderMeta(**defaults)
@@ -30,13 +35,15 @@ def _meta(**kw) -> AssetProviderMeta:
 # validate_provider_meta
 # ---------------------------------------------------------------------------
 
+
 class TestValidateProviderMeta:
     def test_allowlist_accepted(self):
-        assert ALLOWED_LICENSES == frozenset({"MIT", "ISC", "CC0-1.0", "CC-BY-4.0"})
+        assert frozenset({"MIT", "ISC", "CC0-1.0", "CC-BY-4.0"}) == ALLOWED_LICENSES
         for lic in ("MIT", "ISC", "CC0-1.0"):
             _POLICY.validate_provider_meta(_meta(license=lic))
         _POLICY.validate_provider_meta(
-            _meta(license="CC-BY-4.0", source_url="https://x", attribution="A"))
+            _meta(license="CC-BY-4.0", source_url="https://x", attribution="A")
+        )
 
     def test_unknown_license_fails(self):
         for lic in ("GPL-3.0", "Apache-2.0", ""):
@@ -47,27 +54,25 @@ class TestValidateProviderMeta:
         with pytest.raises(InvalidArgumentError):
             _POLICY.validate_provider_meta(_meta(license="CC-BY-4.0"))
         with pytest.raises(InvalidArgumentError):
-            _POLICY.validate_provider_meta(
-                _meta(license="CC-BY-4.0", source_url="https://x"))
+            _POLICY.validate_provider_meta(_meta(license="CC-BY-4.0", source_url="https://x"))
         with pytest.raises(InvalidArgumentError):
-            _POLICY.validate_provider_meta(
-                _meta(license="CC-BY-4.0", attribution="A"))
+            _POLICY.validate_provider_meta(_meta(license="CC-BY-4.0", attribution="A"))
 
     def test_first_party_may_lack_commit_but_identifies_license(self):
-        _POLICY.validate_provider_meta(
-            _meta(first_party=True, license="MIT", source_commit=None))
+        _POLICY.validate_provider_meta(_meta(first_party=True, license="MIT", source_commit=None))
 
     def test_remote_third_party_may_lack_commit(self):
         # future/remote provider metadata may be redistributable=False without
         # a commit; the basic gate still accepts, vendored gate rejects.
         _POLICY.validate_provider_meta(
-            _meta(redistributable=False, license="MIT",
-                  source_url="https://x", source_commit=None))
+            _meta(redistributable=False, license="MIT", source_url="https://x", source_commit=None)
+        )
 
 
 # ---------------------------------------------------------------------------
 # validate_manifest
 # ---------------------------------------------------------------------------
+
 
 def _manifest(**kw) -> dict[str, object]:
     base: dict[str, object] = {
@@ -120,8 +125,7 @@ class TestValidateManifest:
             _POLICY.validate_manifest(_manifest(redistributable=False))
 
     def test_cc_by_manifest_requires_attribution(self):
-        _POLICY.validate_manifest(
-            _manifest(license="CC-BY-4.0", attribution="Author"))
+        _POLICY.validate_manifest(_manifest(license="CC-BY-4.0", attribution="Author"))
         with pytest.raises(InvalidArgumentError):
             _POLICY.validate_manifest(_manifest(license="CC-BY-4.0"))
 
@@ -129,6 +133,7 @@ class TestValidateManifest:
 # ---------------------------------------------------------------------------
 # existing icons manifest (§5.3)
 # ---------------------------------------------------------------------------
+
 
 class TestExistingIconsManifest:
     def _manifest_data(self):
@@ -147,14 +152,16 @@ class TestExistingIconsManifest:
     def test_licenses_accepted(self):
         data = self._manifest_data()
         for provider_id, entry in data.items():
-            _POLICY.validate_provider_meta(AssetProviderMeta(
-                provider_id=provider_id,
-                license=entry["license"],
-                source_url=entry["source"],
-                source_commit=entry["commit"],
-                attribution=None,
-                redistributable=True,
-            ))
+            _POLICY.validate_provider_meta(
+                AssetProviderMeta(
+                    provider_id=provider_id,
+                    license=entry["license"],
+                    source_url=entry["source"],
+                    source_commit=entry["commit"],
+                    attribution=None,
+                    redistributable=True,
+                )
+            )
 
     def test_source_commit_map_without_loss(self):
         data = self._manifest_data()
@@ -174,6 +181,7 @@ class TestExistingIconsManifest:
 # ---------------------------------------------------------------------------
 # THIRD_PARTY_NOTICES gate (§5.4)
 # ---------------------------------------------------------------------------
+
 
 class TestThirdPartyNoticesGate:
     def test_vendored_providers_mentioned(self):

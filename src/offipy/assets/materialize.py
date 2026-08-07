@@ -49,11 +49,13 @@ def resolve_asset_color(value: str, theme_vars: Mapping[str, str]) -> str:
     if _HEX_COLOR_RE.match(resolved):
         return "#" + resolved[1:].upper()
     raise InvalidArgumentError(
-        f"theme color {canon!r} value {resolved!r} must be #RRGGBB or transparent")
+        f"theme color {canon!r} value {resolved!r} must be #RRGGBB or transparent"
+    )
 
 
-def materialize_svg_template(payload: SvgTemplatePayload,
-                             theme_vars: Mapping[str, str]) -> SvgPayload:
+def materialize_svg_template(
+    payload: SvgTemplatePayload, theme_vars: Mapping[str, str]
+) -> SvgPayload:
     """Substitute declared color slots with resolved colors and validate the result."""
     resolved: dict[str, str] = {}
     for placeholder, value in payload.color_slots:
@@ -64,18 +66,16 @@ def materialize_svg_template(payload: SvgTemplatePayload,
     for placeholder in resolved:
         if placeholder not in svg:
             raise InvalidArgumentError(
-                f"declared color slot {placeholder!r} not present in template")
+                f"declared color slot {placeholder!r} not present in template"
+            )
     # longest-first so a placeholder that prefixes another is not clobbered
-    for placeholder, color in sorted(resolved.items(),
-                                     key=lambda kv: len(kv[0]), reverse=True):
+    for placeholder, color in sorted(resolved.items(), key=lambda kv: len(kv[0]), reverse=True):
         svg = svg.replace(placeholder, color)
     leftover = _SENTINEL_RE.search(svg)
     if leftover is not None:
-        raise InvalidArgumentError(
-            f"undeclared template sentinel {leftover.group(0)!r} remains")
+        raise InvalidArgumentError(f"undeclared template sentinel {leftover.group(0)!r} remains")
     try:
         ET.fromstring(svg)
     except ET.ParseError as exc:
-        raise InvalidArgumentError(
-            "materialized SVG template is malformed") from exc
+        raise InvalidArgumentError("materialized SVG template is malformed") from exc
     return SvgPayload(svg=svg, render_mode="svg", view_box=payload.view_box)

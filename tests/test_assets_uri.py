@@ -3,8 +3,8 @@
 import pytest
 
 from offipy.assets import AssetRef, AssetRequest
-from offipy.assets.uri import format_asset_uri, parse_asset_uri
 from offipy.assets.color import validate_color_value
+from offipy.assets.uri import format_asset_uri, parse_asset_uri
 from offipy.exceptions import InvalidArgumentError
 
 
@@ -26,15 +26,15 @@ class TestParseValid:
         assert hash(a) == hash(b)
 
     def test_canonical_format_sorted(self):
-        uri = format_asset_uri(parse_asset_uri(
-            "asset://procedural/pattern/topography?seed=42&foreground=accent"))
+        uri = format_asset_uri(
+            parse_asset_uri("asset://procedural/pattern/topography?seed=42&foreground=accent")
+        )
         assert uri == "asset://procedural/pattern/topography?foreground=accent&seed=42"
 
     def test_hex_color_encoded(self):
         req = parse_asset_uri("asset://procedural/pattern/topography?foreground=%232251FF")
         assert req.params == (("foreground", "#2251FF"),)
-        assert format_asset_uri(req) == \
-            "asset://procedural/pattern/topography?foreground=%232251FF"
+        assert format_asset_uri(req) == "asset://procedural/pattern/topography?foreground=%232251FF"
 
     def test_roundtrip(self):
         for uri in (
@@ -48,8 +48,9 @@ class TestParseValid:
     def test_parse_accepts_request(self):
         # registry.resolve may be given a request directly; parser contract only
         # applies to strings — this just guards the string branch stays simple.
-        assert parse_asset_uri("asset://lu/icon/database") == \
-            AssetRequest(AssetRef("lu", "icon", "database"))
+        assert parse_asset_uri("asset://lu/icon/database") == AssetRequest(
+            AssetRef("lu", "icon", "database")
+        )
 
 
 class TestParseInvalid:
@@ -90,8 +91,7 @@ class TestParseInvalid:
 
     def test_duplicate_canonical_underscore_hyphen(self):
         with pytest.raises(InvalidArgumentError):
-            parse_asset_uri(
-                "asset://procedural/pattern/topography?orb_count=2&orb-count=3")
+            parse_asset_uri("asset://procedural/pattern/topography?orb_count=2&orb-count=3")
 
     def test_var_value_rejected(self):
         with pytest.raises(InvalidArgumentError):
@@ -132,7 +132,15 @@ class TestValidateColorValue:
         assert validate_color_value("#abc") == "#ABC"
 
     def test_invalid(self):
-        for bad in ("var(--accent)", "", "notacolor", "#12345", "#12345G",
-                    "#GGGGGG", "##", "accent "):
+        for bad in (
+            "var(--accent)",
+            "",
+            "notacolor",
+            "#12345",
+            "#12345G",
+            "#GGGGGG",
+            "##",
+            "accent ",
+        ):
             with pytest.raises(InvalidArgumentError):
                 validate_color_value(bad)

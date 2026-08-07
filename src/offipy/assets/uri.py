@@ -16,9 +16,7 @@ from offipy.exceptions import InvalidArgumentError
 
 _SCHEME = "asset://"
 _HEX = frozenset("0123456789abcdefABCDEF")
-_UNRESERVED = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-)
+_UNRESERVED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
 
 def _percent_decode(value: str) -> str:
@@ -37,9 +35,7 @@ def _percent_decode(value: str) -> str:
     try:
         return urllib.parse.unquote_to_bytes(value).decode("utf-8")
     except UnicodeDecodeError as exc:
-        raise InvalidArgumentError(
-            "asset URI percent-encoded value is not valid UTF-8"
-        ) from exc
+        raise InvalidArgumentError("asset URI percent-encoded value is not valid UTF-8") from exc
 
 
 def _percent_encode(value: str) -> str:
@@ -61,9 +57,7 @@ def _parse_query(query: str) -> tuple[tuple[str, str], ...]:
         key = _percent_decode(key)
         value = _percent_decode(value)
         if "var(" in value:
-            raise InvalidArgumentError(
-                "asset param value must not reference a CSS variable"
-            )
+            raise InvalidArgumentError("asset param value must not reference a CSS variable")
         pairs.append((key, value))
     return canonical_params(pairs)
 
@@ -74,15 +68,13 @@ def parse_asset_uri(uri: str) -> AssetRequest:
         raise InvalidArgumentError("asset URI must be a string")
     if not uri.startswith(_SCHEME):
         raise InvalidArgumentError(f"asset URI must start with {_SCHEME!r}")
-    rest = uri[len(_SCHEME):]
+    rest = uri[len(_SCHEME) :]
     if "#" in rest:
         raise InvalidArgumentError("asset URI must not contain a fragment")
     path_part, _sep, query_part = rest.partition("?")
     segments = path_part.split("/")
     if len(segments) != 3 or not all(segments):
-        raise InvalidArgumentError(
-            "asset URI must have exactly provider/kind/name path segments"
-        )
+        raise InvalidArgumentError("asset URI must have exactly provider/kind/name path segments")
     provider, kind, name = (_percent_decode(s) for s in segments)
     # kind is validated at runtime by AssetRef.__post_init__; cast narrows it
     # for static typing from the raw path segment str.
@@ -100,9 +92,7 @@ def format_asset_uri(request: AssetRequest) -> str:
         parts: list[str] = []
         for key, value in request.params:
             if "var(" in value:
-                raise InvalidArgumentError(
-                    "asset param value must not reference a CSS variable"
-                )
+                raise InvalidArgumentError("asset param value must not reference a CSS variable")
             parts.append(f"{key}={_percent_encode(value)}")
         uri += "?" + "&".join(parts)
     return uri

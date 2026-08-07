@@ -24,14 +24,17 @@ def _meta(ref: AssetRef, title: str | None = None) -> AssetMeta:
 
 def _provider_meta(provider_id: str) -> AssetProviderMeta:
     return AssetProviderMeta(
-        provider_id=provider_id, license="ISC", source_url=None,
-        source_commit=None, attribution=None, redistributable=True,
+        provider_id=provider_id,
+        license="ISC",
+        source_url=None,
+        source_commit=None,
+        attribution=None,
+        redistributable=True,
     )
 
 
 class FakeProvider:
-    def __init__(self, provider_id="ph", kinds=("icon",), results=None, *,
-                 resolve_override=None):
+    def __init__(self, provider_id="ph", kinds=("icon",), results=None, *, resolve_override=None):
         self.provider_id = provider_id
         self.kinds = frozenset(kinds)
         self.provider_meta = _provider_meta(provider_id)
@@ -64,6 +67,7 @@ class FakeProvider:
 # ---------------------------------------------------------------------------
 # register / provider
 # ---------------------------------------------------------------------------
+
 
 class TestRegister:
     def test_register_and_provider_roundtrip(self):
@@ -115,6 +119,7 @@ class TestRegister:
 # search
 # ---------------------------------------------------------------------------
 
+
 class TestSearch:
     def test_empty_query_allowed(self):
         reg = AssetRegistry()
@@ -131,10 +136,13 @@ class TestSearch:
 
     def test_provider_local_order_preserved(self):
         reg = AssetRegistry()
-        p = FakeProvider("ph", results=[
-            _meta(AssetRef("ph", "icon", "a")),
-            _meta(AssetRef("ph", "icon", "b")),
-        ])
+        p = FakeProvider(
+            "ph",
+            results=[
+                _meta(AssetRef("ph", "icon", "a")),
+                _meta(AssetRef("ph", "icon", "b")),
+            ],
+        )
         reg.register(p)
         assert [m.ref.name for m in reg.search("")] == ["a", "b"]
 
@@ -142,18 +150,19 @@ class TestSearch:
         reg = AssetRegistry()
         first = _meta(AssetRef("ph", "icon", "a"))
         dup = _meta(AssetRef("ph", "icon", "a"), title="duplicate")
-        reg.register(FakeProvider("ph", results=[
-            first, dup, _meta(AssetRef("ph", "icon", "b"))]))
+        reg.register(FakeProvider("ph", results=[first, dup, _meta(AssetRef("ph", "icon", "b"))]))
         metas = reg.search("")
         assert len(metas) == 2
         assert metas[0] is first  # first occurrence wins, dup dropped
 
     def test_global_limit_not_per_provider(self):
         reg = AssetRegistry()
-        reg.register(FakeProvider("ph", results=[
-            _meta(AssetRef("ph", "icon", f"a{i}")) for i in range(5)]))
-        reg.register(FakeProvider("lu", results=[
-            _meta(AssetRef("lu", "icon", f"b{i}")) for i in range(5)]))
+        reg.register(
+            FakeProvider("ph", results=[_meta(AssetRef("ph", "icon", f"a{i}")) for i in range(5)])
+        )
+        reg.register(
+            FakeProvider("lu", results=[_meta(AssetRef("lu", "icon", f"b{i}")) for i in range(5)])
+        )
         metas = reg.search("", limit=7)
         assert len(metas) == 7
         assert sum(1 for m in metas if m.ref.provider == "ph") == 5
@@ -169,10 +178,10 @@ class TestSearch:
 
     def test_kind_filter_skips_incompatible_providers(self):
         reg = AssetRegistry()
-        p_icon = FakeProvider("ph", kinds=("icon",),
-                              results=[_meta(AssetRef("ph", "icon", "a"))])
-        p_pat = FakeProvider("lu", kinds=("pattern",),
-                             results=[_meta(AssetRef("lu", "pattern", "b"))])
+        p_icon = FakeProvider("ph", kinds=("icon",), results=[_meta(AssetRef("ph", "icon", "a"))])
+        p_pat = FakeProvider(
+            "lu", kinds=("pattern",), results=[_meta(AssetRef("lu", "pattern", "b"))]
+        )
         reg.register(p_icon)
         reg.register(p_pat)
         metas = reg.search("", kind="pattern")
@@ -183,9 +192,11 @@ class TestSearch:
         class Unbounded(FakeProvider):
             def search(self, query, *, kind=None, limit=20):
                 return list(self._results)
+
         reg = AssetRegistry()
-        reg.register(Unbounded("ph", results=[
-            _meta(AssetRef("ph", "icon", f"a{i}")) for i in range(5)]))
+        reg.register(
+            Unbounded("ph", results=[_meta(AssetRef("ph", "icon", f"a{i}")) for i in range(5)])
+        )
         assert len(reg.search("", limit=2)) == 2
 
     def test_wrong_provider_ref_in_meta_rejected(self):
@@ -198,6 +209,7 @@ class TestSearch:
 # ---------------------------------------------------------------------------
 # resolve
 # ---------------------------------------------------------------------------
+
 
 class TestResolve:
     def test_resolve_by_uri_string(self):
@@ -232,6 +244,7 @@ class TestResolve:
 
     def test_resolve_wrong_request_rejected(self):
         reg = AssetRegistry()
+
         def bad(request):
             return ResolvedAsset(
                 request=AssetRequest(AssetRef("ph", "icon", "OTHER")),
@@ -239,12 +252,14 @@ class TestResolve:
                 provider_meta=_provider_meta("ph"),
                 payload=SvgPayload("<svg/>", "svg", None),
             )
+
         reg.register(FakeProvider("ph", resolve_override=bad))
         with pytest.raises(InvalidArgumentError):
             reg.resolve("asset://ph/icon/chart-line")
 
     def test_resolve_wrong_meta_ref_rejected(self):
         reg = AssetRegistry()
+
         def bad(request):
             return ResolvedAsset(
                 request=request,
@@ -252,12 +267,14 @@ class TestResolve:
                 provider_meta=_provider_meta("ph"),
                 payload=SvgPayload("<svg/>", "svg", None),
             )
+
         reg.register(FakeProvider("ph", resolve_override=bad))
         with pytest.raises(InvalidArgumentError):
             reg.resolve("asset://ph/icon/chart-line")
 
     def test_resolve_wrong_provider_meta_id_rejected(self):
         reg = AssetRegistry()
+
         def bad(request):
             return ResolvedAsset(
                 request=request,
@@ -265,12 +282,14 @@ class TestResolve:
                 provider_meta=_provider_meta("other"),
                 payload=SvgPayload("<svg/>", "svg", None),
             )
+
         reg.register(FakeProvider("ph", resolve_override=bad))
         with pytest.raises(InvalidArgumentError):
             reg.resolve("asset://ph/icon/chart-line")
 
     def test_resolve_invalid_payload_rejected(self):
         reg = AssetRegistry()
+
         def bad(request):
             return ResolvedAsset(
                 request=request,
@@ -278,6 +297,7 @@ class TestResolve:
                 provider_meta=_provider_meta("ph"),
                 payload="not a payload",  # type: ignore[assignment]
             )
+
         reg.register(FakeProvider("ph", resolve_override=bad))
         with pytest.raises(InvalidArgumentError):
             reg.resolve("asset://ph/icon/chart-line")
@@ -286,6 +306,7 @@ class TestResolve:
 # ---------------------------------------------------------------------------
 # default registry lifecycle
 # ---------------------------------------------------------------------------
+
 
 class TestDefaultRegistry:
     def test_get_default_registry_lazy_singleton(self):

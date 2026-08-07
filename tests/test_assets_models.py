@@ -5,9 +5,7 @@ import dataclasses
 import pytest
 
 from offipy.assets import (
-    AssetKind,
     AssetMeta,
-    AssetPlacement,
     AssetProviderMeta,
     AssetRect,
     AssetRef,
@@ -22,10 +20,10 @@ from offipy.assets import (
 from offipy.assets.model import canonical_params
 from offipy.exceptions import InvalidArgumentError
 
-
 # ---------------------------------------------------------------------------
 # AssetRef
 # ---------------------------------------------------------------------------
+
 
 class TestAssetRef:
     def test_equality_hash(self):
@@ -74,6 +72,7 @@ class TestAssetRef:
 # AssetRequest / canonical_params
 # ---------------------------------------------------------------------------
 
+
 class TestCanonicalParams:
     def test_sort_by_key(self):
         assert canonical_params([("b", "2"), ("a", "1")]) == (("a", "1"), ("b", "2"))
@@ -111,22 +110,28 @@ class TestCanonicalParams:
 
 class TestAssetRequest:
     def test_equality_independent_of_order(self):
-        a = AssetRequest(AssetRef("procedural", "pattern", "topography"),
-                         (("seed", "42"), ("foreground", "accent")))
-        b = AssetRequest(AssetRef("procedural", "pattern", "topography"),
-                         (("foreground", "accent"), ("seed", "42")))
+        a = AssetRequest(
+            AssetRef("procedural", "pattern", "topography"),
+            (("seed", "42"), ("foreground", "accent")),
+        )
+        b = AssetRequest(
+            AssetRef("procedural", "pattern", "topography"),
+            (("foreground", "accent"), ("seed", "42")),
+        )
         assert a == b
         assert hash(a) == hash(b)
 
     def test_direct_params_canonicalized(self):
-        req = AssetRequest(AssetRef("procedural", "pattern", "topography"),
-                           (("Seed", "4"), ("orb_count", "2")))
+        req = AssetRequest(
+            AssetRef("procedural", "pattern", "topography"), (("Seed", "4"), ("orb_count", "2"))
+        )
         assert req.params == (("orb-count", "2"), ("seed", "4"))
 
     def test_duplicate_key_rejected(self):
         with pytest.raises(InvalidArgumentError):
-            AssetRequest(AssetRef("procedural", "pattern", "topography"),
-                         (("seed", "1"), ("seed", "2")))
+            AssetRequest(
+                AssetRef("procedural", "pattern", "topography"), (("seed", "1"), ("seed", "2"))
+            )
 
     def test_frozen(self):
         req = AssetRequest(AssetRef("ph", "icon", "chart-line"))
@@ -137,6 +142,7 @@ class TestAssetRequest:
 # ---------------------------------------------------------------------------
 # Payloads
 # ---------------------------------------------------------------------------
+
 
 class TestSvgPayload:
     def test_render_mode_svg_ok(self):
@@ -170,8 +176,7 @@ class TestSvgTemplatePayload:
 
     def test_color_slots_unique_sentinels(self):
         with pytest.raises(InvalidArgumentError):
-            SvgTemplatePayload("<svg/>", "svg", None,
-                               (("__A__", "accent"), ("__A__", "ink")))
+            SvgTemplatePayload("<svg/>", "svg", None, (("__A__", "accent"), ("__A__", "ink")))
 
     def test_color_slots_empty_placeholder_rejected(self):
         with pytest.raises(InvalidArgumentError):
@@ -206,6 +211,7 @@ class TestNativeShapePayload:
 # ResolvedAsset
 # ---------------------------------------------------------------------------
 
+
 class TestResolvedAsset:
     def _resolved(self):
         ref = AssetRef("ph", "icon", "chart-line")
@@ -214,8 +220,12 @@ class TestResolvedAsset:
             request=req,
             meta=AssetMeta(ref=ref, title="Chart line", tags=("chart",)),
             provider_meta=AssetProviderMeta(
-                provider_id="ph", license="ISC", source_url="https://example.com",
-                source_commit="abc", attribution=None, redistributable=True,
+                provider_id="ph",
+                license="ISC",
+                source_url="https://example.com",
+                source_commit="abc",
+                attribution=None,
+                redistributable=True,
                 first_party=False,
             ),
             payload=SvgPayload("<svg/>", "freeform_svg", None),
@@ -237,6 +247,7 @@ class TestResolvedAsset:
 # ---------------------------------------------------------------------------
 # AssetRect / AssetRenderContext
 # ---------------------------------------------------------------------------
+
 
 class TestAssetRect:
     def test_unit_default_px(self):
@@ -270,7 +281,9 @@ class TestAssetRenderContext:
     def test_placement_rejects_unknown(self):
         with pytest.raises(InvalidArgumentError):
             AssetRenderContext(
-                slide_index=0, rect=AssetRect(0, 0, 100, 100),
-                theme_name=None, theme_vars={},
+                slide_index=0,
+                rect=AssetRect(0, 0, 100, 100),
+                theme_name=None,
+                theme_vars={},
                 placement="overlay",  # type: ignore[arg-type]
             )
