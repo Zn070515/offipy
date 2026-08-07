@@ -2,6 +2,7 @@
 """原生图表声明解析测试（纯 Python，不依赖 Office）。"""
 
 import json
+import re
 
 import pytest
 from pptx import Presentation
@@ -11,8 +12,11 @@ from offipy.charts import (
     ChartData,
     ChartDecl,
     ChartSeries,
+    _cycle_colors,
+    derive_chart_palette,
     inject_native_charts,
     load_chart_boxes,
+    parse_chart_colors_override,
     parse_chart_declarations,
 )
 
@@ -313,3 +317,126 @@ def test_postprocess_calls_inject(monkeypatch, tmp_path):
 
     prs2 = Presentation(str(pptx))
     assert any(s.has_chart for s in prs2.slides[0].shapes)
+
+
+# ---------------------------------------------------------------------------
+# Task 0: theme-aware palette + chart color overrides 元数据
+# ---------------------------------------------------------------------------
+
+
+def test_derive_palette_known_accent_golden():
+    # 冻结的确定性调色板快照（首色 = accent 本身）
+    assert derive_chart_palette("#2251FF") == (
+        "#2251FF",
+        "#614BFF",
+        "#41B8FF",
+        "#9418FF",
+        "#45F5D0",
+        "#EA8F6A",
+    )
+    palette = derive_chart_palette("#2251FF")
+    assert palette[0] == "#2251FF"
+    assert len(palette) == 6
+    assert all(re.match(r"^#[0-9A-F]{6}$", c) for c in palette)
+
+
+def test_derive_palette_deterministic():
+    # 同 accent（含小写输入）→ 字节级一致；不同 accent → 首色不同
+    a = derive_chart_palette("#2251FF")
+    b = derive_chart_palette("#2251ff")
+    assert a == b
+    c = derive_chart_palette("#0E9387")
+    assert c[0] == "#0E9387"
+    assert a[0] != c[0]
+
+
+@pytest.mark.parametrize("accent", ["#FFFFFF", "#000000", "#FF0000"])
+def test_derive_palette_extremes(accent):
+    # 黑白/高饱和极端值：不崩、六色全部合法大写 #RRGGBB、确定性
+    palette = derive_chart_palette(accent)
+    assert len(palette) == 6
+    assert all(re.match(r"^#[0-9A-F]{6}$", c) for c in palette)
+    assert palette == derive_chart_palette(accent)
+
+
+def test_derive_palette_invalid_accent_raises():
+    with pytest.raises(ValueError):
+        derive_chart_palette("notacolor")
+
+
+def test_parse_colors_override_valid():
+    assert parse_chart_colors_override('["#2251FF","#0E9387"]') == ("#2251FF", "#0E9387")
+    # 小写输入 → 归一化为大写
+    assert parse_chart_colors_override('["#2251ff","#0e9387"]') == ("#2251FF", "#0E9387")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[]",  # 空列表
+        '["#FF00"]',  # 非法 hex
+        '["red"]',  # 非 hex
+        '"#2251FF"',  # 不是列表
+        "[1,2]",  # 非字符串
+        '["#2251FF","oops"]',  # 混入非法项
+        "",  # 空字符串（JSON 都解析不了）
+    ],
+)
+def test_parse_colors_override_invalid(raw):
+    with pytest.raises(ValueError):
+        parse_chart_colors_override(raw)
+
+
+def test_parse_decl_preserves_slide_classes():
+    html = (
+        '<section class="slide dark" data-pptx-slide>'
+        '<div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+    )
+    decls = parse_chart_declarations(html)
+    assert decls[0].slide_classes == frozenset({"slide", "dark"})
+    # 无 class 的 section → 空集合
+    no_cls = parse_chart_declarations(
+        "<section data-pptx-slide>"
+        '<div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+    )
+    assert no_cls[0].slide_classes == frozenset()
+
+
+def test_parse_decl_preserves_colors_override():
+    html = (
+        '<section class="slide" data-pptx-slide>'
+        '<div class="chart" data-chart="bar" '
+        'data-chart-colors=\'["#2251FF","#0E9387"]\' '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+    )
+    decls = parse_chart_declarations(html)
+    assert decls[0].colors_override == ("#2251FF", "#0E9387")
+    # 无该属性 → None
+    plain = parse_chart_declarations(
+        "<section data-pptx-slide>"
+        '<div class="chart" data-chart="bar" '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+    )
+    assert plain[0].colors_override is None
+
+
+def test_parse_decl_empty_colors_override_raises():
+    # data-chart-colors="" 也算「存在」→ 按非法 JSON 列表报错
+    with pytest.raises(ValueError):
+        parse_chart_declarations(
+            "<section data-pptx-slide>"
+            '<div class="chart" data-chart="bar" data-chart-colors="" '
+            'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+            "</section>"
+        )
+
+
+def test_cycle_colors():
+    assert _cycle_colors(("#a", "#b"), 5) == ("#a", "#b", "#a", "#b", "#a")
+    assert _cycle_colors(("#a",), 2) == ("#a", "#a")

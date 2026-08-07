@@ -13,6 +13,7 @@ convert.py 转换照常跑（图表区渲染成占位形状）；转换后读 co
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
@@ -38,6 +39,8 @@ class ChartDecl:
     slide_index: int  # 1-based，对齐 HTML section 顺序 / convert only-slides
     chart_type: str
     data: ChartData
+    slide_classes: frozenset[str] = frozenset()  # 包含它的 <section class="..."> 的 class 集合
+    colors_override: tuple[str, ...] | None = None  # 解析后的 data-chart-colors（大写 #RRGGBB）
 
 
 @dataclass
@@ -46,6 +49,8 @@ class _Container:
     chart_type: str
     data_json: str | None = None
     el_id: str | None = None
+    slide_classes: frozenset[str] = frozenset()
+    colors_override: tuple[str, ...] | None = None
 
 
 def _parse_data(json_text: str) -> ChartData:
@@ -78,6 +83,109 @@ def _parse_data(json_text: str) -> ChartData:
     return ChartData(categories=categories, series=series)
 
 
+# 确定性调色板的固定 H/S/L 偏移（Task 0 冻结）。每个元素 = (hue 偏移°, sat 偏移, light 偏移)。
+# 首色恒为 accent 本身；其余五项围绕 accent 做固定小偏移，纯函数、无随机。
+_PALETTE_HSL_OFFSETS: tuple[tuple[float, float, float], ...] = (
+    (0.0, 0.0, 0.0),  # 0: accent 本身
+    (20.0, 0.0, 0.08),  # 1: 更亮的靛蓝
+    (-25.0, 0.0, 0.06),  # 2: 偏青的亮蓝
+    (45.0, 0.0, -0.02),  # 3: 紫罗兰
+    (-60.0, -0.10, 0.05),  # 4: 亮青绿
+    (150.0, -0.25, 0.10),  # 5: 暖珊瑚（蓝的补色方向，柔和化）
+)
+
+_HEX_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")  # accent：可带可不带 #
+_HEX_STRICT_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")  # data-chart-colors 项：必须带 #
+
+
+def parse_chart_colors_override(raw: str) -> tuple[str, ...]:
+    """解析 data-chart-colors：严格 JSON 的 #RRGGBB 字符串列表（>=1 项），非法即 ValueError。
+
+    归一化为大写 #RRGGBB。颜色数少于 series/point 数时由调用方按 _cycle_colors 循环补足。
+    """
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError(f"data-chart-colors 必须是 #RRGGBB 列表: {raw!r}") from None
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"data-chart-colors 必须是 #RRGGBB 列表: {raw!r}")
+    colors: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not _HEX_STRICT_RE.fullmatch(entry):
+            raise ValueError(f"data-chart-colors 必须是 #RRGGBB 列表: {raw!r}")
+        colors.append(entry.upper())
+    return tuple(colors)
+
+
+def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[float, float, float]:
+    """RGB(0-255) → HSL(H∈[0,360), S∈[0,1], L∈[0,1])。纯 stdlib math，确定性。"""
+    rf, gf, bf = r / 255.0, g / 255.0, b / 255.0
+    mx, mn = max(rf, gf, bf), min(rf, gf, bf)
+    light = (mx + mn) / 2.0
+    if mx == mn:
+        return 0.0, 0.0, light
+    delta = mx - mn
+    s = delta / (1.0 - abs(2.0 * light - 1.0))
+    if mx == rf:
+        h = 60.0 * (((gf - bf) / delta) % 6.0)
+    elif mx == gf:
+        h = 60.0 * (((bf - rf) / delta) + 2.0)
+    else:
+        h = 60.0 * (((rf - gf) / delta) + 4.0)
+    return h, s, light
+
+
+def _hsl_to_rgb(h: float, s: float, light: float) -> tuple[int, int, int]:
+    """HSL → RGB(0-255)。h 先 mod 360，s/light 先 clamp [0,1]。纯 stdlib math，确定性。"""
+    h = h % 360.0
+    c = (1.0 - abs(2.0 * light - 1.0)) * s
+    hp = h / 60.0
+    x = c * (1.0 - abs(hp % 2.0 - 1.0))
+    if hp < 1.0:
+        r, g, b = c, x, 0.0
+    elif hp < 2.0:
+        r, g, b = x, c, 0.0
+    elif hp < 3.0:
+        r, g, b = 0.0, c, x
+    elif hp < 4.0:
+        r, g, b = 0.0, x, c
+    elif hp < 5.0:
+        r, g, b = x, 0.0, c
+    else:
+        r, g, b = c, 0.0, x
+    m = light - c / 2.0
+    return round((r + m) * 255.0), round((g + m) * 255.0), round((b + m) * 255.0)
+
+
+def derive_chart_palette(accent: str) -> tuple[str, str, str, str, str, str]:
+    """由单一 accent 确定性推导 6 色调色板（首色 = accent 本身）。
+
+    RGB → HSL 后对 _PALETTE_HSL_OFFSETS 做固定 H/S/L 偏移、确定性 clamp，再转回大写
+    #RRGGBB。纯函数无随机：同输入 → 字节级相同（Python 3.10-3.13）。
+    """
+    if not _HEX_RE.fullmatch(accent):
+        raise ValueError(f"accent 必须是 #RRGGBB（或 RRGGBB）: {accent!r}")
+    hex_part = accent.lstrip("#")
+    r, g, b = int(hex_part[0:2], 16), int(hex_part[2:4], 16), int(hex_part[4:6], 16)
+    h, s, light = _rgb_to_hsl(r, g, b)
+    colors: list[str] = []
+    for dh, ds, dl in _PALETTE_HSL_OFFSETS:
+        nh = (h + dh) % 360.0
+        ns = min(1.0, max(0.0, s + ds))
+        nl = min(1.0, max(0.0, light + dl))
+        nr, ng, nb = _hsl_to_rgb(nh, ns, nl)
+        colors.append(f"#{nr:02X}{ng:02X}{nb:02X}")
+    c0, c1, c2, c3, c4, c5 = colors
+    return c0, c1, c2, c3, c4, c5
+
+
+def _cycle_colors(colors: tuple[str, ...], n: int) -> tuple[str, ...]:
+    """把调色板循环扩展/截断到 n 个（series 或 point 数）。colors 必须非空。"""
+    if not colors:
+        raise ValueError("调色板不能为空")
+    return tuple(colors[i % len(colors)] for i in range(n))
+
+
 class _ChartHTMLParser(HTMLParser):
     """提取：每页的 .chart 容器 + 页内 <script data-chart-target> 数据块。"""
 
@@ -89,6 +197,7 @@ class _ChartHTMLParser(HTMLParser):
         self.scripts: list[tuple[str, str]] = []  # (target_selector, json_text)
         self._script_target: str | None = None
         self._script_buf: str | None = None
+        self._current_slide_classes: frozenset[str] = frozenset()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         d = {k: (v or "") for k, v in attrs}
@@ -96,17 +205,23 @@ class _ChartHTMLParser(HTMLParser):
             if self.cur_containers:
                 self.all_containers.extend(self.cur_containers)
             self.slide_index += 1
+            self._current_slide_classes = frozenset(d.get("class", "").split())
             self.cur_containers = []
             return
         if tag == "div" and "data-chart" in d:
             cls = d.get("class", "").split()
             if "chart" in cls:
+                colors_override = None
+                if "data-chart-colors" in d:
+                    colors_override = parse_chart_colors_override(d["data-chart-colors"])
                 self.cur_containers.append(
                     _Container(
                         slide_index=self.slide_index,
                         chart_type=d["data-chart"],
                         data_json=d.get("data-chart-data"),
                         el_id=d.get("id") or None,
+                        slide_classes=self._current_slide_classes,
+                        colors_override=colors_override,
                     )
                 )
             return
@@ -180,7 +295,13 @@ def parse_chart_declarations(html_text: str) -> list[ChartDecl]:
         seen.add(container.slide_index)
         data = _resolve_data(container, p.scripts)
         decls.append(
-            ChartDecl(slide_index=container.slide_index, chart_type=container.chart_type, data=data)
+            ChartDecl(
+                slide_index=container.slide_index,
+                chart_type=container.chart_type,
+                data=data,
+                slide_classes=container.slide_classes,
+                colors_override=container.colors_override,
+            )
         )
     return decls
 
