@@ -1303,6 +1303,11 @@ def assemble(measurement, out_path: Path):
     prs = Presentation()
     prs.slide_width = SLIDE_W_EMU
     prs.slide_height = SLIDE_H_EMU
+    # #61：python-pptx 只改 cx/cy 不改 sldSz@type（新建默认 screen4x3，与 16:9 宽高
+    # 矛盾，Office/查看器按 type 识别宽高比），显式标 screen16x9。
+    sld_sz = prs.part.presentation._element.find(qn("p:sldSz"))
+    if sld_sz is not None:
+        sld_sz.set("type", "screen16x9")
     blank_layout = _find_blank_layout(prs)
 
     for i, sdata in enumerate(slides_data):
