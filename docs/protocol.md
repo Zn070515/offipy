@@ -15,6 +15,10 @@ offipy 通过本地 HTTP server（默认 `127.0.0.1:8890`）驱动真实 Office�
     不静默错位。
 - 服务端：`/status` 响应的 `result.protocol` 报告服务端协议版本，供 client 探测
   （`client._probe` 以此判定 server 是否「我们的」）。
+- 版本偏斜（#34）：协议名匹配但 `result.version` 与 client 的 `__version__` 不一致时，
+  `_probe` 判定为 `mismatch`——旧版 server 视为 stale，`ensure_server` 会按 pid 归属
+  重启它；`server_status()` 此时仍返回含 `version` 的可读 dict（非 offipy 进程协议失配
+  才返回 None）。
 
 ## 端点
 

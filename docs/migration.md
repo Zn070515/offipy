@@ -1,12 +1,15 @@
-## v0.11.x → v0.12.1
+## v0.12.1 → v0.12.2
 
-- `ART_SCHEMA_VERSION` / `ART_REPORT_SCHEMA_VERSION` → `"0.2"`：0.1 报告仍可被 0.2 读取
-  （像素证据字段默认 None）；compare 跨 schema 给出 `art.compare.schema_mismatch` 建议性 warning。
-- `build_scene` / `analyze_deck` 新增 `slides_dir=`：读逐页 PNG 像素证据（需要 Pillow，`offipy[deck]`）。
-- `render_with_quality_report` 新增 `pixel_analysis="off"|"best_effort"|"required"`、
-  `preserve_pixel_slides`、`slides_output_dir`：默认 `off`，行为不变。
-- `DimensionAssessment` 新增可选 `reliability` / `minimum_reliability`；`ArtFinding` 新增
-  `evidence_sources` / `evidence_reliability` / `evidence_method`（仅像素路径非空）。
+0.12.2 是**纯修复**版本（#33-#37）：不破坏任何既有 API、CLI 行为或返回契约。现有代码**无需改动**，
+**无迁移步骤**。
+
+- **版本偏斜自愈**（#34）：client 探测到 8890 上驻留旧版 offipy server（协议匹配但版本不一致）
+  时判定为 stale 并自动重启，不再静默连旧版本。
+- **Excel 畸形区域 fail-fast**（#35）：`set_range` / `read_range` / `set_border` 非法地址统一抛
+  `InvalidArgumentError`（不再穿透原始 COM 错误）。
+- **保存锁重试**（#37）：`save` / `save_pdf` 目标文件被其他进程占用时，库内短重试后给可读错误。
+- **HRESULT 显示 + 线程契约提示**（#36）：负 HRESULT 两补码显示；`CO_E_NOTINITIALIZED` 报错提示
+  `com_apartment()`。
 
 ---
 
