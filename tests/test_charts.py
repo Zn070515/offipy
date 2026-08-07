@@ -13,12 +13,16 @@ from offipy.charts import (
     ChartDecl,
     ChartSeries,
     _cycle_colors,
+    _decl_hex_palette,
+    _effective_accent,
+    _theme_name_from_html,
     derive_chart_palette,
     inject_native_charts,
     load_chart_boxes,
     parse_chart_colors_override,
     parse_chart_declarations,
 )
+from offipy.design import THEMES, Theme
 
 ATTR_HTML = (
     "<!DOCTYPE html>\n"
@@ -461,3 +465,127 @@ def test_cycle_colors():
     assert _cycle_colors(("#a",), 2) == ("#a", "#a")
     # 截断：n < len(colors)
     assert _cycle_colors(("#a", "#b", "#c"), 2) == ("#a", "#b")
+
+
+# ---------------------------------------------------------------------------
+# Task 1: theme-aware per-slide chart colors
+# ---------------------------------------------------------------------------
+
+
+def test_theme_name_from_html_injected_full_block():
+    html = (
+        "<!DOCTYPE html><html><head>"
+        '<style data-theme="mckinsey">\n:root { --accent: #2251FF; }\n'
+        ".slide.dark { --accent: #5B8CFF; }\n</style>"
+        "</head><body></body></html>"
+    )
+    assert _theme_name_from_html(html) == "mckinsey"
+
+
+def test_theme_name_from_html_empty_placeholder():
+    # Claude 约定：<head> 里写空占位 <style data-theme="<name>"></style>
+    html = '<html><head><style data-theme="mckinsey"></style></head><body></body></html>'
+    assert _theme_name_from_html(html) == "mckinsey"
+
+
+def test_theme_name_from_html_none_when_absent():
+    assert _theme_name_from_html("<html><body><p>no theme here</p></body></html>") is None
+
+
+def test_effective_accent_base_page():
+    assert _effective_accent(THEMES["mckinsey"], {"slide"}) == "#2251FF"
+
+
+def test_effective_accent_dark_variant_page():
+    assert _effective_accent(THEMES["mckinsey"], {"slide", "dark"}) == "#5B8CFF"
+
+
+def test_effective_accent_dark_tech_light_variant_page():
+    assert _effective_accent(THEMES["dark-tech"], {"slide", "light"}) == "#0284C7"
+
+
+def test_effective_accent_non_variant_class_falls_back_to_base():
+    # mckinsey 的 variant 是 .slide.dark；{"slide","light"} 不命中 → base accent
+    assert _effective_accent(THEMES["mckinsey"], {"slide", "light"}) == "#2251FF"
+
+
+def test_effective_accent_unparseable_selector_falls_back_to_base():
+    theme = Theme(
+        name="custom",
+        title="custom",
+        description="custom",
+        base_vars={"--accent": "#123456"},
+        variant_selector=".card.active",  # 非冻结内置 `.slide.<class>` 形式
+        variant_vars={"--accent": "#ABCDEF"},
+    )
+    assert _effective_accent(theme, {"slide", "active"}) == "#123456"
+
+
+def _chart_decl(
+    *,
+    slide_classes=frozenset(),
+    colors_override=None,
+) -> ChartDecl:
+    return ChartDecl(
+        slide_index=1,
+        chart_type="bar",
+        data=ChartData(
+            categories=["Q1"],
+            series=[ChartSeries(name="s", values=[1.0])],
+        ),
+        slide_classes=slide_classes,
+        colors_override=colors_override,
+    )
+
+
+def test_decl_hex_palette_override_wins():
+    decl = _chart_decl(colors_override=("#FFFFFF", "#000000"))
+    assert _decl_hex_palette(decl, THEMES["mckinsey"]) == ("#FFFFFF", "#000000")
+
+
+def test_decl_hex_palette_theme_base_accent():
+    decl = _chart_decl(slide_classes=frozenset({"slide"}))
+    assert _decl_hex_palette(decl, THEMES["mckinsey"]) == derive_chart_palette("#2251FF")
+
+
+def test_decl_hex_palette_theme_variant_accent():
+    decl = _chart_decl(slide_classes=frozenset({"slide", "dark"}))
+    assert _decl_hex_palette(decl, THEMES["mckinsey"]) == derive_chart_palette("#5B8CFF")
+
+
+def test_decl_hex_palette_no_theme_returns_none():
+    assert _decl_hex_palette(_chart_decl(), None) is None
+
+
+def test_decl_hex_palette_unknown_theme_returns_none():
+    # THEMES.get("nope") 是 None → 与 theme=None 同路径，回退到固定调色板
+    assert _decl_hex_palette(_chart_decl(), THEMES.get("nope")) is None
+
+
+def test_parse_declarations_regression_task1():
+    # Task 1 只加调色板解析，不改声明解析：slide_index/chart_type/data/
+    # slide_classes/colors_override 字段逐项对齐
+    html = (
+        '<section class="slide dark" data-pptx-slide>'
+        '<div class="chart" data-chart="bar" '
+        'data-chart-colors=\'["#2251FF","#0E9387"]\' '
+        'data-chart-data=\'{"categories":["Q1"],"series":[{"name":"s","values":[1]}]}\'></div>'
+        "</section>"
+        '<section class="slide" data-pptx-slide>'
+        '<div class="chart" id="c2" data-chart="pie"></div>'
+        '<script type="application/json" data-chart-target="#c2">'
+        '{"categories":["A"],"series":[{"name":"p","values":[42]}]}'
+        "</script>"
+        "</section>"
+    )
+    decls = parse_chart_declarations(html)
+    assert [d.slide_index for d in decls] == [1, 2]
+    assert [d.chart_type for d in decls] == ["bar", "pie"]
+    assert decls[0].slide_classes == frozenset({"slide", "dark"})
+    assert decls[1].slide_classes == frozenset({"slide"})
+    assert decls[0].colors_override == ("#2251FF", "#0E9387")
+    assert decls[1].colors_override is None
+    assert decls[0].data.categories == ["Q1"]
+    assert decls[1].data.categories == ["A"]
+    assert decls[0].data.series[0].values == [1.0]
+    assert decls[1].data.series[0].values == [42.0]

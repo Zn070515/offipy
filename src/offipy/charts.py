@@ -14,8 +14,11 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from html.parser import HTMLParser
+
+from .design import THEMES, Theme
 
 PX_TO_EMU = 6350
 
@@ -96,6 +99,10 @@ _PALETTE_HSL_OFFSETS: tuple[tuple[float, float, float], ...] = (
 
 _HEX_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")  # accent：可带可不带 #
 _HEX_STRICT_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")  # data-chart-colors 项：必须带 #
+_THEME_STYLE_RE = re.compile(  # <style data-theme="NAME"> 块（injected 全量或空占位）
+    r"<style\s+data-theme=['\"]([A-Za-z0-9-]+)['\"]", re.IGNORECASE
+)
+_VARIANT_SELECTOR_RE = re.compile(r"^\.slide\.([A-Za-z0-9_-]+)$")  # 冻结内置反色选择器
 
 
 def parse_chart_colors_override(raw: str) -> tuple[str, ...]:
@@ -184,6 +191,45 @@ def _cycle_colors(colors: tuple[str, ...], n: int) -> tuple[str, ...]:
     if not colors:
         raise ValueError("调色板不能为空")
     return tuple(colors[i % len(colors)] for i in range(n))
+
+
+def _theme_name_from_html(html_text: str) -> str | None:
+    """从 HTML 的 `<style data-theme="NAME">` 块提取主题名；无则 None。
+
+    只做裸匹配、不校验 THEMES——injected 全量块和空占位块都能识别。
+    """
+    m = _THEME_STYLE_RE.search(html_text)
+    return m.group(1) if m else None
+
+
+def _effective_accent(theme: Theme, slide_classes: AbstractSet[str]) -> str | None:
+    """页面实际生效的 accent：命中 `.slide.<class>` → variant，否则 base。
+
+    只认冻结内置形式 `.slide.<class>`；其它选择器形态静默回落 base，不实现通用 CSS 语义。
+    """
+    if theme.variant_selector:
+        m = _VARIANT_SELECTOR_RE.match(theme.variant_selector)
+        if m and m.group(1) in slide_classes:
+            variant_accent = theme.variant_vars.get("--accent")
+            if variant_accent is not None:
+                return variant_accent
+    return theme.base_vars.get("--accent")
+
+
+def _decl_hex_palette(decl: ChartDecl, theme: Theme | None) -> tuple[str, ...] | None:
+    """按优先级解析一张图表的调色板（大写 #RRGGBB 元组）：
+
+    1. data-chart-colors 显式覆盖 → 原样返回；
+    2. 主题 accent（variant 命中优先）→ derive_chart_palette；
+    3. 都没有 → None（调用方回退到固定 _palette()）。
+    """
+    if decl.colors_override is not None:
+        return decl.colors_override
+    if theme is not None:
+        accent = _effective_accent(theme, decl.slide_classes)
+        if accent is not None:
+            return derive_chart_palette(accent)
+    return None
 
 
 class _ChartHTMLParser(HTMLParser):
@@ -333,7 +379,12 @@ def _measurements_path(pptx_path: str) -> str:
     return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
 
 
-def inject_native_charts(pptx_path: str, decls: list[ChartDecl], boxes: dict[int, dict]) -> None:
+def inject_native_charts(
+    pptx_path: str,
+    decls: list[ChartDecl],
+    boxes: dict[int, dict],
+    theme: Theme | None = None,
+) -> None:
     """把图表区占位形状替换成原生图表。boxes 缺某页 → 该页跳过（调用方保证完整）。"""
     from pptx import Presentation
     from pptx.enum.chart import XL_CHART_TYPE
@@ -349,7 +400,7 @@ def inject_native_charts(pptx_path: str, decls: list[ChartDecl], boxes: dict[int
         if box is None:
             continue
         slide = prs.slides[decl.slide_index - 1]
-        _replace_with_chart(slide, decl, box, XL_TYPE)
+        _replace_with_chart(slide, decl, box, XL_TYPE, theme)
     prs.save(pptx_path)
 
 
@@ -367,7 +418,16 @@ def _palette() -> list:
     ]
 
 
-def _replace_with_chart(slide, decl: ChartDecl, box: dict, xl_type) -> None:
+def _hex_to_rgb(colors: tuple[str, ...]) -> list:
+    """大写 #RRGGBB 元组 → RGBColor 列表（惰性 import python-pptx，与 _palette 一致）。"""
+    from pptx.dml.color import RGBColor
+
+    return [RGBColor(int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)) for c in colors]
+
+
+def _replace_with_chart(
+    slide, decl: ChartDecl, box: dict, xl_type, theme: Theme | None = None
+) -> None:
     from pptx.chart.data import CategoryChartData
 
     x = int(box["x"] * PX_TO_EMU)
@@ -390,7 +450,8 @@ def _replace_with_chart(slide, decl: ChartDecl, box: dict, xl_type) -> None:
     chart = gframe.chart
     chart.has_title = False
     chart.has_legend = len(decl.data.series) > 1
-    colors = _palette()
+    hex_palette = _decl_hex_palette(decl, theme)
+    colors = _hex_to_rgb(hex_palette) if hex_palette else _palette()
     if decl.chart_type == "bar":
         for i, series in enumerate(chart.plots[0].series):
             series.format.fill.solid()
@@ -433,4 +494,6 @@ def postprocess_charts(html_path: str, pptx_path: str) -> None:
             f'第 {missing} 页没测到图表容器（class="chart"）——请确认 deck 用了 '
             "chart-dominant 布局且 deck make 带了 --layouts"
         )
-    inject_native_charts(pptx_path, decls, boxes)
+    theme_name = _theme_name_from_html(html_text)
+    theme = THEMES.get(theme_name) if theme_name else None
+    inject_native_charts(pptx_path, decls, boxes, theme)
