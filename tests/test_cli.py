@@ -943,3 +943,105 @@ def test_word_insert_image_missing_file_exits_2(monkeypatch, capsys):
         "C:\\nope.png",
         "insert_image",
     )
+
+
+# --- S5 Task 3：Excel CLI 错误契约对齐 ---
+
+
+def test_excel_open_book_missing_file_exits_2(monkeypatch, capsys):
+    # S5：excel open_book 运行前非法输入（源文件不存在）→ exit 2，stderr 含 op/路径无 Traceback
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "open_book", "--path", "C:\\nope.xlsx"],
+        InvalidArgumentError,
+        "[excel::open_book] 失败: InvalidArgumentError: 源文件不存在: C:\\nope.xlsx",
+        2,
+        "excel",
+        "open_book",
+        "源文件不存在",
+        "C:\\nope.xlsx",
+    )
+
+
+def test_excel_open_book_com_failure_exits_1(monkeypatch, capsys):
+    # S5：excel open_book 运行时 COM 失败（非法格式）→ exit 1；
+    # stderr 清洗掉内部代码帧行（excel.py）与类型名前缀（ComOperationError）
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "open_book", "--path", "C:\\notes.txt"],
+        ComOperationError,
+        "[excel::open_book] 失败: ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt\n"
+        '    File "C:\\...\\excel.py", line 254, in open_book\n'
+        "      return self._register(self.app.Workbooks.Open(path))\n"
+        "  ComOperationError: 无法打开文件（非法格式）: C:\\notes.txt",
+        1,
+        "excel",
+        "open_book",
+        "无法打开",
+        "C:\\notes.txt",
+        absent=("excel.py", "ComOperationError"),
+    )
+
+
+def test_excel_save_conflict_exits_1(monkeypatch, capsys):
+    # S5：excel save 目标已存在未 overwrite → FileConflictError（运行时领域失败）→ exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save", "--path", "C:\\out.xlsx", "--follow-active"],
+        FileConflictError,
+        "[excel::save] 失败: FileConflictError: 目标文件已存在: C:\\out.xlsx"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save",
+        "目标文件已存在",
+        "C:\\out.xlsx",
+    )
+
+
+def test_excel_save_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：excel save 父目录不存在 → InvalidArgumentError（运行前非法输出路径）→ exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save", "--path", "C:\\nope_dir\\out.xlsx", "--follow-active"],
+        InvalidArgumentError,
+        "[excel::save] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
+
+
+def test_excel_save_pdf_conflict_exits_1(monkeypatch, capsys):
+    # S5：excel save_pdf 目标已存在未 overwrite → FileConflictError → exit 1
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save_pdf", "--path", "C:\\out.pdf", "--follow-active"],
+        FileConflictError,
+        "[excel::save_pdf] 失败: FileConflictError: 目标文件已存在: C:\\out.pdf"
+        "（如确要覆盖请传 overwrite=True）",
+        1,
+        "save_pdf",
+        "目标文件已存在",
+        "C:\\out.pdf",
+    )
+
+
+def test_excel_save_pdf_missing_parent_dir_exits_2(monkeypatch, capsys):
+    # S5：excel save_pdf 父目录不存在 → InvalidArgumentError → exit 2
+    _assert_cli_error(
+        monkeypatch,
+        capsys,
+        ["excel", "save_pdf", "--path", "C:\\nope_dir\\out.pdf", "--follow-active"],
+        InvalidArgumentError,
+        "[excel::save_pdf] 失败: InvalidArgumentError: 输出目录不存在: C:\\nope_dir",
+        2,
+        "save_pdf",
+        "输出目录不存在",
+        "C:\\nope_dir",
+    )
