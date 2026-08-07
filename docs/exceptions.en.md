@@ -32,8 +32,11 @@ need no changes.
 
 ## Boundary handling
 
-- **CLI**: catches these exceptions at the boundary and converts them to an exit code
-  plus a stderr message.
+- **CLI**: converts exceptions to exit codes at the boundary — `InvalidArgumentError` → 2
+  (usage / argument / pre-runtime invalid input), other `OffipyError` subclasses → 1 (runtime
+  domain failure); stderr is cleaned before output (no leaked tracebacks). `offipy audit`
+  keeps its dedicated 0/1/2/3 contract and `deck audit` keeps 0/1 (see
+  [docs/usage.en.md](usage.en.md) "CLI exit-code contract").
 - **MCP server**: catches them and returns them to the model as tool errors
   (`is_error: true`).
 - **Library callers**: simply catch the corresponding domain exception directly.

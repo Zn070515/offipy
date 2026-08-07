@@ -46,6 +46,21 @@ passed with `--payload '{"...": ...}'`. Parameter names use underscores (e.g.
 For the audit flags, exit codes, and Python API see [docs/audit.en.md](audit.en.md) (audit) and
 [docs/audit-baseline.en.md](audit-baseline.en.md) (baseline regression).
 
+## CLI exit-code contract
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | Success |
+| `2` | Usage / argument / pre-runtime invalid input (`InvalidArgumentError`) — missing target, path not found, invalid argument value |
+| `1` | Runtime domain failure (`OffipyError` family: `ComOperationError` / `FileConflictError` / `TargetNotFoundError` / `RemoteCallError` …) |
+| `offipy audit` | Dedicated contract: 0=threshold not reached / 1=gates at `--fail-on` / `--fail-on-new` / 2=argument or input error / 3=dependency or parse error |
+| `offipy deck audit` | Dedicated contract: 0=pass / 1=fail |
+
+Generic command errors are emitted to stderr as `[app::op] 失败: <readable message>`, without leaking
+tracebacks. `InvalidArgumentError` is a subclass of both `OffipyError` and `ValueError`, so the CLI
+checks `InvalidArgumentError → 2` before `OffipyError → 1` — pre-runtime errors are never misreported
+as runtime failures.
+
 ## Server lifecycle
 
 ```bash

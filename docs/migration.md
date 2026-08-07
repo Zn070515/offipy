@@ -1,3 +1,21 @@
+## v0.12.2 → v0.13.0
+
+v0.13 是**纯新增 + CLI 行为对齐**版本：不破坏任何 0.12 的既有 API / 返回契约。现有代码**无需改动**，
+**无迁移步骤**。
+
+- **PPT 形状读取与编辑（新增）**：`read_shapes()`（冻结 `ShapeInfo` / 形状类型契约）+
+  `set_shape_*` / `delete_shape` / `set_shape_z_order` 增量编辑；Python API / RPC / MCP / CLI 全暴露。
+- **Word `add_page_number` 三模式（新增）**：append（默认，幂等）/ standalone（left/center/right）；
+  standalone 保留页码域、清空用户 tab stop（页脚内容会被清）。
+- **艺术分析反馈学习 v2（新增，仅建议）**：`build_scene` / `analyze_deck` 可 opt-in
+  `feedback_severity_adjustments`，报告 schema 升 0.3（含严重度来源溯源）。
+- **CLI 退出码契约（行为对齐）**：通用命令 `InvalidArgumentError → exit 2`（使用 / 参数 / 预运行
+  无效输入）、`OffipyError → exit 1`（运行时领域失败）；`audit` 0/1/2/3、`deck audit` 0/1
+  专属契约保留。之前部分预运行时错误可能落在不同退出码，现已统一冻结——**依赖退出码的 CI 请按
+  [docs/usage.md](usage.md)「CLI 退出码契约」核对**。
+
+---
+
 ## v0.12.1 → v0.12.2
 
 0.12.2 是**纯修复**版本（#33-#37）：不破坏任何既有 API、CLI 行为或返回契约。现有代码**无需改动**，
