@@ -303,12 +303,13 @@ def test_dispatch_follow_active_ignored_on_readonly():
     assert result == [[1]]
 
 
-def test_dispatch_follow_active_ignored_on_quit():
-    # quit 无 doc_id 参数：follow_active 被消费但不注入，正常放行
+def test_dispatch_follow_active_rejected_on_quit():
+    # #46：quit 不接受 follow_active（与 expected_target 对称拒绝），
+    # 而非静默消费——调用方传了 follow_active 就显式报错，防误以为生效。
     app = _TargetApp({"app": "excel", "doc_id": "book1", "name": "B", "path": None})
     app.quit = lambda: "quitting"
-    result = server.dispatch(app, "quit", {"follow_active": True}, "excel")
-    assert result == "quitting"
+    with pytest.raises(InvalidArgumentError, match="quit 不接受 follow_active"):
+        server.dispatch(app, "quit", {"follow_active": True}, "excel")
 
 
 def test_dispatch_no_target_leaf_to_app_guard():
