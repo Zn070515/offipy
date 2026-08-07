@@ -69,8 +69,39 @@ def test_add_page_number_center():
     did = call("word", "new_doc")
     call("word", "add_page_number", alignment="center", doc_id=did)
     hf = _word().ActiveDocument.Sections(1).Footers(1)
-    assert hf.PageNumbers.Count == 1
-    assert hf.PageNumbers(1).Alignment == 1  # wdAlignPageNumberCenter
+    # S4：replace 改为直接插 PAGE 域 + 段落对齐（PageNumbers.Add 的对齐实探失效）
+    assert hf.Range.ParagraphFormat.Alignment == 1  # wdAlignParagraphCenter
+    assert any(f.Type == 33 for f in hf.Range.Fields)
+
+
+def test_add_page_number_append_readback():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="append", color="#2251FF", size=18, doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.Text == "公司名1\r"  # 单段落符，无 \r 重复
+    fld = next(f for f in hf.Range.Fields if f.Type == 33)
+    assert fld.Result.Font.Color == _rgb("#2251FF")
+    assert fld.Result.Font.Size == 18
+    # 幂等：重复 append 不叠加
+    call("word", "add_page_number", mode="append", doc_id=did)
+    assert hf.Range.Text == "公司名1\r"
+    assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
+
+
+def test_add_page_number_standalone_readback():
+    did = call("word", "new_doc")
+    call("word", "set_footer_text", text="公司名", doc_id=did)
+    call("word", "add_page_number", mode="standalone", color="#2251FF", size=18, doc_id=did)
+    hf = _word().ActiveDocument.Sections(1).Footers(1)
+    assert hf.Range.Text == "公司名\t1\r"  # \t 是真实制表符，驱动 tab 分区
+    fld = next(f for f in hf.Range.Fields if f.Type == 33)
+    assert fld.Result.Font.Color == _rgb("#2251FF")
+    assert fld.Result.Font.Size == 18
+    # 幂等：重复 standalone 重建（先删既有 PAGE 域），不堆叠页码
+    call("word", "add_page_number", mode="standalone", doc_id=did)
+    assert hf.Range.Text == "公司名\t1\r"
+    assert len([f for f in hf.Range.Fields if f.Type == 33]) == 1
 
 
 def test_page_setup_landscape_a4_margin():

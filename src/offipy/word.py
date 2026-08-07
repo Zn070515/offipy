@@ -5,7 +5,7 @@
 
 import os
 from contextlib import contextmanager, suppress
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from . import core
 from ._comguard import _COM_ERROR, guard_com, save_with_lock_retry
@@ -52,6 +52,15 @@ _ORIENTATION = {"portrait": 0, "landscape": 1}
 _PAPER = {"letter": 2, "legal": 4, "a3": 6, "a4": 7, "a5": 9}
 # 页码对齐 wdPageNumberAlignment
 _PAGE_NUMBER_ALIGN = {"left": 0, "center": 1, "right": 2}
+# 制表位对齐 wdTabAlignment（实探：Left=0/Center=1/Right=2，与 wdPageNumberAlignment 同值）
+_TAB_ALIGN = {"left": 0, "center": 1, "right": 2}
+# PAGE 域类型 wdFieldPage
+_WD_FIELD_PAGE = 33
+# 字符单位 wdCharacter / 折叠方向 wdCollapseEnd
+_WD_CHARACTER = 1
+_WD_COLLAPSE_END = 0
+# PageSetup 不可读时的兜底页宽（Letter：页宽 612pt，左右边距各 72pt → 文本宽 468pt）
+_LETTER_TEXT_WIDTH = 468.0
 # 查找替换 wdReplace
 _REPLACE = {"one": 1, "all": 2}
 # 表格线型 wdLineStyle
@@ -133,6 +142,48 @@ def _check_paragraph(doc, paragraph: int) -> None:
     count = doc.Paragraphs.Count
     if paragraph < 1 or paragraph > count:
         raise InvalidArgumentError(f"段落在 1..{count} 范围外（paragraph={paragraph}）")
+
+
+def _has_page_field(hf) -> bool:
+    """页脚是否已含 PAGE 域（Type==33）；append 幂等判断用。"""
+    return any(f.Type == _WD_FIELD_PAGE for f in hf.Range.Fields)
+
+
+def _add_page_field_at_end(hf):
+    """在页脚文本末尾（结尾段落符前）插入活的 PAGE 域，返回 Field。
+
+    实探配方（见 docs/development/probe_word_page_number.md）：MoveEnd(1,-1)
+    排除尾部段落符 → Collapse(0) 折叠到末尾 → Fields.Add(rng, wdFieldPage)。
+    直接插域避免 PageNumbers.Add 的 '1\\r\\r' 双段落伪影与对齐失效。
+    """
+    rng = hf.Range
+    rng.MoveEnd(_WD_CHARACTER, -1)  # 排除尾部段落符
+    rng.Collapse(_WD_COLLAPSE_END)  # wdCollapseEnd
+    return rng.Fields.Add(rng, _WD_FIELD_PAGE)
+
+
+def _style_field_only(fld, color: str | None, size: float | None) -> None:
+    """只样式化页码域本身（fld.Result.Font），不污染页脚其余文本。
+
+    Field/PageNumber 对象没有 Font 属性（实探 AttributeError），
+    必须经 fld.Result.Font 设置；hf.Range.Font.* 会把颜色/字号套到整个页脚。
+    """
+    if color is not None:
+        fld.Result.Font.Color = _rgb(color)
+    if size is not None:
+        fld.Result.Font.Size = size
+
+
+def _footer_text_width(doc) -> float:
+    """页脚可写文本区宽度（pt）= 页宽 − 左边距 − 右边距。
+
+    读不到 PageSetup（如 fake）时回退 Letter 默认 468pt。
+    """
+    try:
+        ps = doc.PageSetup
+        return float(ps.PageWidth) - float(ps.LeftMargin) - float(ps.RightMargin)
+    except Exception:
+        return _LETTER_TEXT_WIDTH
 
 
 @guard_com
@@ -481,18 +532,57 @@ class WordApp:
         color: str | None = None,
         size: float | None = None,
         doc_id: str | None = None,
+        *,
+        mode: Literal["replace", "append", "standalone"] = "replace",
     ):
-        hf = self._require_doc(doc_id).Sections(1).Footers(1)
-        hf.Range.Text = ""  # 清空页脚，避免与既有文本叠加
-        # PageNumber 对象没有 Range 属性（gen_py 实测 AttributeError），
-        # 样式与文本都落在页脚 Range 上（页码域在其中）。
-        hf.PageNumbers.Add(
-            PageNumberAlignment=_resolve_style(alignment, _PAGE_NUMBER_ALIGN, "页码对齐")
-        )
-        if color is not None:
-            hf.Range.Font.Color = _rgb(color)
-        if size is not None:
-            hf.Range.Font.Size = size
+        """在页脚插入页码域。
+
+        mode:
+          - replace（默认）：清空页脚后插入页码，v0.12.2 行为保持；
+          - append：保留既有页脚文本，在其后追加页码域（幂等，不重复叠加）；
+          - standalone：保留既有文本，把页码放在左/中/右制表位分区。
+
+        alignment 取 left/center/right；color '#RRGGBB' 与 size 只作用到页码域
+        （不会染色页脚其余文本）。
+        """
+        mode_key = (mode or "").strip().lower()
+        if mode_key not in ("replace", "append", "standalone"):
+            raise InvalidArgumentError(
+                f"add_page_number: 未知模式: {mode!r}（可选: replace/append/standalone）"
+            )
+        if size is not None and size <= 0:
+            raise InvalidArgumentError(f"add_page_number: 字号必须为正数（size={size}）")
+        align = _resolve_style(alignment, _PAGE_NUMBER_ALIGN, "页码对齐")
+        tab_align = _resolve_style(alignment, _TAB_ALIGN, "页码制表位")
+        doc = self._require_doc(doc_id)
+        hf = doc.Sections(1).Footers(1)
+        fld = None
+        if mode_key == "replace":
+            hf.Range.Text = ""  # 清空页脚，避免与既有文本叠加（同时清除既有域，天然幂等）
+            fld = _add_page_field_at_end(hf)
+            # 段落对齐显式设置——PageNumbers.Add(PageNumberAlignment=...) 实探不生效
+            hf.Range.ParagraphFormat.Alignment = align
+        elif mode_key == "append":
+            # 幂等：已有 PAGE 域则跳过，避免 '公司名11\r' 叠加
+            if not _has_page_field(hf):
+                fld = _add_page_field_at_end(hf)
+            # alignment 按契约作用于整个页脚段落对齐
+            hf.Range.ParagraphFormat.Alignment = align
+        else:  # standalone
+            # 先删既有 PAGE 域（删除会一并移除结果显示文本），避免叠加
+            for f in list(hf.Range.Fields):
+                if f.Type == _WD_FIELD_PAGE:
+                    f.Delete()
+            text = hf.Range.Text
+            base = text[:-1] if text.endswith("\r") else text
+            base = base.rstrip("\t")  # 清掉上次独立模式遗留的尾部制表符
+            hf.Range.Text = base + "\t"  # 保留既有文本，尾部追加真实制表符
+            text_w = _footer_text_width(doc)
+            pos = {0: 0.0, 1: text_w / 2.0, 2: text_w}[tab_align]
+            hf.Range.ParagraphFormat.TabStops.Add(pos, tab_align)
+            fld = _add_page_field_at_end(hf)
+        if fld is not None:
+            _style_field_only(fld, color, size)
         return hf.Range.Text
 
     @destructive
