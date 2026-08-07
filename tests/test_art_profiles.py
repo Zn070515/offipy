@@ -66,7 +66,9 @@ def test_event_relaxes_rules():
 
 
 def test_get_profile_unknown_raises():
-    with pytest.raises(KeyError):
+    # #42：库层 API 边界必须抛 InvalidArgumentError（OffipyError 子类），
+    # 而非裸 KeyError——调用方按 OffipyError 统一捕获才不会漏。
+    with pytest.raises(InvalidArgumentError):
         get_profile("nope")
 
 

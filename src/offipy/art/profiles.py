@@ -211,7 +211,7 @@ _BUILTIN = {
 
 def get_profile(name: str) -> ArtProfile:
     if name not in _BUILTIN:
-        raise KeyError(f"unknown art profile: {name}")
+        raise InvalidArgumentError(f"unknown art profile: {name}")
     return _BUILTIN[name]
 
 
