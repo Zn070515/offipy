@@ -97,6 +97,24 @@ class _FakePlaceholderFormat:
         self.Type = ph_type
 
 
+class _FakeFill:
+    def __init__(self, fill_type=1, rgb=None, transparency=None, visible=-1):
+        self.Type = fill_type
+        self.Transparency = transparency
+        self.Visible = visible
+        self.ForeColor = SimpleNamespace(RGB=rgb)
+
+    def Solid(self):
+        self.Type = 1
+
+
+class _FakeLine:
+    def __init__(self, visible=-1, rgb=None, weight=None):
+        self.Visible = visible
+        self.Weight = weight
+        self.ForeColor = SimpleNamespace(RGB=rgb)
+
+
 class _FakeShape:
     def __init__(
         self,
@@ -585,3 +603,160 @@ def test_set_shape_font_on_picture_rejects():
     app, _ = _app(_pic(3, "Pic"))
     with pytest.raises(InvalidArgumentError):
         app.set_shape_font(1, 3, size=30, doc_id="doc")
+
+
+# ------------------------------------------------------------------ set_shape_fill
+
+
+def _filled(sid=2, name="S", **kw):
+    return _FakeShape(sid, name, "", fill=_FakeFill(**kw))
+
+
+def test_set_shape_fill_color_forces_solid_and_shows():
+    fill = _FakeFill(fill_type=3, rgb=0x0, transparency=0.5)
+    sh = _FakeShape(2, "S", "", fill=fill)
+    app, _ = _app(sh)
+    app.set_shape_fill(1, 2, color="#FF0000", doc_id="doc")
+    assert fill.Type == 1  # Solid() 强制 solid
+    assert fill.Visible == -1
+    assert fill.ForeColor.RGB == 0xFF
+    assert fill.Transparency == 0.5  # 未传属性保留
+
+
+def test_set_shape_fill_transparency_only_keeps_color():
+    fill = _FakeFill(fill_type=1, rgb=0x80, transparency=0.0)
+    sh = _FakeShape(2, "S", "", fill=fill)
+    app, _ = _app(sh)
+    app.set_shape_fill(1, 2, transparency=0.25, doc_id="doc")
+    assert fill.Transparency == 0.25
+    assert fill.ForeColor.RGB == 0x80  # 颜色保留
+
+
+def test_set_shape_fill_both():
+    fill = _FakeFill()
+    sh = _FakeShape(2, "S", "", fill=fill)
+    app, _ = _app(sh)
+    app.set_shape_fill(1, 2, color="#800080", transparency=0.5, doc_id="doc")
+    assert fill.Type == 1
+    assert fill.Visible == -1
+    assert fill.ForeColor.RGB == 0x800080
+    assert fill.Transparency == 0.5
+
+
+def test_set_shape_fill_no_args_clears():
+    fill = _FakeFill(rgb=0xFF)
+    sh = _FakeShape(2, "S", "", fill=fill)
+    app, _ = _app(sh)
+    app.set_shape_fill(1, 2, doc_id="doc")
+    assert fill.Visible == 0  # 清除填充
+
+
+def test_set_shape_fill_on_line_rejects():
+    sh = _line(4, "Ln")  # 无 Fill → 能力护栏
+    app, _ = _app(sh)
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_fill(1, 4, color="#FF0000", doc_id="doc")
+
+
+def test_set_shape_fill_invalid_color_rejects():
+    app, _ = _app(_filled())
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_fill(1, 2, color="red", doc_id="doc")
+
+
+def test_set_shape_fill_invalid_transparency_rejects():
+    app, _ = _app(_filled())
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_fill(1, 2, transparency=1.5, doc_id="doc")
+
+
+# ------------------------------------------------------------------ set_shape_outline
+
+
+def _lined(sid=2, name="S", **kw):
+    return _FakeShape(sid, name, "", line=_FakeLine(**kw))
+
+
+def test_set_shape_outline_color_only():
+    line = _FakeLine()
+    sh = _FakeShape(2, "S", "", line=line)
+    app, _ = _app(sh)
+    app.set_shape_outline(1, 2, color="#800080", doc_id="doc")
+    assert line.ForeColor.RGB == 0x800080
+
+
+def test_set_shape_outline_width_only():
+    line = _FakeLine(weight=1.0)
+    sh = _FakeShape(2, "S", "", line=line)
+    app, _ = _app(sh)
+    app.set_shape_outline(1, 2, width=2.5, doc_id="doc")
+    assert line.Weight == 2.5
+
+
+def test_set_shape_outline_visible_true():
+    line = _FakeLine(visible=0)
+    sh = _FakeShape(2, "S", "", line=line)
+    app, _ = _app(sh)
+    app.set_shape_outline(1, 2, visible=True, doc_id="doc")
+    assert line.Visible == -1
+
+
+def test_set_shape_outline_visible_false_hides():
+    line = _FakeLine(visible=-1)
+    sh = _FakeShape(2, "S", "", line=line)
+    app, _ = _app(sh)
+    app.set_shape_outline(1, 2, visible=False, doc_id="doc")
+    assert line.Visible == 0
+
+
+def test_set_shape_outline_combined():
+    line = _FakeLine()
+    sh = _FakeShape(2, "S", "", line=line)
+    app, _ = _app(sh)
+    app.set_shape_outline(1, 2, color="#FF0000", width=3.0, visible=False, doc_id="doc")
+    assert line.ForeColor.RGB == 0xFF
+    assert line.Weight == 3.0
+    assert line.Visible == 0  # 显式 visible 最后生效
+
+
+def test_set_shape_outline_no_args_rejects():
+    app, _ = _app(_lined())
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_outline(1, 2, doc_id="doc")
+
+
+def test_set_shape_outline_invalid_width_rejects():
+    app, _ = _app(_lined())
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_outline(1, 2, width=0, doc_id="doc")
+
+
+def test_set_shape_outline_invalid_color_rejects():
+    app, _ = _app(_lined())
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_outline(1, 2, color="#GG0000", doc_id="doc")
+
+
+def test_set_shape_outline_on_no_line_shape_rejects():
+    app, _ = _app(_txt(2, "T", "hi"))  # 无 Line → 能力护栏
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_outline(1, 2, width=1.0, doc_id="doc")
+
+
+# ------------------------------------------------------------------ set_shape_visible
+
+
+def test_set_shape_visible_true_and_false():
+    sh = _txt(2, "T", "hi", visible=0)
+    app, pres = _app(sh)
+    app.set_shape_visible(1, 2, True, doc_id="doc")
+    assert pres.Slides(1).Shapes(1).Visible == -1
+    app.set_shape_visible(1, 2, False, doc_id="doc")
+    assert pres.Slides(1).Shapes(1).Visible == 0
+
+
+@pytest.mark.parametrize("bad", [1, 0, None, "yes"])
+def test_set_shape_visible_non_bool_rejects(bad):
+    app, _ = _app(_txt(2, "T", "hi"))
+    with pytest.raises(InvalidArgumentError):
+        app.set_shape_visible(1, 2, bad, doc_id="doc")

@@ -1319,6 +1319,108 @@ class PptApp:
             tr.Font.Color.RGB = _rgb_to_com(color)
         return None
 
+    @destructive
+    def set_shape_fill(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        color: str | None = None,
+        transparency: float | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 填充：color/transparency（0-1），只更新传入属性。
+
+        - color 与 transparency 都未传 → 清除填充（Fill.Visible=0）。
+        - 设 color 强制 solid fill（Fill.Solid()）并显示填充；只设 transparency
+          时保留原颜色。
+        - color 严格 #RRGGBB；transparency [0,1]。
+        - shape 不支持 Fill（如线条）→ InvalidArgumentError。
+        """
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_fill_capability(shape, "set_shape_fill")
+        if color is None and transparency is None:
+            shape.Fill.Visible = 0  # 清除填充
+            return None
+        if color is not None:
+            color = _validate_hex_color(color, "color")
+        if transparency is not None:
+            transparency = _validate_fraction_0_1(transparency, "transparency")
+        fill = shape.Fill
+        if color is not None:
+            fill.Solid()
+            fill.Visible = -1
+            fill.ForeColor.RGB = _rgb_to_com(color)
+        if transparency is not None:
+            fill.Transparency = transparency
+        return None
+
+    @destructive
+    def set_shape_outline(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        *,
+        color: str | None = None,
+        width: float | None = None,
+        visible: bool | None = None,
+        doc_id: str | None = None,
+    ):
+        """设置 shape 轮廓：color/width/visible，只更新传入属性。
+
+        - 至少传一个属性；width > 0；color 严格 #RRGGBB。
+        - visible=False 显式隐藏/移除线条；visible=True 显示并尽量保留原色/宽。
+        - 设 color 用实线语义（Line.ForeColor.RGB）；width 用磅。
+        - shape 不支持 Line → InvalidArgumentError。
+        """
+        if all(v is None for v in (color, width, visible)):
+            raise InvalidArgumentError("set_shape_outline: 至少提供 color/width/visible 之一")
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        shape = located.shape
+        _require_line_capability(shape, "set_shape_outline")
+        if color is not None:
+            color = _validate_hex_color(color, "color")
+        if width is not None:
+            width = _validate_positive_float(width, "width")
+        if visible is not None and not isinstance(visible, bool):
+            raise InvalidArgumentError(
+                f"set_shape_outline: visible 必须是 bool，收到 {type(visible).__name__}"
+            )
+        line = shape.Line
+        if color is not None:
+            line.ForeColor.RGB = _rgb_to_com(color)
+        if width is not None:
+            line.Weight = width
+        if visible is not None:
+            # 最后设可见性：显式 visible 控制最终显示态，色/宽不影响它
+            line.Visible = -1 if visible else 0
+        return None
+
+    @destructive
+    def set_shape_visible(
+        self,
+        slide_idx: int,
+        shape_id: int,
+        visible: bool,
+        doc_id: str | None = None,
+    ):
+        """显示/隐藏 shape。
+
+        只收真 bool；映射到 Office 三态常量（-1 显示 / 0 隐藏），与
+        read_shapes 的 visible 读取（_shape_visible）一致。
+        """
+        if not isinstance(visible, bool):
+            raise InvalidArgumentError(
+                f"set_shape_visible: visible 必须是 bool，收到 {type(visible).__name__}"
+            )
+        slide = _require_slide(self._require_pres(doc_id), slide_idx)
+        located = _find_shape_by_id(slide, shape_id)
+        located.shape.Visible = -1 if visible else 0
+        return None
+
     def quit(self, force: bool = False):
         """退出 PowerPoint 会话。
 
