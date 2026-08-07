@@ -54,7 +54,7 @@ For the audit flags, exit codes, and Python API see [docs/audit.en.md](audit.en.
 | `2` | Usage / argument / pre-runtime invalid input (`InvalidArgumentError`) — missing target, path not found, invalid argument value |
 | `1` | Runtime domain failure (`OffipyError` family: `ComOperationError` / `FileConflictError` / `TargetNotFoundError` / `RemoteCallError` …) |
 | `offipy audit` | Dedicated contract: 0=threshold not reached / 1=gates at `--fail-on` / `--fail-on-new` / 2=argument or input error / 3=dependency or parse error |
-| `offipy deck audit` | Dedicated contract: 0=pass / 1=fail |
+| `offipy deck audit` | Dedicated contract: 0=pass / 1=fail / 2=argument or input error |
 
 Generic command errors are emitted to stderr as `[app::op] 失败: <readable message>`, without leaking
 tracebacks. `InvalidArgumentError` is a subclass of both `OffipyError` and `ValueError`, so the CLI

@@ -144,25 +144,9 @@ def test_color_rules_are_rule_specs():
     }
 
 
-def test_low_contrast_pixel_path_uses_pixel_background():
-    el = make_text_element("t", "Text", font_size=24.0, foreground=ArtColor(0, 0, 0))
-    el = replace(
-        el,
-        pixel_evidence=ElementPixelEvidence(
-            foreground=ArtColor(0, 0, 0),
-            background=ArtColor(255, 255, 255),
-            color_confidence=0.85,
-            method="declared_verified",
-        ),
-    )
-    slide = make_slide(1, elements=[el], background_color=None)
-    ev = low_contrast_rule(slide, _ctx(slide))
-    # 像素背景已知 → covered=1，即使页面无声明背景
-    assert ev.covered_count == 1
-    assert ev.findings == []  # 黑字白底，对比度足够
-
-
-def test_low_contrast_pixel_path_low_ratio_finds():
+def test_low_contrast_declared_bg_used_over_pixel_bg():
+    # 声明背景（黑）优先于像素背景（白）：灰字黑底高对比 → 无 finding。
+    # 修复前像素白底会覆盖声明背景并误报低对比（#38）。
     el = make_text_element("t", "Text", font_size=24.0, foreground=ArtColor(200, 200, 200))
     el = replace(
         el,
@@ -173,14 +157,9 @@ def test_low_contrast_pixel_path_low_ratio_finds():
             method="declared_verified",
         ),
     )
-    slide = make_slide(1, elements=[el], background_color=None)
+    slide = make_slide(1, elements=[el], background_color=ArtColor(0, 0, 0))
     ev = low_contrast_rule(slide, _ctx(slide))
-    assert len(ev.findings) == 1
-    f = ev.findings[0]
-    assert f.evidence_sources == frozenset({"pixel"})
-    assert f.evidence_reliability == 0.85
-    assert f.evidence_method == "declared_verified"
-    assert "像素验证" in f.message
+    assert ev.findings == []
 
 
 def test_low_contrast_declared_not_found_hint():
@@ -219,29 +198,45 @@ def test_low_contrast_low_pixel_confidence_falls_back():
     assert ev.findings[0].evidence_sources == frozenset()  # 声明路径无 pixel 证据
 
 
-def test_low_contrast_pixel_bg_wins_over_declared_bg():
-    # 像素背景 C1（白）与声明背景 C2（黑）不同 → 像素背景优先，不采信声明背景
+def test_low_contrast_declared_bg_low_contrast_no_pixel_evidence():
+    # 声明背景（白）+ 灰字 → 低对比 finding，证据走声明路径：无 pixel 证据、无「像素验证」后缀
     el = make_text_element("t", "Text", font_size=24.0, foreground=ArtColor(200, 200, 200))
     el = replace(
         el,
         pixel_evidence=ElementPixelEvidence(
             foreground=ArtColor(200, 200, 200),
-            background=ArtColor(255, 255, 255),  # C1：像素验证为白
+            background=ArtColor(255, 255, 255),
             color_confidence=0.85,
             method="declared_verified",
         ),
     )
-    slide = make_slide(
-        1,
-        elements=[el],
-        background_color=ArtColor(0, 0, 0),  # C2：声明为黑（与 C1 不同）
-    )
+    slide = make_slide(1, elements=[el], background_color=ArtColor(255, 255, 255))
     ev = low_contrast_rule(slide, _ctx(slide))
-    # 走像素路径：灰字白底 → 低对比 finding 且带像素证据；若错误采信声明黑底则不会报
     assert len(ev.findings) == 1
     f = ev.findings[0]
-    assert f.evidence_sources == frozenset({"pixel"})
-    assert "像素验证" in f.message
+    assert f.evidence_sources == frozenset()
+    assert "像素验证" not in f.message
+
+
+def test_low_contrast_obscured_by_image_no_false_positive():
+    # #38 回归：白色文本被不透明图片覆盖 → 区域像素主色是图片深海军蓝。
+    # 修复前 _text_evidence 把主色归因为文本背景 → 白字 vs 深色 → HIGH「对比度 1.14」误报。
+    # 修复后像素背景不参与对比度：声明/有效背景未知 → 无对比可判 → 无 finding。
+    el = make_text_element("t", "Text", font_size=24.0, foreground=ArtColor(255, 255, 255))
+    el = replace(
+        el,
+        pixel_evidence=ElementPixelEvidence(
+            foreground=ArtColor(255, 255, 255),
+            background=ArtColor(10, 30, 80),  # 旧 bug 输出：图片主色被归因为文本背景
+            foreground_match_ratio=1.0,
+            color_confidence=0.85,
+            method="declared_verified",
+        ),
+    )
+    slide = make_slide(1, elements=[el], background_color=None)
+    ev = low_contrast_rule(slide, _ctx(slide))
+    assert ev.covered_count == 0
+    assert ev.findings == []
 
 
 def test_low_contrast_declared_not_found_no_match_ratio_falls_back():

@@ -134,12 +134,6 @@ def _match_ratio(counts: dict, c: ArtColor) -> float:
     return matched / total
 
 
-def _dominant_color(counts: dict) -> ArtColor | None:
-    if not counts:
-        return None
-    return _bucket_rep(max(counts.items(), key=lambda kv: kv[1])[0])
-
-
 def _complexity(counts: dict) -> float:
     total = sum(counts.values())
     if not total:
@@ -278,13 +272,11 @@ def _text_evidence(region, el: ArtElement, bg: ArtColor | None) -> ElementPixelE
             method="complex_background",
         )
     fg_ratio = _match_ratio(counts, fg)
-    bg_color = _dominant_color(counts)
     verified = fg_ratio >= _FG_MATCH_MIN
     return ElementPixelEvidence(
         foreground=fg,
-        background=bg_color,
+        background=None,  # 组合 PNG 不把区域主色归因为文本背景（冻结契约，#38）
         foreground_match_ratio=round(fg_ratio, 3),
-        background_match_ratio=_match_ratio(counts, bg_color) if bg_color else None,
         background_complexity=round(complexity, 3),
         color_confidence=0.85 if verified else 0.3,
         method="declared_verified" if verified else "declared_not_found",

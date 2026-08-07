@@ -785,7 +785,8 @@ def _deck_audit(args) -> int | None:
     HTML 流：render_with_quality_report 已内含一次几何审计 + 一次艺术分析，
     产物只发布到 TemporaryDirectory（命令退出即删），绝不二次 audit/build_scene；
     chromium 不可用 → ConversionError 上抛（main 转 offipy: <msg> + exit 1）。
-    PPTX 流：analyze_deck(pptx=...) 一次。缺失文件 → 友好 offipy: error + exit 1。
+    PPTX 流：analyze_deck(pptx=...) 一次。缺失文件 / 非法 --profile 属预运行无效输入
+    → 友好 offipy: error + exit 2（与 offipy audit 参数错误一致，#39）。
     """
     from .exceptions import InvalidArgumentError
 
@@ -815,9 +816,9 @@ def _deck_audit(args) -> int | None:
                 )
                 report = result.deck_quality
         except KeyError as e:
-            # 未知 --profile：get_profile 抛 KeyError，转友好 offipy: error + exit 1
+            # 未知 --profile：get_profile 抛 KeyError，转友好 offipy: error + exit 2
             print(f"offipy: error: {e.args[0] if e.args else e}", file=sys.stderr)
-            return 1
+            return 2
         if report is None:
             # 契约上不会发生：render_with_quality_report 总是产出 DeckQualityReport
             return 1
@@ -828,16 +829,16 @@ def _deck_audit(args) -> int | None:
             report = analyze_deck(pptx=args.pptx, profile=args.profile)
         except FileNotFoundError:
             print(f"offipy: error: 找不到文件: {args.pptx}", file=sys.stderr)
-            return 1
+            return 2
         except InvalidArgumentError as e:
             if "不存在" in str(e):
                 print(f"offipy: error: 找不到文件: {args.pptx}", file=sys.stderr)
-                return 1
+                return 2
             raise
         except KeyError as e:
             # 未知 --profile：analyze_deck → get_profile 抛 KeyError，转友好报错
             print(f"offipy: error: {e.args[0] if e.args else e}", file=sys.stderr)
-            return 1
+            return 2
     return _emit_deck_audit(report, args)
 
 

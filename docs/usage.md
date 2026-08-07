@@ -50,7 +50,7 @@ PPTX 审计的参数与退出码、Python API 详见 [docs/audit.md](audit.md)�
 | `2` | 使用 / 参数 / 预运行无效输入（`InvalidArgumentError`）——目标缺失、路径不存在、非法参数值 |
 | `1` | 运行时领域失败（`OffipyError` 系：`ComOperationError` / `FileConflictError` / `TargetNotFoundError` / `RemoteCallError` …） |
 | `offipy audit` | 专属契约：0=未达门槛 / 1=达 `--fail-on` / `--fail-on-new` / 2=参数或输入错 / 3=依赖或解析错 |
-| `offipy deck audit` | 专属契约：0=通过 / 1=未通过 |
+| `offipy deck audit` | 专属契约：0=通过 / 1=未通过 / 2=参数或输入错 |
 
 通用命令错误统一以 `[app::op] 失败: <可读消息>` 输出到 stderr，不泄露 traceback。
 `InvalidArgumentError` 同时是 `OffipyError` 与 `ValueError` 子类，CLI 捕获顺序先判
