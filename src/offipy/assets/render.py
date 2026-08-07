@@ -231,9 +231,7 @@ def _render_raster_picture(slide, rect: AssetRect, payload: RasterPayload):
     return slide.shapes.add_picture(BytesIO(payload.data), Emu(x), Emu(y), Emu(w), Emu(h))
 
 
-def _render_svg_picture(
-    slide, rect: AssetRect, svg_text: str, png_bytes: bytes | None = None
-):
+def _render_svg_picture(slide, rect: AssetRect, svg_text: str, png_bytes: bytes | None = None):
     """OOXML SVG picture（asvg svgBlip + 可选 raster fallback blip）。
 
     结构匹配 PowerPoint 自己对 SVG 产出的形式（COM AddPicture 对照验证过）。

@@ -69,10 +69,8 @@ def resolve_native_colors(params: Mapping[str, str], ctx: AssetRenderContext) ->
     """
     accent = resolve_asset_color(params.get("accent", "accent"), ctx.theme_vars)
     fill_raw = params.get("fill", "transparent")
-    if fill_raw == "accent":
-        fill = accent
-    else:
-        fill = resolve_asset_color(fill_raw, ctx.theme_vars)
+    # fill 默认跟随本图元最终 accent（#59），不独立对 theme_vars 解析
+    fill = accent if fill_raw == "accent" else resolve_asset_color(fill_raw, ctx.theme_vars)
     return {
         "accent": accent,
         "fill": fill,

@@ -187,7 +187,7 @@ class TestPostprocessAssets:
         monkeypatch.setattr(
             render_mod,
             "_make_svg_to_png",
-            lambda: (lambda svg: (calls.append(svg) or b"fake-png"), lambda: None),
+            lambda: (lambda svg: calls.append(svg) or b"fake-png", lambda: None),
         )
         html_src = (
             "<html><body><section data-pptx-slide>"
