@@ -170,7 +170,9 @@ def test_probe_mismatch_on_version_skew(monkeypatch):
         status = 200
 
         def read(self):
-            return b'{"ok": true, "result": {"protocol": "offipy-http/v1", "version": "0.0.0-fake"}}'
+            return (
+                b'{"ok": true, "result": {"protocol": "offipy-http/v1", "version": "0.0.0-fake"}}'
+            )
 
         def __enter__(self):
             return self
@@ -256,7 +258,9 @@ def test_server_status_returns_dict_on_version_skew(monkeypatch):
         status = 200
 
         def read(self):
-            return b'{"ok": true, "result": {"protocol": "offipy-http/v1", "version": "0.0.0-fake"}}'
+            return (
+                b'{"ok": true, "result": {"protocol": "offipy-http/v1", "version": "0.0.0-fake"}}'
+            )
 
         def __enter__(self):
             return self
