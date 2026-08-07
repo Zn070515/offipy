@@ -28,7 +28,7 @@ from .models import (
     DimensionAssessment,
 )
 from .profiles import ArtProfile, get_profile
-from .rules import RuleContext, assess_dimension
+from .rules import RuleContext, apply_profile_to_finding, assess_dimension
 from .typography import RULES as TYPOGRAPHY_RULES
 
 _DIMENSION_RULES = {
@@ -88,7 +88,7 @@ def analyze_scene(
                 visual_balance=feats.get("mass"),
             )
         )
-    report.deck_findings = assess_deck(scene, prof)
+    report.deck_findings = [apply_profile_to_finding(f, prof) for f in assess_deck(scene, prof)]
     if include_experimental_score:
         report.experimental_score = _experimental_score(report)
     return report

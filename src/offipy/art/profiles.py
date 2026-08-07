@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from offipy.audit import Severity
+from offipy.exceptions import InvalidArgumentError
 
 # ---- 规则 ID 常量（canonical，勿改名）----
 RULE_NO_FOCUS = "art.hierarchy.no_focus"
@@ -102,8 +103,17 @@ class ArtProfile:
     enabled_rules: frozenset[str] = ALL_RULES
     disabled_rules: frozenset[str] = frozenset()
     severity_overrides: Mapping[str, Severity] = field(default_factory=dict)
+    feedback_severity_adjustments: Mapping[str, int] = field(default_factory=dict)
     confidence_overrides: dict[str, float] = field(default_factory=dict)
     experimental_rules: frozenset[str] = _EXPERIMENTAL
+
+    def __post_init__(self) -> None:
+        for rule_id, delta in self.feedback_severity_adjustments.items():
+            if delta not in (-1, 1):
+                raise InvalidArgumentError(
+                    f"feedback_severity_adjustments value for {rule_id!r} "
+                    f"must be -1 or +1, got {delta}"
+                )
 
 
 _BUILTIN = {
