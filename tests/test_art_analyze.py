@@ -382,6 +382,7 @@ def test_analyze_scene_real_fixture_feedback_flow(tmp_path):
     assert na.severity_override_source is None
 
     # 只有 corner_cluster LOW→MID，其余 finding 逐条与 baseline 一致
+    assert len(_findings_map(baseline)) == len(_findings_map(report))
     for key, b in _findings_map(baseline).items():
         r = _findings_map(report)[key]
         if b.rule_id == RULE_CORNER_CLUSTER:
