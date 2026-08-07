@@ -331,6 +331,19 @@ def test_ppt_read_slide_texts_mcp_return_annotation():
     assert annotation is list
 
 
+def test_close_tools_return_annotation_is_str():
+    # #33：schema.returns="str|null" 必须映射到 str，否则 _RETURN_ANNOTATION.get
+    # 回退 object → close_* 的 MCP output_schema 退化为 None。运行时 _invoke 对
+    # None 返回 "ok (op)"，返回值恒为 str，注解应结构化而非退化 object。
+    import inspect
+
+    from offipy import mcp_server
+
+    for name in ("excel_close_book", "word_close_doc", "ppt_close_pres"):
+        fn = getattr(mcp_server, name)
+        assert inspect.signature(fn).return_annotation is str, name
+
+
 def test_inmemory_int_and_void_and_args(monkeypatch):
     from offipy import mcp_server
 

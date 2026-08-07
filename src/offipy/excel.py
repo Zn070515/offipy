@@ -10,7 +10,7 @@ from contextlib import contextmanager, suppress
 from typing import Any
 
 from . import core
-from ._comguard import _COM_ERROR, guard_com
+from ._comguard import _COM_ERROR, guard_com, save_with_lock_retry
 from .core import destructive, readonly_guard, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
@@ -391,7 +391,7 @@ class ExcelApp:
             book = self._require_book(doc_id)
             with self._alerts_scope():
                 # COM 的 SaveAs 不认正斜杠，必须规范为反斜杠绝对路径
-                book.SaveAs(dest)
+                save_with_lock_retry(lambda: book.SaveAs(dest), what="保存工作簿")
             return dest
         book = self._require_book(doc_id)
         with self._alerts_scope():
@@ -406,7 +406,10 @@ class ExcelApp:
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():
-            self._require_book(doc_id).ExportAsFixedFormat(XL_TYPE_PDF, dest)
+            save_with_lock_retry(
+                lambda: self._require_book(doc_id).ExportAsFixedFormat(XL_TYPE_PDF, dest),
+                what="导出 PDF",
+            )
 
     # --- 工作表 ---
     def _ws(self, sheet, doc_id: str | None = None):
@@ -443,6 +446,7 @@ class ExcelApp:
 
     @destructive
     def set_range(self, sheet, range_addr: str, values, doc_id: str | None = None):
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         rng = self._ws(sheet, doc_id).Range(range_addr)
         # 数据维度与目标范围必须一致；标量（非 list/tuple）会广播填满整个范围，
         # 不校验。否则 COM 会静默只填部分（如 2×3 目标给 1×3 数据只写第一行）。
@@ -463,6 +467,7 @@ class ExcelApp:
     @readonly_guard
     def read_range(self, sheet, range_addr, doc_id: str | None = None):
         """读取区域值，返回二维 list（行→列）。只读，不改状态。"""
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         return _normalize_range(self._ws(sheet, doc_id).Range(range_addr).Value)
 
     # --- 格式化 ---
@@ -518,6 +523,7 @@ class ExcelApp:
         color: str | None = None,
         doc_id: str | None = None,
     ):
+        _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
         rng = ws.Range(range_addr)
         style_const = _resolve_style(style, _LINE_STYLE, "线型")

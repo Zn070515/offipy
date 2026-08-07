@@ -8,7 +8,7 @@ from contextlib import contextmanager, suppress
 from typing import Any, TypeVar
 
 from . import core
-from ._comguard import _COM_ERROR, guard_com
+from ._comguard import _COM_ERROR, guard_com, save_with_lock_retry
 from .core import destructive, readonly_guard, requires_target
 from .exceptions import ComOperationError, InvalidArgumentError, TargetNotFoundError
 from .paths import default_save_path, ensure_writable
@@ -347,7 +347,7 @@ class WordApp:
             dest = ensure_writable(path, overwrite)  # 覆盖保护先于触 COM（fail-fast）
             doc = self._require_doc(doc_id)
             with self._alerts_scope():
-                doc.SaveAs2(dest)
+                save_with_lock_retry(lambda: doc.SaveAs2(dest), what="保存文档")
             return dest
         doc = self._require_doc(doc_id)
         with self._alerts_scope():
@@ -362,7 +362,12 @@ class WordApp:
     def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():
-            self._require_doc(doc_id).ExportAsFixedFormat(dest, ExportFormat=WD_EXPORT_FORMAT_PDF)
+            save_with_lock_retry(
+                lambda: self._require_doc(doc_id).ExportAsFixedFormat(
+                    dest, ExportFormat=WD_EXPORT_FORMAT_PDF
+                ),
+                what="导出 PDF",
+            )
 
     # --- 内容 ---
     @destructive

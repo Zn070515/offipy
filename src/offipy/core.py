@@ -149,6 +149,11 @@ _NOT_RUNNING_HRS = {
     -2147221005,  # 0x800401F3 CO_E_CLASSSTRING：类字符串无法映射到 CLSID（Office 未安装）
 }
 
+# 0x800401F0：当前线程从未 CoInitialize——是线程契约问题，不是「连不上实例」。
+# 单独识别并给 com_apartment() 提示，绝不误归入 _NOT_RUNNING_HRS（否则会被当成
+# 「无实例」去 launch，进一步报「无法启动」更误导）。
+_CO_E_NOTINITIALIZED = -2147221008
+
 
 def connect(app: str):
     """重连已运行的 Office 实例；没有存活实例时返回 None。
@@ -165,7 +170,15 @@ def connect(app: str):
             hr = e.args[0]
         if hr in _NOT_RUNNING_HRS:
             return None
-        fmt = f"{hr:#010x}" if isinstance(hr, int) else str(hr)
+        # 负 hresult 显示 two's complement（0x800401f0），与微软 HRESULT 文档对照，
+        # 而非取绝对值加负号（-0x7ffbfe10 在 32 位下有符号解释为另一个值）。
+        fmt = f"0x{hr & 0xFFFFFFFF:08x}" if isinstance(hr, int) else str(hr)
+        if hr == _CO_E_NOTINITIALIZED:
+            raise ComOperationError(
+                f"COM 未初始化: 无法连接 {_progid(app)}（HRESULT {fmt}）——当前线程未调用"
+                " CoInitialize。请将调用放入 com_apartment() 套间（P1-4 线程契约）",
+                hresult=hr,
+            ) from e
         raise ComOperationError(f"无法连接 {_progid(app)}: HRESULT {fmt}", hresult=hr) from e
 
 

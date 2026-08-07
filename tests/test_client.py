@@ -93,6 +93,30 @@ def test_ensure_server_mismatch_owned_kills_and_restarts(monkeypatch, tmp_path):
     assert killed == [987]
 
 
+def test_ensure_server_restarts_on_version_skew_owned(monkeypatch, tmp_path):
+    # #34：版本偏斜 + pid 文件证明归属 → 强杀重启（走 mismatch 分支）
+    calls = {"n": 0}
+
+    def fake_probe():
+        calls["n"] += 1
+        return "mismatch" if calls["n"] == 1 else "ok"
+
+    killed = []
+
+    class FakePopen:
+        def __init__(self, *a, **k):
+            self.pid = 42
+
+    monkeypatch.setattr("offipy.client._probe", fake_probe)
+    monkeypatch.setattr("offipy.client._find_server_pid", lambda: 987)
+    monkeypatch.setattr("offipy.client._pid_file_matches", lambda pid: True)
+    monkeypatch.setattr("offipy.client._kill_pid", lambda pid: killed.append(pid))
+    monkeypatch.setattr("offipy.client.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("offipy.client.user_data_dir", lambda: tmp_path)
+    ensure_server()
+    assert killed == [987]
+
+
 def test_ensure_server_mismatch_unknown_refuses(monkeypatch, tmp_path):
     # P0-1：非 offipy 进程占端口且无法证明归属 → 拒绝强杀
     killed = []
@@ -120,11 +144,15 @@ def test_ensure_server_mismatch_unfindable_raises(monkeypatch, tmp_path):
 
 
 def test_probe_ok_on_matching_status(monkeypatch):
+    from offipy import __version__
+
     class _Resp:
         status = 200
 
         def read(self):
-            return b'{"ok": true, "result": {"protocol": "offipy-http/v1"}}'
+            return json.dumps(
+                {"ok": True, "result": {"protocol": "offipy-http/v1", "version": __version__}}
+            ).encode()
 
         def __enter__(self):
             return self
@@ -134,6 +162,26 @@ def test_probe_ok_on_matching_status(monkeypatch):
 
     monkeypatch.setattr("offipy.client._OPENER.open", lambda url, timeout=None: _Resp())
     assert client._probe() == "ok"
+
+
+def test_probe_mismatch_on_version_skew(monkeypatch):
+    # #34：协议匹配但版本不一致 → mismatch（stale server），ensure_server 据此重启
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return (
+                b'{"ok": true, "result": {"protocol": "offipy-http/v1", "version": "0.0.0-fake"}}'
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("offipy.client._OPENER.open", lambda url, timeout=None: _Resp())
+    assert client._probe() == "mismatch"
 
 
 def test_probe_auth_fail_on_401(monkeypatch):
@@ -172,11 +220,15 @@ def test_probe_down_on_urlerror(monkeypatch):
 
 
 def test_server_ok_true_on_matching_status(monkeypatch):
+    from offipy import __version__
+
     class _Resp:
         status = 200
 
         def read(self):
-            return b'{"ok": true, "result": {"protocol": "offipy-http/v1"}}'
+            return json.dumps(
+                {"ok": True, "result": {"protocol": "offipy-http/v1", "version": __version__}}
+            ).encode()
 
         def __enter__(self):
             return self
@@ -198,6 +250,48 @@ def test_server_ok_false_on_error(monkeypatch):
         ),
     )
     assert client._server_ok() is False
+
+
+def test_server_status_returns_dict_on_version_skew(monkeypatch):
+    # #34：版本偏斜但协议匹配 → 返回可读 dict（含 version），不因偏斜吞成 None
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return (
+                b'{"ok": true, "result": {"protocol": "offipy-http/v1", "version": "0.0.0-fake"}}'
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("offipy.client._probe", lambda: "mismatch")
+    monkeypatch.setattr("offipy.client._OPENER.open", lambda url, timeout=None: _Resp())
+    st = client.server_status()
+    assert st is not None
+    assert st["version"] == "0.0.0-fake"
+
+
+def test_server_status_none_on_protocol_mismatch(monkeypatch):
+    # #34 补充：非 offipy 进程（协议失配）→ None，不把异质进程暴露成可读 server 状态
+    class _Resp:
+        status = 200
+
+        def read(self):
+            return b'{"ok": true, "result": {"protocol": "v0", "version": "x"}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("offipy.client._probe", lambda: "mismatch")
+    monkeypatch.setattr("offipy.client._OPENER.open", lambda url, timeout=None: _Resp())
+    assert client.server_status() is None
 
 
 # --- HTTP 错误语义化（P0-1） ---

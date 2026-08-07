@@ -278,3 +278,113 @@ def test_quit_dead_instance_returns_true(monkeypatch, cls, core_name):
     monkeypatch.setattr("offipy.core.doc_alive", lambda obj: False)
     obj = cls()
     assert obj.quit() is True
+
+
+# --- #37：quit(force=True) 在 PID 解析为 None 时绝不静默 no-op ---
+
+
+def test_quit_force_pid_none_still_alive_raises(monkeypatch):
+    # 启动早期 ActiveWindow.Hwnd 未就绪 → _pid=None；进程未自退时强杀兜底失效。
+    # force=True 语义是「保证退出」→ 必须明确失败，绝不静默返回成功。
+    from offipy import ppt
+
+    app = types.SimpleNamespace(DisplayAlerts=0, Quit=lambda: None)
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_returning(app))  # created=True
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: True)
+    monkeypatch.setattr("offipy.core.app_process_pid", lambda obj, app: None)  # PID 解析失败
+    monkeypatch.setattr("offipy.core.doc_alive", lambda obj: True)  # 进程仍存活
+    p = ppt.PptApp()
+    with pytest.raises(ComOperationError, match="无法确认"):
+        p.quit(force=True)
+
+
+def test_quit_force_pid_none_process_exited_returns_none(monkeypatch):
+    # PID 解析失败但 liveness 探针证实进程已结束 → 正常退出（None），不误报失败
+    from offipy import ppt
+
+    app = types.SimpleNamespace(DisplayAlerts=0, Quit=lambda: None)
+    monkeypatch.setattr("offipy.core.ensure_app", _ensure_app_returning(app))  # created=True
+    monkeypatch.setattr("offipy.core.quit_app", lambda n: True)
+    monkeypatch.setattr("offipy.core.app_process_pid", lambda obj, app: None)
+    monkeypatch.setattr("offipy.core.doc_alive", lambda obj: False)  # 进程已退出
+    p = ppt.PptApp()
+    assert p.quit(force=True) is None
+
+
+# --- #37：save/save_pdf 锁感知短重试 ---
+
+
+def test_ppt_save_retries_lock_then_succeeds(monkeypatch, tmp_path):
+    from offipy import _comguard, ppt
+
+    class _FakeComError(Exception):
+        pass
+
+    monkeypatch.setattr(_comguard, "_COM_ERROR", _FakeComError)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    target = tmp_path / "deck.pptx"
+    target.write_text("x")
+    calls = {"n": 0}
+
+    class _FakePres:
+        def SaveAs(self, path, *a, **k):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise _FakeComError("file in use")
+
+    p = ppt.PptApp.__new__(ppt.PptApp)
+    p.app = types.SimpleNamespace(DisplayAlerts=0)
+    p.active_pres = lambda doc_id=None: _FakePres()
+    dest = p.save(str(target), overwrite=True, doc_id="pres1")
+    assert dest == os.path.abspath(str(target))
+    assert calls["n"] == 3
+
+
+def test_ppt_save_lock_conflict_gives_readable_error(monkeypatch, tmp_path):
+    # 超时仍被占用 → 可读 ComOperationError（目标被进程占用），不透传裸 hresult
+    from offipy import _comguard, ppt
+
+    class _FakeComError(Exception):
+        pass
+
+    monkeypatch.setattr(_comguard, "_COM_ERROR", _FakeComError)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    target = tmp_path / "deck.pptx"
+    target.write_text("x")
+
+    class _FakePres:
+        def SaveAs(self, path, *a, **k):
+            raise _FakeComError("0x80004005")
+
+    p = ppt.PptApp.__new__(ppt.PptApp)
+    p.app = types.SimpleNamespace(DisplayAlerts=0)
+    p.active_pres = lambda doc_id=None: _FakePres()
+    with pytest.raises(ComOperationError, match="其他进程占用"):
+        p.save(str(target), overwrite=True, doc_id="pres1")
+
+
+def test_ppt_save_pdf_retries_lock_then_succeeds(monkeypatch, tmp_path):
+    from offipy import _comguard, ppt
+
+    class _FakeComError(Exception):
+        pass
+
+    monkeypatch.setattr(_comguard, "_COM_ERROR", _FakeComError)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    target = tmp_path / "x.pdf"
+    calls = {"n": 0}
+
+    class _FakePres:
+        def ExportAsFixedFormat(self, *a, **k):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                raise _FakeComError("locked")
+
+    p = ppt.PptApp.__new__(ppt.PptApp)
+    p.app = types.SimpleNamespace(DisplayAlerts=0)
+    p.active_pres = lambda doc_id=None: _FakePres()
+    p.save_pdf(str(target), doc_id="pres1")
+    assert calls["n"] == 2

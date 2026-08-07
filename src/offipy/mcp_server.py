@@ -83,6 +83,7 @@ _RETURN_ANNOTATION = {
     "void": str,
     "int": int,
     "str": str,
+    "str|null": str,
     "bool": bool,
     "list": list,
     "list[SlideTextRecord]": list,
