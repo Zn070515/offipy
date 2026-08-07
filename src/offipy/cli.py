@@ -28,6 +28,7 @@ import inspect
 import json
 import os
 import sys
+import tempfile
 import traceback
 import types
 import typing
@@ -400,7 +401,9 @@ def build_parser() -> argparse.ArgumentParser:
         # REMAINDER：原样捕获 --key value 形式的任意 kwargs
         sp.add_argument("kwargs", nargs=argparse.REMAINDER)
     deck = sub.add_parser("deck")
-    deck.add_argument("action", choices=["make", "outline"])
+    deck.add_argument("action", choices=["make", "outline", "audit"])
+    # audit 的 HTML 源走位置参数（task 5）：make/outline 传了会在分支内拦截。
+    deck.add_argument("source", nargs="?", help="audit 的 HTML 源文件（位置参数）")
     # 专用选项（P0-4）：布尔用 _BoolAction，`--overwrite false` 不再是
     # bool("false")→True 的坑；未知 --key 由 argparse 直接 exit 2。
     deck.add_argument("--html", help="HTML 幻灯片源文件（make 必填）")
@@ -427,6 +430,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     deck.add_argument("--input", help="大纲 markdown 源文件（outline）")
     deck.add_argument("--md", help="大纲 markdown 源文件别名（outline）")
+    deck.add_argument("--pptx", help="audit：直接审计现成 .pptx（与位置 source 互斥）")
+    deck.add_argument("--json", action="store_true", help="audit：输出结构化 JSON 建议")
+    deck.add_argument(
+        "--profile", default="balanced", help="audit：艺术分析 profile（默认 balanced）"
+    )
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
     q = sub.add_parser("quit")
@@ -562,6 +570,8 @@ def _main(argv=None):
         return
     if args.app == "deck":
         if args.action == "make":
+            if args.source:
+                _usage_exit("offipy deck make 不接受位置参数，请用 --html <deck.html>")
             if args.audit_mode:
                 return _deck_make_with_audit(args)
             from .deck import make as deck_make
@@ -582,7 +592,9 @@ def _main(argv=None):
                 overwrite=args.overwrite,
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
-        else:  # outline
+        elif args.action == "outline":
+            if args.source:
+                _usage_exit("offipy deck outline 不接受位置参数，请用 --input <outline.md>")
             from .outline import parse_outline, to_deck_html
 
             md_path = args.input or args.md
@@ -605,6 +617,8 @@ def _main(argv=None):
                 print(json.dumps({"html": os.path.abspath(args.out)}, ensure_ascii=False))
             else:
                 print(outline.to_json())
+        else:  # audit
+            return _deck_audit(args)
         return
     kw = _parse_kwargs(args.kwargs)
     _validate_kwargs(args.app, args.op, kw)
@@ -727,6 +741,112 @@ def _deck_make_with_audit(args) -> int | None:
         open_live(pptx)
     print(json.dumps({"pptx": pptx}, ensure_ascii=False))
     return None
+
+
+def _deck_audit(args) -> int | None:
+    """offipy deck audit：一次性分析（HTML 临时渲染 / PPTX 直读）+ 建议投影。
+
+    HTML 流：render_with_quality_report 已内含一次几何审计 + 一次艺术分析，
+    产物只发布到 TemporaryDirectory（命令退出即删），绝不二次 audit/build_scene；
+    chromium 不可用 → ConversionError 上抛（main 转 offipy: <msg> + exit 1）。
+    PPTX 流：analyze_deck(pptx=...) 一次。缺失文件 → 友好 offipy: error + exit 1。
+    """
+    from .exceptions import InvalidArgumentError
+
+    if args.source and args.pptx:
+        _usage_exit("请给出且只给一个源：位置 <html> 或 --pptx")
+    if not args.source and not args.pptx:
+        _usage_exit(
+            "用法: offipy deck audit <deck.html> [--theme <name>] [--layouts] "
+            "[--profile <p>] [--json]\n"
+            "      或 offipy deck audit --pptx <file.pptx> [--profile <p>] [--json]"
+        )
+
+    if args.source:
+        # 惰性 import：让测试能 patch offipy.deck.render_with_quality_report
+        from .deck import render_with_quality_report
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="offipy-deck-audit-") as td:
+                result = render_with_quality_report(
+                    args.source,
+                    out=os.path.join(td, "audit.pptx"),
+                    theme=args.theme,
+                    apply_layouts=args.layouts,
+                    overwrite=True,
+                    profile=args.profile,
+                    pixel_analysis="off",
+                )
+                report = result.deck_quality
+        except KeyError as e:
+            # 未知 --profile：get_profile 抛 KeyError，转友好 offipy: error + exit 1
+            print(f"offipy: error: {e.args[0] if e.args else e}", file=sys.stderr)
+            return 1
+        if report is None:
+            # 契约上不会发生：render_with_quality_report 总是产出 DeckQualityReport
+            return 1
+    else:
+        from .art.analyze import analyze_deck
+
+        try:
+            report = analyze_deck(pptx=args.pptx, profile=args.profile)
+        except FileNotFoundError:
+            print(f"offipy: error: 找不到文件: {args.pptx}", file=sys.stderr)
+            return 1
+        except InvalidArgumentError as e:
+            if "不存在" in str(e):
+                print(f"offipy: error: 找不到文件: {args.pptx}", file=sys.stderr)
+                return 1
+            raise
+        except KeyError as e:
+            # 未知 --profile：analyze_deck → get_profile 抛 KeyError，转友好报错
+            print(f"offipy: error: {e.args[0] if e.args else e}", file=sys.stderr)
+            return 1
+    return _emit_deck_audit(report, args)
+
+
+def _emit_deck_audit(report, args) -> int:
+    """输出 deck audit 结果：--json 结构化；否则按维度分组文本。"""
+    from .art.suggest import project_suggestions
+
+    source = args.source or args.pptx
+    suggestions = project_suggestions(report, source=source)
+    warnings = [{"code": w.code, "message": w.message} for w in report.warnings]
+    if args.json:
+        payload = {
+            "source": source,
+            "profile": args.profile,
+            "warnings": warnings,
+            "suggestions": suggestions,
+        }
+        print(json.dumps(payload, ensure_ascii=False))
+    else:
+        _print_deck_audit_text(args, warnings, suggestions)
+    return 0
+
+
+def _print_deck_audit_text(args, warnings, suggestions) -> None:
+    """按维度分组打印文本建议（确定性顺序：逐条记录，维度变化时出标题）。"""
+    lines = [f"offipy deck audit（profile={args.profile}）"]
+    if warnings:
+        lines.append("警告:")
+        lines.extend(f"- [{w['code']}] {w['message']}" for w in warnings)
+    if not suggestions:
+        lines.append("（无建议记录）")
+    else:
+        last_dim = None
+        for rec in suggestions:
+            dim = rec["dimension"]
+            if dim != last_dim:
+                lines.append("")
+                lines.append(f"维度: {dim}")
+                last_dim = dim
+            slide_label = rec["slide_index"] if rec["slide_index"] is not None else "（全篇）"
+            lines.append(
+                f"  页 {slide_label} [{rec['severity']}] {rec['rule_id']}: {rec['message']}"
+            )
+            lines.append(f"    建议: {rec['suggestion']}")
+    print("\n".join(lines))
 
 
 def _audit_main(args) -> int:
