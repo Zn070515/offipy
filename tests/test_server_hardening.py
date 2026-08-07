@@ -364,6 +364,65 @@ def test_com_queue_full_returns_503(monkeypatch):
         srv.server_close()
 
 
+class _BlockingFullQueue:
+    """put_nowait 先阻塞到 release 再抛 queue.Full——复现「owner 卡入队期间，
+    同 id 非 owner 合并等待」的竞态。"""
+
+    def __init__(self):
+        self._release = threading.Event()
+
+    def release(self):
+        self._release.set()
+
+    def put_nowait(self, item):
+        if not self._release.wait(10):
+            raise AssertionError("release 未在 10s 内触发")
+        raise queue.Full
+
+
+def test_idempotent_queue_full_rollback_wakes_non_owner(monkeypatch):
+    """#45：owner 入队遇 Full 回滚时必须 set event——否则合并等待的同 id
+    非 owner 线程空等 _CALL_TIMEOUT 后误报 504。回滚后应立即被唤醒、收到 busy。"""
+    monkeypatch.setattr(server, "_ensure_worker", lambda: None)
+    monkeypatch.setitem(server._OPS, "ppt", server._OPS["ppt"] | {"order"})
+    q = _BlockingFullQueue()
+    monkeypatch.setattr(server, "_COM_QUEUE", q)
+    server._TOKEN = TOKEN
+    srv = server.Server(("127.0.0.1", 0), server.Handler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    port = srv.server_address[1]
+    body = {"app": "ppt", "op": "order", "request_id": "r1"}
+    results = {}
+
+    def _post_a():
+        results["a"] = _post(port, body, token=TOKEN)
+
+    def _post_b():
+        results["b"] = _post(port, body, token=TOKEN)
+
+    try:
+        _wait_ready(port)
+        a = threading.Thread(target=_post_a, daemon=True)
+        a.start()
+        time.sleep(0.2)  # A 已 claim 为 owner 并卡在 put_nowait
+        b = threading.Thread(target=_post_b, daemon=True)
+        b.start()
+        time.sleep(0.2)  # B 已 claim 并合并等待 owner 完成
+        q.release()  # A 的 put_nowait 抛 Full → A 回滚并 set event → B 被唤醒
+        a.join(10)
+        b.join(10)
+        assert "a" in results and "b" in results, "非 owner 线程必须被回滚唤醒，不能空等"
+        status_b, body_b = results["b"]
+        assert body_b["error_code"] == "busy"
+        assert "忙" in body_b["error"]
+        assert "超时" not in body_b.get("error", "")  # 不是误导性的 504 超时
+    finally:
+        q.release()
+        srv.shutdown()
+        srv.server_close()
+
+
 # --- 有界线程（§4）：并发超限 → 连接级 503 ---
 
 

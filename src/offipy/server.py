@@ -826,18 +826,19 @@ class Handler(BaseHTTPRequestHandler):
         try:
             _COM_QUEUE.put_nowait((app_name, op, raw_args, None, entry))
         except queue.Full:
-            # op 未入队：回滚 entry，调用方同 id 重试时重建（不 merge 到永不完成的死锁）
+            # op 未入队：回滚 entry（移除缓存项），调用方同 id 重试时重建（不 merge 到
+            # 永不完成的死锁）。_complete_entry 同步 result + event——否则已合并等待的
+            # 非 owner 线程空等 _CALL_TIMEOUT 后误报 504（#45）。
+            busy = {
+                "ok": False,
+                "error": "server 忙（COM 队列已满），请稍后重试",
+                "error_code": "busy",
+            }
             with _REQUEST_LOCK:
                 if _REQUEST_ID_CACHE.get(request_id) is entry:
                     _REQUEST_ID_CACHE.pop(request_id, None)
-            return self._reply(
-                {
-                    "ok": False,
-                    "error": "server 忙（COM 队列已满），请稍后重试",
-                    "error_code": "busy",
-                },
-                status=503,
-            )
+            _complete_entry(entry, busy)
+            return self._reply(dict(busy), status=503)
         if not entry.event.wait(_CALL_TIMEOUT):
             # 超时：entry 留 inflight（同 ID 重试仍合并不重执行——绝不双写）
             return self._reply(
