@@ -37,7 +37,9 @@ def _severity_override_label(f: ArtFinding) -> str | None:
         return None
     if f.severity_override_source == "feedback":
         return "Severity adjusted: feedback"
-    return "Severity adjusted: user override"
+    if f.severity_override_source == "user":
+        return "Severity adjusted: user override"
+    return None
 
 
 def _finding_html(f: ArtFinding) -> str:
