@@ -30,6 +30,7 @@ from offipy.assets.model import (
 from offipy.assets.providers.icons import IconProvider
 from offipy.assets.render import (
     _as_element,
+    _svg_page_screenshot,
     place_rendered_elements,
     render_asset,
 )
@@ -276,3 +277,37 @@ class TestPlaceRenderedElements:
             _as_element(rendered[1]),
             b._element,
         ]
+
+
+class _FakeSvgPage:
+    """_svg_page_screenshot 的最小 page 替身：记录 viewport / clip。"""
+
+    def __init__(self):
+        self.viewport = None
+        self.clip = None
+
+    def set_viewport_size(self, viewport):
+        self.viewport = viewport
+
+    def set_content(self, _content):
+        pass
+
+    def screenshot(self, **kwargs):
+        self.clip = kwargs.get("clip")
+        return b"PNG-bytes"
+
+
+def test_svg_page_screenshot_handles_comma_viewbox():
+    # #64：逗号分隔 viewBox（合法 SVG）此前 float("0,0") 抛 ValueError → fallback 静默丢失
+    svg = '<svg viewBox="0,0 100,100"><rect width="100" height="100"/></svg>'
+    page = _FakeSvgPage()
+    assert _svg_page_screenshot(page, svg) == b"PNG-bytes"
+    assert page.viewport == {"width": 100, "height": 100}
+    assert page.clip == {"x": 0, "y": 0, "width": 100, "height": 100}
+
+
+def test_svg_page_screenshot_handles_mixed_viewbox_separators():
+    svg = '<svg viewBox="10,20 30 40"><rect width="100" height="100"/></svg>'
+    page = _FakeSvgPage()
+    assert _svg_page_screenshot(page, svg) == b"PNG-bytes"
+    assert page.clip == {"x": 10, "y": 20, "width": 30, "height": 40}

@@ -299,7 +299,8 @@ def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
 
     m = re.search(r'viewBox="([^"]+)"', svg_text)
     if m:
-        vx, vy, vw, vh = (float(v) for v in m.group(1).split())
+        # SVG 规范允许逗号/空白任意混用作坐标分隔（viewBox="0,0 100,100"）
+        vx, vy, vw, vh = (float(v) for v in re.split(r"[,\s]+", m.group(1).strip()))
     else:
         vx, vy, vw, vh = 0.0, 0.0, 512.0, 512.0
     clip_x, clip_y = max(0.0, vx), max(0.0, vy)
