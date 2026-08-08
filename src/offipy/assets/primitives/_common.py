@@ -220,11 +220,20 @@ def _char_width_em(ch: str, approx: float) -> float:
     """Per-glyph width as an em fraction.
 
     Full-width glyphs (CJK / 全角标点/空格) advance ≈1.0em; latin glyphs average
-    ≈``approx``. The old uniform 0.55em estimate under-measures CJK by ~1.8×,
-    so Chinese text overflowed the measured rect (#56).
+    ≈``approx``. Arrows (U+2190-21FF) and dashes (U+2010-2015) are half-width
+    code points whose glyphs render full-width in Arial/CJK, so they also count
+    as 1.0em (#62). The old uniform 0.55em estimate under-measures these by
+    ~1.8×, so CJK text overflowed the measured rect (#56).
     """
     cp = ord(ch)
-    if cp > 0x2E80 or cp == 0x3000 or 0xFF01 <= cp <= 0xFF60 or 0xFFE0 <= cp <= 0xFFE6:
+    if (
+        cp > 0x2E80
+        or cp == 0x3000
+        or 0x2010 <= cp <= 0x2015
+        or 0x2190 <= cp <= 0x21FF
+        or 0xFF01 <= cp <= 0xFF60
+        or 0xFFE0 <= cp <= 0xFFE6
+    ):
         return 1.0
     return approx
 
