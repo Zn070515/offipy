@@ -240,10 +240,12 @@ def _kill_process_tree(pid: int) -> None:
     if os.name == "nt":
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, text=True)
     else:
-        # POSIX 分支在本项目（Windows-only）实际不可达；mypy 在 Windows 平台类型
-        # 上会把 killpg/getpgid/SIGKILL 判为不存在，这里显式忽略该分支的 attr 检查。
+        # POSIX 分支在 CI（ubuntu 纯模块测试）可达。convert 子进程以独立会话启动
+        # （见 _run_convert 的 start_new_session），是组长（pgid==pid），killpg(pid)
+        # 只杀该组，绝不波及调用方进程组（否则会连 pytest/CI runner 一起 SIGKILL）。
+        # mypy 在 Windows 平台类型上会把 killpg/SIGKILL 判为不存在，显式忽略 attr 检查。
         with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(pid), signal.SIGKILL)  # type: ignore[attr-defined]
+            os.killpg(pid, signal.SIGKILL)  # type: ignore[attr-defined]
 
 
 def _run_convert(cmd: list[str], timeout: int, env: dict[str, str]) -> SimpleNamespace:
@@ -261,6 +263,9 @@ def _run_convert(cmd: list[str], timeout: int, env: dict[str, str]) -> SimpleNam
         encoding="utf-8",
         errors="replace",
         env=env,
+        # POSIX 下让 convert 子进程自成会话/进程组，超时整树杀才只杀该组；
+        # 否则继承调用方进程组，killpg 会把 pytest/CI runner 一起杀掉。
+        start_new_session=os.name != "nt",
     )
     try:
         out, err = proc.communicate(timeout=timeout)
