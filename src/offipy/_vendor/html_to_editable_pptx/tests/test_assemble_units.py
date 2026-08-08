@@ -357,6 +357,17 @@ def test_assemble_malformed_record_structure_skips(tmp_path):
     assert "ok" in xml
 
 
+def test_assemble_scalar_records_container_no_crash(tmp_path):
+    # #76：98e15ed 过滤循环 (sdata.get("records", []) or []) 只兜 falsy——records 为
+    # truthy 非迭代标量（42/True/3.14）时 for rec in 42 抛 TypeError:'int' object
+    # is not iterable。records 容器本身畸形也应降级为空列表，不崩。
+    for bad in (42, True, 3.14):
+        data = {"slides": [{"slide": {"background": WHITE}, "records": bad}]}
+        out = tmp_path / f"t_{type(bad).__name__}.pptx"
+        assemble(data, out)  # must not raise
+        assert out.exists()
+
+
 def test_self_check_load_measurement_texts_guards_bad_numbers(tmp_path):
     # F4：self_check 读不可信 measurement JSON，slide.width/height 与 rect 坐标
     # 注入字符串/NaN 时降级为兜底，不崩（否则自检门禁被静默吞掉）
