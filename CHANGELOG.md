@@ -3,6 +3,22 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.14.3] - 2026-08-08
+
+### Fixed
+- **资产 accent rgb() 值域（#65）**：`rgb()`/`rgba()` 分量超界（>255）按 CSS 语义钳制，
+  不再抛 `ValueError` 让主题 accent 兜底崩溃。
+- **图标 SVG 解析守卫（#66）**：`_svg_to_subpaths` 接入统一 `parse_svg` 守卫，拒绝
+  DOCTYPE/ENTITY（billion-laughs）并包装畸形 XML 为 `InvalidArgumentError`。
+- **server 失败消息脱敏（#67）**：`error` / `trace` 消息内的绝对路径（Windows/POSIX/UNC）
+  与 `doc_id` 值统一替换为 `[REDACTED]`，杜绝经响应泄露服务器信息。
+- **转换器 record 结构校验（#68）**：装配边界过滤非 dict / 无 `kind` 的畸形 record，
+  下游 `rec["kind"]` / `rec.get` 不再 `KeyError` / `AttributeError`。
+- **注入副本 `data` 属性重写（#69）**：`<object data>` / `<embed data>` 相对路径一并
+  重写为绝对 `file://`；`data-*` 自定义属性（data-icon/data-chart-data）不误伤。
+- **audit 顶层尺寸容错（#70）**：损坏 `sldSz@cx/@cy` 非数字时幻灯片尺寸降级 0.0 +
+  告警 `audit.extract.slidesize_corrupt`，不再整文件 audit 崩溃。
+
 ## [0.14.2] - 2026-08-08
 
 ### Fixed

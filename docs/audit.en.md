@@ -228,8 +228,9 @@ region count as page numbers.
 
 `warnings` record items the parse layer cannot handle precisely: `group.no_transform`
 (group missing `a:xfrm` → children cannot be precisely positioned → rules requiring exact
-position are skipped). These cases are **not** silently treated as zero rotation.
-This is the only warning source in v0.11.
+position are skipped), and `audit.extract.slidesize_corrupt` (presentation-level
+`sldSz@cx/@cy` non-numeric → slide size falls back to 0.0, extraction continues).
+These cases are **not** silently treated as zero rotation.
 
 ## Known limitations & false-positive control
 
