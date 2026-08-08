@@ -14,6 +14,10 @@ from offipy.exceptions import InvalidArgumentError
 from .merge import merge_scenes
 from .models import ArtColor, ArtElement, ArtScene, ArtSlide, ArtTextRun, ArtWarning
 
+# per-slide 元素上限：恶意/病态输入页元素数超限即截断，约束下游 O(n²)
+# （features._union_area、merge_scenes）的复杂度上限。
+_MAX_SLIDE_ELEMENTS = 3000
+
 _KIND_MAP = {
     "text": "text",
     "txt": "text",
@@ -171,10 +175,19 @@ class MeasurementAdapter:
             index = i + 1  # 位置索引 → 1-based 公开索引
             width = _num(s.get("width"), 1920.0)
             height = _num(s.get("height"), 1080.0)
-            elements = [
-                _to_measurement_element(rec, index, width, height)
-                for rec in item.get("records", [])
-            ]
+            records = item.get("records", [])
+            if len(records) > _MAX_SLIDE_ELEMENTS:
+                warnings.append(
+                    ArtWarning(
+                        code="art.adapter.elements_truncated",
+                        message=(
+                            f"页 {index} 元素数 {len(records)} 超过上限 "
+                            f"{_MAX_SLIDE_ELEMENTS}，截断"
+                        ),
+                    )
+                )
+                records = records[:_MAX_SLIDE_ELEMENTS]
+            elements = [_to_measurement_element(rec, index, width, height) for rec in records]
             bg = _measurement_color(s.get("background"))
             slides.append(
                 ArtSlide(
@@ -204,6 +217,7 @@ class PptxAuditAdapter:
             for i in range(1, self._report.slide_count + 1)
         }
         warnings: list[ArtWarning] = []
+        truncated: set[int] = set()
         for snap in self._report.shapes:
             index = snap.slide_index  # 已 1-based，不做 +1
             if index < 1 or index > self._report.slide_count:
@@ -221,6 +235,16 @@ class PptxAuditAdapter:
                         message=f"shape {snap.shape_id} 无几何信息，跳过",
                     )
                 )
+                continue
+            if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
+                if index not in truncated:
+                    truncated.add(index)
+                    warnings.append(
+                        ArtWarning(
+                            code="art.adapter.elements_truncated",
+                            message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                        )
+                    )
                 continue
             kind = _KIND_MAP.get(snap.shape_type.lower(), "shape")
             if snap.shape_type.lower() in ("picture", "photo"):

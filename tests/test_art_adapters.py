@@ -158,6 +158,56 @@ def test_measurement_adapter_json_string_survives_oserror_on_path_check(monkeypa
     assert len(scene.slides) == 1
 
 
+def test_measurement_adapter_truncates_excessive_elements():
+    # per-slide 元素上限：恶意/病态超多元素页截断到上限，下游 O(n²) 分析被约束
+    records = [
+        {
+            "id": i,
+            "kind": "shape",
+            "className": "",
+            "tag": "div",
+            "rect": {"x": i, "y": 0, "w": 1, "h": 1},
+            "style": {},
+            "runs": [],
+        }
+        for i in range(3001)
+    ]
+    raw = {"slides": [{"slide": {"width": 1920, "height": 1080}, "records": records}]}
+    scene = MeasurementAdapter(raw).build()
+    els = scene.slides[0].elements
+    assert len(els) == 3000
+    assert any(w.code == "art.adapter.elements_truncated" for w in scene.warnings)
+
+
+def test_pptx_adapter_truncates_excessive_elements():
+    from offipy.audit.models import SlideShapeSnapshot
+
+    data = json.loads((FIXTURES / "real_audit_report.json").read_text(encoding="utf-8"))
+    report = _report_from_fixture(data)
+    for i in range(3001):
+        report.shapes.append(
+            SlideShapeSnapshot(
+                slide_index=1,
+                shape_id=1000 + i,
+                name=f"s{i}",
+                shape_type="Oval",
+                role="shape",
+                left=0.1,
+                top=0.1,
+                width=0.1,
+                height=0.1,
+                z_order=i,
+                text="",
+                is_rotated=False,
+                geometry_unknown=False,
+            )
+        )
+    scene = PptxAuditAdapter(report).build()
+    els = scene.slides[0].elements
+    assert len(els) == 3000
+    assert any(w.code == "art.adapter.elements_truncated" for w in scene.warnings)
+
+
 def test_pptx_adapter_real_shapes():
     data = json.loads((FIXTURES / "real_audit_report.json").read_text(encoding="utf-8"))
     report = _report_from_fixture(data)
