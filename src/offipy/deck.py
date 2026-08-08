@@ -108,7 +108,10 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
         )
 
 
-_ATTR_URL_RE = re.compile(r"((?:src|href|poster)\s*=\s*[\"'])([^\"']*)([\"'])")
+# data-* 自定义属性（data-icon/data-asset/data-chart-data 等）是逻辑值不是 URL；
+# `data-chart-data=` 会从第二个 data 处误命中 data=。前置 (?<![\w-]) 只让真实
+# 属性名（前导空格/< /"等）命中，属性名内含 - 或字母的自定义属性不重写。
+_ATTR_URL_RE = re.compile(r"((?<![\w-])(?:src|href|poster|data)\s*=\s*[\"'])([^\"']*)([\"'])")
 # srcset 值里可能带引号（data: URI 的 SVG 常用单引号属性），只以属性自身的结束
 # 引号定界，不能用 [^\"']*（会把含引号的 data URI 截断）。
 _SRCSET_RE = re.compile(r'(srcset\s*=\s*(["\']))((?:(?!\2).)*)(\2)')
@@ -166,7 +169,7 @@ def _rewrite_srcset(base_dir: Path, value: str) -> str:
 
 
 def _rewrite_relative_urls(content: str, base_dir: Path) -> str:
-    """把相对 src/href/poster/srcset/CSS url()/@import 重写为绝对 file:// URL。
+    """把相对 src/href/poster/data/srcset/CSS url()/@import 重写为绝对 file:// URL。
 
     注入副本落在 offipy-deck-* 临时目录，源 HTML 基于自身目录的相对引用
     （img/、样式、url()）在副本下会解析失败 → 资源加载不到（#57）。写入副本前

@@ -328,6 +328,35 @@ def test_assemble_missing_rect_and_slide_meta(tmp_path):
     assert "hello" in xml
 
 
+def test_assemble_malformed_record_structure_skips(tmp_path):
+    # #68：047dddf 只规范化 record 值、不校验结构——缺 kind 的 dict record 在
+    # assemble_slide 直取 rec["kind"] 崩 KeyError，非 dict record 在下游 rec.get 崩
+    # AttributeError（含非 dict sdata 撞 _validate_asset_placeholders）。
+    # 装配边界须过滤结构畸形 record（非 dict / 无 str kind），降级为跳过不崩。
+    out = tmp_path / "t.pptx"
+    data = {
+        "slides": [
+            {
+                "slide": {"background": WHITE},
+                "records": [
+                    42,
+                    None,
+                    {"rect": {"x": 0, "y": 0, "w": 100, "h": 30}},  # 缺 kind
+                    {"kind": 7, "rect": {"x": 0, "y": 0, "w": 100, "h": 30}},  # kind 非 str
+                    {"kind": "text", "rect": {"x": 0, "y": 0, "w": 100, "h": 30},
+                     "runs": [{"text": "ok", "fontSize": 16, "color": "rgb(0,0,0)"}],
+                     "style": {}},
+                ],
+            },
+            None,  # 非 dict sdata → _validate_asset_placeholders 也不崩
+        ]
+    }
+    assemble(data, out)  # must not raise
+    assert out.exists()
+    xml = zipfile.ZipFile(out).read("ppt/slides/slide1.xml").decode("utf-8")
+    assert "ok" in xml
+
+
 def test_self_check_load_measurement_texts_guards_bad_numbers(tmp_path):
     # F4：self_check 读不可信 measurement JSON，slide.width/height 与 rect 坐标
     # 注入字符串/NaN 时降级为兜底，不崩（否则自检门禁被静默吞掉）

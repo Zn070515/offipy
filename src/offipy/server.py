@@ -20,6 +20,7 @@ import json
 import os
 import platform
 import queue
+import re
 import secrets
 import sys
 import threading
@@ -371,18 +372,33 @@ def _success_result(
     return res
 
 
+# 失败响应消息级脱敏（#67）：异常消息本身可能含服务器绝对路径 / doc_id / 临时目录，
+# 属于 H10 信息泄露。路径与 doc_id 值统一替换为 [REDACTED]。
+_PATH_RE = re.compile(
+    r"(?:\b[A-Za-z]:[\\/][^\s:;\"']*"  # Windows 盘符绝对路径
+    r"|(?<![@\w])/(?:home|Users|mnt|tmp|var|usr|srv|opt|etc|root|private)[^\s:;\"']*"  # POSIX/macOS
+    r"|\\\\[^\s:;\"']+"  # UNC 共享路径
+    r"|\bdoc_id\s*[:=]\s*\S+)"  # 文档标识值
+)
+
+
+def _redact_message(msg: str) -> str:
+    return _PATH_RE.sub("[REDACTED]", msg)
+
+
 def _safe_trace(e: Exception) -> list[str]:
-    """异常链消息（脱敏）：只保留 type+message，不含 File/行号/源码行。
+    """异常链消息（脱敏）：只保留 type+redacted message，不含 File/行号/源码行。
 
     server 响应会透传给调用方——绝对路径、模块内部结构、行号、源码片段属于
-    服务器信息泄露（H10）。trace 仅用于定位异常链；逐帧排查看服务端日志。
+    服务器信息泄露（H10）。消息内容也经 _redact_message 脱敏（#67）。trace
+    仅用于定位异常链；逐帧排查看服务端日志。
     """
     lines: list[str] = []
     seen: set[int] = set()
     cur: BaseException | None = e
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
-        lines.append(f"{type(cur).__name__}: {cur}")
+        lines.append(f"{type(cur).__name__}: {_redact_message(str(cur))}")
         cur = cur.__cause__ or cur.__context__
     return lines
 
@@ -393,7 +409,7 @@ def _error_result(op_name: str, e: Exception, request_id: str | None = None) -> 
         "ok": False,
         "operation": op_name,
         "resource_id": None,
-        "error": f"{type(e).__name__}: {e}",
+        "error": _redact_message(f"{type(e).__name__}: {e}"),
         "error_code": getattr(e, "code", "internal"),
         "trace": _safe_trace(e),
     }

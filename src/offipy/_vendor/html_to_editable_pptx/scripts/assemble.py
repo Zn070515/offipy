@@ -1314,8 +1314,10 @@ def _validate_asset_placeholders(slides_data):
     """
     seen: dict[str, int] = {}
     for i, sdata in enumerate(slides_data):
-        for rec in sdata.get("records", []):
-            if rec.get("kind") != "asset":
+        if not isinstance(sdata, dict):
+            continue  # 结构畸形 sdata 不参与占位符校验（#68）
+        for rec in sdata.get("records", []) or []:
+            if not isinstance(rec, dict) or rec.get("kind") != "asset":
                 continue
             aid = rec.get("assetId") or ""
             if not aid:
@@ -1337,7 +1339,7 @@ def assemble_slide(slide, data):
 
     text_records = []
     for rec in records:
-        if rec["kind"] == "shape":
+        if rec.get("kind") == "shape":
             # 整页 section：仅当视觉上与 slide 背景等价（不透明同色、无边框）才跳过
             # （背景已由 add_background 铺，发满页 shape 在 WPS 里会成为可选可拖对象）。
             # 半透明满页遮罩（inset:0 + rgba 压暗层）/ 异色满页层必须保留，否则整页颜色全错
@@ -1352,17 +1354,17 @@ def assemble_slide(slide, data):
                 if borderless and same_as_bg:
                     continue
             add_shape_box(slide, rec)
-        elif rec["kind"] == "text":
+        elif rec.get("kind") == "text":
             text_records.append(rec)
-        elif rec["kind"] == "svg":
+        elif rec.get("kind") == "svg":
             add_svg_picture(slide, rec)
-        elif rec["kind"] == "canvas":
+        elif rec.get("kind") == "canvas":
             add_canvas_picture(slide, rec)
-        elif rec["kind"] == "deco_snapshot":
+        elif rec.get("kind") == "deco_snapshot":
             add_deco_snapshot(slide, rec)
-        elif rec["kind"] == "img":
+        elif rec.get("kind") == "img":
             add_img_picture(slide, rec)
-        elif rec["kind"] == "asset":
+        elif rec.get("kind") == "asset":
             add_asset_placeholder(slide, rec)
 
     # Text sits above rasterized SVG/canvas/deco snapshots. Otherwise an opaque
@@ -1387,12 +1389,19 @@ def assemble(measurement, out_path: Path):
     # 不可信输入边界：measurement 来自浏览器对用户 HTML 的测量（DOM 覆盖攻击可注入
     # 字符串/NaN/Inf/非法控制字符），也可能是手写 JSON。装配前统一规范化，
     # 让病态数值字段降级为兜底、文本字段剥掉 XML 非法控制字符。
+    # 同时过滤结构畸形 record（非 dict / 无 str kind）——否则下游 rec.get("kind") 直取
+    # 崩 KeyError、非 dict rec 的 rec.get 崩 AttributeError（#68）。过滤后写回，
+    # 保证 assemble_slide 与 _validate_asset_placeholders 只看到结构合法 record。
     for sdata in slides_data:
         if not isinstance(sdata, dict):
             continue
-        for rec in sdata.get("records", []) or []:
-            if isinstance(rec, dict):
-                _sanitize_record(rec)
+        records = [
+            rec for rec in (sdata.get("records", []) or [])
+            if isinstance(rec, dict) and isinstance(rec.get("kind"), str)
+        ]
+        for rec in records:
+            _sanitize_record(rec)
+        sdata["records"] = records
 
     _validate_asset_placeholders(slides_data)
 

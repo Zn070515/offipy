@@ -199,6 +199,23 @@ def test_corrupt_group_transform_rot_graceful(tmp_path):
     assert any(w.code == "audit.extract.shape_skip_corrupt" for w in ext.warnings)
 
 
+def test_corrupt_slide_size_graceful(tmp_path):
+    # #70：b47421e 只兜 per-shape 损坏；演示文稿级 sldSz@cx/@cy 非数字在顶层
+    # _to_inches(prs.slide_width) 抛 ValueError 整文件 audit 崩。降级 0.0 + 告警。
+    from pptx.oxml.ns import qn
+
+    prs = Presentation()
+    prs.slides.add_slide(prs.slide_layouts[6])
+    sld_sz = prs.part.presentation._element.find(qn("p:sldSz"))
+    sld_sz.set("cx", "abc")
+    sld_sz.set("cy", "def")
+    path = tmp_path / "x.pptx"
+    prs.save(path)
+    ext = extract_presentation(path)
+    assert ext.slide_size == (0.0, 0.0)
+    assert any(w.code == "audit.extract.slidesize_corrupt" for w in ext.warnings)
+
+
 # ---------------------------------------------------------------- group 嵌套
 
 

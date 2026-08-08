@@ -323,6 +323,21 @@ def test_accent_rgb_unparseable_returns_none():
     assert _accent_rgb(_context(theme_vars={"accent": "not-a-color"})) is None
 
 
+def test_accent_rgb_clamps_out_of_range_components():
+    # #65：CSS 对 rgb() 分量超界（>255）按最近边界钳制，不得抛 ValueError
+    from pptx.dml.color import RGBColor
+
+    assert _accent_rgb(_context(theme_vars={"accent": "rgb(300, 0, 0)"})) == RGBColor(
+        0xFF, 0x00, 0x00
+    )
+    assert _accent_rgb(_context(theme_vars={"accent": "rgb(0, 128, 300)"})) == RGBColor(
+        0x00, 0x80, 0xFF
+    )
+    assert _accent_rgb(_context(theme_vars={"accent": "rgba(400, 255, 0, 0.5)"})) == RGBColor(
+        0xFF, 0xFF, 0x00
+    )
+
+
 def test_svg_page_screenshot_handles_comma_viewbox():
     # #64：逗号分隔 viewBox（合法 SVG）此前 float("0,0") 抛 ValueError → fallback 静默丢失
     svg = '<svg viewBox="0,0 100,100"><rect width="100" height="100"/></svg>'

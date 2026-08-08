@@ -178,7 +178,12 @@ def _accent_rgb(context: AssetRenderContext):
         return RGBColor.from_string(m.group(1))
     m = re.search(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", accent)
     if m:
-        return RGBColor(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        # CSS 对超界分量按最近边界钳制；RGBColor 严格 0-255，越界会抛 ValueError
+        return RGBColor(
+            max(0, min(255, int(m.group(1)))),
+            max(0, min(255, int(m.group(2)))),
+            max(0, min(255, int(m.group(3)))),
+        )
     return None
 
 

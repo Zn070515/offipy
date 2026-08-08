@@ -203,6 +203,26 @@ def test_svg_to_subpaths_lucide(fake_assets):
     assert sw == 2.0
 
 
+def test_svg_to_subpaths_rejects_doctype_entity(fake_assets):
+    # #66：_svg_to_subpaths 此前绕过 parse_svg 守卫直接 ET.fromstring，攻击者可控
+    # SVG 可携带 DOCTYPE/ENTITY（billion-laughs）。须走统一守卫，拒绝并抛
+    # InvalidArgumentError（含畸形 XML 的同守卫包装）。
+    from offipy.exceptions import InvalidArgumentError
+    from offipy.icons import _svg_to_subpaths
+
+    doctype_svg = (
+        '<!DOCTYPE svg [<!ENTITY a "AAAAA">]>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg">'
+        '<path d="M0 0 L1 1" fill="currentColor"/></svg>'
+    )
+    with pytest.raises(InvalidArgumentError):
+        _svg_to_subpaths(doctype_svg)
+    with pytest.raises(InvalidArgumentError):
+        _svg_to_subpaths('<!ENTITY x "y">\n<svg><rect width="1" height="1"/></svg>')
+    with pytest.raises(InvalidArgumentError):
+        _svg_to_subpaths("<svg><path d='M0 0 L10 10'")  # 畸形 XML 同样经守卫拒绝
+
+
 # ---------- 健壮性（M3-T2 审查补测） ----------
 
 

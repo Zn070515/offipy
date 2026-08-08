@@ -342,10 +342,11 @@ def load_icon_svg(data_icon: str) -> str:
 
 def _svg_to_subpaths(svg_text: str) -> tuple[list[_SubPath], float]:
     """资产 SVG 源码 → (子路径列表, stroke-width)。子路径已压平。"""
-    # vendored 图标无 transform/<g> 覆盖，忽略
-    import xml.etree.ElementTree as ET
+    # vendored 图标无 transform/<g> 覆盖，忽略；解析走统一 parse_svg 守卫，
+    # 拒绝 DOCTYPE/ENTITY（billion-laughs）并包装畸形 XML 为 InvalidArgumentError
+    from offipy.assets._xml import parse_svg
 
-    root = ET.fromstring(svg_text)
+    root = parse_svg(svg_text)
     stroke_width = float(root.get("stroke-width", "2"))
     subpaths: list[_SubPath] = []
     for el in root.iter():
