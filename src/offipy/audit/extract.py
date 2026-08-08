@@ -181,10 +181,23 @@ def extract_presentation(path: str | Path) -> _PresentationExtract:
         if not isinstance(e, (zipfile.BadZipFile, ValueError, XMLSyntaxError, PythonPptxError)):
             raise
         raise ConversionError(f"PPTX 文件无法解析（ZIP/XML 损坏）: {path} ({e})") from e
-    slide_w = _to_inches(prs.slide_width) or 0.0
-    slide_h = _to_inches(prs.slide_height) or 0.0
-    slides = []
     warnings: list[AuditWarning] = []
+    try:
+        slide_w = _to_inches(prs.slide_width) or 0.0
+        slide_h = _to_inches(prs.slide_height) or 0.0
+    except (ValueError, TypeError) as e:
+        # 演示文稿级 sldSz@cx/@cy 非数字 → prs.slide_width 抛 ValueError（per-shape
+        # 级已兜底，演示文稿级漏网，#70）。顶层尺寸降级 0.0 + 告警，不连带整文件崩。
+        slide_w = slide_h = 0.0
+        warnings.append(
+            AuditWarning(
+                slide_index=None,
+                shape_id=None,
+                code="audit.extract.slidesize_corrupt",
+                message=f"演示文稿尺寸 sldSz@cx/@cy 原始 XML 损坏，降级 0.0: {e}",
+            )
+        )
+    slides = []
     for index, slide in enumerate(prs.slides, start=1):
         records: list[_ShapeRecord] = []
         for z_order, shape in enumerate(slide.shapes):
