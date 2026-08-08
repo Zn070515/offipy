@@ -44,6 +44,13 @@ def test_color_from_dict_rgb_string():
     assert (c.r, c.g, c.b) == (30, 60, 90)
 
 
+def test_color_from_dict_malformed_returns_none():
+    # 未受信 color dict：r/g/b 缺失或非数字 → None（无颜色证据），不抛 ValueError
+    assert ArtColor.from_dict({"r": "x", "g": 0, "b": 0}) is None
+    assert ArtColor.from_dict({"r": 0, "g": 0}) is None  # 缺 b
+    assert ArtColor.from_dict({"r": None, "g": 0, "b": 0}) is None
+
+
 def test_coordinate_overflow_allowed():
     el = _el(x=-0.05, width=1.3)
     assert el.x == -0.05

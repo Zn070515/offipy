@@ -77,15 +77,35 @@ def _measurement_color(raw: str | dict | None) -> ArtColor | None:
     return _rgb_string_to_color(raw)
 
 
+def _num(value, default: float) -> float:
+    """测量数值字段：缺失/损坏回退默认，不抛 ValueError。"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _opt_num(value, default: float | None = None) -> float | None:
+    """测量可选数值字段：缺失 → None，损坏 → default（默认 None）。"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 def _to_measurement_element(
     rec: dict, slide_index: int, slide_width: float, slide_height: float
 ) -> ArtElement:
     """真实 measurements record → ArtElement。rect 为像素，按页宽高归一化。"""
     rect = rec.get("rect") or {}
-    x = float(rect.get("x", 0.0)) / slide_width
-    y = float(rect.get("y", 0.0)) / slide_height
-    w = float(rect.get("w", 0.0)) / slide_width
-    h = float(rect.get("h", 0.0)) / slide_height
+    x = _num(rect.get("x"), 0.0) / slide_width
+    y = _num(rect.get("y"), 0.0) / slide_height
+    w = _num(rect.get("w"), 0.0) / slide_width
+    h = _num(rect.get("h"), 0.0) / slide_height
     raw_kind = rec.get("kind", "shape")
     kind = _KIND_MAP.get(raw_kind, "shape")
     style = rec.get("style") or {}
@@ -94,7 +114,7 @@ def _to_measurement_element(
     runs = [
         ArtTextRun(
             text=rt.get("text", ""),
-            font_size=float(rt["fontSize"]) if rt.get("fontSize") else None,
+            font_size=_opt_num(rt.get("fontSize")),
             font_size_unit="px",
             font_family=rt.get("fontFamily"),
             color=_measurement_color(rt.get("color")),
@@ -103,7 +123,7 @@ def _to_measurement_element(
     ]
     fs = style.get("fontSize")
     if isinstance(fs, str) and fs.endswith("px"):
-        font_size = float(fs[:-2])
+        font_size = _opt_num(fs[:-2])
         font_size_unit = "px"
     elif isinstance(fs, (int, float)):
         font_size = float(fs)
@@ -131,8 +151,8 @@ def _to_measurement_element(
         font_size_unit=font_size_unit,
         font_size_norm=(font_size / slide_height) if (font_size and slide_height) else None,
         runs=runs,
-        natural_width=float(natural_w) if natural_w else None,
-        natural_height=float(natural_h) if natural_h else None,
+        natural_width=_opt_num(natural_w),
+        natural_height=_opt_num(natural_h),
         source="measurement",
     )
 
@@ -149,8 +169,8 @@ class MeasurementAdapter:
         for i, item in enumerate(self._data.get("slides", [])):
             s = item.get("slide") or item  # 兼容 {slide:{...}} 与裸 dict
             index = i + 1  # 位置索引 → 1-based 公开索引
-            width = float(s.get("width", 1920.0))
-            height = float(s.get("height", 1080.0))
+            width = _num(s.get("width"), 1920.0)
+            height = _num(s.get("height"), 1080.0)
             elements = [
                 _to_measurement_element(rec, index, width, height)
                 for rec in item.get("records", [])
