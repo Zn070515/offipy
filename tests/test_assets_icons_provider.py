@@ -186,6 +186,42 @@ class TestResolve:
         expected = (_ICONS_DIR / "phosphor" / "airplane-fill.svg").read_text(encoding="utf-8")
         assert payload.svg == expected
 
+    def test_doctype_svg_rejected(self, monkeypatch, tmp_path):
+        # ET entity 守卫：SVG 声明 DOCTYPE/ENTITY → 拒绝（billion-laughs / XXE 防御）
+        (tmp_path / "ph").mkdir()
+        (tmp_path / "ph" / "evil-fill.svg").write_text(
+            '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "boom">]>'
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+            "<text>&x;</text></svg>",
+            encoding="utf-8",
+        )
+        prov = IconProvider("ph")
+        monkeypatch.setattr(prov, "_dir", lambda: tmp_path / "ph")
+        with pytest.raises(InvalidArgumentError, match="DOCTYPE or entity"):
+            prov.resolve(_req("ph", "evil"))
+
+    def test_viewbox_accepts_comma_separators(self, monkeypatch, tmp_path):
+        (tmp_path / "ph").mkdir()
+        (tmp_path / "ph" / "comma-fill.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0,0 24,24"><path/></svg>',
+            encoding="utf-8",
+        )
+        prov = IconProvider("ph")
+        monkeypatch.setattr(prov, "_dir", lambda: tmp_path / "ph")
+        payload = prov.resolve(_req("ph", "comma")).payload
+        assert payload.view_box == (0.0, 0.0, 24.0, 24.0)
+
+    def test_non_numeric_viewbox_rejected(self, monkeypatch, tmp_path):
+        (tmp_path / "ph").mkdir()
+        (tmp_path / "ph" / "bad-fill.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 a b"><path/></svg>',
+            encoding="utf-8",
+        )
+        prov = IconProvider("ph")
+        monkeypatch.setattr(prov, "_dir", lambda: tmp_path / "ph")
+        with pytest.raises(InvalidArgumentError, match="viewBox malformed"):
+            prov.resolve(_req("ph", "bad"))
+
 
 # ---------------------------------------------------------------------------
 # default registry integration
