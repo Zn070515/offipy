@@ -742,3 +742,132 @@ def test_rewrite_relative_urls_handles_poster_and_import(tmp_path):
     css = (base / "styles" / "base.css").resolve().as_uri()
     assert f'poster="{poster}"' in rewritten
     assert f'@import "{css}";' in rewritten
+
+
+# --- #audit 分支A：原子提交顺序 / TOCTOU overwrite / 超时杀进程树 / srcset data:URI / 归属保护 ---
+
+
+def test_render_replace_failure_does_not_commit_audit_dir(tmp_path, monkeypatch):
+    # #audit-H1：审计目录不得先于 pptx 落位（RenderStage.commit 先换 pptx 后移审计）。
+    # 替换失败时 final 审计目录不该出现——否则「新审计 + 旧 pptx」双产物不一致。
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    existing = tmp_path / "deck.pptx"
+    existing.write_bytes(b"precious")
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_with_audit({}))
+
+    real_replace = deck.os.replace
+
+    def boom_replace(tmp, final, **kw):
+        # 只拦最终 .pptx 落位；其他 os.replace（manifest 原子写等）照常放行
+        if str(final).endswith(".pptx"):
+            raise PermissionError(13, "Access denied", final)
+        return real_replace(tmp, final, **kw)
+
+    monkeypatch.setattr(deck.os, "replace", boom_replace)
+    with pytest.raises(deck.ConversionError):
+        deck.render(str(html), overwrite=True)
+    assert existing.read_bytes() == b"precious"  # 旧 pptx 未动
+    assert not (tmp_path / "deck_audit").exists(), "替换失败时审计目录不得先落位"
+
+
+def test_atomic_replace_refuses_existing_when_overwrite_false(tmp_path):
+    # #audit-H2：overwrite=False 时落盘前复查目标，压缩前置检查与 os.replace 的 TOCTOU 窗口。
+    tmp = tmp_path / "tmp.pptx"
+    final = tmp_path / "out.pptx"
+    tmp.write_bytes(b"new")
+    final.write_bytes(b"old")
+    with pytest.raises(FileExistsError):
+        deck._atomic_replace(str(tmp), str(final), overwrite=False)
+    assert final.read_bytes() == b"old"  # 目标未被覆盖
+    deck._atomic_replace(str(tmp), str(final))  # overwrite 默认 True → 允许覆盖
+    assert final.read_bytes() == b"new"
+
+
+def test_run_convert_timeout_kills_process_tree(monkeypatch):
+    # #audit-H7：超时必须在根进程还活着时整树杀掉（taskkill /T），而非只杀直接子进程。
+    real_kill = deck._kill_process_tree
+    killed = []
+
+    def recording_kill(pid):
+        killed.append(pid)
+        real_kill(pid)
+
+    monkeypatch.setattr(deck, "_kill_process_tree", recording_kill)
+    with pytest.raises(deck.ConversionError, match="超时"):
+        deck._run_convert(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            timeout=0.5,
+            env=os.environ.copy(),
+        )
+    assert len(killed) == 1  # 超时分支确凿调用了整树杀
+    pid = killed[0]
+    assert pid > 0
+    with pytest.raises(OSError):
+        os.kill(pid, 0)  # 子进程树已死，进程不存在
+
+
+def test_convert_cmd_always_disables_work_copy_and_enables_selfcheck(tmp_path):
+    # #audit-H4：deck 管线禁用源目录 work-copy 污染；自检异常不静默吞掉。
+    cmd = deck._convert_cmd(str(tmp_path / "d.html"), None, None, False)
+    assert "--no-work-copy" in cmd
+    assert "--fail-on-selfcheck" in cmd
+
+
+def test_rewrite_srcset_preserves_data_uri_with_comma(tmp_path):
+    # #audit：data: URI（raw svg）内部含逗号，不得被 srcset 候选拆分截断。
+    base = tmp_path.resolve()
+    data = (
+        "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'>"
+        "<rect width='10' height='10'/></svg>"
+    )
+    content = f'<img srcset="{data} 1x, fig/logo.png 2x">'
+    rewritten = deck._rewrite_relative_urls(content, base)
+    assert data in rewritten  # data URI 原样保留（含内部逗号）
+    assert "__OFFIPY_DATA_" not in rewritten  # 占位符全部还原
+    logo = (base / "fig" / "logo.png").resolve().as_uri()
+    assert f"{logo} 2x" in rewritten  # 其余候选照常重写
+
+
+def _owned_marker(pptx: Path) -> str:
+    return json.dumps(
+        {"schema": 1, "pptx": os.path.abspath(str(pptx)), "pptx_sha256": "x", "run_id": None}
+    )
+
+
+def test_move_slides_to_final_foreign_dir_keeps_other_slides(tmp_path):
+    # #audit：slides_output_dir 指向含他人 slide_*.png 的目录（无匹配 pptx 标记）→ 不删。
+    final_slides = tmp_path / "out_slides"
+    final_slides.mkdir()
+    (final_slides / "slide_1.png").write_bytes(b"foreign")  # 只在本目录，staging 没有
+    (final_slides / "_deck_info.json").write_text("{}", encoding="utf-8")  # 非本 deck
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "slide_2.png").write_bytes(b"ours")
+    out_pptx = tmp_path / "out.pptx"
+    out_pptx.write_bytes(b"pptx")
+    stage = deck.RenderStage(tmp_pptx=str(tmp_path / "t.pptx"), final_pptx=str(out_pptx))
+    deck._move_slides_to_final(str(staging), stage, str(final_slides))
+    assert (final_slides / "slide_1.png").exists(), "非本 deck 的 slide_1.png 不得被删"
+    assert (final_slides / "slide_2.png").read_bytes() == b"ours"
+    # 归属标记已落盘（本 deck 下次 re-render 可清旧页）
+    info = json.loads((final_slides / "_deck_info.json").read_text(encoding="utf-8"))
+    assert info["pptx"] == os.path.abspath(str(out_pptx))
+
+
+def test_move_slides_to_final_owned_dir_cleans_stale_slides(tmp_path):
+    # #audit：归属一致（标记 pptx 路径 == 本 deck）→ re-render 清理旧页，避免残留。
+    final_slides = tmp_path / "out_slides"
+    final_slides.mkdir()
+    (final_slides / "slide_1.png").write_bytes(b"stale")
+    out_pptx = tmp_path / "out.pptx"
+    out_pptx.write_bytes(b"pptx")
+    (final_slides / "_deck_info.json").write_text(_owned_marker(out_pptx), encoding="utf-8")
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "slide_1.png").write_bytes(b"ours")
+    (staging / "slide_2.png").write_bytes(b"new")
+    stage = deck.RenderStage(tmp_pptx=str(tmp_path / "t.pptx"), final_pptx=str(out_pptx))
+    deck._move_slides_to_final(str(staging), stage, str(final_slides))
+    assert (final_slides / "slide_1.png").read_bytes() == b"ours"
+    assert (final_slides / "slide_2.png").read_bytes() == b"new"
