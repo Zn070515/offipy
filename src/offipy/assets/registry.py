@@ -9,6 +9,7 @@ provider's result so one bad provider cannot corrupt assets.json/provenance.
 
 from __future__ import annotations
 
+from offipy.assets.license import LicensePolicy
 from offipy.assets.model import (
     _ASSET_KINDS,
     _PROVIDER_RE,
@@ -31,6 +32,9 @@ _PAYLOAD_VARIANTS = (
     RasterPayload,
     NativeShapePayload,
 )
+
+# 注册时强制 license 允许清单：策略此前只存在于单测里，从未在运行时执行。
+_LICENSE_POLICY = LicensePolicy()
 
 
 class AssetRegistry:
@@ -63,6 +67,7 @@ class AssetRegistry:
                 f"asset provider {provider_id!r} provider_meta.provider_id "
                 f"mismatch {provider.provider_meta.provider_id!r}"
             )
+        _LICENSE_POLICY.validate_provider_meta(provider.provider_meta)
 
     def provider(self, provider_id: str) -> AssetProvider:
         try:

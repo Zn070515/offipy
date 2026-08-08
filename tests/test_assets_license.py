@@ -7,6 +7,7 @@ import pytest
 
 from offipy.assets import AssetProviderMeta
 from offipy.assets.license import ALLOWED_LICENSES, LicensePolicy
+from offipy.assets.registry import AssetRegistry
 from offipy.exceptions import InvalidArgumentError
 
 _POLICY = LicensePolicy()
@@ -60,6 +61,27 @@ class TestValidateProviderMeta:
 
     def test_first_party_may_lack_commit_but_identifies_license(self):
         _POLICY.validate_provider_meta(_meta(first_party=True, license="MIT", source_commit=None))
+
+
+class _FakeProvider:
+    """Minimal AssetProvider whose provider_meta can carry a chosen license."""
+
+    def __init__(self, provider_id: str, license_: str) -> None:
+        self.provider_id = provider_id
+        self.kinds = frozenset({"icon"})
+        self.provider_meta = _meta(provider_id=provider_id, license=license_)
+
+
+class TestRegistryRuntimeEnforcement:
+    def test_disallowed_license_blocked_at_register(self):
+        reg = AssetRegistry()
+        with pytest.raises(InvalidArgumentError, match="license"):
+            reg.register(_FakeProvider("badlic", "GPL-3.0"))
+
+    def test_allowlisted_license_registers(self):
+        reg = AssetRegistry()
+        reg.register(_FakeProvider("goodlic", "MIT"))
+        assert reg.provider("goodlic").provider_id == "goodlic"
 
     def test_remote_third_party_may_lack_commit(self):
         # future/remote provider metadata may be redistributable=False without
