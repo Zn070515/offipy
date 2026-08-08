@@ -9,6 +9,7 @@ Usage:
 - pptx 内部直接走低层 lxml 操作 spPr / txBody，避开 python-pptx 高层 API 的限制
 """
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -190,6 +191,89 @@ def parse_rgba(s: str):
             )
 
     return (0, 0, 0, 1.0)
+
+
+# XML 1.0 非法控制字符（lxml 在 .text 赋值时直接 ValueError → 装配崩溃 + PPTX 报废）。
+# 合法集合 = \t\n\r + [#x20-#xD7FF]；lone surrogate 还会在序列化时 UnicodeEncodeError。
+_XML_INVALID_CHARS_RE = re.compile(
+    "[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff]"
+)
+
+
+def _safe_float(value, default: float | None = 0.0) -> float | None:
+    """测量数值字段：缺失/非数值/非有限（NaN/Inf）→ default。
+
+    DOM 覆盖攻击（恶意 HTML 覆写 getBoundingClientRect / getComputedStyle）或手写
+    测量 JSON 可注入任意类型——直接 float() 会 TypeError/ValueError，NaN 再进 int()
+    会 OverflowError。统一在装配边界兜底，让转换对病态输入降级而不是崩溃。
+    """
+    if value is None or value == "":
+        return default
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return default
+    if not math.isfinite(f):
+        return default
+    return f
+
+
+def _coerce_px_number(value, default: float) -> float:
+    """style.fontSize 这类 '16px' / 16 / 垃圾值 → 数值（default 兜底）。"""
+    if value is None or value == "":
+        return default
+    s = str(value).strip()
+    try:
+        f = float(s[:-2]) if s.endswith("px") else float(s)
+    except ValueError:
+        return default
+    return f if math.isfinite(f) else default
+
+
+def _sanitize_text(value) -> str:
+    """文本净化：XML 非法控制字符 / lone surrogate → U+FFFD。"""
+    if value is None:
+        return ""
+    return _XML_INVALID_CHARS_RE.sub("�", str(value))
+
+
+def _sanitize_record(rec: dict) -> dict:
+    """measurement record 数值/文本字段规范化（不可信输入边界，见 _safe_float 注释）。
+
+    rect 缺失/非 dict → 全 0；数值字段非有限 → 兜底；文本字段剥非法控制字符。
+    """
+    r = rec.get("rect")
+    rec["rect"] = (
+        {k: _safe_float(r.get(k), 0.0) for k in ("x", "y", "w", "h")}
+        if isinstance(r, dict)
+        else {"x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0}
+    )
+    for run in rec.get("runs") or []:
+        if not isinstance(run, dict):
+            continue
+        if "fontSize" in run:
+            run["fontSize"] = _safe_float(run.get("fontSize"), 16.0)
+        if "inkBottom" in run:
+            run["inkBottom"] = _safe_float(run.get("inkBottom"), None)
+        if run.get("text") is not None:
+            run["text"] = _sanitize_text(run["text"])
+    if rec.get("text") is not None:
+        rec["text"] = _sanitize_text(rec["text"])
+    style = rec.get("style")
+    if isinstance(style, dict):
+        for k in ("paddingTop", "paddingRight", "paddingBottom", "paddingLeft"):
+            style[k] = _safe_float(style.get(k), 0.0)
+        if "fontSize" in style:
+            style["fontSize"] = _coerce_px_number(style.get("fontSize"), 16.0)
+    deco = rec.get("deco")
+    if isinstance(deco, dict):
+        for k in ("borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth"):
+            deco[k] = _safe_float(deco.get(k), 0.0)
+    nat = rec.get("naturalSize")
+    if isinstance(nat, dict):
+        nat["w"] = _safe_float(nat.get("w"), 0.0)
+        nat["h"] = _safe_float(nat.get("h"), 0.0)
+    return rec
 
 
 GENERIC_FONT_KEYWORDS = {
@@ -1245,12 +1329,14 @@ def _validate_asset_placeholders(slides_data):
 
 def assemble_slide(slide, data):
     """装配一张 slide。"""
-    bg_rgb = parse_rgb(data["slide"]["background"])
+    slide_meta = data.get("slide") or {}
+    bg_rgb = parse_rgb(slide_meta.get("background", ""))
     add_background(slide, bg_rgb)
-    _prepare_text_layouts(data["records"])
+    records = data.get("records") or []
+    _prepare_text_layouts(records)
 
     text_records = []
-    for rec in data["records"]:
+    for rec in records:
         if rec["kind"] == "shape":
             # 整页 section：仅当视觉上与 slide 背景等价（不透明同色、无边框）才跳过
             # （背景已由 add_background 铺，发满页 shape 在 WPS 里会成为可选可拖对象）。
@@ -1298,6 +1384,16 @@ def assemble(measurement, out_path: Path):
     else:
         slides_data = [data]
 
+    # 不可信输入边界：measurement 来自浏览器对用户 HTML 的测量（DOM 覆盖攻击可注入
+    # 字符串/NaN/Inf/非法控制字符），也可能是手写 JSON。装配前统一规范化，
+    # 让病态数值字段降级为兜底、文本字段剥掉 XML 非法控制字符。
+    for sdata in slides_data:
+        if not isinstance(sdata, dict):
+            continue
+        for rec in sdata.get("records", []) or []:
+            if isinstance(rec, dict):
+                _sanitize_record(rec)
+
     _validate_asset_placeholders(slides_data)
 
     prs = Presentation()
@@ -1312,8 +1408,11 @@ def assemble(measurement, out_path: Path):
 
     for i, sdata in enumerate(slides_data):
         slide = prs.slides.add_slide(blank_layout)
-        assemble_slide(slide, sdata)
-        print(f"  page {i+1:02d}: {len(sdata.get('records', []))} records, theme={sdata['slide']['theme']}")
+        if isinstance(sdata, dict):
+            assemble_slide(slide, sdata)
+        theme = (sdata.get("slide") or {}).get("theme", "") if isinstance(sdata, dict) else ""
+        n_records = len(sdata.get("records", []) or []) if isinstance(sdata, dict) else 0
+        print(f"  page {i+1:02d}: {n_records} records, theme={theme}")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out_path))

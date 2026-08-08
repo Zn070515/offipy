@@ -194,27 +194,42 @@ def _presentation_size_px(zip_file: ZipFile):
     return (_emu_to_px(size.get("cx")), _emu_to_px(size.get("cy")))
 
 
+def _sf(value, default: float = 0.0) -> float:
+    """measurement 数值字段兜底：缺失/非数值/非有限 → default。
+
+    measurement 是不可信输入（浏览器对用户 HTML 的测量，DOM 覆盖攻击可注入任意类型）。
+    """
+    if value is None or value == "":
+        return default
+    try:
+        f = float(value)
+    except (ValueError, TypeError):
+        return default
+    import math
+    return f if math.isfinite(f) else default
+
+
 def _load_measurement_texts(measurements_path: Path, ppt_size):
     data = json.loads(measurements_path.read_text(encoding="utf-8"))
     by_slide = {}
     for slide_idx, slide in enumerate(data.get("slides", []), 1):
-        meta = slide.get("slide", {})
-        sx = ppt_size[0] / float(meta.get("width") or 1920)
-        sy = ppt_size[1] / float(meta.get("height") or 1080)
+        meta = slide.get("slide", {}) or {}
+        sx = ppt_size[0] / _sf(meta.get("width"), 1920)
+        sy = ppt_size[1] / _sf(meta.get("height"), 1080)
         refs = []
         for rec in slide.get("records", []):
             if rec.get("kind") != "text":
                 continue
-            text = _norm_text("".join(run.get("text", "") for run in rec.get("runs", [])))
+            text = _norm_text("".join(str(run.get("text", "")) for run in rec.get("runs", [])))
             if not text:
                 continue
             r = rec.get("rect") or {}
             refs.append({
                 "text": text,
-                "x": float(r.get("x", 0)) * sx,
-                "y": float(r.get("y", 0)) * sy,
-                "w": float(r.get("w", 0)) * sx,
-                "h": float(r.get("h", 0)) * sy,
+                "x": _sf(r.get("x")) * sx,
+                "y": _sf(r.get("y")) * sy,
+                "w": _sf(r.get("w")) * sx,
+                "h": _sf(r.get("h")) * sy,
             })
         by_slide[slide_idx] = refs
     return by_slide

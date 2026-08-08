@@ -53,3 +53,20 @@ def test_http_5xx_does_not_blacklist(monkeypatch, tmp_path):
     report = fr.resolve_fonts({"Zz Test Family": {(400, False)}}, set())
     assert "Zz Test Family" in report["unavailable"]
     assert "zz test family" not in _read_idx(idx_path)
+
+
+def test_chars_from_measurement_coerces_non_string_text():
+    # F2：不可信测量可能注入非字符串 text（DOM 覆盖 / 手写 JSON）——str() 化后不崩，
+    # 且数字字符正确进集合
+    from embed_fonts import chars_from_measurement
+    meas = {
+        "slides": [{
+            "records": [
+                {"runs": [{"text": 42}], "text": 7},
+                {"runs": [{"text": "abc"}], "text": None},
+            ]
+        }]
+    }
+    chars = chars_from_measurement(meas)
+    assert "a" in chars and "b" in chars and "c" in chars
+    assert "4" in chars and "2" in chars and "7" in chars

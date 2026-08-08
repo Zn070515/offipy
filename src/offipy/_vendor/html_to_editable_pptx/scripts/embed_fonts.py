@@ -123,8 +123,9 @@ def chars_from_measurement(meas: dict) -> set[str]:
         for rec in s.get("records", []):
             for run in rec.get("runs", []) or []:
                 t = run.get("text", "") or ""
-                chars.update(t)
+                chars.update(str(t))
             txt = rec.get("text", "") or ""
+            txt = str(txt)
             chars.update(txt)
             # text-transform: uppercase 在装配时会转大小写，两套都保留
             chars.update(txt.upper())
