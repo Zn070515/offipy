@@ -24,6 +24,21 @@ def _write(d, name, im):
     return p
 
 
+def _png_bytes(w, h):
+    """最小 PNG（IHDR+空 IDAT）：头部声明大尺寸但不含像素数据（零分配）。"""
+    import struct
+    import zlib
+
+    def chunk(typ, data):
+        c = typ + data
+        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+    idat = chunk(b"IDAT", zlib.compress(b""))
+    return sig + ihdr + idat
+
+
 def test_scan_maps_pages_and_conflicts(tmp_path):
     d = tmp_path / "slides"
     d.mkdir()
@@ -236,3 +251,39 @@ def test_enrich_rgba_transparent_excluded(tmp_path):
     pe = scene.slides[0].elements[0].pixel_evidence
     assert pe.background is None  # 透明像素不进背景估计
     assert pe.method != "declared_verified"  # 透明像素不当成黑/白验证成功
+
+
+def test_enrich_decompression_bomb_hard_reject(tmp_path):
+    # 解压炸弹：头部声明 72M 像素（> 60M 上限）。必须硬拒绝 InvalidArgumentError，
+    # 不允许降级为 decode_failed warning 继续分析——输入是敌意的，不是普通坏文件。
+    d = tmp_path / "slides"
+    d.mkdir()
+    (d / "slide_1.png").write_bytes(_png_bytes(12000, 6000))
+    scene = ArtScene(slides=[ArtSlide(index=1, width=100.0, height=100.0)])
+    with pytest.raises(InvalidArgumentError):
+        PixelEnricher(d).enrich(scene)
+
+
+def test_enrich_large_page_downsampled_background(tmp_path):
+    # >256px 大页：背景估计在降采样图上进行（不整图直算），结果仍正确、不崩。
+    d = tmp_path / "slides"
+    d.mkdir()
+    _write(d, "slide_1.png", Image.new("RGB", (1024, 576), (240, 240, 240)))
+    el = make_element(
+        "t",
+        kind="text",
+        role="body",
+        x=0.2,
+        y=0.2,
+        w=0.2,
+        h=0.1,
+        foreground=ArtColor(0, 0, 0),
+    )
+    scene = ArtScene(
+        slides=[ArtSlide(index=1, width=1024.0, height=576.0, elements=[el])],
+        width_unit="px",
+    )
+    PixelEnricher(d).enrich(scene)
+    pe = scene.slides[0].pixel_evidence
+    assert pe.background is not None
+    assert (pe.background.r, pe.background.g, pe.background.b) == (240, 240, 240)
