@@ -318,10 +318,24 @@ def _wrap_measure(
 
 
 def _descending_pt(start_pt: float, min_pt: float) -> Iterable[float]:
+    """Font-size candidates from start_pt down to min_pt, coarse then fine.
+
+    1pt integer steps first; once a step would cross min_pt, switch to 0.25pt
+    steps so a fractional optimum near min_pt is never skipped, ending exactly
+    at min_pt (the old `step = 0.25` assignment was unreachable dead code).
+    """
     step = 1.0
     size = start_pt
     while size >= min_pt - 1e-9:
         yield size
-        size -= step
-        if size < min_pt:
-            step = 0.25
+        if size <= min_pt + 1e-9:
+            return
+        next_size = size - step
+        if next_size < min_pt:
+            if step >= 1.0:
+                size = size - 0.25
+                step = 0.25
+            else:
+                size = min_pt
+        else:
+            size = next_size
