@@ -120,7 +120,7 @@ def _radar_svg(assessments: list[DimensionAssessment]) -> str:
         x, y = point(i, radius + 20)
         labels += (
             f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="middle" '
-            f'font-size="10">{a.dimension}</text>'
+            f'font-size="10">{html_lib.escape(a.dimension)}</text>'
         )
     note = (
         f'<text x="{cx}" y="{cy + radius + 40}" text-anchor="middle" '
@@ -148,7 +148,7 @@ def render_html(report: ArtReport) -> str:
         ".severity-adjust{display:block;font-size:11px;color:#b45309;margin-top:2px}"
         "</style></head><body>"
     )
-    lines = [head, f"<h1>艺术分析报告 (profile: {report.profile})</h1>"]
+    lines = [head, f"<h1>艺术分析报告 (profile: {html_lib.escape(report.profile)})</h1>"]
     if report.experimental_score is not None:
         lines.append(f"<p>综合指数 (experimental): {report.experimental_score}</p>")
     for s in report.slides:
@@ -160,7 +160,7 @@ def render_html(report: ArtReport) -> str:
         for d in s.dimensions:
             if d.status != "assessed":
                 lines.append(
-                    f"<tr><td>{d.dimension}</td>"
+                    f"<tr><td>{html_lib.escape(d.dimension)}</td>"
                     f"<td colspan='4'>{_STATUS_LABEL[d.status]} "
                     f"(evidence {d.evidence_coverage:.2f})</td></tr>"
                 )
@@ -169,9 +169,11 @@ def render_html(report: ArtReport) -> str:
             conf = f"{d.confidence:.2f}"
             if d.reliability is not None:
                 conf += f" / rel {d.reliability:.2f}"
+            dim = html_lib.escape(d.dimension)
+            grade = html_lib.escape(d.grade) if d.grade else ""
             lines.append(
-                f"<tr><td>{d.dimension}</td>"
-                f"<td><span class='dim-grade {d.grade}'>{d.grade}</span></td>"
+                f"<tr><td>{dim}</td>"
+                f"<td><span class='dim-grade {grade}'>{grade}</span></td>"
                 f"<td>{conf}</td>"
                 f"<td>{d.evidence_coverage:.2f}</td><td>{findings}</td></tr>"
             )
