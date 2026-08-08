@@ -744,6 +744,26 @@ def test_rewrite_relative_urls_handles_poster_and_import(tmp_path):
     assert f'@import "{css}";' in rewritten
 
 
+def test_rewrite_relative_urls_handles_object_embed_data(tmp_path):
+    # #69：_ATTR_URL_RE 只重写 src/href/poster，<object data> / <embed data> 的相对
+    # 路径在注入副本后不解析——data 属性与 #57 同类漏网。data-* 自定义属性
+    # （data-icon/data-asset）是逻辑值不是 URL，不得被改写。
+    base = tmp_path.resolve()
+    content = (
+        '<object data="media/report.pdf"></object>'
+        '<embed data="media/widget.swf">'
+        '<svg data-icon="ph:check"></svg>'
+        '<div data-asset="chart1"></div>'
+    )
+    rewritten = deck._rewrite_relative_urls(content, base)
+    pdf = (base / "media" / "report.pdf").resolve().as_uri()
+    swf = (base / "media" / "widget.swf").resolve().as_uri()
+    assert f'data="{pdf}"' in rewritten
+    assert f'data="{swf}"' in rewritten
+    assert 'data-icon="ph:check"' in rewritten
+    assert 'data-asset="chart1"' in rewritten
+
+
 # --- #audit 分支A：原子提交顺序 / TOCTOU overwrite / 超时杀进程树 / srcset data:URI / 归属保护 ---
 
 
