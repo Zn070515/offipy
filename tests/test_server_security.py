@@ -7,6 +7,7 @@ server 只报错，不自杀进程）。
 
 import http.client
 import json
+import socket
 import threading
 import time
 
@@ -256,6 +257,19 @@ def test_validate_host_allows_loopback_and_explicit_remote():
     server._validate_host("0.0.0.0", allow_remote=True)  # 显式放行不抛
 
 
+def test_warn_if_remote_prints_plaintext_warning(capsys):
+    # D6：非回环绑定打印明文传输警告；"" 绑定所有接口同样警告；回环不警告
+    server._warn_if_remote("0.0.0.0")
+    out = capsys.readouterr().out
+    assert "明文" in out and "TLS" in out and "0.0.0.0" in out
+    server._warn_if_remote("")
+    assert "明文" in capsys.readouterr().out  # "" = INADDR_ANY，同样警告
+    server._warn_if_remote("127.0.0.1")
+    server._warn_if_remote("localhost")
+    server._warn_if_remote("::1")
+    assert capsys.readouterr().out == ""  # 回环不警告
+
+
 def test_load_token_env_first_no_file_write(monkeypatch, tmp_path):
     monkeypatch.setenv("OFFIPY_SERVER_TOKEN", "env-token-xyz")
     monkeypatch.setattr(server, "user_data_dir", lambda: tmp_path)
@@ -302,3 +316,42 @@ def test_server_module_lazy_com():
     assert not hasattr(server, "pywintypes")
     err = server._com_error()
     assert isinstance(err, type) and issubclass(err, BaseException)
+
+
+def test_slowloris_idle_connection_closed(monkeypatch):
+    # H10（slowloris）：半连接超过 socket 读超时即被断开——否则空连接占满
+    # 并发槽位拖垮 /call。monkeypatch 缩短超时以便测试。
+    monkeypatch.setattr(server.Handler, "timeout", 0.3)
+    server._TOKEN = TOKEN
+    srv = server.Server(("127.0.0.1", 0), server.Handler)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    port = srv.server_address[1]
+    sock = socket.create_connection(("127.0.0.1", port))
+    try:
+        for _ in range(100):
+            try:
+                status, _ = _get(port, "/ping")
+                if status == 200:
+                    break
+            except OSError:
+                time.sleep(0.05)
+        # 只发半截请求行，不发完整请求/头：模拟 slowloris 慢读连接
+        sock.sendall(b"POST /call HTTP/1.1\r\n")
+        sock.settimeout(2.0)
+        start = time.monotonic()
+        closed = False
+        while time.monotonic() - start < 1.5:
+            try:
+                data = sock.recv(4096)
+            except OSError:
+                closed = True  # RST：连接被 server 重置
+                break
+            if not data:
+                closed = True  # EOF：server 已关连接
+                break
+        assert closed, "server 未在读超时窗口内关闭空闲连接（slowloris 漏洞）"
+    finally:
+        sock.close()
+        srv.shutdown()
+        srv.server_close()

@@ -71,9 +71,10 @@ offipy check --profile all            # 一键检查环境就绪（Python/依赖
 `offipy` 是**会话式**驱动，不是一次性脚本：
 
 - 首次调用自动在后台拉起常驻 server（`127.0.0.1:8890`）；之后所有操作打到同一进程。
-- **doc_id 是目标权威标识**：`new_book` / `new_doc` / `new_pres` 与 `open_*` 返回 `doc_id`，
-  会话内稳定、跨调用有效、不随改名变化。`get_target` 查询当前激活目标身份：
-  `offipy excel get_target` → `{"app": "excel", "doc_id": "book1", "name": "Book1", "path": "..."}`
+- **doc_id 是目标权威标识**：`new_book` / `new_doc` / `new_pres` 与 `open_*` 返回 `doc_id`
+  （`book<hex>` / `doc<hex>` / `pres<hex>`，高熵不透明，会话内稳定、跨调用有效、不随改名变化）。
+  `get_target` 查询当前激活目标身份：
+  `offipy excel get_target` → `{"app": "excel", "doc_id": "book<hex>", "name": "Book1", "path": "..."}`
   （无则 `null`）。
 - **读 op**（`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target` …）
   默认作用在用户**当前激活**的文档上（ActiveDocument / ActiveWorkbook / ActivePresentation），
@@ -204,7 +205,7 @@ with RemoteExcel() as x:  # 默认连本地 8890（自动拉起 server）
   `get_target`→dict …）；void op 返回 `None`；失败抛 `OffipyError` 领域异常。
 - **HTTP RPC `/call`** 返回 `OperationResult`（**HTTP-only 契约**）：
   `{ok, operation, resource_id, message, data}`（附 `result` 兼容别名）。`operation` 是
-  `"excel.set_cell"` 式全名；`resource_id` 如 `excel:book:book1` 标识本次操作作用的文档
+  `"excel.set_cell"` 式全名；`resource_id` 如 `excel:book:book<hex>` 标识本次操作作用的文档
   （`doc_id` 是会话内稳定标识，不用用户可改的 name）；`data` 是操作结果（读 op 原值，
   void op 为 `null`）。原始 COM 对象不外泄。
 - **MCP 工具** 返回操作 `data` 载荷（读 op 原值；void op 为 `"ok (<op>)"`）。
@@ -226,9 +227,13 @@ from offipy import client
 
 rid = str(uuid.uuid4())  # 调用方持有；超时后用同一 rid 重试，绝不双写
 try:
-    client.call("excel", "set_cell", sheet=1, cell="A1", value=42, doc_id="book1", request_id=rid)
+    client.call(
+        "excel", "set_cell", sheet=1, cell="A1", value=42, doc_id="book<hex>", request_id=rid
+    )
 except client.RemoteCallError:
-    client.call("excel", "set_cell", sheet=1, cell="A1", value=42, doc_id="book1", request_id=rid)
+    client.call(
+        "excel", "set_cell", sheet=1, cell="A1", value=42, doc_id="book<hex>", request_id=rid
+    )
 ```
 
 ## 设计系统（HTML deck）

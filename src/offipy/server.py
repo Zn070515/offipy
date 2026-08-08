@@ -24,7 +24,6 @@ import secrets
 import sys
 import threading
 import time
-import traceback
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -49,6 +48,7 @@ _PROTOCOL = "offipy-http/v1"  # 请求侧握手协议（P2-8）
 _MAX_BODY = 16 * 1024 * 1024  # 请求体上限 16MB
 _MAX_RESPONSE = 64 * 1024 * 1024  # 响应上限 64MB（超限降级 500，不写大 payload）
 _CALL_TIMEOUT = 600  # /call 入队后等 worker 结果的超时（安全兜底，op 本身由 client 超时）
+_SOCKET_TIMEOUT = 30  # H10（slowloris）：socket 读超时——半连接/慢读超过即断开
 # 有界资源（§4/§5）：队列与并发都设上限，满则快速失败（503），不做无限排队
 _COM_QUEUE_MAX = 64  # COM worker 队列容量；满 → /call 立即 503 busy
 _MAX_CONCURRENCY = 16  # 同时处理的 HTTP 连接上限；超出直接 503（防线程风暴）
@@ -98,6 +98,7 @@ class _IdempotencyEntry:
     result: dict | None = None
     expiry: float = 0.0  # done 后 = 完成时刻 + TTL；inflight 恒 0（不参与过期）
     event: threading.Event = field(default_factory=threading.Event)
+    started_at: float = field(default_factory=time.monotonic)  # 创建时刻（inflight 陈旧判定）
 
 
 # request_id 幂等缓存（方案 A）：request_id → entry。线程锁保护——_claim 是
@@ -370,16 +371,31 @@ def _success_result(
     return res
 
 
+def _safe_trace(e: Exception) -> list[str]:
+    """异常链消息（脱敏）：只保留 type+message，不含 File/行号/源码行。
+
+    server 响应会透传给调用方——绝对路径、模块内部结构、行号、源码片段属于
+    服务器信息泄露（H10）。trace 仅用于定位异常链；逐帧排查看服务端日志。
+    """
+    lines: list[str] = []
+    seen: set[int] = set()
+    cur: BaseException | None = e
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        lines.append(f"{type(cur).__name__}: {cur}")
+        cur = cur.__cause__ or cur.__context__
+    return lines
+
+
 def _error_result(op_name: str, e: Exception, request_id: str | None = None) -> dict:
     """失败响应：带 error_code（异常 code），client 据此映射回领域异常。"""
-    tb = traceback.format_exc().strip().splitlines()
     res = {
         "ok": False,
         "operation": op_name,
         "resource_id": None,
         "error": f"{type(e).__name__}: {e}",
         "error_code": getattr(e, "code", "internal"),
-        "trace": tb[-3:],
+        "trace": _safe_trace(e),
     }
     if request_id:
         res["request_id"] = request_id  # 幂等回显（P0-2）
@@ -389,6 +405,20 @@ def _error_result(op_name: str, e: Exception, request_id: str | None = None) -> 
     if w:
         res["warning"] = w
     return res
+
+
+# D4：领域 error_code → HTTP 状态码。client 无论 HTTP 状态都从 body 的
+# error_code 映射回领域异常，状态码不承载语义——只让监控/代理层（反向代理、
+# 负载均衡、指标采集）能按语义区分失败类别。未列出的 code 回退 500。
+_ERROR_STATUS = {
+    "invalid_argument": 400,
+    "protocol": 400,
+    "target_not_found": 404,
+    "file_conflict": 409,
+    "com_operation": 502,
+    "busy": 503,
+    "internal": 500,
+}
 
 
 def _append_oplog(app_name: str, op: str, kind: str, payload: dict, duration_ms: int) -> None:
@@ -439,6 +469,13 @@ def _claim(request_id: str, payload_hash: str) -> tuple[_IdempotencyEntry, bool]
             if entry.state == "done" and now > entry.expiry:
                 _REQUEST_ID_CACHE.pop(request_id, None)
                 entry = None
+            elif entry.state == "inflight" and now - entry.started_at > _CALL_TIMEOUT:
+                # D3：owner 失联（连接中断/线程被杀）未释放 → 陈旧 inflight 可被接管，
+                # 重建为新的 owner 重新执行。不接管 → 该 request_id 永久 inflight，
+                # 同 id 重试永远 merge-wait → 504 死循环。正常 owner 会在 wait
+                # 超时后主动 _release_inflight，故此处只兜底「owner 没机会释放」的场景。
+                _REQUEST_ID_CACHE.pop(request_id, None)
+                entry = None
             else:
                 if entry.state == "done":
                     # LRU 命中：刷新新鲜度，淘汰时不被误杀（P1-5）
@@ -463,6 +500,19 @@ def _complete_entry(entry: _IdempotencyEntry, payload: dict) -> None:
         entry.state = "done"
         entry.expiry = time.monotonic() + _REQUEST_ID_TTL
         entry.event.set()
+
+
+def _release_inflight(request_id: str, entry: _IdempotencyEntry) -> None:
+    """owner 超时后释放 inflight entry（移出缓存），让同 id 重试重建为新的 owner。
+
+    权衡：释放可避免 request_id 永久 inflight（worker 卡死时同 id 重试永远
+    merge-wait → 504 死循环）；代价是慢 op 超时后重试可能重复执行一次。
+    仅当缓存仍指向同一 entry 且仍为 inflight 时才移除——entry 已被新 claim
+    接管、或 worker 恰好已将其置 done 时，不误伤缓存结果。
+    """
+    with _REQUEST_LOCK:
+        if _REQUEST_ID_CACHE.get(request_id) is entry and entry.state == "inflight":
+            _REQUEST_ID_CACHE.pop(request_id, None)
 
 
 def _evict_lru() -> None:
@@ -648,6 +698,12 @@ def _encode_reply(obj, status: int = 200) -> tuple[int, bytes]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    # H10（slowloris）：socket 读超时。BaseHTTPRequestHandler.setup 会把本值
+    # 套到连接 socket 上；请求行/头/体读超时 → handle_one_request 抛
+    # TimeoutError → 关连接。否则攻击者用 N 条不发完请求的空连接占满
+    # _MAX_CONCURRENCY 槽位，拖垮 /call。
+    timeout = _SOCKET_TIMEOUT
+
     def do_GET(self):
         if self.path == "/ping":
             # 健康检查免鉴权：不暴露任何数据，供 client 探测存活
@@ -754,8 +810,12 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(request_id, str) or not request_id:
             request_id = None
 
-        def _send(res: dict) -> None:
-            self._reply(res, status=200 if res.get("ok") else 500)
+        def _send(res: dict[str, Any]) -> None:
+            # D4：成功 200；失败按 error_code 映射 HTTP 状态（见 _ERROR_STATUS）。
+            # error_code 缺失/空 → 回落 500。
+            code = res.get("error_code")
+            status = 200 if res.get("ok") else (_ERROR_STATUS.get(code, 500) if code else 500)
+            self._reply(res, status=status)
 
         if request_id is None:
             # 无 request_id（旧 client / 调用方不要求幂等）：保留原 resp_q 路径，
@@ -844,7 +904,10 @@ class Handler(BaseHTTPRequestHandler):
             _complete_entry(entry, busy)
             return self._reply(dict(busy), status=503)
         if not entry.event.wait(_CALL_TIMEOUT):
-            # 超时：entry 留 inflight（同 ID 重试仍合并不重执行——绝不双写）
+            # D3：超时释放 inflight entry（移出缓存），同 id 重试重建为新的 owner
+            # 重新执行。不释放 → worker 卡死时该 request_id 永久 inflight，重试
+            # 永远 merge-wait → 504 死循环。代价：慢 op 超时后重试可能重复执行。
+            _release_inflight(request_id, entry)
             return self._reply(
                 {
                     "ok": False,
@@ -932,6 +995,21 @@ def _validate_host(host: str, allow_remote: bool) -> None:
         )
 
 
+def _warn_if_remote(host: str) -> None:
+    """非回环绑定 → 打印明文传输警告（D6）。
+
+    offipy 无 TLS：token 以 Authorization: Bearer 明文走网络，文档内容也可能
+    被嗅探。host="" 在 socketserver 语义下绑定所有接口（INADDR_ANY），即使
+    _validate_host 把空串当回环放行，实际也能被远程连上——同样警告。
+    """
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        print(
+            f"[警告] 绑定 {host!r} 可能接收远程连接：offipy 走明文 HTTP（无 TLS），"
+            "token 与文档内容可能被网络嗅探；仅限受信内网/测试，勿暴露公网。",
+            flush=True,
+        )
+
+
 def _acquire_startup_lock(port: int):
     """Windows named mutex 防双启（P1-1）：同端口重复 serve 直接拒绝。
 
@@ -997,6 +1075,7 @@ def serve(
         httpd = Server((host, port), Handler)  # 先成功绑定端口
         _write_pid_file(port, _TOKEN)  # 绑定成功才写 PID 文件（启动失败不留假活）
         print(f"offipy server listening on http://{host}:{port}", flush=True)
+        _warn_if_remote(host)  # D6：非回环绑定 → 明文传输警告
         # COM 初始化移到 worker 线程（P1-1）：HTTP 线程只入队，App 对象只被
         # worker 触碰，套间安全；/ping /status /shutdown 不碰 COM，不被排队。
         _ensure_worker()

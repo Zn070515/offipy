@@ -42,7 +42,6 @@ def _make_app(monkeypatch, module):
     app.app = object()
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     return app
 
 

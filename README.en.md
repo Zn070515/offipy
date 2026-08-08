@@ -73,10 +73,10 @@ The converter itself is vendored into the wheel, so it works right after install
 `offipy` is **session-based**, not a one-shot script:
 
 - The first call automatically starts a resident server in the background (`127.0.0.1:8890`); all subsequent operations go to the same process.
-- **`doc_id` is the authoritative target identifier**: `new_book` / `new_doc` / `new_pres` and the `open_*` ops return a `doc_id`,
-  which is stable within the session, stays valid across calls, and does not change when the document is renamed.
-  Use `get_target` to query the current active target identity:
-  `offipy excel get_target` → `{"app": "excel", "doc_id": "book1", "name": "Book1", "path": "..."}`
+- **`doc_id` is the authoritative target identifier**: `new_book` / `new_doc` / `new_pres` and the `open_*` ops return a `doc_id`
+  (`book<hex>` / `doc<hex>` / `pres<hex>`, high-entropy and opaque), which is stable within the session, stays valid across calls,
+  and does not change when the document is renamed. Use `get_target` to query the current active target identity:
+  `offipy excel get_target` → `{"app": "excel", "doc_id": "book<hex>", "name": "Book1", "path": "..."}`
   (`null` if none).
 - **Read ops** (`get_cell` / `read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `get_target` …) default to acting on the
   user's **currently active** document (ActiveDocument / ActiveWorkbook / ActivePresentation), resolved in real time — never from a stale
@@ -206,7 +206,7 @@ Ops not explicitly defined are proxied to the underlying app via `__getattr__`; 
   `get_target`→dict …); void ops return `None`; failures raise `OffipyError` domain exceptions.
 - **HTTP RPC `/call`** returns an `OperationResult` (**HTTP-only contract**):
   `{ok, operation, resource_id, message, data}` (with a `result` compatibility alias). `operation` is a
-  `"excel.set_cell"`-style full name; `resource_id`, e.g. `excel:book:book1`, identifies the document the operation acted on
+  `"excel.set_cell"`-style full name; `resource_id`, e.g. `excel:book:book<hex>`, identifies the document the operation acted on
   (`doc_id` is the stable session identifier, not the user-renamable name); `data` is the operation result (raw values for
   read ops, `null` for void ops). Raw COM objects never leak out.
 - **MCP tools** return the operation `data` payload (raw values for read ops; `"ok (<op>)"` for void ops).

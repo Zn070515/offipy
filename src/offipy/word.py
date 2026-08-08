@@ -4,6 +4,7 @@
 """
 
 import os
+import secrets
 from contextlib import contextmanager, suppress
 from typing import Any, Literal, TypeVar
 
@@ -228,7 +229,6 @@ class WordApp:
         self._pid = core.app_process_pid(self.app, "word")
         self._docs: dict[str, Any] = {}  # doc_id → 文档句柄（P2-2 多文档）
         self._active_id: str | None = None
-        self._seq = 0
 
     @contextmanager
     def _alerts_scope(self, value: int = WD_ALERTS_NONE):
@@ -267,8 +267,9 @@ class WordApp:
                     self._docs[did] = obj  # 复用 doc_id，换用实时句柄
                     self._active_id = did
                     return did
-        self._seq += 1
-        did = f"doc{self._seq}"
+        # H10：doc_id 高熵（64bit），不顺序可猜——会话内路由句柄虽只对持 token
+        # 的调用方可见，可预测 id 仍是信息泄露/横向枚举的纵深防御缺口。
+        did = f"doc{secrets.token_hex(8)}"
         self._docs[did] = obj
         self._active_id = did
         return did

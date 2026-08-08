@@ -35,7 +35,7 @@ Split by use case: `offipy[office]` (COM automation only), `offipy[deck]` (HTMLâ
 ## Quick start
 
 ```bash
-offipy excel new_book            # returns "book1"
+offipy excel new_book            # returns "book<hex>" (high-entropy doc_id)
 offipy excel set_cell --sheet 1 --cell A1 --value 42 --follow-active
 offipy excel read_range --sheet 1 --range_addr A1:A1   # [[42.0]]
 offipy excel quit
