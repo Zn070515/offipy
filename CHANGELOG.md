@@ -3,6 +3,17 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.14.4] - 2026-08-08
+
+### Fixed
+- **server 脱敏覆盖补全（#75）**：`_redact_message` 覆盖带空格的 Windows 绝对路径
+  （`C:\Users\John Doe\...`）与任意 POSIX 根（`/data`、`/workspace` 等）——不再枚举根
+  白名单、不再遇空格截断，`error`/`trace` 对任意形态绝对路径统一替换 `[REDACTED]`。
+- **转换器 records 容器校验（#76）**：装配边界对 records 容器本身做可迭代校验，`records`
+  为非可迭代标量（`42`/`true`）时降级为空列表，不再抛 `TypeError` 整体崩溃。
+- **注入副本 URL 承载属性补全（#77）**：`<body background>` / `<blockquote cite>` /
+  `<form action>` 等 URL 承载属性相对路径一并重写为绝对 `file://`；`data-*` 逻辑值不误伤。
+
 ## [0.14.3] - 2026-08-08
 
 ### Fixed

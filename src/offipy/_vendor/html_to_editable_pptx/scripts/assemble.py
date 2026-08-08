@@ -1395,10 +1395,16 @@ def assemble(measurement, out_path: Path):
     for sdata in slides_data:
         if not isinstance(sdata, dict):
             continue
-        records = [
-            rec for rec in (sdata.get("records", []) or [])
-            if isinstance(rec, dict) and isinstance(rec.get("kind"), str)
-        ]
+        # records 容器本身也校验：or [] 只兜 falsy，truthy 非迭代标量（42/True）会
+        # for rec in 42 抛 TypeError（#76）。非 list/tuple 一律降级为空列表。
+        raw_records = sdata.get("records")
+        if not isinstance(raw_records, (list, tuple)):
+            records = []
+        else:
+            records = [
+                rec for rec in raw_records
+                if isinstance(rec, dict) and isinstance(rec.get("kind"), str)
+            ]
         for rec in records:
             _sanitize_record(rec)
         sdata["records"] = records

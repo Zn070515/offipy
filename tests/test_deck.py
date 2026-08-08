@@ -767,6 +767,36 @@ def test_rewrite_relative_urls_handles_object_embed_data(tmp_path):
     assert 'data-chart-data="[{&quot;x&quot;:1}]"' in rewritten
 
 
+def test_rewrite_relative_urls_handles_url_bearing_attributes(tmp_path):
+    # #77：_ATTR_URL_RE 白名单只 src/href/poster/data——<body background>、
+    # <blockquote cite>、<form action> 等 URL 承载属性漏重写，注入副本下按临时
+    # 基准解析 404。补齐白名单；data-* 逻辑值属性仍不得被误改（回归防线）。
+    base = tmp_path.resolve()
+    content = (
+        '<html><body background="../img/bg.png">'
+        '<blockquote cite="../cites/x.html">q</blockquote>'
+        '<form action="../submit.py"></form>'
+        '<button formaction="../alt.py"></button>'
+        '<img longdesc="../desc.html"><img src="fig/a.png">'
+        '<div data-icon="ph:check"></div>'
+        "</body></html>"
+    )
+    rewritten = deck._rewrite_relative_urls(content, base)
+    bg = (base / ".." / "img" / "bg.png").resolve().as_uri()
+    cite = (base / ".." / "cites" / "x.html").resolve().as_uri()
+    action = (base / ".." / "submit.py").resolve().as_uri()
+    formaction = (base / ".." / "alt.py").resolve().as_uri()
+    longdesc = (base / ".." / "desc.html").resolve().as_uri()
+    src = (base / "fig" / "a.png").resolve().as_uri()
+    assert f'background="{bg}"' in rewritten
+    assert f'cite="{cite}"' in rewritten
+    assert f'action="{action}"' in rewritten
+    assert f'formaction="{formaction}"' in rewritten
+    assert f'longdesc="{longdesc}"' in rewritten
+    assert f'src="{src}"' in rewritten
+    assert 'data-icon="ph:check"' in rewritten
+
+
 # --- #audit 分支A：原子提交顺序 / TOCTOU overwrite / 超时杀进程树 / srcset data:URI / 归属保护 ---
 
 

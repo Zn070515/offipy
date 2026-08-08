@@ -154,6 +154,8 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
   不含文件路径/行号/源码片段（服务器信息泄露防护）。
 - `error` / `trace` 的**消息内容**同样脱敏（#67）：异常消息里的绝对路径
   （Windows/POSIX/UNC）与 `doc_id` 值统一替换为 `[REDACTED]`，路径原样不再透传。
+  覆盖任意形态：含空格的 Windows 路径（`C:\Users\John Doe\...`）、任意 POSIX 根
+  （`/data`、`/workspace` 等，非硬编码白名单）都按绝对路径形态脱敏（#75）。
 
 ## 附加字段
 

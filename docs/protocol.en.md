@@ -147,7 +147,9 @@ Failure (HTTP status code is mapped from `error_code`, see table; codes not list
   snippets (server information-leak protection).
 - The **message content** of both `error` and `trace` is redacted too (#67): absolute paths
   (Windows/POSIX/UNC) and `doc_id` values inside exception messages are replaced with
-  `[REDACTED]`; raw paths are never passed through.
+  `[REDACTED]`; raw paths are never passed through. Any form is covered: Windows paths
+  containing spaces (`C:\Users\John Doe\...`) and any POSIX root (`/data`, `/workspace`,
+  etc. — no hardcoded root whitelist) are redacted by absolute-path shape (#75).
 
 - The client maps a response back to the corresponding domain exception via `error_code`, keeping the three entry points (Python/RPC/MCP) in sync.
 

@@ -228,6 +228,32 @@ def test_redact_message_replaces_paths_and_doc_id():
     assert server._redact_message("see http://example.com/a") == "see http://example.com/a"
 
 
+def test_redact_message_covers_spaced_windows_paths():
+    # #75：_PATH_RE 的 Windows 模式 [^\s:;\"']* 遇空格截断——C:\Users\John Doe\...
+    # 只脱 C:\Users\John，用户名尾部/临时目录/文件名全漏。路径内空格合法，
+    # 应以引号/字符串结束定界，不把空格列进排除集。
+    out = server._redact_message(
+        r"源文件不存在: C:\Users\John Doe\AppData\Local\Temp\offipy-abc\financial.pptx"
+    )
+    assert out == "源文件不存在: [REDACTED]"
+    for leaked in ("Doe", "AppData", "financial", "John"):
+        assert leaked not in out
+
+
+def test_redact_message_covers_non_whitelist_posix_roots():
+    # #75：_PATH_RE 的 POSIX 模式枚举 13 个白名单根——/data /workspace /app 等
+    # 数据/部署常见根原样泄漏。改「以 / 起头、≥2 段」的绝对路径形态，不再枚举根。
+    out = server._redact_message("No such file: /data/offipy/docs/2026Q1.pptx")
+    assert "[REDACTED]" in out
+    for leaked in ("/data", "offipy", "2026Q1"):
+        assert leaked not in out
+    out2 = server._redact_message(
+        "/workspace/exp/financial/2026Q1_report.pptx (doc_id: report-2026q1)"
+    )
+    assert "workspace" not in out2
+    assert "report-2026q1" not in out2
+
+
 def test_error_result_and_trace_redact_message_content():
     # #67：c5ef6be 只删 traceback 帧，_error_result.error / _safe_trace 消息原文仍带
     # 绝对路径与 doc_id。现在两者都经 _redact_message 脱敏。
@@ -247,7 +273,9 @@ def test_error_result_and_trace_redact_message_content():
         assert "C:\\Users\\Alice" not in field
         assert "/home/xu" not in field
         assert "abc-123" not in field
-    assert res["error"].count("[REDACTED]") == 3
+    # 脱敏粒度是「整段绝对路径替换」：Windows 路径放宽（允许空格）后会把后续空格
+    # 分隔的 POSIX 路径/doc_id 一并吞并（H10 宁多勿漏），不锁死 [REDACTED] 数量。
+    assert "[REDACTED]" in res["error"]
     assert all("[REDACTED]" in line for line in trace)
 
 

@@ -375,8 +375,8 @@ def _success_result(
 # 失败响应消息级脱敏（#67）：异常消息本身可能含服务器绝对路径 / doc_id / 临时目录，
 # 属于 H10 信息泄露。路径与 doc_id 值统一替换为 [REDACTED]。
 _PATH_RE = re.compile(
-    r"(?:\b[A-Za-z]:[\\/][^\s:;\"']*"  # Windows 盘符绝对路径
-    r"|(?<![@\w])/(?:home|Users|mnt|tmp|var|usr|srv|opt|etc|root|private)[^\s:;\"']*"  # POSIX/macOS
+    r"(?:\b[A-Za-z]:[\\/][^\"']*"  # Windows 盘符绝对路径（路径内空格合法，C:\Users\John Doe\...）
+    r"|(?<![:/@\w])/(?:[^\s:;\"'/]+/)+[^\s:;\"']*"  # POSIX 绝对路径（以 / 起头、≥2 段，不枚举根）
     r"|\\\\[^\s:;\"']+"  # UNC 共享路径
     r"|\bdoc_id\s*[:=]\s*\S+)"  # 文档标识值
 )
