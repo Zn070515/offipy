@@ -22,12 +22,12 @@ by op type:
 ## CLI
 
 ```bash
-offipy excel new_book                      # "book1"
-offipy excel new_book                      # "book2" (the new book becomes the active target)
+offipy excel new_book                      # "book<hex>" (high-entropy doc_id, random)
+offipy excel new_book                      # creating again returns another "book<hex>" (new book becomes active)
 offipy excel get_target                    # points to the latest "Workbook2"
-offipy excel activate --doc_id book1       # switch the active target to book1
+offipy excel activate --doc_id book<hex>   # switch the active target to the given book<hex>
 offipy excel set_cell --sheet 1 --cell A1 --value 100 --follow-active
-offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # explicit routing
+offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book<hex>  # explicit routing
 offipy excel read_range --sheet 1 --range_addr A1:B1   # read ops default to the active target
 offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
@@ -133,13 +133,13 @@ asset declarations, the `asset://` URI, providers and `assets.json` provenance, 
 from offipy import Excel
 
 with Excel() as x:
-    book = x.new_book()                    # "book1"
+    book = x.new_book()                    # "book<hex>" (high-entropy doc_id)
     x.set_cell(1, "A1", 42, doc_id=book)   # destructive ops need an explicit doc_id
     assert x.read_range(1, "A1:A1", doc_id=book) == [[42.0]]
     x.quit()
 ```
 
-The Python API returns the **raw values** of App methods (`new_book` → the `"book1"`
+The Python API returns the **raw values** of App methods (`new_book` → the `"book<hex>"`
 string, `read_range` → a 2D list). `OperationResult` is the **return contract of the
 HTTP `/call`** (`{ok, operation, resource_id, message, data}`, HTTP-only); MCP returns
 the `data` payload — the three entry points have different return shapes; see the

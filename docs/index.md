@@ -31,7 +31,7 @@ py -m playwright install chromium   # deck 管线需要
 ## 快速开始
 
 ```bash
-offipy excel new_book            # 返回 "book1"
+offipy excel new_book            # 返回 "book<hex>"（高熵 doc_id）
 offipy excel set_cell --sheet 1 --cell A1 --value 42 --follow-active
 offipy excel read_range --sheet 1 --range_addr A1:A1   # [[42.0]]
 offipy excel quit

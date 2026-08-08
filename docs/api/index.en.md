@@ -10,9 +10,6 @@ This reference is generated from the single source of truth `schema.py` by `scri
 | [Word](word.en.md) | 32 | 3 | 25 |
 | [PowerPoint](ppt.en.md) | 27 | 5 | 17 |
 
-Every operation: `doc_id` defaults to the current active document (Excel `bookN` / Word `docN` / PPT `presN`); `expected_target` provides target binding for destructive operations.
+Every operation: `doc_id` defaults to the current active document (Excel `book<hex>` / Word `doc<hex>` / PPT `pres<hex>`, high-entropy and opaque, not enumerable); `expected_target` provides target binding for destructive operations.
 
 > Static geometry quality gates and baseline regression do not go through `schema.py` (pure parsing, no Office/COM); see [PPTX Quality Audit](audit.en.md) and [Baseline Regression](audit-baseline.en.md).
->
-> `asset://` resources in HTML decks (icons / textures / primitives) and `data-asset`
-> declarations also do **not** go through `schema.py`; see [Asset System](../assets.en.md).

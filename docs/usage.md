@@ -19,12 +19,12 @@ Office 实例。目标文档按 op 类型解析：
 ## CLI
 
 ```bash
-offipy excel new_book                      # "book1"
-offipy excel new_book                      # "book2"（新书成为活动目标）
+offipy excel new_book                      # "book<hex>"（高熵 doc_id，随机生成）
+offipy excel new_book                      # 再次新建，返回另一个"book<hex>"（新书成为活动目标）
 offipy excel get_target                    # 指向最新创建的"工作簿2"
-offipy excel activate --doc_id book1       # 切换活动目标到 book1
+offipy excel activate --doc_id book<hex>   # 切换活动目标到指定 book<hex>
 offipy excel set_cell --sheet 1 --cell A1 --value 100 --follow-active
-offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book2  # 显式路由
+offipy excel set_cell --sheet 1 --cell B1 --value 200 --doc_id book<hex>  # 显式路由
 offipy excel read_range --sheet 1 --range_addr A1:B1   # 读 op 缺省走活动目标
 offipy excel list_docs                     # {doc_id: {name, path, active}}
 offipy excel quit
@@ -118,13 +118,13 @@ playwright install chromium
 from offipy import Excel
 
 with Excel() as x:
-    book = x.new_book()                    # "book1"
+    book = x.new_book()                    # "book<hex>"（高熵 doc_id）
     x.set_cell(1, "A1", 42, doc_id=book)   # 破坏性 op 需显式 doc_id
     assert x.read_range(1, "A1:A1", doc_id=book) == [[42.0]]
     x.quit()
 ```
 
-Python API 返回 App 方法的**原始值**（`new_book`→`"book1"` 字符串、`read_range`→二维列表）。
+Python API 返回 App 方法的**原始值**（`new_book`→`"book<hex>"` 字符串、`read_range`→二维列表）。
 `OperationResult` 是 **HTTP `/call` 的返回契约**（`{ok, operation, resource_id, message, data}`，
 HTTP-only），MCP 返回 `data` 载荷——三入口返回形状不同，如实对照见 [api.md](api.md)。
 

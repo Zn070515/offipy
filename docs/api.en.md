@@ -9,7 +9,7 @@ offipy exposes the same set of operations through three entry points: the **Pyth
 | Entry point | Success return | void op | Failure |
 |------|----------|---------|------|
 | **Python API** | The App method's raw return value (`new_book` → a `doc_id` string, `get_cell` → the cell value, `get_target` → a dict, …) | `None` | Raises an `OffipyError` domain exception (`exceptions.py`) |
-| **HTTP RPC `/call`** | An `OperationResult` dict `{ok, operation, resource_id, message, data}` (plus a `result` compatibility alias) | Same, with `data: null` | HTTP 500 with `{ok:false, error, error_code, trace, ...}` |
+| **HTTP RPC `/call`** | An `OperationResult` dict `{ok, operation, resource_id, message, data}` (plus a `result` compatibility alias) | Same, with `data: null` | HTTP status mapped from `error_code` (400/404/409/500/502/503, see `docs/protocol.md`), body `{ok:false, error, error_code, trace, ...}` |
 | **MCP tools** | The operation's `data` payload (the raw value for read ops) | The string `"ok (<op>)"` | MCP error (message sourced from the same domain exceptions) |
 
 Example: `excel.get_cell(1, "A1")`
@@ -17,7 +17,7 @@ Example: `excel.get_cell(1, "A1")`
 | Entry point | How to write it | Return |
 |------|------|------|
 | Python | `x.get_cell(1, "A1")` | `100` |
-| HTTP | `POST /call {"app":"excel","op":"get_cell","args":{"sheet":1,"cell":"A1"}}` | `{"ok":true, "operation":"excel.get_cell", "resource_id":"excel:book:book1", "message":"ok", "data":100, "result":100}` |
+| HTTP | `POST /call {"app":"excel","op":"get_cell","args":{"sheet":1,"cell":"A1"}}` | `{"ok":true, "operation":"excel.get_cell", "resource_id":"excel:book:book2f9a5c5e1a2b3c4d", "message":"ok", "data":100, "result":100}` |
 | MCP | `excel_get_cell(sheet=1, cell="A1")` | `100` |
 
 ## OperationResult (HTTP-Only Contract)
@@ -27,7 +27,7 @@ Example: `excel.get_cell(1, "A1")`
 Success (HTTP 200):
 
 ```json
-{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book1",
+{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book2f9a5c5e1a2b3c4d",
  "message": "ok", "data": null, "result": null}
 ```
 
@@ -35,20 +35,20 @@ Success (HTTP 200):
 |------|------|
 | `ok` | Boolean, whether the operation succeeded |
 | `operation` | Full name in `"<app>.<op>"` form, e.g. `excel.set_cell` |
-| `resource_id` | `"<app>:<kind>:<doc_id>"` — identifies the document the operation acted on; **doc_id is a stable identifier within the session, not the user-editable name**; `null` when there is no target |
+| `resource_id` | `"<app>:<kind>:<doc_id>"` — identifies the document the operation acted on; **doc_id is a stable identifier within the session, not the user-editable name** (`book<hex>`/`doc<hex>`/`pres<hex>`, high-entropy and opaque, not enumerable); `null` when there is no target |
 | `message` | Human-readable message (usually `"ok"` on success) |
 | `data` | The operation result: the raw value for read ops, `null` for void ops |
 | `result` | A compatibility alias for `data` (gradual migration for older clients) |
 
-Failure (HTTP 500):
+Failure (HTTP status code is mapped from `error_code`, see the table in `docs/protocol.md`):
 
 ```json
 {"ok": false, "operation": "excel.get_cell", "resource_id": null,
  "error": "TargetNotFoundError: 没有打开的工作簿", "error_code": "target_not_found",
- "trace": ["..."]}
+ "trace": ["TargetNotFoundError: 没有打开的工作簿"]}
 ```
 
-`error_code` maps one-to-one to the domain exceptions (see `docs/exceptions.en.md`); clients use it to map a response back to the corresponding domain exception, keeping all three entry points in sync. `ComOperationError` additionally carries the `hresult` field; a deprecated op additionally carries `warning` (see `docs/deprecation.en.md`).
+`error_code` maps one-to-one to the domain exceptions (see `docs/exceptions.en.md`); clients use it to map a response back to the corresponding domain exception, keeping all three entry points in sync — **whatever the HTTP status is, the semantics are always carried by the body's `error_code`**. `ComOperationError` additionally carries the `hresult` field; a deprecated op additionally carries `warning` (see `docs/deprecation.en.md`). `trace` is a redacted exception-chain message list — no paths / line numbers / source snippets.
 
 ## Session Semantics (Target Identity)
 

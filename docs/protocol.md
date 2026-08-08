@@ -46,7 +46,7 @@ Content-Type: application/json
 X-Offipy-Protocol: offipy-http/v1
 
 {"app": "excel", "op": "set_cell",
- "args": {"sheet": 1, "cell": "A1", "value": 100, "doc_id": "book1"},
+ "args": {"sheet": 1, "cell": "A1", "value": 100, "doc_id": "book<hex>"},
  "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
@@ -111,14 +111,15 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
 成功（HTTP 200）：
 
 ```json
-{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book1",
+{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book2f9a5c5e1a2b3c4d",
  "message": "ok", "data": null, "result": null,
  "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `resource_id`：`"<app>:<kind>:<doc_id>"` 标识本次操作作用的文档（原始 COM 对象
   不外泄，由 `resource_id` 替代）；**doc_id 是会话内稳定标识，不用用户可改的 name**；
-  无目标时为 `null`。
+  格式 `book<hex>` / `doc<hex>` / `pres<hex>`——**高熵不透明**（`secrets.token_hex(8)`），
+  不可顺序枚举，无目标时为 `null`。
 - `data`：操作结果（读 op 的原值；void op 为 `null`）。
 - `result`：`data` 的兼容别名（旧 client 渐进切换）。
 - `request_id`：幂等回显——请求带了 request_id 时原样带回，供调用方核对/重试。
@@ -126,26 +127,31 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
 带 request_id 的幂等调用命中缓存时，响应额外带 `"cached": true`（同 request_id 同 payload
 重试不重执行，回放原响应）。
 
-失败（HTTP 500）：
+失败（HTTP 状态码按 `error_code` 映射，见下表；未列出的 code 回落 500）：
 
 ```json
 {"ok": false, "operation": "excel.set_cell", "resource_id": null,
  "error": "TargetNotFoundError: 没有打开的工作簿", "error_code": "target_not_found",
- "trace": ["..."], "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
+ "trace": ["TargetNotFoundError: 没有打开的工作簿"],
+ "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `error_code` 与领域异常一一对应（见 `exceptions.py`）：
 
-| error_code | 领域异常 |
-|------------|----------|
-| `invalid_argument` | `InvalidArgumentError` |
-| `target_not_found` | `TargetNotFoundError` |
-| `file_conflict` | `FileConflictError` |
-| `com_operation` | `ComOperationError`（保留 `hresult` 字段） |
-| `protocol` | `ProtocolError` |
-| `internal` | 无映射（未知/普通异常） |
+| error_code | 领域异常 | HTTP 状态码 |
+|------------|----------|-------------|
+| `invalid_argument` | `InvalidArgumentError` | 400 |
+| `protocol` | `ProtocolError` | 400 |
+| `target_not_found` | `TargetNotFoundError` | 404 |
+| `file_conflict` | `FileConflictError` | 409 |
+| `com_operation` | `ComOperationError`（保留 `hresult` 字段） | 502 |
+| `internal` | 无映射（未知/普通异常） | 500 |
 
-- client 按 `error_code` 把响应映射回对应领域异常，三入口（Python/RPC/MCP）同源。
+- client 按 `error_code` 把响应映射回对应领域异常，三入口（Python/RPC/MCP）同源——
+  不管 HTTP 状态码是多少，语义一律由 body 的 `error_code` 保证；状态码只供监控/
+  代理层按语义区分失败类别。
+- `trace`：异常链消息脱敏列表（`["类型: 消息", ...]`），只用于定位异常类型与链路；
+  不含文件路径/行号/源码片段（服务器信息泄露防护）。
 
 ## 附加字段
 
@@ -169,7 +175,7 @@ Python API / MCP 各有自己的返回形状（Python 返回方法原值、MCP �
   "pid": 28776,
   "python": "3.12.10",
   "started_at": 1785858307.49,
-  "targets": {"excel": null, "word": null, "ppt": {"app": "ppt", "doc_id": "pres1", "name": "...", "path": "..."}}
+  "targets": {"excel": null, "word": null, "ppt": {"app": "ppt", "doc_id": "pres2f9a5c5e1a2b3c4d", "name": "...", "path": "..."}}
 }}
 ```
 
@@ -184,7 +190,7 @@ server 每次 `/call` 后向 `user_data_dir()/oplog.jsonl` 追加一条 JSONL：
 
 ```json
 {"ts": "...", "session_id": "<uuid4>", "app": "excel", "op": "set_cell",
- "ok": true, "error_code": null, "duration_ms": 12, "resource_id": "excel:book:book1"}
+ "ok": true, "error_code": null, "duration_ms": 12, "resource_id": "excel:book:book2f9a5c5e1a2b3c4d"}
 ```
 
 args 一律不落盘（脱敏）。日志 ~5MB 轮转（保留 `.1` 备份）。读取：`offipy log` /

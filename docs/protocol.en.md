@@ -36,7 +36,7 @@ Content-Type: application/json
 X-Offipy-Protocol: offipy-http/v1
 
 {"app": "excel", "op": "set_cell",
- "args": {"sheet": 1, "cell": "A1", "value": 100, "doc_id": "book1"},
+ "args": {"sheet": 1, "cell": "A1", "value": 100, "doc_id": "book<hex>"},
  "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
@@ -105,12 +105,12 @@ Responses follow the OperationResult contract (`src/offipy/result.py`). **This i
 Success (HTTP 200):
 
 ```json
-{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book1",
+{"ok": true, "operation": "excel.set_cell", "resource_id": "excel:book:book2f9a5c5e1a2b3c4d",
  "message": "ok", "data": null, "result": null,
  "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
-- `resource_id`: `"<app>:<kind>:<doc_id>"` identifies the document the operation acted on (the raw COM object is never exposed; `resource_id` is used instead); **doc_id is a stable identifier within the session, not the user-editable name**; `null` when there is no target.
+- `resource_id`: `"<app>:<kind>:<doc_id>"` identifies the document the operation acted on (the raw COM object is never exposed; `resource_id` is used instead); **doc_id is a stable identifier within the session, not the user-editable name**; format `book<hex>` / `doc<hex>` / `pres<hex>` — **high-entropy and opaque** (`secrets.token_hex(8)`), not sequentially enumerable; `null` when there is no target.
 - `data`: the operation result (the raw value for read ops; `null` for void ops).
 - `result`: a compatibility alias for `data` (gradual migration for older clients).
 - `request_id`: the idempotency echo — returned verbatim when the request carried one, for the caller to verify / retry.
@@ -118,24 +118,33 @@ Success (HTTP 200):
 When an idempotent call with a request_id hits the cache, the response additionally carries `"cached": true`
 (same request_id + same payload retries don't re-execute; the original response is replayed).
 
-Failure (HTTP 500):
+Failure (HTTP status code is mapped from `error_code`, see table; codes not listed fall back to 500):
 
 ```json
 {"ok": false, "operation": "excel.set_cell", "resource_id": null,
  "error": "TargetNotFoundError: 没有打开的工作簿", "error_code": "target_not_found",
- "trace": ["..."], "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
+ "trace": ["TargetNotFoundError: 没有打开的工作簿"],
+ "request_id": "2f9a5c5e-0000-4000-8000-000000000001"}
 ```
 
 - `error_code` maps one-to-one to the domain exceptions (see `exceptions.py`):
 
-| error_code | Domain exception |
-|------------|----------|
-| `invalid_argument` | `InvalidArgumentError` |
-| `target_not_found` | `TargetNotFoundError` |
-| `file_conflict` | `FileConflictError` |
-| `com_operation` | `ComOperationError` (preserves the `hresult` field) |
-| `protocol` | `ProtocolError` |
-| `internal` | No mapping (unknown / ordinary exceptions) |
+| error_code | Domain exception | HTTP status |
+|------------|----------|-------------|
+| `invalid_argument` | `InvalidArgumentError` | 400 |
+| `protocol` | `ProtocolError` | 400 |
+| `target_not_found` | `TargetNotFoundError` | 404 |
+| `file_conflict` | `FileConflictError` | 409 |
+| `com_operation` | `ComOperationError` (preserves the `hresult` field) | 502 |
+| `internal` | No mapping (unknown / ordinary exceptions) | 500 |
+
+- The client maps the response back to the corresponding domain exception from `error_code`
+  across all three entry points (Python / RPC / MCP). Whatever the HTTP status code is, the
+  semantics are always carried by the body's `error_code`; the status code only lets
+  monitoring / proxy layers classify failures semantically.
+- `trace`: a redacted exception-chain message list (`["Type: message", ...]`) — for locating
+  the exception type and chain only; it contains no file paths / line numbers / source
+  snippets (server information-leak protection).
 
 - The client maps a response back to the corresponding domain exception via `error_code`, keeping the three entry points (Python/RPC/MCP) in sync.
 
@@ -154,7 +163,7 @@ Failure (HTTP 500):
   "pid": 28776,
   "python": "3.12.10",
   "started_at": 1785858307.49,
-  "targets": {"excel": null, "word": null, "ppt": {"app": "ppt", "doc_id": "pres1", "name": "...", "path": "..."}}
+  "targets": {"excel": null, "word": null, "ppt": {"app": "ppt", "doc_id": "pres2f9a5c5e1a2b3c4d", "name": "...", "path": "..."}}
 }}
 ```
 
@@ -167,7 +176,7 @@ After every `/call`, the server appends a JSONL entry to `user_data_dir()/oplog.
 
 ```json
 {"ts": "...", "session_id": "<uuid4>", "app": "excel", "op": "set_cell",
- "ok": true, "error_code": null, "duration_ms": 12, "resource_id": "excel:book:book1"}
+ "ok": true, "error_code": null, "duration_ms": 12, "resource_id": "excel:book:book2f9a5c5e1a2b3c4d"}
 ```
 
 `args` are never written to disk (sanitized/redacted). The log rotates at ~5MB (keeping a `.1` backup). Reading: `offipy log` / `offipy log --tail N`.
