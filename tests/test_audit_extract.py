@@ -149,6 +149,56 @@ def test_paragraph_line_spacing_extracted(tmp_path):
     assert p3r.line_spacing_pct is None
 
 
+# ---------------------------------------------------------------- 损坏 XML 容错
+
+
+def test_corrupt_font_scale_graceful(tmp_path):
+    # 原始 XML normAutofit fontScale 非数字 → autofit_font_scale None，不崩 ValueError
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    tf = tb.text_frame
+    tf.text = "hi"
+    tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    tf._txBody.xpath("./a:bodyPr/a:normAutofit")[0].set("fontScale", "abc")
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "TEXT_BOX")
+    assert rec.autofit_font_scale is None
+
+
+def test_corrupt_line_spacing_graceful(tmp_path):
+    # 原始 XML spcPts val 非数字 → line_spacing 回退 None，不崩
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    tf = tb.text_frame
+    p = tf.paragraphs[0]
+    p.add_run().text = "line"
+    p.line_spacing = Pt(14.85)
+    lnSpc = p._p.xpath("./a:pPr/a:lnSpc")[0]
+    spcPts = lnSpc.find("{http://schemas.openxmlformats.org/drawingml/2006/main}spcPts")
+    spcPts.set("val", "abc")
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "TEXT_BOX")
+    assert rec.paragraphs[0].line_spacing_pts is None
+    assert rec.paragraphs[0].line_spacing_pct is None
+
+
+def test_corrupt_group_transform_rot_graceful(tmp_path):
+    # 原始 XML group xfrm rot 非数字 → python-pptx 属性解析 ValueError；
+    # 该 group 跳过 + 告警，整个提取不崩（兄弟姐妹不受影响）
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    g = slide.shapes.add_group_shape()
+    c = g.shapes.add_shape(1, Inches(0), Inches(0), Inches(1), Inches(1))
+    c.text = "child"
+    g._element.xpath(".//a:xfrm")[0].set("rot", "abc")
+    ext = _make_extract(tmp_path, prs)
+    grecs = [s for s in ext.slides[0].shapes if s.is_group]
+    assert grecs == []  # 损坏 group 跳过
+    assert any(w.code == "audit.extract.shape_skip_corrupt" for w in ext.warnings)
+
+
 # ---------------------------------------------------------------- group 嵌套
 
 
