@@ -9,6 +9,11 @@ import pytest
 
 from offipy import core, excel, ppt, word
 
+# 测试的是 Windows Office COM 的 quit/DisplayAlerts 语义：构造 PptApp/WordApp/ExcelApp
+# 会走 core._com()（仅 Windows）。ubuntu 纯模块子集（-m "not com"）必须排除；
+# Windows 全量下这些测试纯 mock 可跑，不需要存活 Office。
+pytestmark = [pytest.mark.com]
+
 
 class _AlertRecorder:
     """记录 DisplayAlerts 赋值序列与 Quit 执行时的值。"""

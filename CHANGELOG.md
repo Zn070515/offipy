@@ -3,6 +3,24 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.14.2] - 2026-08-08
+
+### Fixed
+- **deck 管线数据安全（分支A）**：审计目录归属保护 + `make`/`open_live` 泄漏清理、原子提交、
+  TOCTOU 竞态、渲染超时杀进程、srcset 处理加固。
+- **资产系统加固（分支B）**：primitives 文本控制字符拒绝、`_descending_pt` 分数步进修复、
+  SVG DOCTYPE/entity 守卫 + viewBox 逗号、legacy data-icon URI 百分号编码、license 白名单
+  运行时强制、render H8/H9/viewBox 上限、accent rgb() 解析。
+- **COM 层安全（分支C）**：`quit` 前抑制弹窗防挂死（ppt/word/excel）、`open_book`/`open_doc`
+  路径 abspath 规范化、`export_slides` 宽高上界校验、`freeze_panes` 整数校验、`add_sheet` 幂等。
+- **server 协议加固（分支D）**：高熵 doc_id、slowloris socket timeout、inflight 超时释放、
+  error_code→HTTP 状态映射、traceback 脱敏、远程明文传输警告。
+- **audit 误报根治（分支E）**：text-fit 按 `a:br` 段感知取最长段宽、仅显式 `wrap="none"` 报横溢、
+  支持 .ttc CJK 字体度量、covered_text 仅在下层有文本时报、每页元素上限 + 压缩炸弹守卫。
+- **vendor 转换器边界硬化（分支F）**：不可信 measurement 输入 graceful 收敛（DOM-API 覆盖攻击
+  注入 NaN/Inf/非数值不崩）、XML 非法控制字符清洗、embed_fonts/self_check/measure 数值字段
+  str/float 化。
+
 ## [0.14.1] - 2026-08-08
 
 ### Fixed

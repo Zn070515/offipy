@@ -765,7 +765,11 @@ def test_render_replace_failure_does_not_commit_audit_dir(tmp_path, monkeypatch)
         return real_replace(tmp, final, **kw)
 
     monkeypatch.setattr(deck.os, "replace", boom_replace)
-    with pytest.raises(deck.ConversionError):
+    # Windows：PermissionError→ConversionError；POSIX 按设计裸抛（同
+    # test_atomic_replace_win32_locked_raises_actionable）。异常类型按平台取，
+    # 两边都须断言「渲染失败且审计目录未先落位」。
+    ctx = pytest.raises(deck.ConversionError) if os.name == "nt" else pytest.raises(PermissionError)
+    with ctx:
         deck.render(str(html), overwrite=True)
     assert existing.read_bytes() == b"precious"  # 旧 pptx 未动
     assert not (tmp_path / "deck_audit").exists(), "替换失败时审计目录不得先落位"
