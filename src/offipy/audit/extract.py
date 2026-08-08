@@ -40,6 +40,16 @@ def _to_inches(value: Any) -> float | None:
     return float(value) / _EMU_PER_INCH
 
 
+def _safe_float(value: Any, default: float | None = None) -> float | None:
+    """解析原始 XML 属性浮点值；损坏值（非数字）→ default，不抛 ValueError。"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 # ---------------------------------------------------------------- 内部记录
 
 
@@ -178,7 +188,9 @@ def extract_presentation(path: str | Path) -> _PresentationExtract:
     for index, slide in enumerate(prs.slides, start=1):
         records: list[_ShapeRecord] = []
         for z_order, shape in enumerate(slide.shapes):
-            records.extend(_flatten(shape, index, z_order, parent=None, group_path=()))
+            records.extend(
+                _flatten(shape, index, z_order, parent=None, group_path=(), warnings=warnings)
+            )
         warnings.extend(absolutize_records(records))
         slides.append(_SlideExtract(slide_index=index, shapes=records))
     return _PresentationExtract(slide_size=(slide_w, slide_h), slides=slides, warnings=warnings)
@@ -190,14 +202,39 @@ def _flatten(
     z_order: int,
     parent: int | None,
     group_path: tuple[int, ...],
+    warnings: list[AuditWarning],
 ) -> list[_ShapeRecord]:
-    rec = _build_record(shape, slide_index, z_order, parent, group_path)
+    try:
+        rec = _build_record(shape, slide_index, z_order, parent, group_path)
+    except (ValueError, TypeError, AttributeError) as e:
+        # python-pptx 属性解析（rotation/left/width 等）对损坏 XML 抛 ValueError；
+        # 单个损坏 shape 跳过并告警，不连带整页/整文件崩。
+        try:
+            sid = shape.shape_id  # type: ignore[attr-defined]
+        except Exception:
+            sid = None
+        warnings.append(
+            AuditWarning(
+                slide_index=slide_index,
+                shape_id=sid,
+                code="audit.extract.shape_skip_corrupt",
+                message=f"shape {sid if sid is not None else '?'} 原始 XML 损坏，跳过: {e}",
+            )
+        )
+        return []
     if rec.is_group:
         child_path = group_path + (rec.shape_id,)
         children: list[_ShapeRecord] = []
         for c_z, child in enumerate(shape.shapes):  # type: ignore[attr-defined]
             children.extend(
-                _flatten(child, slide_index, c_z, parent=rec.shape_id, group_path=child_path)
+                _flatten(
+                    child,
+                    slide_index,
+                    c_z,
+                    parent=rec.shape_id,
+                    group_path=child_path,
+                    warnings=warnings,
+                )
             )
         return [rec, *children]
     return [rec]
@@ -313,7 +350,8 @@ def _read_text_frame(shape: object) -> _TextFrameData:
     if norm:
         raw = norm[0].get("fontScale")
         if raw:
-            font_scale = float(raw) / 100000.0
+            fs = _safe_float(raw)
+            font_scale = fs / 100000.0 if fs is not None else None
     return _TextFrameData(
         text="\n".join(text_parts),
         paragraphs=paragraphs,
@@ -345,10 +383,14 @@ def _read_line_spacing(para) -> tuple[float | None, float | None]:
         return None, None
     spcPts = lnSpc.find(qn("a:spcPts"))
     if spcPts is not None and spcPts.get("val") is not None:
-        return float(spcPts.get("val")) / 100.0, None
+        val = _safe_float(spcPts.get("val"))
+        if val is not None:
+            return val / 100.0, None
     spcPct = lnSpc.find(qn("a:spcPct"))
     if spcPct is not None and spcPct.get("val") is not None:
-        return None, float(spcPct.get("val")) / 1000.0
+        val = _safe_float(spcPct.get("val"))
+        if val is not None:
+            return None, val / 1000.0
     return None, None
 
 
@@ -389,10 +431,11 @@ def _read_group_transform(shape: object) -> _GroupTransform | None:
         node = el.find(qn(tag))
         if node is None or node.get(attr) is None:
             return default
-        return float(node.get(attr)) / _EMU_PER_INCH
+        v = _safe_float(node.get(attr))
+        return v / _EMU_PER_INCH if v is not None else default
 
     rot_raw = el.get("rot")
-    rotation_deg = float(rot_raw) / 60000.0 if rot_raw else 0.0
+    rotation_deg = (_safe_float(rot_raw) or 0.0) / 60000.0 if rot_raw else 0.0
     return _GroupTransform(
         off_x=_attr("a:off", "x"),
         off_y=_attr("a:off", "y"),

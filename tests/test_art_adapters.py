@@ -46,6 +46,94 @@ def test_measurement_adapter_background_and_font_family():
     assert slide.elements[0].runs[0].font_family == "Microsoft YaHei"
 
 
+def test_measurement_adapter_malformed_rect_coords_graceful():
+    # 未受信 measurement JSON：rect 数值损坏 → 回退默认 0，不抛 ValueError 崩库
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080, "background": "rgb(255,255,255)"},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": "abc", "y": None, "w": "600px", "h": 60},
+                        "style": {"fontSize": "52px", "color": "rgb(0,0,0)"},
+                        "runs": [],
+                    }
+                ],
+            }
+        ]
+    }
+    scene = MeasurementAdapter(raw).build()
+    el = scene.slides[0].elements[0]
+    assert el.x == 0.0  # "abc" → 0
+    assert el.y == 0.0  # None → 0
+    assert el.width == 0.0  # "600px" → 0
+    assert el.height == pytest.approx(60.0 / 1080.0)
+
+
+def test_measurement_adapter_malformed_font_size_graceful():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": 0, "y": 0, "w": 100, "h": 60},
+                        "style": {"fontSize": "abcpx", "color": "rgb(0,0,0)"},
+                        "runs": [{"text": "T", "fontSize": "notnum", "color": "rgb(0,0,0)"}],
+                    }
+                ],
+            }
+        ]
+    }
+    scene = MeasurementAdapter(raw).build()
+    el = scene.slides[0].elements[0]
+    assert el.font_size is None  # "abcpx" → 未知，不崩
+    assert el.font_size_norm is None
+    assert el.runs[0].font_size is None  # "notnum" → 未知
+
+
+def test_measurement_adapter_malformed_slide_size_default():
+    raw = {"slides": [{"slide": {"width": "wide", "height": None}, "records": []}]}
+    scene = MeasurementAdapter(raw).build()
+    assert scene.slides[0].width == 1920.0
+    assert scene.slides[0].height == 1080.0
+
+
+def test_measurement_adapter_malformed_color_dict_graceful():
+    # deco.bg 是损坏 dict（r 非数字）→ background None；正常 dict color 仍解析
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "shape",
+                        "className": "",
+                        "tag": "div",
+                        "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                        "deco": {"hasBg": True, "bg": {"r": "red", "g": 0, "b": 0}},
+                        "style": {"color": {"r": 10, "g": 20, "b": 30}},
+                        "runs": [],
+                    }
+                ],
+            }
+        ]
+    }
+    scene = MeasurementAdapter(raw).build()
+    el = scene.slides[0].elements[0]
+    assert el.background is None
+    assert el.foreground == ArtColor(10, 20, 30)
+
+
 def test_measurement_adapter_accepts_json_string_and_path(tmp_path):
     raw = (FIXTURES / "real_measurements.json").read_text(encoding="utf-8")
     scene1 = build_scene(measurements=raw)
@@ -66,6 +154,56 @@ def test_measurement_adapter_json_string_survives_oserror_on_path_check(monkeypa
     monkeypatch.setattr(Path, "is_file", _raise_enametoolong)
     scene = build_scene(measurements=raw)
     assert len(scene.slides) == 1
+
+
+def test_measurement_adapter_truncates_excessive_elements():
+    # per-slide 元素上限：恶意/病态超多元素页截断到上限，下游 O(n²) 分析被约束
+    records = [
+        {
+            "id": i,
+            "kind": "shape",
+            "className": "",
+            "tag": "div",
+            "rect": {"x": i, "y": 0, "w": 1, "h": 1},
+            "style": {},
+            "runs": [],
+        }
+        for i in range(3001)
+    ]
+    raw = {"slides": [{"slide": {"width": 1920, "height": 1080}, "records": records}]}
+    scene = MeasurementAdapter(raw).build()
+    els = scene.slides[0].elements
+    assert len(els) == 3000
+    assert any(w.code == "art.adapter.elements_truncated" for w in scene.warnings)
+
+
+def test_pptx_adapter_truncates_excessive_elements():
+    from offipy.audit.models import SlideShapeSnapshot
+
+    data = json.loads((FIXTURES / "real_audit_report.json").read_text(encoding="utf-8"))
+    report = _report_from_fixture(data)
+    for i in range(3001):
+        report.shapes.append(
+            SlideShapeSnapshot(
+                slide_index=1,
+                shape_id=1000 + i,
+                name=f"s{i}",
+                shape_type="Oval",
+                role="shape",
+                left=0.1,
+                top=0.1,
+                width=0.1,
+                height=0.1,
+                z_order=i,
+                text="",
+                is_rotated=False,
+                geometry_unknown=False,
+            )
+        )
+    scene = PptxAuditAdapter(report).build()
+    els = scene.slides[0].elements
+    assert len(els) == 3000
+    assert any(w.code == "art.adapter.elements_truncated" for w in scene.warnings)
 
 
 def test_pptx_adapter_real_shapes():

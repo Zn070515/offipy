@@ -29,8 +29,14 @@ class ArtColor:
     a: float = 1.0
 
     @classmethod
-    def from_dict(cls, data: dict) -> ArtColor:
-        return cls(int(data["r"]), int(data["g"]), int(data["b"]), float(data.get("a", 1.0)))
+    def from_dict(cls, data: dict) -> ArtColor | None:
+        """未受信 color dict：r/g/b 缺失或非数字 → None（无颜色证据），不抛 ValueError。"""
+        try:
+            r, g, b = (int(v) for v in (data["r"], data["g"], data["b"]))
+            a = float(data.get("a", 1.0))
+        except (ValueError, TypeError, KeyError):
+            return None
+        return cls(r, g, b, a)
 
     def with_alpha_over(self, other: ArtColor) -> ArtColor:
         """self 盖在 other 之上的结果色（标准 alpha 合成）。"""
@@ -317,7 +323,10 @@ class PixelColorShare:
 
     @classmethod
     def from_dict(cls, data: dict) -> PixelColorShare:
-        return cls(ArtColor.from_dict(data["color"]), float(data["ratio"]))
+        color = ArtColor.from_dict(data["color"])
+        if color is None:
+            color = ArtColor(0, 0, 0)  # 损坏颜色兜底，不崩
+        return cls(color, float(data["ratio"]))
 
 
 @dataclass(frozen=True)

@@ -33,6 +33,10 @@ from .models import (
 
 _SLIDE_RE = re.compile(r"^slide_(\d+)\.png$")
 
+# 页 PNG 像素数上限：超过即视为解压炸弹，硬拒绝。60M ≈ 12000×5000，远超
+# 4K 幻灯片渲染（3840×2160 ≈ 8.3M）；低于 Pillow 内建阈值（~89M），由 offipy 把关。
+_MAX_IMAGE_PIXELS = 60_000_000
+
 _MAX_COLORS = 1 << 16
 _PALETTE_BUCKET = 32
 _PALETTE_TOP_N = 8
@@ -62,6 +66,24 @@ def _pil():
     from PIL import Image, ImageChops
 
     return Image, ImageChops
+
+
+def _decode_png(path: Path):
+    """解码页 PNG；像素数超上限（解压炸弹）硬拒绝为 InvalidArgumentError。
+
+    关闭 Pillow 内建阈值（默认 ~89M）由本函数显式上限把关，保证任意尺寸的
+    炸弹都走同一错误路径，而不是被 Pillow 的 DecompressionBombError 抢先。
+    """
+    Image, _ = _pil()
+    Image.MAX_IMAGE_PIXELS = None
+    with Image.open(path) as im:
+        w, h = im.size
+        if w * h > _MAX_IMAGE_PIXELS:
+            raise InvalidArgumentError(
+                f"页 PNG 像素数 {w}x{h}（{w * h}）超过上限 {_MAX_IMAGE_PIXELS}，拒绝解码"
+            )
+        im.load()
+        return im
 
 
 def _bucket_rep(key: tuple[int, int, int]) -> ArtColor:
@@ -235,8 +257,8 @@ def _estimate_background(im) -> _BgEstimate:
 
 
 def _page_evidence(im) -> SlidePixelEvidence:
-    est = _estimate_background(im)
     small = _downsample(im)
+    est = _estimate_background(small)
     counts = _pixel_stats(small, est.background)
     return SlidePixelEvidence(
         background=est.background,
@@ -460,7 +482,6 @@ class PixelEnricher:
                 scene.warnings.append(w)
         info = self._read_deck_info()
         self._verify_fingerprint(info, expected_sha256, run_id, scene)
-        Image, _ = _pil()
         covered = 0
         for slide in scene.slides:
             path = pages.get(slide.index)
@@ -473,8 +494,9 @@ class PixelEnricher:
                 )
                 continue
             try:
-                with Image.open(path) as im:
-                    im.load()
+                im = _decode_png(path)
+            except InvalidArgumentError:
+                raise  # 解压炸弹：硬拒绝，不降级为 warning
             except Exception as exc:
                 scene.warnings.append(
                     ArtWarning(
