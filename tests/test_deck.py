@@ -705,3 +705,32 @@ def test_rewrite_relative_urls_decodes_percent_encoding(tmp_path):
     rewritten = deck._rewrite_relative_urls(content, base)
     expected = (base / "img" / "My Photo.png").resolve().as_uri()
     assert rewritten == f'<img src="{expected}">'
+
+
+def test_rewrite_relative_urls_handles_srcset(tmp_path):
+    # #63：srcset 是多候选（url + 1x/2x/300w 描述符），只重写 URL 段保留描述符
+    base = tmp_path.resolve()
+    content = '<img srcset="fig/a.png 1x, fig/b.png 2x">'
+    rewritten = deck._rewrite_relative_urls(content, base)
+    a = (base / "fig" / "a.png").resolve().as_uri()
+    b = (base / "fig" / "b.png").resolve().as_uri()
+    assert rewritten == f'<img srcset="{a} 1x, {b} 2x">'
+
+
+def test_rewrite_relative_urls_handles_srcset_no_descriptor(tmp_path):
+    base = tmp_path.resolve()
+    content = '<img srcset="fig/a.png, fig/b.png">'
+    rewritten = deck._rewrite_relative_urls(content, base)
+    a = (base / "fig" / "a.png").resolve().as_uri()
+    b = (base / "fig" / "b.png").resolve().as_uri()
+    assert rewritten == f'<img srcset="{a}, {b}">'
+
+
+def test_rewrite_relative_urls_handles_poster_and_import(tmp_path):
+    base = tmp_path.resolve()
+    content = '<video poster="fig/poster.png"></video><style>@import "styles/base.css";</style>'
+    rewritten = deck._rewrite_relative_urls(content, base)
+    poster = (base / "fig" / "poster.png").resolve().as_uri()
+    css = (base / "styles" / "base.css").resolve().as_uri()
+    assert f'poster="{poster}"' in rewritten
+    assert f'@import "{css}";' in rewritten
