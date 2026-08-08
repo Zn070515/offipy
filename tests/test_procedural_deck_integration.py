@@ -185,7 +185,7 @@ def _load_manifest(tmp_path):
 
 def test_procedural_background_renders_single_p2_picture(tmp_path, monkeypatch):
     _, decls = preprocess_asset_declarations(_HTML_TOPO_BG)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, _HTML_TOPO_BG)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]
@@ -200,7 +200,7 @@ def test_procedural_background_renders_single_p2_picture(tmp_path, monkeypatch):
 
 def test_rings_count_flows_into_materialized_svg(tmp_path, monkeypatch):
     _, decls = preprocess_asset_declarations(_HTML_RINGS)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, _HTML_RINGS)
 
     svg = _pic_blobs(Presentation(str(tmp_path / "d.pptx")).slides[0])[0]
@@ -212,7 +212,7 @@ def test_param_attr_form_matches_direct_resolve(tmp_path, monkeypatch):
     theme_vars = {**_DEFAULT_VARS, "accent-soft": "#E9EDFF"}
     _, decls = preprocess_asset_declarations(_HTML_PARAM_FORM)
     override = lambda rec, aid: {**rec, "themeVars": theme_vars}  # noqa: E731
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls, meas_override=override))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls, meas_override=override))
     _render_deck(tmp_path, _HTML_PARAM_FORM)
 
     svg = _pic_blobs(Presentation(str(tmp_path / "d.pptx")).slides[0])[0]
@@ -237,7 +237,7 @@ def test_uri_and_attr_param_conflict_rejected_before_convert(tmp_path, monkeypat
     def _never(cmd, *a, **k):
         raise AssertionError("convert 不应被调用")
 
-    monkeypatch.setattr(deck.subprocess, "run", _never)
+    monkeypatch.setattr(deck, "_run_convert", _never)
     with pytest.raises(InvalidArgumentError, match="duplicate"):
         deck.render(str(html), out=str(pptx), overwrite=True)
 
@@ -247,7 +247,7 @@ def test_uri_and_attr_param_conflict_rejected_before_convert(tmp_path, monkeypat
 
 def test_explicit_hex_foreground_overrides_theme_token(tmp_path, monkeypatch):
     _, decls = preprocess_asset_declarations(_HTML_HEX_FG)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, _HTML_HEX_FG)
 
     svg = _pic_blobs(Presentation(str(tmp_path / "d.pptx")).slides[0])[0]
@@ -259,7 +259,7 @@ def test_missing_theme_token_fails_postprocess(tmp_path, monkeypatch):
     theme_vars = _DEFAULT_VARS  # 不含 muted
     _, decls = preprocess_asset_declarations(_HTML_MISSING_TOKEN)
     override = lambda rec, aid: {**rec, "themeVars": theme_vars}  # noqa: E731
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls, meas_override=override))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls, meas_override=override))
 
     with pytest.raises(InvalidArgumentError, match="muted"):
         _render_deck(tmp_path, _HTML_MISSING_TOKEN)
@@ -278,7 +278,7 @@ def test_measurement_theme_vars_drive_materialization(tmp_path, monkeypatch, the
     """deck 主题参数只注入 CSS；materialization 以测量 themeVars 为准，不落回 THEMES.base_vars。"""
     _, decls = preprocess_asset_declarations(_HTML_RINGS)
     override = lambda rec, aid: {**rec, "themeVars": theme_vars}  # noqa: E731
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls, meas_override=override))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls, meas_override=override))
     _render_deck(tmp_path, _HTML_RINGS, theme="mckinsey")
 
     svg = _pic_blobs(Presentation(str(tmp_path / "d.pptx")).slides[0])[0]
@@ -289,7 +289,7 @@ def test_zero_size_rect_fails_postprocess(tmp_path, monkeypatch):
     """CSS 量到 0×60 的 rect → 绑定阶段 InvalidArgumentError，deck 报错不产出。"""
     _, decls = preprocess_asset_declarations(_HTML_RINGS)
     override = lambda rec, aid: {**rec, "rect": {"x": 20, "y": 30, "w": 0, "h": 60}}  # noqa: E731
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls, meas_override=override))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls, meas_override=override))
 
     with pytest.raises(InvalidArgumentError, match="positive"):
         _render_deck(tmp_path, _HTML_RINGS)
@@ -340,7 +340,7 @@ def _zorder_fake_convert():
 
 
 def test_zorder_background_below_decorative_between(tmp_path, monkeypatch):
-    monkeypatch.setattr(deck.subprocess, "run", _zorder_fake_convert())
+    monkeypatch.setattr(deck, "_run_convert", _zorder_fake_convert())
     _render_deck(tmp_path, _HTML_ZORDER)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]
@@ -365,7 +365,7 @@ def test_zorder_background_below_decorative_between(tmp_path, monkeypatch):
 
 def test_assets_json_procedural_provenance(tmp_path, monkeypatch):
     _, decls = preprocess_asset_declarations(_HTML_PROVENANCE)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, _HTML_PROVENANCE)
 
     manifest = _load_manifest(tmp_path)
@@ -412,7 +412,7 @@ def test_50_procedural_assets_deterministic(tmp_path, monkeypatch):
     html_text = _many_decl_html(50)
     _, decls = preprocess_asset_declarations(html_text)
     assert len(decls) == 50
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, html_text)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]

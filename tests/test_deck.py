@@ -1,6 +1,8 @@
 """deck 管线测试：theme 注入（不跑真实转换，拦截子进程）。"""
 
+import json
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -41,7 +43,7 @@ def test_render_no_theme_passes_original_html(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.render(str(html))
     assert created["cmd"][2] == str(html)
@@ -56,7 +58,7 @@ def test_render_theme_injects_css_then_cleans_up(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.render(str(html), theme="mckinsey")
     # 注入副本以 .audited.html 结尾（convert 跳过 work-copy），且已清理
@@ -74,7 +76,7 @@ def test_render_theme_unknown_raises(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text("<html><head></head><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     with pytest.raises(KeyError):
         deck.render(str(html), theme="nope")
@@ -89,7 +91,7 @@ def test_make_passes_theme(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     deck.make(str(html), open_live_flag=False, theme="dark-tech")
     assert "--accent: #38BDF8;" in created["injected_content"]  # dark-tech 强调色
@@ -103,7 +105,7 @@ def test_render_apply_layouts_injects_layout_css(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.render(str(html), apply_layouts=True)
     injected = created["cmd"][2]
@@ -121,7 +123,7 @@ def test_render_theme_and_layouts_together(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     deck.render(str(html), theme="mckinsey", apply_layouts=True)
     content = created["injected_content"]
@@ -138,7 +140,7 @@ def test_render_apply_layouts_false_unchanged(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     deck.render(str(html))  # 默认不注入
     assert created["cmd"][2] == str(html)
@@ -154,7 +156,7 @@ def test_render_existing_out_refuses_without_overwrite(tmp_path, monkeypatch):
     (tmp_path / "deck.pptx").write_bytes(b"existing")
     created = {}
     monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     with pytest.raises(FileExistsError):
         deck.render(str(html))
@@ -168,7 +170,7 @@ def test_render_overwrite_true_allows(tmp_path, monkeypatch):
     (tmp_path / "deck.pptx").write_bytes(b"existing")
     created = {}
     monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.render(str(html), overwrite=True)
     assert pptx.endswith("deck.pptx")
@@ -190,7 +192,7 @@ def test_make_passes_overwrite_to_render(tmp_path, monkeypatch):
     (tmp_path / "deck.pptx").write_bytes(b"existing")
     created = {}
     monkeypatch.setattr(deck, "_preflight_browser", lambda: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.make(str(html), open_live_flag=False, overwrite=True)
     assert pptx.endswith("deck.pptx")
@@ -199,6 +201,7 @@ def test_make_passes_overwrite_to_render(tmp_path, monkeypatch):
 def test_make_feedback_binds_export_to_rendered_doc(tmp_path, monkeypatch):
     # P0-2：feedback_dir 导出必须绑定本次渲染的 deck（open_live 返回的 doc_id），
     # overwrite 透传；绝不依赖「当前活动焦点」（防中途切到别的文稿）。
+    # 导出完成后 close_live 关闭实况 + 释放临时副本（#audit：不留 open_live 泄漏）。
     calls = {}
 
     def fake_render(html, out=None, **kw):
@@ -212,9 +215,13 @@ def test_make_feedback_binds_export_to_rendered_doc(tmp_path, monkeypatch):
         calls["export"] = {"out_dir": out_dir, "doc_id": doc_id, "overwrite": overwrite}
         return []
 
+    def fake_close_live(doc_id):
+        calls["close_doc"] = doc_id
+
     monkeypatch.setattr(deck, "render", fake_render)
     monkeypatch.setattr(deck, "open_live", fake_open_live)
     monkeypatch.setattr(deck, "export_slides", fake_export_slides)
+    monkeypatch.setattr(deck, "close_live", fake_close_live)
 
     feedback = tmp_path / "fb"
     deck.make(
@@ -227,6 +234,7 @@ def test_make_feedback_binds_export_to_rendered_doc(tmp_path, monkeypatch):
     assert calls["export"]["doc_id"] == "pres7"
     assert calls["export"]["overwrite"] is True
     assert calls["export"]["out_dir"] == str(feedback)
+    assert calls["close_doc"] == "pres7"  # 导出后实况关闭，不留泄漏
 
 
 # --- P0-6 原子替换：失败不破坏已存在 .pptx，临时文件清理 ---
@@ -259,7 +267,7 @@ def test_render_atomic_success_replaces_and_cleans(tmp_path, monkeypatch):
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     (tmp_path / "deck.pptx").write_bytes(b"old content")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.render(str(html), overwrite=True)
     assert Path(pptx).read_bytes() == b"fake pptx"  # 新内容到位
@@ -270,7 +278,7 @@ def test_render_atomic_preserves_audit_dir_under_final_name(tmp_path, monkeypatc
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_with_audit(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_with_audit(created))
 
     pptx = deck.render(str(html), overwrite=True)
     # #11：convert 的 <tmp>_audit 改名为 <final>_audit 保留（aesthetic/feedback
@@ -293,7 +301,7 @@ def test_render_atomic_failure_cleans_orphan_audit_dir(tmp_path, monkeypatch):
         audit.mkdir(parents=True, exist_ok=True)
         return SimpleNamespace(returncode=1, stdout="oops", stderr="boom")
 
-    monkeypatch.setattr(deck.subprocess, "run", fail_run_with_audit)
+    monkeypatch.setattr(deck, "_run_convert", fail_run_with_audit)
     with pytest.raises(deck.ConversionError):
         deck.render(str(html), overwrite=True)
     assert existing.read_bytes() == b"precious"  # 已存在 .pptx 未被破坏
@@ -312,7 +320,7 @@ def test_render_atomic_convert_failure_preserves_existing(tmp_path, monkeypatch)
         created["cmd"] = cmd
         return SimpleNamespace(returncode=1, stdout="oops", stderr="boom")
 
-    monkeypatch.setattr(deck.subprocess, "run", fail_run)
+    monkeypatch.setattr(deck, "_run_convert", fail_run)
     with pytest.raises(deck.ConversionError):
         deck.render(str(html), overwrite=True)
     assert existing.read_bytes() == b"precious"  # 已存在 .pptx 未被破坏
@@ -325,7 +333,7 @@ def test_render_atomic_postprocess_failure_preserves_existing(tmp_path, monkeypa
     existing = tmp_path / "deck.pptx"
     existing.write_bytes(b"precious")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     def boom(html_path, pptx_path):
         raise RuntimeError("图表后处理失败")
@@ -359,7 +367,7 @@ def test_render_theme_tmp_not_in_source_dir(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     deck.render(str(html), theme="mckinsey")
     injected = created["cmd"][2]
@@ -373,7 +381,7 @@ def test_render_postprocess_valueerror_maps_to_invalid_argument(tmp_path, monkey
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     def boom(html_path, pptx_path):
         raise ValueError("图表数据 categories 必须是非空字符串列表")
@@ -389,7 +397,7 @@ def test_render_postprocess_runtimeerror_maps_to_conversion(tmp_path, monkeypatc
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     def boom(html_path, pptx_path):
         raise RuntimeError("找不到 convert 审计产物")
@@ -405,7 +413,7 @@ def test_render_postprocess_assets_valueerror_maps(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     def boom(html_path, pptx_path):
         raise ValueError("资源声明数据非法")
@@ -426,7 +434,7 @@ def test_render_no_visual_audit_with_chart_rejected(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     with pytest.raises(deck.InvalidArgumentError) as exc:
         deck.render(str(html), no_visual_audit=True)
@@ -443,7 +451,7 @@ def test_render_no_visual_audit_with_icon_rejected(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     with pytest.raises(deck.InvalidArgumentError) as exc:
         deck.render(str(html), no_visual_audit=True)
@@ -456,11 +464,11 @@ def test_render_no_visual_audit_without_charts_ok(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     pptx = deck.render(str(html), no_visual_audit=True)
     assert pptx.endswith("deck.pptx")
-    assert created["cmd"][-1] == "--no-visual-audit"  # 转换器确实收到该开关
+    assert "--no-visual-audit" in created["cmd"]  # 转换器确实收到该开关
 
 
 def test_render_concurrent_same_output_no_clash(tmp_path, monkeypatch):
@@ -485,7 +493,7 @@ def test_render_concurrent_same_output_no_clash(tmp_path, monkeypatch):
         Path(out).write_bytes(b"fake pptx")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(deck.subprocess, "run", mock_run)
+    monkeypatch.setattr(deck, "_run_convert", mock_run)
     results = {"err": None, "pptx": None}
 
     def do_render():
@@ -536,7 +544,7 @@ def test_render_concurrent_same_final_path_one_conflicts(tmp_path, monkeypatch):
         Path(out_arg).write_bytes(b"fake pptx")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(deck.subprocess, "run", fake_run)
+    monkeypatch.setattr(deck, "_run_convert", fake_run)
 
     results = {}
 
@@ -665,7 +673,7 @@ def test_render_rewrites_relative_urls_in_injected_copy(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     deck.render(str(html), theme="mckinsey")
     content = created["injected_content"]
@@ -689,7 +697,7 @@ def test_render_keeps_absolute_and_fragment_urls(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     created = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(created))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
 
     deck.render(str(html), theme="mckinsey")
     content = created["injected_content"]

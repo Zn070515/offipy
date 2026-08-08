@@ -59,7 +59,7 @@ def test_render_wires_chart_then_asset_postprocess(tmp_path, monkeypatch):
 
     monkeypatch.setattr(charts, "postprocess_charts", record("charts"))
     monkeypatch.setattr("offipy.assets.render.postprocess_assets", record("assets"))
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标
     assert out == str(pptx)
@@ -86,7 +86,7 @@ def test_render_charts_error_skips_assets(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "offipy.assets.render.postprocess_assets", lambda *a, **k: calls.append("assets")
     )
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     with pytest.raises(deck.ConversionError, match="charts failed"):
         deck.render(str(html), out=str(pptx), overwrite=True)  # placeholder 为后处理目标

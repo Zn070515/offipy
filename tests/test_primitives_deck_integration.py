@@ -211,7 +211,7 @@ def test_canonical_metric_badge_renders_native_shapes(tmp_path, monkeypatch) -> 
         'data-asset-param-value="24%" data-asset-param-label="YoY" data-asset-param-delta="+3.2%"',
     )
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, html_text)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]
@@ -228,7 +228,7 @@ def test_primitive_decorative_placement_records_placement(tmp_path, monkeypatch)
         'data-asset-param-text="Hot" data-asset-placement="decorative"',
     )
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, html_text)
 
     manifest = _load_manifest(tmp_path)
@@ -250,7 +250,7 @@ def test_primitive_background_placement_rejected_preserves_output(tmp_path, monk
     pptx.write_bytes(b"placeholder")
     original = pptx.read_bytes()
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_marker_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_marker_convert(decls))
 
     with pytest.raises(InvalidArgumentError, match="background"):
         deck.render(str(html), out=str(pptx), overwrite=True)
@@ -277,7 +277,7 @@ def test_measurement_theme_vars_drive_primitive_accent(
     )
     _, decls = preprocess_asset_declarations(html_text)
     override = lambda rec, aid: {**rec, "themeVars": theme_vars}  # noqa: E731
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls, meas_override=override))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls, meas_override=override))
     _render_deck(tmp_path, html_text)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]
@@ -297,7 +297,7 @@ def test_explicit_hex_accent_overrides_theme_token(tmp_path, monkeypatch) -> Non
         ' data-asset-param-accent="#00FF00"',
     )
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, html_text)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]
@@ -314,7 +314,7 @@ def test_explicit_hex_fill_materializes_quote_card(tmp_path, monkeypatch) -> Non
         "quote-mark", 'data-asset-param-text="Go" data-asset-param-fill="#123456"'
     )
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, html_text)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]
@@ -340,7 +340,7 @@ def test_primitives_manifest_provenance(tmp_path, monkeypatch) -> None:
         "</body></html>"
     )
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
     _render_deck(tmp_path, html_text)
 
     manifest = _load_manifest(tmp_path)
@@ -423,7 +423,7 @@ def test_primitive_structural_contract_in_placeholder_slot(tmp_path, monkeypatch
     """每个 primitive 落位后：无位图、文本可编辑、rect 内、占位符槽位连续、id 唯一。"""
     html_text = _prim_html(case["name"], case["attrs"])
     _, decls = preprocess_asset_declarations(html_text)
-    monkeypatch.setattr(deck.subprocess, "run", _make_marker_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_marker_convert(decls))
     _render_deck(tmp_path, html_text)
 
     slide = Presentation(str(tmp_path / "d.pptx")).slides[0]

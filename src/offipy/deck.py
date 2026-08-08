@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote
 
@@ -197,7 +199,53 @@ def _convert_cmd(
         cmd += ["--only-slides", ",".join(str(i) for i in only_slides)]
     if no_visual_audit:
         cmd += ["--no-visual-audit"]
+    # --no-work-copy：deck 自己管理输入（源 html 或临时注入副本），转换器不得在
+    # 源目录创建 .audited.html 工作副本（污染用户目录）。
+    cmd += ["--no-work-copy"]
+    # --fail-on-selfcheck：自检（Stage 5a 结构/像素校验）异常不再静默吞掉——deck
+    # 管线里验证失败必须显式报错，否则 audit 报告宣称"已校验"而底层根本没跑。
+    cmd += ["--fail-on-selfcheck"]
     return cmd
+
+
+def _kill_process_tree(pid: int) -> None:
+    """整树杀进程。Windows 用 taskkill /T——根进程还活着时才能顺带杀孙进程。
+
+    不能等根进程死了再枚举子孙：Windows 上父进程死后子进程会被 reparent，
+    按 PPID 事后枚举不到。POSIX 用进程组。
+    """
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, text=True)
+    else:
+        # POSIX 分支在本项目（Windows-only）实际不可达；mypy 在 Windows 平台类型
+        # 上会把 killpg/getpgid/SIGKILL 判为不存在，这里显式忽略该分支的 attr 检查。
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)  # type: ignore[attr-defined]
+
+
+def _run_convert(cmd: list[str], timeout: int, env: dict[str, str]) -> SimpleNamespace:
+    """跑 convert 子进程，返回 returncode/stdout/stderr（SimpleNamespace）。
+
+    超时用 Popen.communicate 手动处理而非 subprocess.run(timeout=)：run 超时只杀
+    直接子进程，convert.py 派生的 chromium/渲染器孙进程会泄漏。这里超时先趁根
+    还活着 taskkill /T 整树杀掉，再收割输出（消息与旧 run 分支格式一致）。
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc.pid)
+        out, err = proc.communicate()
+        raise ConversionError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from None
+    return SimpleNamespace(returncode=proc.returncode, stdout=out, stderr=err)
 
 
 def _default_out(html: str) -> str:
@@ -321,21 +369,7 @@ def _render_tmp(
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
         # 转换器可变数据（配置/lessons-learned）落用户数据目录，不写包内
         env["OFFIPY_CONVERTER_DATA_DIR"] = str(converter_data_dir())
-        try:
-            r = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                env=env,
-            )
-        except subprocess.TimeoutExpired as e:
-            so, se = e.stdout, e.stderr
-            out = so.decode("utf-8", errors="replace") if isinstance(so, bytes) else (so or "")
-            err = se.decode("utf-8", errors="replace") if isinstance(se, bytes) else (se or "")
-            raise ConversionError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
+        r = _run_convert(cmd, timeout=timeout, env=env)
         if r.returncode != 0:
             raise ConversionError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
         if not os.path.exists(tmp_pptx):

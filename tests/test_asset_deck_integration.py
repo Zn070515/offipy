@@ -85,7 +85,7 @@ def _assert_nova_rejected_before_browser(tmp_path, monkeypatch, html_text, marke
     run_calls: list = []
 
     monkeypatch.setattr(deck, "_preflight_browser", lambda *a, **k: browser_calls.append(a))
-    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: run_calls.append(a))
+    monkeypatch.setattr(deck, "_run_convert", lambda *a, **k: run_calls.append(a))
 
     with pytest.raises(deck.InvalidArgumentError) as exc:
         deck.render(str(html), out=str(pptx), overwrite=True, no_visual_audit=True)
@@ -128,7 +128,7 @@ def test_no_visual_audit_still_rejects_data_chart_before_browser(tmp_path, monke
 def test_no_visual_audit_message_lists_declaration_type(tmp_path, monkeypatch):
     """data-asset 单独出现时，信息点名的就是它（不混入无关类型）。"""
     html, pptx = _write(tmp_path)
-    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(deck, "_run_convert", lambda *a, **k: None)
 
     with pytest.raises(deck.InvalidArgumentError) as exc:
         deck.render(str(html), out=str(pptx), overwrite=True, no_visual_audit=True)
@@ -145,7 +145,7 @@ def test_no_visual_audit_plain_deck_still_ok(tmp_path, monkeypatch):
         tmp_path, "<html><body><section data-pptx-slide><p>ok</p></section></body></html>"
     )
     recorded = {}
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, no_visual_audit=True)
     assert out == str(pptx)
@@ -165,7 +165,7 @@ def test_asset_only_passes_temp_injected_target(tmp_path, monkeypatch):
     recorded = {}
     monkeypatch.setattr(charts, "postprocess_charts", _record_target(recorded))
     _patch_assets_noop(monkeypatch)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)
@@ -186,7 +186,7 @@ def test_asset_only_passes_temp_injected_target(tmp_path, monkeypatch):
 def test_asset_only_no_visual_audit_rejected_before_temp_target(tmp_path, monkeypatch):
     """no_visual_audit + asset 声明在临时 target 生成前就拦下（无残留副本）。"""
     html, pptx = _write(tmp_path)
-    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(deck, "_run_convert", lambda *a, **k: None)
 
     with pytest.raises(deck.InvalidArgumentError):
         deck.render(str(html), out=str(pptx), overwrite=True, no_visual_audit=True)
@@ -199,7 +199,7 @@ def test_theme_plus_asset_target_has_theme_and_ids(tmp_path, monkeypatch):
     recorded = {}
     monkeypatch.setattr(charts, "postprocess_charts", _record_target(recorded))
     _patch_assets_noop(monkeypatch)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, theme="mckinsey")
     assert out == str(pptx)
@@ -219,7 +219,7 @@ def test_asset_target_cleaned_on_failure(tmp_path, monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(charts, "postprocess_charts", boom)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run({}))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run({}))
 
     with pytest.raises(deck.ConversionError):
         deck.render(str(html), out=str(pptx), overwrite=True)
@@ -238,7 +238,7 @@ def test_only_slides_keeps_full_html_declaration_ordinals(tmp_path, monkeypatch)
     recorded = {}
     monkeypatch.setattr(charts, "postprocess_charts", _record_target(recorded))
     _patch_assets_noop(monkeypatch)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run(recorded))
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(recorded))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, only_slides=[2])
     assert out == str(pptx)
@@ -318,7 +318,7 @@ def _load_manifest(tmp_path):
 def test_visual_audit_zero_assets_writes_empty_manifest(tmp_path, monkeypatch):
     """纯文本 deck + visual audit：审计目录存在 → 空用量报告落成空 assets 列表。"""
     html, pptx = _write(tmp_path, _PLAIN_HTML)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert([]))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert([]))
 
     deck.render(str(html), out=str(pptx), overwrite=True)
 
@@ -329,7 +329,7 @@ def test_assets_written_in_declaration_order_with_provider_meta(tmp_path, monkey
     """真实 asset 主链：用量清单按声明顺序落盘，provider 元数据（ph→MIT / lu→ISC）正确。"""
     html, pptx = _write(tmp_path, _ASSET_ORDER_HTML)
     _, decls = preprocess_asset_declarations(_ASSET_ORDER_HTML)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
 
     deck.render(str(html), out=str(pptx), overwrite=True)
 
@@ -345,7 +345,7 @@ def test_assets_written_in_declaration_order_with_provider_meta(tmp_path, monkey
 def test_no_visual_audit_writes_no_audit_dir_or_manifest(tmp_path, monkeypatch):
     """no_visual_audit：无审计目录 → 不写 assets.json，纯 deck 正常产出。"""
     html, pptx = _write(tmp_path, _PLAIN_HTML)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert([], create_audit=False))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert([], create_audit=False))
 
     deck.render(str(html), out=str(pptx), overwrite=True, no_visual_audit=True)
 
@@ -358,7 +358,7 @@ def test_failed_postprocess_preserves_old_pptx_and_manifest(tmp_path, monkeypatc
     """后处理失败：不产生新的最终清单，旧 PPTX 与旧 d_audit/assets.json 原样保留。"""
     html, pptx = _write(tmp_path, _ASSET_ORDER_HTML)
     _, decls = preprocess_asset_declarations(_ASSET_ORDER_HTML)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
 
     # 第一次成功渲染 → 产出 d.pptx + d_audit/assets.json
     deck.render(str(html), out=str(pptx), overwrite=True)
@@ -390,7 +390,7 @@ def test_invalid_asset_uri_preserves_final_output(tmp_path, monkeypatch):
         tmp_path, '<section data-pptx-slide><div data-asset="not-a-uri"></div></section>'
     )
     original = pptx.read_bytes()
-    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(deck, "_run_convert", lambda *a, **k: None)
 
     with pytest.raises(deck.InvalidArgumentError, match="asset://"):
         deck.render(str(html), out=str(pptx), overwrite=True)
@@ -403,7 +403,7 @@ def test_missing_placeholder_preserves_final_output(tmp_path, monkeypatch):
     """measurements 有记录但转换器漏放 OFFIPY_ASSET 占位符：绑定失败，旧产物保留。"""
     html, pptx = _write(tmp_path, _ASSET_ORDER_HTML)
     _, decls = preprocess_asset_declarations(_ASSET_ORDER_HTML)
-    monkeypatch.setattr(deck.subprocess, "run", _make_fake_convert(decls))
+    monkeypatch.setattr(deck, "_run_convert", _make_fake_convert(decls))
 
     # 第一次成功渲染 → 产出 d.pptx + d_audit/assets.json
     deck.render(str(html), out=str(pptx), overwrite=True)
@@ -434,7 +434,7 @@ def test_missing_placeholder_preserves_final_output(tmp_path, monkeypatch):
         )
         return _sp.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(deck.subprocess, "run", fake_no_placeholder)
+    monkeypatch.setattr(deck, "_run_convert", fake_no_placeholder)
     with pytest.raises(deck.InvalidArgumentError, match="占位符"):
         deck.render(str(html), out=str(pptx), overwrite=True)
 
