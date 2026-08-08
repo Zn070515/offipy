@@ -77,6 +77,18 @@ _FORBIDDEN_PARAMS = frozenset({"screenshot", "src", "image", "image-src"})
 
 _INT_RE = re.compile(r"-?[0-9]+\Z")
 
+# C0/C1 控制字符（保留 \t \n \r 排版空白）：出现在文本参数里会污染 OOXML run
+# 或走私转义字节进 deck，一律拒绝。
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]")
+
+
+def _reject_control_chars(value: str, key: str) -> None:
+    m = _CONTROL_CHARS_RE.search(value)
+    if m is not None:
+        raise InvalidArgumentError(
+            f"param {key!r} contains control character U+{ord(m.group(0)):04X}"
+        )
+
 
 @dataclass(frozen=True)
 class _TextSpec:
@@ -178,6 +190,7 @@ def _coerce_params(primitive: str, params: tuple[tuple[str, str], ...]) -> dict[
                 raise InvalidArgumentError(f"param {key!r} must be non-empty")
             if not text:
                 continue  # optional empty → omit
+            _reject_control_chars(text, key)
             if len(text) > item.max_len:
                 raise InvalidArgumentError(
                     f"param {key!r} exceeds max length {item.max_len}, got {len(text)}"
@@ -219,6 +232,7 @@ def _coerce_params(primitive: str, params: tuple[tuple[str, str], ...]) -> dict[
             for part in items:
                 if not part:
                     raise InvalidArgumentError(f"param {key!r} contains an empty item")
+                _reject_control_chars(part, key)
                 if len(part) > item.item_max_len:
                     raise InvalidArgumentError(
                         f"param {key!r} item exceeds max length {item.item_max_len}"
