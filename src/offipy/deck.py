@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote
 
@@ -107,7 +109,9 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
 
 
 _ATTR_URL_RE = re.compile(r"((?:src|href|poster)\s*=\s*[\"'])([^\"']*)([\"'])")
-_SRCSET_RE = re.compile(r"(srcset\s*=\s*[\"'])([^\"']*)([\"'])")
+# srcset 值里可能带引号（data: URI 的 SVG 常用单引号属性），只以属性自身的结束
+# 引号定界，不能用 [^\"']*（会把含引号的 data URI 截断）。
+_SRCSET_RE = re.compile(r'(srcset\s*=\s*(["\']))((?:(?!\2).)*)(\2)')
 _IMPORT_URL_RE = re.compile(r"(@import\s+[\"'])([^\"']*)([\"'])")
 _CSS_URL_RE = re.compile(r"(url\(\s*[\"']?)([^\"')]*)([\"']?\s*\))")
 
@@ -129,13 +133,34 @@ def _abs_url(base_dir: Path, url: str) -> str:
     return resolved + (f"#{frag}" if frag else "")
 
 
+_DATA_URI_RE = re.compile(r"data:[^\s]+")
+
+
 def _rewrite_srcset(base_dir: Path, value: str) -> str:
-    """重写 srcset 里的每个候选 URL，保留 1x/2x/300w 描述符（#63）。"""
+    """重写 srcset 里的每个候选 URL，保留 1x/2x/300w 描述符（#63）。
+
+    data: URI 不含空白但可能含逗号（如 `data:image/svg+xml;utf8,<svg>...`）——
+    先整体藏起来再按逗号拆候选，否则会被误切成多段截断（#audit）。
+    """
+    stashed: list[str] = []
+
+    def _stash(m: re.Match[str]) -> str:
+        stashed.append(m.group(0))
+        return f"__OFFIPY_DATA_{len(stashed) - 1}__"
+
+    def _restore(token: str) -> str:
+        return re.sub(
+            r"__OFFIPY_DATA_(\d+)__",
+            lambda m: stashed[int(m.group(1))],
+            token,
+        )
+
     out = []
-    for candidate in value.split(","):
+    for candidate in _DATA_URI_RE.sub(_stash, value).split(","):
         parts = candidate.strip().split()
         if not parts:
             continue
+        parts = [_restore(p) for p in parts]
         out.append(" ".join([_abs_url(base_dir, parts[0]), *parts[1:]]).rstrip())
     return ", ".join(out)
 
@@ -151,7 +176,7 @@ def _rewrite_relative_urls(content: str, base_dir: Path) -> str:
         lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
     )
     content = _SRCSET_RE.sub(
-        lambda m: m.group(1) + _rewrite_srcset(base_dir, m.group(2)) + m.group(3),
+        lambda m: m.group(1) + _rewrite_srcset(base_dir, m.group(3)) + m.group(4),
         content,
     )
     content = _CSS_URL_RE.sub(
@@ -197,7 +222,53 @@ def _convert_cmd(
         cmd += ["--only-slides", ",".join(str(i) for i in only_slides)]
     if no_visual_audit:
         cmd += ["--no-visual-audit"]
+    # --no-work-copy：deck 自己管理输入（源 html 或临时注入副本），转换器不得在
+    # 源目录创建 .audited.html 工作副本（污染用户目录）。
+    cmd += ["--no-work-copy"]
+    # --fail-on-selfcheck：自检（Stage 5a 结构/像素校验）异常不再静默吞掉——deck
+    # 管线里验证失败必须显式报错，否则 audit 报告宣称"已校验"而底层根本没跑。
+    cmd += ["--fail-on-selfcheck"]
     return cmd
+
+
+def _kill_process_tree(pid: int) -> None:
+    """整树杀进程。Windows 用 taskkill /T——根进程还活着时才能顺带杀孙进程。
+
+    不能等根进程死了再枚举子孙：Windows 上父进程死后子进程会被 reparent，
+    按 PPID 事后枚举不到。POSIX 用进程组。
+    """
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, text=True)
+    else:
+        # POSIX 分支在本项目（Windows-only）实际不可达；mypy 在 Windows 平台类型
+        # 上会把 killpg/getpgid/SIGKILL 判为不存在，这里显式忽略该分支的 attr 检查。
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(pid), signal.SIGKILL)  # type: ignore[attr-defined]
+
+
+def _run_convert(cmd: list[str], timeout: int, env: dict[str, str]) -> SimpleNamespace:
+    """跑 convert 子进程，返回 returncode/stdout/stderr（SimpleNamespace）。
+
+    超时用 Popen.communicate 手动处理而非 subprocess.run(timeout=)：run 超时只杀
+    直接子进程，convert.py 派生的 chromium/渲染器孙进程会泄漏。这里超时先趁根
+    还活着 taskkill /T 整树杀掉，再收割输出（消息与旧 run 分支格式一致）。
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc.pid)
+        out, err = proc.communicate()
+        raise ConversionError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from None
+    return SimpleNamespace(returncode=proc.returncode, stdout=out, stderr=err)
 
 
 def _default_out(html: str) -> str:
@@ -246,13 +317,20 @@ def _preserve_audit_dir(tmp_pptx: str, final_out: str) -> None:
         shutil.rmtree(tmp_audit, ignore_errors=True)  # 改名失败不残留孤儿
 
 
-def _atomic_replace(tmp: str, final: str) -> None:
+def _atomic_replace(tmp: str, final: str, *, overwrite: bool = True) -> None:
     """原子替换临时 .pptx 到最终路径，并给可操作错误（#22）。
 
     Windows 下目标文件被占用（PowerPoint 打开 / 杀软 / 资源管理器）时 os.replace
     抛 PermissionError [WinError 5]。裸异常对迭代工作流不友好——把最常见的
     「PowerPoint 实况演示锁住产物」翻译成可执行指引。
+
+    overwrite=False 时落盘前再查一次 final 是否已存在：_render_tmp 前置检查与
+    os.replace 之间有空窗（并发/外部进程可能已创建目标），复查把 TOCTOU 窗口压到
+    最小。真正无竞争的原子不覆盖需要 O_EXCL 语义，Windows 上 os.replace 不提供，
+    这里取「复查 + 拒绝」的最优近似。
     """
+    if not overwrite and os.path.exists(final):
+        raise FileConflictError(f"输出 .pptx 已存在（overwrite=False）: {final}")
     try:
         os.replace(tmp, final)
     except PermissionError as e:
@@ -321,21 +399,7 @@ def _render_tmp(
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
         # 转换器可变数据（配置/lessons-learned）落用户数据目录，不写包内
         env["OFFIPY_CONVERTER_DATA_DIR"] = str(converter_data_dir())
-        try:
-            r = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=timeout,
-                env=env,
-            )
-        except subprocess.TimeoutExpired as e:
-            so, se = e.stdout, e.stderr
-            out = so.decode("utf-8", errors="replace") if isinstance(so, bytes) else (so or "")
-            err = se.decode("utf-8", errors="replace") if isinstance(se, bytes) else (se or "")
-            raise ConversionError(f"convert.py 超时 ({timeout}s)\n{out}\n{err}") from e
+        r = _run_convert(cmd, timeout=timeout, env=env)
         if r.returncode != 0:
             raise ConversionError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
         if not os.path.exists(tmp_pptx):
@@ -410,7 +474,7 @@ def _render_stage(
         overwrite,
         defer_audit_preserve=True,
     ) as (tmp_pptx, final_out):
-        stage = RenderStage(tmp_pptx=tmp_pptx, final_pptx=final_out)
+        stage = RenderStage(tmp_pptx=tmp_pptx, final_pptx=final_out, overwrite=overwrite)
         try:
             yield stage
         except BaseException:
@@ -438,13 +502,15 @@ def render(
 
     原子替换（P0-6）：转换先写同目录临时 .pptx，图表/图标后处理作用于
     临时文件，全部成功后才 os.replace 一步替换目标。任何失败/异常都会
-    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。
+    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。双产物
+    （.pptx + 审计目录）由 RenderStage.commit 先换 pptx、后移审计目录
+    （#audit-H1：审计目录绝不先于 pptx 落位，替换失败时新旧产物一致）。
     """
-    with _render_tmp(
+    with _render_stage(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
-    ) as (tmp_pptx, final_out):
-        _atomic_replace(tmp_pptx, final_out)
-    return final_out
+    ) as stage:
+        stage.commit()
+    return stage.final_pptx
 
 
 @dataclass
@@ -482,6 +548,7 @@ class RenderStage:
     tmp_pptx: str
     final_pptx: str
     committed: bool = False
+    overwrite: bool = True
 
     @property
     def tmp_audit_dir(self) -> Path:
@@ -501,7 +568,7 @@ class RenderStage:
         """先原子替换 PPTX，成功后把 tmp 审计目录改到最终名（双产物一起落位）。"""
         if self.committed:
             return
-        _atomic_replace(self.tmp_pptx, self.final_pptx)
+        _atomic_replace(self.tmp_pptx, self.final_pptx, overwrite=self.overwrite)
         if self.tmp_audit_dir.is_dir():
             _preserve_audit_dir(self.tmp_pptx, self.final_pptx)
         self.committed = True
@@ -555,20 +622,20 @@ def render_with_report(
     if not isinstance(fail_on, Severity):
         raise InvalidArgumentError("fail_on must be a Severity")
 
-    with _render_tmp(
+    with _render_stage(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
-    ) as (tmp_pptx, final_out):
-        audit_report = audit_pptx(tmp_pptx, audit_config)
+    ) as stage:
+        audit_report = audit_pptx(stage.tmp_pptx, audit_config)
         gate = audit_report.max_severity
         if audit_mode == "strict" and gate is not None and gate >= fail_on:
             raise AuditGateError(
                 f"审计门槛未通过：最高严重度 {gate.name} ≥ fail_on={fail_on.name}，"
-                f"{final_out} 未替换（旧文件保留）",
+                f"{stage.final_pptx} 未替换（旧文件保留）",
                 report=audit_report,
                 fail_on=fail_on,
             )
-        _atomic_replace(tmp_pptx, final_out)
-    return RenderResult(output_path=final_out, audit_report=audit_report)
+        stage.commit()
+    return RenderResult(output_path=stage.final_pptx, audit_report=audit_report)
 
 
 def _run_art_analysis(
@@ -710,7 +777,12 @@ def _export_pixel_slides(pptx: str, out_dir: str) -> list[str]:
 
 
 def _write_deck_info(out_dir: str, pptx: str) -> None:
-    info = {"schema": 1, "pptx_sha256": _sha256_file(pptx), "run_id": None}
+    info = {
+        "schema": 1,
+        "pptx": os.path.abspath(pptx),
+        "pptx_sha256": _sha256_file(pptx),
+        "run_id": None,
+    }
     Path(out_dir, "_deck_info.json").write_text(
         json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -734,19 +806,39 @@ def _is_slide_png(name: str) -> bool:
     return name.startswith("slide_") and name.endswith(".png")
 
 
+def _slides_dir_owned(final_slides: str, final_pptx: str) -> bool:
+    """该目录的 slide_*.png 是否归本 deck？凭 _deck_info.json 的 pptx 路径判断。
+
+    首次渲染目录里没有标记 → False（没有本 deck 旧产物可清，只做复制）；
+    上次标记的 pptx 路径与当前一致 → 是 re-render，可安全清理旧页；
+    标记指向别的 pptx / 标记缺失 / 标记损坏 → 目录是别人的，绝不删任何文件。
+    """
+    info_path = Path(final_slides, "_deck_info.json")
+    if not info_path.is_file():
+        return False
+    try:
+        info = json.loads(info_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return info.get("pptx") == os.path.abspath(final_pptx)
+
+
 def _move_slides_to_final(
     staging_slides: str, stage: RenderStage, slides_output_dir: str | None
 ) -> str:
     final_slides = slides_output_dir or _default_slides_dir(stage.final_pptx)
     os.makedirs(final_slides, exist_ok=True)
-    # 先清理本 deck 先前落位的产物（slide_*.png + _deck_info.json），避免 re-render
-    # 页数变少时残留旧页；绝不删用户其他文件。
-    for f in Path(final_slides).iterdir():
-        if f.is_file() and (f.name == "_deck_info.json" or _is_slide_png(f.name)):
-            f.unlink()
+    # 只清理本 deck 先前落位的产物（slide_*.png + _deck_info.json），避免 re-render
+    # 页数变少时残留旧页。归属校验确保绝不删用户其他文件——slides_output_dir 可能
+    # 指向共享目录，里面同名的 slide_*.png 不是本 deck 的。
+    if _slides_dir_owned(final_slides, stage.final_pptx):
+        for f in Path(final_slides).iterdir():
+            if f.is_file() and (f.name == "_deck_info.json" or _is_slide_png(f.name)):
+                f.unlink()
     for f in Path(staging_slides).iterdir():
         if f.is_file():
             shutil.copy2(str(f), os.path.join(final_slides, f.name))
+    _write_deck_info(final_slides, stage.final_pptx)
     return final_slides
 
 
@@ -812,11 +904,15 @@ def close_live(doc_id: str) -> None:
     配合 #26 的 Ppt.close_pres：关闭后同路径 re-render 不再 PermissionError。
     """
     ensure_server()
-    call("ppt", "close_pres", doc_id=doc_id, save=False)
-    path = _LIVE_TMP_PATHS.pop(doc_id, None)
-    if path:
-        with contextlib.suppress(OSError):
-            os.unlink(path)
+    try:
+        call("ppt", "close_pres", doc_id=doc_id, save=False)
+    finally:
+        # 即使 close_pres 异常（如 PowerPoint 已崩、server 已断），临时副本也要清理，
+        # 不残留 offipy-live-* 孤儿。
+        path = _LIVE_TMP_PATHS.pop(doc_id, None)
+        if path:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
 
 
 def export_slides(
@@ -861,7 +957,10 @@ def make(
         # 导出必须绑定本次渲染的 deck（P0-2）：open_live 返回其 doc_id，逐页导出
         # 显式传给它，绝不依赖「当前活动焦点」——防用户中途切到别的文稿。
         doc_id = open_live(pptx)
-        export_slides(feedback_dir, doc_id=doc_id, overwrite=overwrite)
+        try:
+            export_slides(feedback_dir, doc_id=doc_id, overwrite=overwrite)
+        finally:
+            close_live(doc_id)  # 导出后即释放实况窗口 + 临时副本，不留泄漏
     elif open_live_flag:
         open_live(pptx)
     return pptx

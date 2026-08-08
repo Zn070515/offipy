@@ -119,7 +119,7 @@ def test_chart_dominant_no_layouts_fails_before_converter(tmp_path, monkeypatch)
     def browser_recorder(*a, **k):
         browser_calls.append(a)
 
-    monkeypatch.setattr(deck.subprocess, "run", recorder)
+    monkeypatch.setattr(deck, "_run_convert", recorder)
     monkeypatch.setattr(deck, "_preflight_browser", browser_recorder)
 
     with pytest.raises(InvalidArgumentError) as exc:
@@ -144,7 +144,7 @@ def test_chart_dominant_with_layouts_passes_preflight(tmp_path, monkeypatch):
         run_calls.append(a)
         return _fake_run_creates_out(*a, **k)
 
-    monkeypatch.setattr(deck.subprocess, "run", fake_run)
+    monkeypatch.setattr(deck, "_run_convert", fake_run)
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: post_calls.append(a))
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, apply_layouts=True)
@@ -160,7 +160,7 @@ def test_custom_chart_no_layout_not_blocked(tmp_path, monkeypatch):
     _write(html, pptx, _CUSTOM_CHART_HTML)
 
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)
@@ -177,7 +177,7 @@ def test_no_chart_no_behavior_change(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)
@@ -190,7 +190,7 @@ def test_chart_dominant_no_chart_inside_not_preflighted(tmp_path, monkeypatch):
     _write(html, pptx, _CHART_DOM_NO_CHART_HTML)
 
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)
@@ -203,7 +203,7 @@ def test_chart_dominant_single_quote_layout(tmp_path, monkeypatch):
     _write(html, pptx, _CHART_DOM_SINGLE_QUOTE_HTML)
 
     run_calls: list[list] = []
-    monkeypatch.setattr(deck.subprocess, "run", lambda *a, **k: run_calls.append(a))
+    monkeypatch.setattr(deck, "_run_convert", lambda *a, **k: run_calls.append(a))
 
     with pytest.raises(InvalidArgumentError) as exc:
         deck.render(str(html), out=str(pptx), overwrite=True)
@@ -236,7 +236,7 @@ def test_chart_dominant_only_slides_filter(tmp_path, monkeypatch):
     mixed_pptx = tmp_path / "mixed.pptx"
     _write(mixed, mixed_pptx, _CHART_DOM_PLUS_PLAIN_HTML)
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
     out = deck.render(str(mixed), out=str(mixed_pptx), overwrite=True, only_slides=[2])
     assert out == str(mixed_pptx)
 
@@ -252,7 +252,7 @@ def test_chart_dominant_script_target_not_preflighted(tmp_path, monkeypatch):
     _write(html, pptx, _CHART_DOM_SCRIPT_TARGET_HTML)
 
     monkeypatch.setattr(charts, "postprocess_charts", lambda *a, **k: None)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)

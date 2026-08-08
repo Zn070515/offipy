@@ -149,7 +149,9 @@ def convert(html_path: Path, out_path: Path, keep_screenshots: bool, embed_fonts
             do_preflight: bool = True,
             do_visual_audit: bool = True,
             install_user_fonts: bool = False,
-            only_indices: set[int] | None = None):
+            only_indices: set[int] | None = None,
+            no_work_copy: bool = False,
+            fail_on_selfcheck: bool = False):
     html_path = html_path.resolve()
     out_path = out_path.resolve()
     if not html_path.exists():
@@ -298,6 +300,9 @@ def convert(html_path: Path, out_path: Path, keep_screenshots: bool, embed_fonts
                     only_indices=only_indices,
                     verbose=True)
             except Exception as e:
+                if fail_on_selfcheck:
+                    # 显式要求校验：自检 infra 异常不再静默吞掉，转换失败以暴露问题
+                    raise SystemExit(f"[self-check] 失败（--fail-on-selfcheck）：{e}") from e
                 print(f"[self-check] 异常（忽略，不影响产出）: {e}")
             print(f"[self-check] 耗时 {time.perf_counter()-t0:.2f}s")
 
@@ -423,6 +428,14 @@ def main():
                          "Linux → ~/.local/share/fonts/ + fc-cache。"
                          "WPS Office 不读 pptx 里裸 TTF 嵌入字体，装到系统后 WPS 才能正确渲染。"
                          "**SKILL.md 要求 agent 在调用前必须先 ask 用户**——这是改用户系统行为")
+    ap.add_argument("--no-work-copy", action="store_true",
+                    help="不做 .audited.html 工作副本。转换直接作用于输入文件（源 .html 或 "
+                         "调用方给的注入副本），不再在源目录创建/复用 .audited.html。"
+                         "给上游管线（offipy deck）用——它自己管理输入副本，源目录不能被污染。")
+    ap.add_argument("--fail-on-selfcheck", action="store_true",
+                    help="自检（Stage 5a）infra 异常时转换失败退出，而非静默忽略。"
+                         "无渲染器时 self_check 本身优雅降级（不 raise），此开关只拦真正的 "
+                         "infra 错误，避免「声称已校验但底层没跑」的假阴性。")
     args = ap.parse_args()
 
     if args.cleanup:
@@ -441,7 +454,8 @@ def main():
 
     in_path = Path(args.input)
 
-    in_path = _work_copy_target(in_path)
+    if not args.no_work_copy:
+        in_path = _work_copy_target(in_path)
 
     if args.out:
         out_path = Path(args.out)
@@ -477,6 +491,8 @@ def main():
             do_preflight=not args.no_preflight,
             do_visual_audit=not args.no_visual_audit,
             install_user_fonts=args.install_user_fonts,
+            no_work_copy=args.no_work_copy,
+            fail_on_selfcheck=args.fail_on_selfcheck,
             only_indices=only_indices)
 
 

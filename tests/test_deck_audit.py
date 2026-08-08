@@ -46,7 +46,7 @@ def fake_tmp(monkeypatch, tmp_path):
 
     @contextmanager
     def _fake_tmp(
-        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite, **kw
     ):
         final = str(tmp_path / "deck.pptx")
         tmp = str(tmp_path / ".deck.pptx")

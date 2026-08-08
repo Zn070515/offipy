@@ -57,7 +57,7 @@ def test_theme_only_passes_injected_target_to_charts(tmp_path, monkeypatch):
         recorded["content_at_call"] = Path(a[0]).read_text(encoding="utf-8")
 
     monkeypatch.setattr(charts, "postprocess_charts", record)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, theme="mckinsey")
     assert out == str(pptx)
@@ -86,7 +86,7 @@ def test_layouts_only_passes_injected_target_to_charts(tmp_path, monkeypatch):
         recorded["exists_at_call"] = Path(a[0]).exists()
 
     monkeypatch.setattr(charts, "postprocess_charts", record)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, apply_layouts=True)
     assert out == str(pptx)
@@ -111,7 +111,7 @@ def test_no_injection_passes_original_source_to_charts(tmp_path, monkeypatch):
         recorded["html"] = a[0]
 
     monkeypatch.setattr(charts, "postprocess_charts", record)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)
@@ -136,7 +136,7 @@ def test_theme_only_passes_injected_target_to_assets(tmp_path, monkeypatch):
         return AssetUsageReport(())
 
     monkeypatch.setattr("offipy.assets.render.postprocess_assets", record)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, theme="mckinsey")
     assert out == str(pptx)
@@ -165,7 +165,7 @@ def test_layouts_only_passes_injected_target_to_assets(tmp_path, monkeypatch):
         return AssetUsageReport(())
 
     monkeypatch.setattr("offipy.assets.render.postprocess_assets", record)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True, apply_layouts=True)
     assert out == str(pptx)
@@ -201,7 +201,7 @@ def test_asset_only_passes_injected_target_to_assets(tmp_path, monkeypatch):
         return AssetUsageReport(())
 
     monkeypatch.setattr("offipy.assets.render.postprocess_assets", record)
-    monkeypatch.setattr(deck.subprocess, "run", _fake_run_creates_out)
+    monkeypatch.setattr(deck, "_run_convert", _fake_run_creates_out)
 
     out = deck.render(str(html), out=str(pptx), overwrite=True)
     assert out == str(pptx)
