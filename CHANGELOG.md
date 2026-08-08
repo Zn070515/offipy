@@ -3,6 +3,18 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.14.5] - 2026-08-08
+
+### Fixed
+- **server 脱敏 file:// URL（#78）**：`file:///Users`、`file:///C:/` 等任意平台
+  file:// 路径形态漏脱（0c02694 修 #75 时把 POSIX lookbehind 收紧，/ 前是 / 的形态
+  全被挡死），现专用分支覆盖；http(s) URL 不受影响。
+- **server 脱敏过度（#79）**：Windows 分支贪婪吞掉路径后尾随业务文本（「已保存
+  C:\...pptx 到桌面」→ 尾随「到桌面」丢失）；POSIX 分支把 `../` 相对段误当绝对路径
+  留残根。Windows 分支改非贪婪 + 业务文本边界截断（中文/引号/doc_id/串尾），
+  POSIX 拒绝 `.` 前导相对段。已知限制：英文短尾词（done/processed）仍被吞（LOW，
+  H10 宁多勿漏）。
+
 ## [0.14.4] - 2026-08-08
 
 ### Fixed

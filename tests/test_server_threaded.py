@@ -254,6 +254,44 @@ def test_redact_message_covers_non_whitelist_posix_roots():
     assert "report-2026q1" not in out2
 
 
+def test_redact_message_covers_file_url_forms():
+    # #78：0c02694 修 #75 时把 POSIX lookbehind 收紧为 (?<![:/@\w])——file:///Users 等
+    # / 前是 / 的形态全被挡死，0.14.3 可脱变 0.14.4 泄漏。file:// 是桌面/前端工具链
+    # 标准路径形态，须专用分支覆盖任意平台（/Users /home /data /C:）。
+    cases = [
+        ("file:///Users/alice/docs/x.pptx", "alice"),
+        ("file:///home/bob/data/y.png", "bob"),
+        ("file:///data/offipy/docs/2026Q1.pptx", "offipy"),
+        ("file:///C:/Users/secret/x.pptx", "secret"),
+    ]
+    for msg, leaked in cases:
+        out = server._redact_message(f"err: {msg}")
+        assert "[REDACTED]" in out, (msg, out)
+        assert leaked not in out, (msg, out)
+    # 对照：http(s) URL 不误伤（file:// 分支与 POSIX lookbehind 双保险）
+    assert server._redact_message("详见 https://host/path/page") == (
+        "详见 https://host/path/page"
+    )
+
+
+def test_redact_message_does_not_swallow_trailing_text():
+    # #79：Windows 分支 [^\"']* 贪婪吞掉路径后尾随业务文本（已保存 C:\...pptx 到桌面 →
+    # 已保存 [REDACTED]，尾随「到桌面」丢失）；POSIX 分支把 ../ 相对段误当绝对路径
+    # （../docs/x.html → ..[REDACTED] 残根）。路径后正常文本应保留、相对路径不误脱。
+    out = server._redact_message(
+        r"已保存 C:\Users\secret\financial\2026Q1.pptx 到桌面"
+    )
+    assert out == r"已保存 [REDACTED] 到桌面"
+    assert "到桌面" in out
+    out2 = server._redact_message(r"打开 'C:\Users\secret\x.pptx' 成功")
+    assert out2 == r"打开 '[REDACTED]' 成功"
+    out3 = server._redact_message("/data/offipy/docs/x.html 已转换")
+    assert "已转换" in out3
+    for rel in ("../docs/x.html", "../../a/b/c.html", "./style.css"):
+        raw = f"err: {rel}"
+        assert server._redact_message(raw) == raw, rel
+
+
 def test_error_result_and_trace_redact_message_content():
     # #67：c5ef6be 只删 traceback 帧，_error_result.error / _safe_trace 消息原文仍带
     # 绝对路径与 doc_id。现在两者都经 _redact_message 脱敏。
