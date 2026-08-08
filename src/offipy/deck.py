@@ -106,7 +106,9 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
         )
 
 
-_ATTR_URL_RE = re.compile(r"((?:src|href)\s*=\s*[\"'])([^\"']*)([\"'])")
+_ATTR_URL_RE = re.compile(r"((?:src|href|poster)\s*=\s*[\"'])([^\"']*)([\"'])")
+_SRCSET_RE = re.compile(r"(srcset\s*=\s*[\"'])([^\"']*)([\"'])")
+_IMPORT_URL_RE = re.compile(r"(@import\s+[\"'])([^\"']*)([\"'])")
 _CSS_URL_RE = re.compile(r"(url\(\s*[\"']?)([^\"')]*)([\"']?\s*\))")
 
 
@@ -127,8 +129,19 @@ def _abs_url(base_dir: Path, url: str) -> str:
     return resolved + (f"#{frag}" if frag else "")
 
 
+def _rewrite_srcset(base_dir: Path, value: str) -> str:
+    """重写 srcset 里的每个候选 URL，保留 1x/2x/300w 描述符（#63）。"""
+    out = []
+    for candidate in value.split(","):
+        parts = candidate.strip().split()
+        if not parts:
+            continue
+        out.append(" ".join([_abs_url(base_dir, parts[0]), *parts[1:]]).rstrip())
+    return ", ".join(out)
+
+
 def _rewrite_relative_urls(content: str, base_dir: Path) -> str:
-    """把相对 src/href/CSS url() 重写为以 base_dir 为基准的绝对 file:// URL。
+    """把相对 src/href/poster/srcset/CSS url()/@import 重写为绝对 file:// URL。
 
     注入副本落在 offipy-deck-* 临时目录，源 HTML 基于自身目录的相对引用
     （img/、样式、url()）在副本下会解析失败 → 资源加载不到（#57）。写入副本前
@@ -137,7 +150,14 @@ def _rewrite_relative_urls(content: str, base_dir: Path) -> str:
     content = _ATTR_URL_RE.sub(
         lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
     )
-    return _CSS_URL_RE.sub(
+    content = _SRCSET_RE.sub(
+        lambda m: m.group(1) + _rewrite_srcset(base_dir, m.group(2)) + m.group(3),
+        content,
+    )
+    content = _CSS_URL_RE.sub(
+        lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
+    )
+    return _IMPORT_URL_RE.sub(
         lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
     )
 

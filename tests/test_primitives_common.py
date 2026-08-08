@@ -18,6 +18,7 @@ from offipy.assets.model import (
 )
 from offipy.assets.primitives import get_native_renderer
 from offipy.assets.primitives._common import (
+    _char_width_em,
     add_shape,
     add_textbox,
     fit_font_size,
@@ -153,20 +154,46 @@ def test_fit_font_size_wrapped_empty_text() -> None:
     assert fit_font_size_wrapped("", 400, 200, start_pt=20, min_pt=8) > 0
 
 
+def _full_width_cp(cp: int) -> bool:
+    """Arial/CJK 下全角（≈1.0em）的码点：#56/#62 的「真实字形」模型。
+
+    CJK 表意字/假名/谚文、全角标点，以及半角码位里的全角字形——箭头
+    （U+2190-21FF）、连字符/破折号（U+2010-2015）在 Arial 下也是 1.0em。
+    """
+    return (
+        cp > 0x2E80
+        or cp == 0x3000
+        or 0x2010 <= cp <= 0x2015
+        or 0x2190 <= cp <= 0x21FF
+        or 0xFF01 <= cp <= 0xFF60
+        or 0xFFE0 <= cp <= 0xFFE6
+    )
+
+
 def _real_wrapped_max_width_px(text: str, size_pt: float, w_px: float) -> float:
-    """真实字形宽度（CJK 全角 ≈1.0em，拉丁/空格 ≈0.55em）下 greedy wrap 的最宽行。"""
+    """真实字形宽度（CJK/全角字形 ≈1.0em，拉丁/空格 ≈0.55em）下 greedy wrap 的最宽行。"""
     em_px = size_pt * (96.0 / 72.0)
     space_w_px = em_px * 0.55
     cur = 0.0
     max_w = 0.0
     for token in text.split():
-        token_w = em_px * sum(1.0 if ord(ch) > 0x2E80 else 0.55 for ch in token)
+        token_w = em_px * sum(1.0 if _full_width_cp(ord(ch)) else 0.55 for ch in token)
         if cur == 0 or cur + space_w_px + token_w <= w_px:
             cur += (space_w_px if cur else 0.0) + token_w
         else:
             max_w = max(max_w, cur)
             cur = token_w
     return max(max_w, cur)
+
+
+def test_char_width_em_fullwidth_halfwidth_code_points() -> None:
+    # #62：箭头/破折号是半角码位里的全角字形，Arial 下 1.0em，此前被按 0.55em 低估
+    assert _char_width_em("→", 0.55) == 1.0
+    assert _char_width_em("←", 0.55) == 1.0
+    assert _char_width_em("—", 0.55) == 1.0
+    assert _char_width_em("–", 0.55) == 1.0
+    assert _char_width_em("A", 0.55) == pytest.approx(0.55)
+    assert _char_width_em("让", 0.55) == 1.0
 
 
 def test_fit_font_size_cjk_does_not_overflow() -> None:
@@ -176,6 +203,18 @@ def test_fit_font_size_cjk_does_not_overflow() -> None:
         ("操作点 漏检/误检", 420.0, 240.0),
         ("城市环境智能治理", 400.0, 100.0),
         ("让每处垃圾都被看见", 420.0, 200.0),
+    ]
+    for text, w, h in cases:
+        pt = fit_font_size_wrapped(text, w, h, start_pt=60.0, min_pt=8.0)
+        real_w = _real_wrapped_max_width_px(text, pt, w)
+        assert real_w <= w + 1e-6, f"{text!r} pt={pt:.1f} real_w={real_w:.1f} > box {w}"
+
+
+def test_fit_font_size_wrapped_arrow_and_dash_do_not_overflow() -> None:
+    # #62 回归：含 →/—— 的图元文本此前按 0.55em 低估 → 溢出测量矩形
+    cases = [
+        ("FP32 → FP16", 420.0, 200.0),
+        ("——让每处垃圾都被看见", 420.0, 200.0),
     ]
     for text, w, h in cases:
         pt = fit_font_size_wrapped(text, w, h, start_pt=60.0, min_pt=8.0)
