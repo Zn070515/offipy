@@ -290,7 +290,8 @@ class WordApp:
         """打开现有文档并设为活动。返回 doc_id。"""
         if not os.path.isfile(path):
             raise InvalidArgumentError(f"源文件不存在: {path}")
-        return self._register(self.app.Documents.Open(path))
+        # H6：COM Open 按自身工作目录（通常 System32）解析相对路径 → 先规范为绝对路径
+        return self._register(self.app.Documents.Open(os.path.abspath(path)))
 
     def active_doc(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
@@ -853,13 +854,19 @@ class WordApp:
             raise ComOperationError("连接的是既有 Word 实例，拒绝退出；确需退出请传 force=True")
         try:
             # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
-            self.app.DisplayAlerts = self._saved_alerts
+            # H5：Quit 前必须抑制弹窗（WD_ALERTS_NONE），否则有未保存文档时 Quit
+            # 弹「是否保存」模态框 → COM 调用阻塞挂死。还原放 finally：Quit 成功
+            # 进程已退，还原是 no-op；Quit 失败仍需还给用户原值。
+            self.app.DisplayAlerts = WD_ALERTS_NONE
             pid = core.app_process_pid(self.app, "word") or self._pid
             self.app.Quit()
         except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Word 失败: {e}") from e
+        finally:
+            with suppress(Exception):
+                self.app.DisplayAlerts = self._saved_alerts
         # Quit 已返回但进程可能残留（RCW/COM server 保持）：按 PID 精确清理
         if not core.wait_process_exit(pid, timeout=2.0):
             core.reap_process(pid)

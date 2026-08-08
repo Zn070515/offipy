@@ -31,6 +31,9 @@ from .paths import default_save_path, ensure_writable
 
 PP_ALERTS_NONE = 1  # ppAlertsNone（=0 是 ppAlertsAll）
 PP_FIXED_FORMAT_TYPE_PDF = 2  # ppFixedFormatTypePDF（ExportAsFixedFormat 的 OutputType）
+# export_slides 宽高上限：10 万像素足够任何真实输出，再多是笔误/恶意值，
+# 会让 PowerPoint 分配巨幅位图拖垮内存。
+_MAX_EXPORT_DIM = 100_000
 PP_LAYOUT_TITLE = 1
 PP_LAYOUT_TEXT = 2
 PP_LAYOUT_TITLE_ONLY = 5
@@ -1039,6 +1042,18 @@ class PptApp:
         默认拒绝覆盖已有输出；overwrite=True 时先导出到同卷 staging 临时目录，
         全部成功后 os.replace 原子替换，中途失败不留半成品。
         """
+        if (
+            isinstance(width, bool)
+            or not isinstance(width, int)
+            or not 1 <= width <= _MAX_EXPORT_DIM
+        ):
+            raise InvalidArgumentError(f"width 必须是 1~{_MAX_EXPORT_DIM} 的整数，收到 {width!r}")
+        if (
+            isinstance(height, bool)
+            or not isinstance(height, int)
+            or not 1 <= height <= _MAX_EXPORT_DIM
+        ):
+            raise InvalidArgumentError(f"height 必须是 1~{_MAX_EXPORT_DIM} 的整数，收到 {height!r}")
         out_dir = os.path.abspath(out_dir)
         pres = self._require_pres(doc_id)
         count = pres.Slides.Count
@@ -1524,13 +1539,19 @@ class PptApp:
             )
         try:
             # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
-            self.app.DisplayAlerts = self._saved_alerts
+            # H5：Quit 前必须抑制弹窗（PP_ALERTS_NONE），否则有未保存文档时 Quit
+            # 弹「是否保存」模态框 → COM 调用阻塞挂死。还原放 finally：Quit 成功
+            # 进程已退，还原是 no-op；Quit 失败仍需还给用户原值。
+            self.app.DisplayAlerts = PP_ALERTS_NONE
             pid = core.app_process_pid(self.app, "ppt") or self._pid
             self.app.Quit()
         except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 PowerPoint 失败: {e}") from e
+        finally:
+            with suppress(Exception):
+                self.app.DisplayAlerts = self._saved_alerts
         # Quit 已返回但进程可能残留（RCW/COM server 保持）：按 PID 精确清理
         if pid is not None:
             if not core.wait_process_exit(pid, timeout=2.0):

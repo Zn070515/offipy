@@ -23,6 +23,26 @@ _CELL_RE = re.compile(r"^([A-Za-z]{1,3})(\d{1,7})$")
 # Excel 真实 grid 上限：XFD 列（16384）× 1048576 行
 _MAX_COL = 16384
 _MAX_ROW = 1048576
+# 控制字符（U+0000-U+001F、U+007F、U+0080-U+009F）：工作表名/单元格文本不得携带。
+# 用 chr() 构造，避免在源码里嵌转义。
+_CTRL_CP = list(range(32)) + [127] + list(range(128, 160))
+_CONTROL_CHARS_RE = re.compile("[" + "".join(chr(c) for c in _CTRL_CP) + "]")
+
+
+def _validate_sheet_name(name: str) -> None:
+    """add_sheet 的名称前置校验：非空、≤31 字符、无 Excel 非法字符与控制字符。"""
+    if not name:
+        raise InvalidArgumentError("add_sheet: name 不能为空")
+    if len(name) > 31:
+        raise InvalidArgumentError(
+            f"add_sheet: name 超过 31 字符（Excel 上限），收到 {len(name)} 字符"
+        )
+    if any(c in name for c in "\\/?*[]:"):
+        raise InvalidArgumentError(
+            f"add_sheet: name {name!r} 含非法字符（Excel 禁止 \\ / ? * [ ] :）"
+        )
+    if _CONTROL_CHARS_RE.search(name):
+        raise InvalidArgumentError(f"add_sheet: name {name!r} 含控制字符")
 
 
 def _parse_cell(cell: str):
@@ -251,7 +271,8 @@ class ExcelApp:
         """打开现有工作簿并设为活动。返回 doc_id。"""
         if not os.path.isfile(path):
             raise InvalidArgumentError(f"源文件不存在: {path}")
-        return self._register(self.app.Workbooks.Open(path))
+        # H6：COM Open 按自身工作目录（通常 System32）解析相对路径 → 先规范为绝对路径
+        return self._register(self.app.Workbooks.Open(os.path.abspath(path)))
 
     def active_book(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
@@ -428,10 +449,14 @@ class ExcelApp:
 
     @destructive
     def add_sheet(self, name: str, doc_id: str | None = None):
+        _validate_sheet_name(name)
         book = self._require_book(doc_id)
-        ws = book.Worksheets.Add()
-        ws.Name = name
-        return ws
+        try:
+            return book.Worksheets(name)  # 幂等：同名表已存在直接返回
+        except _COM_ERROR:
+            ws = book.Worksheets.Add()
+            ws.Name = name
+            return ws
 
     # --- 单元格 ---
     @destructive
@@ -538,6 +563,10 @@ class ExcelApp:
     # --- 冻结窗格 ---
     @destructive
     def freeze_panes(self, sheet, rows: int = 0, cols: int = 0, doc_id: str | None = None):
+        if isinstance(rows, bool) or not isinstance(rows, int):
+            raise InvalidArgumentError(f"freeze_panes: rows 必须是整数，收到 {rows!r}")
+        if isinstance(cols, bool) or not isinstance(cols, int):
+            raise InvalidArgumentError(f"freeze_panes: cols 必须是整数，收到 {cols!r}")
         if rows < 0 or cols < 0:
             raise InvalidArgumentError(f"rows/cols 必须 ≥0，收到 rows={rows}, cols={cols}")
         ws = self._ws(sheet, doc_id)
@@ -686,13 +715,19 @@ class ExcelApp:
             raise ComOperationError("连接的是既有 Excel 实例，拒绝退出；确需退出请传 force=True")
         try:
             # P1-3：直接退自持句柄（不重连 ROT 里其它实例），避免误关别人的窗口
-            self.app.DisplayAlerts = self._saved_alerts
+            # H5：Quit 前必须抑制弹窗（False），否则有未保存工作簿时 Quit 弹
+            # 保存框 → COM 调用阻塞挂死。还原放 finally：Quit 成功进程已退，
+            # 还原是 no-op；Quit 失败仍需还给用户原值。
+            self.app.DisplayAlerts = False
             pid = core.app_process_pid(self.app, "excel") or self._pid
             self.app.Quit()
         except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Excel 失败: {e}") from e
+        finally:
+            with suppress(Exception):
+                self.app.DisplayAlerts = self._saved_alerts
         # Quit 已返回但进程可能残留（RCW/COM server 保持，Excel 常驻）：按 PID 精确清理
         if not core.wait_process_exit(pid, timeout=2.0):
             core.reap_process(pid)

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from offipy import ppt
-from offipy.exceptions import FileConflictError
+from offipy.exceptions import FileConflictError, InvalidArgumentError
 
 
 class _Slide:
@@ -83,3 +83,19 @@ def test_export_slides_out_dir_is_file_refuses(tmp_path):
         app.export_slides(str(out_file), doc_id="pres1")
     with pytest.raises(FileConflictError, match="输出目录已存在且不是目录"):
         app.export_slides(str(out_file), overwrite=True, doc_id="pres1")
+
+
+def test_export_slides_width_height_must_be_positive_ints(tmp_path):
+    # C3：width/height 传 0/负数/非整数/超上限会让 COM Export 失败或分配巨幅位图
+    app = _app(_Pres())
+    for bad in (0, -1, 1.5, "100", True, 100_000_000):
+        with pytest.raises(InvalidArgumentError):
+            app.export_slides(str(tmp_path / "o1"), width=bad, height=50, doc_id="pres1")
+        with pytest.raises(InvalidArgumentError):
+            app.export_slides(str(tmp_path / "o2"), width=100, height=bad, doc_id="pres1")
+
+
+def test_export_slides_width_height_large_but_valid_ok(tmp_path):
+    app = _app(_Pres())
+    paths = app.export_slides(str(tmp_path / "png"), width=10000, height=10000, doc_id="pres1")
+    assert len(paths) == 2
