@@ -197,6 +197,28 @@ class TestConflicts:
         with pytest.raises(InvalidArgumentError):
             _decls(html)
 
+
+class TestLegacyIconUriEncoding:
+    def test_plain_name_roundtrips(self):
+        rewritten, decls = _decls(
+            '<section data-pptx-slide><svg data-icon="ph:check"></svg></section>'
+        )
+        assert 'data-asset="asset://ph/icon/check"' in rewritten
+        assert decls[0].request.ref.name == "check"
+
+    def test_name_needing_encoding_stays_canonical(self):
+        # 名称含空格等必须百分号编码的字符：注入副本仍是规范 URI，不被截断
+        rewritten, _ = _decls(
+            '<section data-pptx-slide><svg data-icon="ph:arrow left"></svg></section>'
+        )
+        assert 'data-asset="asset://ph/icon/arrow%20left"' in rewritten
+
+    def test_special_chars_do_not_become_uri_structure(self):
+        # 若原样拼接，'?'/'#' 会改变 URI 结构（query/fragment）导致 parse 报
+        # fragment 错误；编码后全部留在 name 数据段，交给下游名校验拒绝。
+        rewritten, _ = _decls('<section data-pptx-slide><svg data-icon="ph:a?b#c"></svg></section>')
+        assert 'data-asset="asset://ph/icon/a%3Fb%23c"' in rewritten
+
     def test_unknown_legacy_icon_set_fails(self):
         html = '<section data-pptx-slide><svg data-icon="tabler:x"></svg></section>'
         with pytest.raises(InvalidArgumentError):

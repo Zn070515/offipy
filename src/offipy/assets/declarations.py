@@ -18,7 +18,7 @@ from offipy.assets.model import (
     AssetRequest,
     canonical_params,
 )
-from offipy.assets.uri import parse_asset_uri
+from offipy.assets.uri import _percent_encode, parse_asset_uri
 from offipy.exceptions import InvalidArgumentError
 
 _LEGACY_ICON_SETS = frozenset({"ph", "lu"})
@@ -125,7 +125,9 @@ class _DeclarationExtractor(HTMLParser):
             raise InvalidArgumentError(
                 f"invalid legacy data-icon {data_icon!r} (expected ph:<name> or lu:<name>)"
             )
-        return f"asset://{set_}/icon/{name}"
+        # name 必须百分号编码：原样拼接会让 '?'/'#'/'/' 等改变 URI 结构
+        # （query/fragment/segment），编码后全部留在 name 数据段，由下游名校验拒绝。
+        return f"asset://{set_}/icon/{_percent_encode(name)}"
 
     @staticmethod
     def _primitive_uri(name: str) -> str:
