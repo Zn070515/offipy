@@ -9,7 +9,9 @@ the public asset core surface.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -147,22 +149,37 @@ def bind_asset_measurements(
 
 _PX_TO_EMU = 6350  # 转换器画布 1920×1080 px = 12192000×6858000 EMU
 
+_logger = logging.getLogger(__name__)
+
+# SVG→PNG fallback 防御：screenshot 超时 + viewBox 画布上限，防畸形/恶意 SVG 挂起或
+# 制造超大页面占满内存（#H8）。合法 SVG 长边不会超过 deck 画布数量级。
+_SCREENSHOT_TIMEOUT_MS = 10_000
+_MAX_SVG_DIM = 8192
+
 
 def _px_rect(rect: AssetRect) -> dict[str, float]:
     return {"x": rect.x, "y": rect.y, "w": rect.width, "h": rect.height}
 
 
 def _accent_rgb(context: AssetRenderContext):
-    """theme_vars['accent'] → RGBColor（图标 computed color 缺失时的 v0.13.2 兜底）。"""
+    """theme_vars['accent'] → RGBColor（图标 computed color 缺失时的 v0.13.2 兜底）。
+
+    与 legacy `_parse_color` 同源解析：接受 #RRGGBB 与 rgb(r,g,b)（computed CSS
+    值可能以 rgb() 返回，旧实现只认 hex 会静默丢主题 accent）；无法解析返回 None
+    （再落缺省主蓝）。
+    """
     accent = context.theme_vars.get("accent")
     if not accent:
         return None
-    m = re.fullmatch(r"#([0-9a-fA-F]{6})", accent.strip())
-    if not m:
-        return None
     from pptx.dml.color import RGBColor
 
-    return RGBColor.from_string(m.group(1))
+    m = re.fullmatch(r"#([0-9a-fA-F]{6})", accent.strip())
+    if m:
+        return RGBColor.from_string(m.group(1))
+    m = re.search(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", accent)
+    if m:
+        return RGBColor(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return None
 
 
 def render_asset(
@@ -300,19 +317,36 @@ def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
     m = re.search(r'viewBox="([^"]+)"', svg_text)
     if m:
         # SVG 规范允许逗号/空白任意混用作坐标分隔（viewBox="0,0 100,100"）
-        vx, vy, vw, vh = (float(v) for v in re.split(r"[,\s]+", m.group(1).strip()))
+        parts = [p for p in re.split(r"[,\s]+", m.group(1).strip()) if p]
+        if len(parts) != 4:
+            return None
+        try:
+            vx, vy, vw, vh = (float(v) for v in parts)
+        except ValueError:
+            return None
     else:
         vx, vy, vw, vh = 0.0, 0.0, 512.0, 512.0
+    if not all(math.isfinite(v) for v in (vx, vy, vw, vh)) or vw <= 0 or vh <= 0:
+        return None
     clip_x, clip_y = max(0.0, vx), max(0.0, vy)
-    width, height = int(math.ceil(clip_x + vw)), int(math.ceil(clip_y + vh))
-    page.set_viewport_size({"width": max(1, width), "height": max(1, height)})
+    width = min(max(1, int(math.ceil(clip_x + vw))), _MAX_SVG_DIM)
+    height = min(max(1, int(math.ceil(clip_y + vh))), _MAX_SVG_DIM)
+    page.set_viewport_size({"width": width, "height": height})
     page.set_content(
         "<html><head><style>html,body{margin:0;padding:0}"
         "svg{width:100%;height:100%;display:block}</style></head>"
-        f"<body><div style='width:{width}px;height:{height}px'>{svg_text}</div></body></html>"
+        f"<body><div style='width:{width}px;height:{height}px'>{svg_text}</div></body></html>",
+        timeout=_SCREENSHOT_TIMEOUT_MS,
     )
     return page.screenshot(
-        clip={"x": clip_x, "y": clip_y, "width": int(vw), "height": int(vh)}, type="png"
+        clip={
+            "x": min(clip_x, float(width - 1)),
+            "y": min(clip_y, float(height - 1)),
+            "width": min(int(vw), width),
+            "height": min(int(vh), height),
+        },
+        type="png",
+        timeout=_SCREENSHOT_TIMEOUT_MS,
     )
 
 
@@ -339,13 +373,18 @@ def _make_svg_to_png():
                 browser = pw.chromium.launch()
             except Exception:
                 return None
-        page = browser.new_page()
+        page = None
         try:
+            # new_page 必须在 try 内：创建失败不得让整个资产注入崩溃（#H9）
+            page = browser.new_page()
             return _svg_page_screenshot(page, svg_text)
-        except Exception:
+        except Exception as exc:
+            _logger.warning("SVG→PNG fallback failed: %s", exc)
             return None
         finally:
-            page.close()
+            if page is not None:
+                with contextlib.suppress(Exception):
+                    page.close()
 
     def close() -> None:
         nonlocal browser, pw
