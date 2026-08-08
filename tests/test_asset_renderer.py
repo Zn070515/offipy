@@ -29,6 +29,7 @@ from offipy.assets.model import (
 )
 from offipy.assets.providers.icons import IconProvider
 from offipy.assets.render import (
+    _accent_rgb,
     _as_element,
     _svg_page_screenshot,
     place_rendered_elements,
@@ -289,12 +290,37 @@ class _FakeSvgPage:
     def set_viewport_size(self, viewport):
         self.viewport = viewport
 
-    def set_content(self, _content):
+    def set_content(self, _content, **_kwargs):
         pass
 
     def screenshot(self, **kwargs):
         self.clip = kwargs.get("clip")
         return b"PNG-bytes"
+
+
+def test_accent_rgb_hex():
+    from pptx.dml.color import RGBColor
+
+    assert _accent_rgb(_context(theme_vars={"accent": "#2251ff"})) == RGBColor(0x22, 0x51, 0xFF)
+    assert _accent_rgb(_context(theme_vars={"accent": "  #2251FF  "})) == RGBColor(0x22, 0x51, 0xFF)
+
+
+def test_accent_rgb_rgb_function_form():
+    # computed CSS 值可能以 rgb(r,g,b) 返回：与 legacy _parse_color 同源解析
+    from pptx.dml.color import RGBColor
+
+    assert _accent_rgb(_context(theme_vars={"accent": "rgb(34, 81, 255)"})) == RGBColor(
+        0x22, 0x51, 0xFF
+    )
+    assert _accent_rgb(_context(theme_vars={"accent": "rgba(34, 81, 255, 0.5)"})) == RGBColor(
+        0x22, 0x51, 0xFF
+    )
+
+
+def test_accent_rgb_unparseable_returns_none():
+    assert _accent_rgb(_context(theme_vars={"accent": ""})) is None
+    assert _accent_rgb(_context(theme_vars={"accent": "#123"})) is None
+    assert _accent_rgb(_context(theme_vars={"accent": "not-a-color"})) is None
 
 
 def test_svg_page_screenshot_handles_comma_viewbox():
@@ -311,3 +337,60 @@ def test_svg_page_screenshot_handles_mixed_viewbox_separators():
     page = _FakeSvgPage()
     assert _svg_page_screenshot(page, svg) == b"PNG-bytes"
     assert page.clip == {"x": 10, "y": 20, "width": 30, "height": 40}
+
+
+def test_svg_page_screenshot_caps_huge_viewbox():
+    # 畸形/恶意 viewBox 不能制造超大画布占满内存：viewport 与 clip 都封顶
+    svg = '<svg viewBox="0 0 1000000 2000000"><rect/></svg>'
+    page = _FakeSvgPage()
+    assert _svg_page_screenshot(page, svg) == b"PNG-bytes"
+    assert page.viewport == {"width": 8192, "height": 8192}
+    assert page.clip["width"] <= 8192
+    assert page.clip["height"] <= 8192
+
+
+def test_svg_page_screenshot_rejects_malformed_viewbox():
+    page = _FakeSvgPage()
+    assert _svg_page_screenshot(page, '<svg viewBox="0 0 100"></svg>') is None
+    assert _svg_page_screenshot(page, '<svg viewBox="0 0 a b"></svg>') is None
+
+
+def test_svg_page_screenshot_rejects_nonpositive_viewbox():
+    page = _FakeSvgPage()
+    assert _svg_page_screenshot(page, '<svg viewBox="0 0 0 100"></svg>') is None
+    assert _svg_page_screenshot(page, '<svg viewBox="0 0 100 0"></svg>') is None
+
+
+def test_make_svg_to_png_new_page_failure_returns_none(monkeypatch):
+    # H9：new_page 创建失败不得让资产注入崩溃，convert 返回 None（降级纯 SVG）
+    from playwright import sync_api
+
+    import offipy.assets.render as render_mod
+
+    class _FakeBrowser:
+        def new_page(self):
+            raise RuntimeError("no page")
+
+        def close(self):
+            pass
+
+    class _FakeChromium:
+        def launch(self):
+            return _FakeBrowser()
+
+    class _FakePW:
+        def __init__(self):
+            self.chromium = _FakeChromium()
+
+        def start(self):
+            return self
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr(sync_api, "sync_playwright", lambda: _FakePW())
+    convert, close = render_mod._make_svg_to_png()
+    try:
+        assert convert("<svg viewBox='0 0 10 10'></svg>") is None
+    finally:
+        close()

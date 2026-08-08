@@ -10,9 +10,9 @@ immutable `SvgPayload` preserving the template view box.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 
+from offipy.assets._xml import parse_svg
 from offipy.assets.color import _HEX_COLOR_RE, validate_color_value
 from offipy.assets.model import SvgPayload, SvgTemplatePayload
 from offipy.exceptions import InvalidArgumentError
@@ -77,8 +77,5 @@ def materialize_svg_template(
     leftover = _SENTINEL_RE.search(svg)
     if leftover is not None:
         raise InvalidArgumentError(f"undeclared template sentinel {leftover.group(0)!r} remains")
-    try:
-        ET.fromstring(svg)
-    except ET.ParseError as exc:
-        raise InvalidArgumentError("materialized SVG template is malformed") from exc
+    parse_svg(svg)
     return SvgPayload(svg=svg, render_mode="svg", view_box=payload.view_box)

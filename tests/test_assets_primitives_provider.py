@@ -284,6 +284,27 @@ def test_bad_color_rejected() -> None:
         _resolve("label-pill", (("text", "hi"), ("accent", "zzz")))
 
 
+# -- control characters ----------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["\x00", "\x07", "\x1b", "\x7f", "\x85"])
+def test_text_param_rejects_control_chars(bad: str) -> None:
+    # 控制字符会污染 OOXML run 文本 / 可走私转义字节进 deck，一律拒绝
+    with pytest.raises(InvalidArgumentError, match="control character"):
+        _resolve("label-pill", (("text", f"hi{bad}there"),))
+
+
+def test_list_item_rejects_control_chars() -> None:
+    with pytest.raises(InvalidArgumentError, match="control character"):
+        _resolve("process-arrow", (("steps", "a,hi\x1bthere"),))
+
+
+def test_tab_and_newline_allowed_in_text() -> None:
+    # \t \n \r 是合法排版空白，保留（仅拒绝其它控制字符）
+    payload = _resolve("quote-mark", (("text", "line1\nline2\ttab"),))
+    assert dict(payload.params)["text"] == "line1\nline2\ttab"
+
+
 # -- provider metadata / search --------------------------------------------
 
 

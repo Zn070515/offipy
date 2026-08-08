@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Literal
 
+from offipy.assets._xml import parse_svg
 from offipy.assets.model import (
     AssetKind,
     AssetMeta,
@@ -102,14 +102,21 @@ class IconProvider:
         if not path.exists():
             raise InvalidArgumentError(f"icon {self.provider_id}:{name} not found")
         svg = path.read_text(encoding="utf-8")
-        root = ET.fromstring(svg)
+        root = parse_svg(svg)
         vb = root.get("viewBox")
         if vb is None:
             raise InvalidArgumentError(f"icon {self.provider_id}:{name} has no viewBox")
-        parts = vb.split()
+        # SVG 规范允许逗号/空白任意混用作坐标分隔（viewBox="0,0 24,24"）
+        parts = [p for p in re.split(r"[,\s]+", vb) if p]
         if len(parts) != 4:
             raise InvalidArgumentError(f"icon {self.provider_id}:{name} viewBox malformed: {vb!r}")
-        view_box = (float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
+        try:
+            x, y, w, h = (float(p) for p in parts)
+            view_box = (x, y, w, h)
+        except ValueError:
+            raise InvalidArgumentError(
+                f"icon {self.provider_id}:{name} viewBox malformed: {vb!r}"
+            ) from None
         return svg, view_box
 
     # -- AssetProvider contract -------------------------------------------

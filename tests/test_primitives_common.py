@@ -19,6 +19,7 @@ from offipy.assets.model import (
 from offipy.assets.primitives import get_native_renderer
 from offipy.assets.primitives._common import (
     _char_width_em,
+    _descending_pt,
     add_shape,
     add_textbox,
     fit_font_size,
@@ -152,6 +153,31 @@ def test_fit_font_size_wrapped_unbreakable_token_raises() -> None:
 
 def test_fit_font_size_wrapped_empty_text() -> None:
     assert fit_font_size_wrapped("", 400, 200, start_pt=20, min_pt=8) > 0
+
+
+def test_descending_pt_reaches_exact_fractional_min() -> None:
+    # 0.25 分数兜底此前是死代码：非整数 min_pt 永远不会被精确尝试。
+    # 修复后序列含 min_pt 与附近 0.25 步进，严格递减、不含 min_pt 以下值。
+    sizes = list(_descending_pt(16.0, 12.5))
+    assert sizes == [16.0, 15.0, 14.0, 13.0, 12.75, 12.5]
+    assert sizes == sorted(sizes, reverse=True)
+    assert all(s >= 12.5 - 1e-9 for s in sizes)
+
+
+def test_descending_pt_integer_min_stays_integer() -> None:
+    assert list(_descending_pt(16.0, 12.0)) == [16.0, 15.0, 14.0, 13.0, 12.0]
+
+
+def test_descending_pt_terminates_at_exact_start() -> None:
+    assert list(_descending_pt(20.0, 20.0)) == [20.0]
+
+
+def test_fit_font_size_uses_fractional_size_between_integers() -> None:
+    # 13pt 放不下、12.75pt 放得下的文本：旧实现只试整数并早退，会误报
+    # 「does not fit at min 12.5pt」；修复后应精确命中 12.75pt。
+    text = "x" * 21  # 13pt → 17.33em*21*0.55 ≈ 200.2px > 199；12.75pt → 196.3px ≤ 199
+    size = fit_font_size(text, 199, 100, start_pt=16, min_pt=12.5)
+    assert size == pytest.approx(12.75)
 
 
 def _full_width_cp(cp: int) -> bool:

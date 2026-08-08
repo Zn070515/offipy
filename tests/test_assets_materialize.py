@@ -120,6 +120,16 @@ class TestMaterializeSvgTemplate:
         with pytest.raises(InvalidArgumentError):
             materialize_svg_template(tpl, {"accent": "#0052FF"})
 
+    def test_doctype_template_rejected(self):
+        # ET entity 守卫：materialized 结果声明 DOCTYPE/ENTITY → 拒绝
+        tpl = _template(
+            '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "boom">]>'
+            '<svg><path fill="__A__"/></svg>',
+            (("__A__", "accent"),),
+        )
+        with pytest.raises(InvalidArgumentError, match="DOCTYPE or entity"):
+            materialize_svg_template(tpl, {"accent": "#0052FF"})
+
     def test_output_deterministic(self):
         tpl = _template(
             '<svg><path fill="__A__"/><rect fill="__B__"/></svg>',
