@@ -269,18 +269,14 @@ def test_redact_message_covers_file_url_forms():
         assert "[REDACTED]" in out, (msg, out)
         assert leaked not in out, (msg, out)
     # 对照：http(s) URL 不误伤（file:// 分支与 POSIX lookbehind 双保险）
-    assert server._redact_message("详见 https://host/path/page") == (
-        "详见 https://host/path/page"
-    )
+    assert server._redact_message("详见 https://host/path/page") == ("详见 https://host/path/page")
 
 
 def test_redact_message_does_not_swallow_trailing_text():
     # #79：Windows 分支 [^\"']* 贪婪吞掉路径后尾随业务文本（已保存 C:\...pptx 到桌面 →
     # 已保存 [REDACTED]，尾随「到桌面」丢失）；POSIX 分支把 ../ 相对段误当绝对路径
     # （../docs/x.html → ..[REDACTED] 残根）。路径后正常文本应保留、相对路径不误脱。
-    out = server._redact_message(
-        r"已保存 C:\Users\secret\financial\2026Q1.pptx 到桌面"
-    )
+    out = server._redact_message(r"已保存 C:\Users\secret\financial\2026Q1.pptx 到桌面")
     assert out == r"已保存 [REDACTED] 到桌面"
     assert "到桌面" in out
     out2 = server._redact_message(r"打开 'C:\Users\secret\x.pptx' 成功")
