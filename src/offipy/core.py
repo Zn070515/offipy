@@ -32,6 +32,12 @@ PROGIDS = {
     "ppt": "PowerPoint.Application",
 }
 
+# 各应用 DisplayAlerts「抑制全部弹窗」值：对齐 ppt.PP_ALERTS_NONE(1) /
+# word.WD_ALERTS_NONE(0) / Excel False。core 被 app 模块依赖，不能反向
+# import 各 app 常量，用字面量 + 注释锁定。Quit 前必须先抑制，否则有未
+# 保存文档时 Quit 弹模态保存框 → COM 调用阻塞挂死（H5）。
+_ALERTS_NONE = {"ppt": 1, "word": 0, "excel": False}
+
 _ALIASES = {
     "word": "word",
     "excel": "excel",
@@ -305,6 +311,7 @@ def quit_app(app: str) -> bool:
         return False
     pid = app_process_pid(obj, app)
     with contextlib.suppress(com.pywintypes.com_error):
+        obj.DisplayAlerts = _ALERTS_NONE.get(app, False)  # H5：Quit 前抑制弹窗防挂死
         obj.Quit()
     if not wait_process_exit(pid, timeout=2.0):
         reap_process(pid)
