@@ -87,9 +87,7 @@ def test_measurement_adapter_malformed_font_size_graceful():
                         "tag": "h1",
                         "rect": {"x": 0, "y": 0, "w": 100, "h": 60},
                         "style": {"fontSize": "abcpx", "color": "rgb(0,0,0)"},
-                        "runs": [
-                            {"text": "T", "fontSize": "notnum", "color": "rgb(0,0,0)"}
-                        ],
+                        "runs": [{"text": "T", "fontSize": "notnum", "color": "rgb(0,0,0)"}],
                     }
                 ],
             }

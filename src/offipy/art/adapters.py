@@ -181,8 +181,7 @@ class MeasurementAdapter:
                     ArtWarning(
                         code="art.adapter.elements_truncated",
                         message=(
-                            f"页 {index} 元素数 {len(records)} 超过上限 "
-                            f"{_MAX_SLIDE_ELEMENTS}，截断"
+                            f"页 {index} 元素数 {len(records)} 超过上限 {_MAX_SLIDE_ELEMENTS}，截断"
                         ),
                     )
                 )

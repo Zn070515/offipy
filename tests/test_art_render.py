@@ -204,16 +204,16 @@ def test_render_html_escapes_profile_dimension_grade():
         dimension="typography", status="assessed", grade="good", confidence=0.6
     )
     rep = ArtReport(
-        profile='<img src=x onerror=alert(1)>',
+        profile="<img src=x onerror=alert(1)>",
         slides=[ArtSlideReport(slide_index=1, dimensions=[d, d2, d3])],
     )
     html = render_html(rep)
-    assert '<img src=x onerror=alert(1)>' not in html
-    assert '&lt;img src=x onerror=alert(1)&gt;' in html
-    assert '<script>dim</script>' not in html
-    assert '&lt;script&gt;dim&lt;/script&gt;' in html
+    assert "<img src=x onerror=alert(1)>" not in html
+    assert "&lt;img src=x onerror=alert(1)&gt;" in html
+    assert "<script>dim</script>" not in html
+    assert "&lt;script&gt;dim&lt;/script&gt;" in html
     assert 'good">x<' not in html
-    assert 'good&quot;&gt;x&lt;' in html
+    assert "good&quot;&gt;x&lt;" in html
 
 
 def test_render_html_escapes_evidence_method():
