@@ -108,7 +108,7 @@ def _parse_kwargs(tokens):
                     _usage_exit(f"{tok} JSON 解析失败: {e}")
                 if not isinstance(value, dict):
                     _usage_exit(
-                        f'{tok} 必须是 JSON 对象（如 --expected-target \'{{"doc_id":"book1"}}\'）'
+                        f'{tok} 必须是 JSON 对象（--expected-target \'{{"doc_id":"book<id>"}}\'）'
                     )
                 kwargs["expected_target"] = value
                 i += 2
@@ -409,7 +409,7 @@ def _validate_destructive_target(app: str, op: str, kwargs: dict) -> None:
     print(
         f"offipy: error: {app} {op}: 该操作必须显式指定目标文档\n"
         f"  用法: offipy {app} {op} --doc_id <id> ...\n"
-        f"        或 --expected-target '<json>' 绑定目标（如 '{{\"doc_id\":\"book1\"}}'）\n"
+        f"        或 --expected-target '<json>' 绑定目标（如 '{{\"doc_id\":\"book<hex>\"}}'）\n"
         f"        或 --follow-active 跟随当前活动文档",
         file=sys.stderr,
     )

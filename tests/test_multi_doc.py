@@ -103,7 +103,6 @@ def _new_excel(monkeypatch):
     app.app = _FakeExcelApp()
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     return app
 
 
@@ -113,7 +112,6 @@ def _new_word(monkeypatch):
     app.app = _FakeWordApp()
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     return app
 
 
@@ -123,16 +121,15 @@ def _new_ppt(monkeypatch):
     app.app = _FakePptApp()
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     return app
 
 
 def test_excel_multi_doc_flow(monkeypatch):
     app = _new_excel(monkeypatch)
-    a = app.new_book()  # book1
-    b = app.new_book()  # book2
-    assert a == "book1"
-    assert b == "book2"
+    a = app.new_book()
+    b = app.new_book()
+    assert a.startswith("book") and b.startswith("book")
+    assert a != b  # H10：doc_id 高熵，不再顺序可猜
     # 活动目标跟随最新创建；get_target 指向活动工作簿
     assert app.get_target()["name"] == "Book2"
     # activate 切换后续缺省操作的目标 → 写 A
@@ -150,8 +147,8 @@ def test_excel_multi_doc_flow(monkeypatch):
     assert app.get_cell(1, "B2", doc_id=b) == 200
     # list_docs 列出全部登记文档
     docs = app.list_docs()
-    assert set(docs) == {"book1", "book2"}
-    assert docs["book1"]["name"] == "Book1"
+    assert set(docs) == {a, b}
+    assert docs[a]["name"] == "Book1"
 
 
 def test_excel_close_doc_removes_from_table(monkeypatch):
@@ -208,20 +205,20 @@ def test_excel_register_reuses_same_fullname(monkeypatch):
     b1 = _FakeBook("report")
     b1.Path = "C:/x"  # 已保存 → 稳定身份 = FullName.lower()
     did = app._register(b1)
-    assert did == "book1"
+    assert did.startswith("book")  # H10：doc_id 高熵，带 book 前缀
     b2 = _FakeBook("report")  # 不同 wrapper，同 FullName
     b2.Path = "C:/x"
     assert app._register(b2) == did  # 复用同一 doc_id
     assert app._docs[did] is b2  # 句柄换成实时对象
-    assert set(app._docs) == {"book1"}
+    assert set(app._docs) == {did}
 
 
 def test_excel_register_reuses_same_unsaved_name(monkeypatch):
     app = _new_excel(monkeypatch)
     a = app._register(_FakeBook("Book7"))  # 未保存 → 身份 = Name.lower()
-    assert a == "book1"
+    assert a.startswith("book")
     assert app._register(_FakeBook("Book7")) == a
-    assert set(app._docs) == {"book1"}
+    assert set(app._docs) == {a}
 
 
 def test_word_register_reuses_same_fullname(monkeypatch):
@@ -229,11 +226,11 @@ def test_word_register_reuses_same_fullname(monkeypatch):
     d1 = _FakeWordDoc("report")
     d1.Path = "C:/x"
     did = app._register(d1)
-    assert did == "doc1"
+    assert did.startswith("doc")
     d2 = _FakeWordDoc("report")
     d2.Path = "C:/x"
     assert app._register(d2) == did
-    assert set(app._docs) == {"doc1"}
+    assert set(app._docs) == {did}
 
 
 def test_ppt_register_reuses_same_fullname(monkeypatch):
@@ -241,11 +238,11 @@ def test_ppt_register_reuses_same_fullname(monkeypatch):
     p1 = _FakePres("report")
     p1.Path = "C:/x"
     did = app._register(p1)
-    assert did == "pres1"
+    assert did.startswith("pres")
     p2 = _FakePres("report")
     p2.Path = "C:/x"
     assert app._register(p2) == did
-    assert set(app._docs) == {"pres1"}
+    assert set(app._docs) == {did}
 
 
 # --- close/save 防弹窗：save=False 不触发另存为；save=True 从未保存自动落盘 ---
@@ -396,7 +393,6 @@ def test_word_multi_doc_route(monkeypatch):
     app.app = _FakeWordApp()
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     d1 = app.new_doc()  # doc1
     d2 = app.new_doc()  # doc2
     app.activate(d1)
@@ -497,15 +493,14 @@ def test_ppt_multi_doc_ids(monkeypatch):
     app.app = _FakePptApp()
     app._docs = {}
     app._active_id = None
-    app._seq = 0
-    p1 = app.new_pres()  # pres1
-    p2 = app.new_pres()  # pres2
-    assert p1 == "pres1"
-    assert p2 == "pres2"
+    p1 = app.new_pres()
+    p2 = app.new_pres()
+    assert p1.startswith("pres") and p2.startswith("pres")
+    assert p1 != p2  # H10：doc_id 高熵
     assert app.get_target()["name"] == "Pres2"
     app.activate(p1)
     assert app.get_target()["name"] == "Pres1"
-    assert set(app.list_docs()) == {"pres1", "pres2"}
+    assert set(app.list_docs()) == {p1, p2}
 
 
 def test_ppt_save_unsaved_autosaves(monkeypatch, tmp_path):
@@ -535,38 +530,38 @@ def test_ppt_save_saved_uses_in_place(monkeypatch):
 
 def test_excel_list_docs_refreshes_real_active(monkeypatch):
     app = _new_excel(monkeypatch)
-    app.new_book()  # book1 为陈旧 active
+    stale = app.new_book()  # 陈旧 active
     external = _FakeBook("Book9")  # 用户在真实 Excel 切到的活动工作簿
     external.app = app.app
     monkeypatch.setattr(core, "active_doc", lambda app_name, attr: external)
     docs = app.list_docs()
-    assert app._active_id == "book2"  # 焦点刷新到真实活动工作簿
-    assert docs["book1"]["active"] is False
-    assert docs["book2"]["active"] is True
-    assert docs["book2"]["name"] == "Book9"
+    assert app._active_id != stale  # 焦点刷新到真实活动工作簿
+    assert docs[stale]["active"] is False
+    assert docs[app._active_id]["active"] is True
+    assert docs[app._active_id]["name"] == "Book9"
 
 
 def test_word_list_docs_refreshes_real_active(monkeypatch):
     app = _new_word(monkeypatch)
-    app.new_doc()  # doc1 为陈旧 active
+    stale = app.new_doc()  # 陈旧 active
     external = _FakeWordDoc("Doc9")
     external.app = app.app
     monkeypatch.setattr(core, "active_doc", lambda app_name, attr: external)
     docs = app.list_docs()
-    assert app._active_id == "doc2"
-    assert docs["doc1"]["active"] is False
-    assert docs["doc2"]["active"] is True
-    assert docs["doc2"]["name"] == "Doc9"
+    assert app._active_id != stale
+    assert docs[stale]["active"] is False
+    assert docs[app._active_id]["active"] is True
+    assert docs[app._active_id]["name"] == "Doc9"
 
 
 def test_ppt_list_docs_refreshes_real_active(monkeypatch):
     app = _new_ppt(monkeypatch)
-    app.new_pres()  # pres1 为陈旧 active
+    stale = app.new_pres()  # 陈旧 active
     external = _FakePres("Pres9")
     external.app = app.app
     monkeypatch.setattr(core, "active_doc", lambda app_name, attr: external)
     docs = app.list_docs()
-    assert app._active_id == "pres2"
-    assert docs["pres1"]["active"] is False
-    assert docs["pres2"]["active"] is True
-    assert docs["pres2"]["name"] == "Pres9"
+    assert app._active_id != stale
+    assert docs[stale]["active"] is False
+    assert docs[app._active_id]["active"] is True
+    assert docs[app._active_id]["name"] == "Pres9"

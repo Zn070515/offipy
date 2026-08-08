@@ -108,7 +108,6 @@ def test_active_doc_prefers_live(monkeypatch):
     app = ExcelApp.__new__(ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_book() is live
     assert live in app._docs.values()  # 实时句柄并入文档表并设为活动
@@ -140,7 +139,6 @@ def test_active_doc_dead_cache_falls_through(monkeypatch):
     app = ExcelApp.__new__(ExcelApp)
     app._docs = {"book1": object()}  # 死缓存
     app._active_id = "book1"
-    app._seq = 0
     app.app = fake_app
     monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
     monkeypatch.setattr(core, "doc_alive", lambda obj: False)
@@ -162,7 +160,6 @@ def test_active_doc_none_does_not_create(monkeypatch):
     app.app = fake_app
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: None)
     monkeypatch.setattr(core, "doc_alive", lambda obj: False)
     assert app.active_book() is None
@@ -176,7 +173,6 @@ def test_active_pres_prefers_live(monkeypatch):
     app = PptApp.__new__(PptApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_pres() is live
 
@@ -189,7 +185,6 @@ def test_active_word_doc_prefers_live(monkeypatch):
     app = WordApp.__new__(WordApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     monkeypatch.setattr(core, "active_doc", lambda name, attr: live)
     assert app.active_doc() is live
 

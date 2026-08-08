@@ -52,7 +52,6 @@ def test_active_book_none_without_doc(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_book() is None
@@ -64,7 +63,6 @@ def test_active_doc_none_without_doc(monkeypatch):
     app = word.WordApp.__new__(word.WordApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_doc() is None
@@ -78,7 +76,6 @@ def test_active_pres_none_without_doc(monkeypatch):
     app = ppt.PptApp.__new__(ppt.PptApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_pres() is None
@@ -91,7 +88,6 @@ def test_active_book_falls_back_to_real_active(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(book, no_add)
     _no_doc_env(monkeypatch)
     assert app.active_book() is book  # 落到 self.app.ActiveWorkbook，仍不 Add
@@ -105,22 +101,20 @@ def test_get_target_excel(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(_Book("Book1", r"C:\x\Book1.xlsx"), _NoAdd())
     _no_doc_env(monkeypatch)
-    assert app.get_target() == {
-        "app": "excel",
-        "doc_id": "book1",  # 实时解析的 ActiveWorkbook 并入文档表后分配 doc_id
-        "name": "Book1",
-        "path": r"C:\x\Book1.xlsx",
-    }
+    target = app.get_target()
+    assert target["app"] == "excel"
+    # H10：doc_id 高熵不可猜——实时解析的 ActiveWorkbook 并入文档表后分配
+    assert target["doc_id"].startswith("book")
+    assert target["name"] == "Book1"
+    assert target["path"] == r"C:\x\Book1.xlsx"
 
 
 def test_get_target_explicit_doc_id(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {"b1": _Book("Book1", r"C:\x\Book1.xlsx")}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     # 显式 doc_id 路由要求句柄存活（与 _no_doc_env 的 doc_alive=False 相反）
     monkeypatch.setattr("offipy.core.active_doc", lambda *a: None)
@@ -133,7 +127,6 @@ def test_get_target_unknown_doc_id_raises(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
@@ -144,7 +137,6 @@ def test_get_target_none_without_doc(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     assert app.get_target() is None
@@ -157,7 +149,6 @@ def test_read_range_no_doc_raises(monkeypatch):
     app = excel.ExcelApp.__new__(excel.ExcelApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
@@ -172,7 +163,6 @@ def test_word_read_doc_text_no_doc_raises(monkeypatch):
     app = word.WordApp.__new__(word.WordApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
@@ -185,7 +175,6 @@ def test_ppt_read_slide_summary_no_doc_raises(monkeypatch):
     app = ppt.PptApp.__new__(ppt.PptApp)
     app._docs = {}
     app._active_id = None
-    app._seq = 0
     app.app = _FakeApp(None, _NoAdd())
     _no_doc_env(monkeypatch)
     with pytest.raises(TargetNotFoundError):
