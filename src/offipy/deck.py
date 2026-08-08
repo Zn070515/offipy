@@ -109,7 +109,9 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
 
 
 _ATTR_URL_RE = re.compile(r"((?:src|href|poster)\s*=\s*[\"'])([^\"']*)([\"'])")
-_SRCSET_RE = re.compile(r"(srcset\s*=\s*[\"'])([^\"']*)([\"'])")
+# srcset 值里可能带引号（data: URI 的 SVG 常用单引号属性），只以属性自身的结束
+# 引号定界，不能用 [^\"']*（会把含引号的 data URI 截断）。
+_SRCSET_RE = re.compile(r'(srcset\s*=\s*(["\']))((?:(?!\2).)*)(\2)')
 _IMPORT_URL_RE = re.compile(r"(@import\s+[\"'])([^\"']*)([\"'])")
 _CSS_URL_RE = re.compile(r"(url\(\s*[\"']?)([^\"')]*)([\"']?\s*\))")
 
@@ -131,13 +133,34 @@ def _abs_url(base_dir: Path, url: str) -> str:
     return resolved + (f"#{frag}" if frag else "")
 
 
+_DATA_URI_RE = re.compile(r"data:[^\s]+")
+
+
 def _rewrite_srcset(base_dir: Path, value: str) -> str:
-    """重写 srcset 里的每个候选 URL，保留 1x/2x/300w 描述符（#63）。"""
+    """重写 srcset 里的每个候选 URL，保留 1x/2x/300w 描述符（#63）。
+
+    data: URI 不含空白但可能含逗号（如 `data:image/svg+xml;utf8,<svg>...`）——
+    先整体藏起来再按逗号拆候选，否则会被误切成多段截断（#audit）。
+    """
+    stashed: list[str] = []
+
+    def _stash(m: re.Match[str]) -> str:
+        stashed.append(m.group(0))
+        return f"__OFFIPY_DATA_{len(stashed) - 1}__"
+
+    def _restore(token: str) -> str:
+        return re.sub(
+            r"__OFFIPY_DATA_(\d+)__",
+            lambda m: stashed[int(m.group(1))],
+            token,
+        )
+
     out = []
-    for candidate in value.split(","):
+    for candidate in _DATA_URI_RE.sub(_stash, value).split(","):
         parts = candidate.strip().split()
         if not parts:
             continue
+        parts = [_restore(p) for p in parts]
         out.append(" ".join([_abs_url(base_dir, parts[0]), *parts[1:]]).rstrip())
     return ", ".join(out)
 
@@ -153,7 +176,7 @@ def _rewrite_relative_urls(content: str, base_dir: Path) -> str:
         lambda m: m.group(1) + _abs_url(base_dir, m.group(2)) + m.group(3), content
     )
     content = _SRCSET_RE.sub(
-        lambda m: m.group(1) + _rewrite_srcset(base_dir, m.group(2)) + m.group(3),
+        lambda m: m.group(1) + _rewrite_srcset(base_dir, m.group(3)) + m.group(4),
         content,
     )
     content = _CSS_URL_RE.sub(
