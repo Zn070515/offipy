@@ -294,13 +294,20 @@ def _preserve_audit_dir(tmp_pptx: str, final_out: str) -> None:
         shutil.rmtree(tmp_audit, ignore_errors=True)  # 改名失败不残留孤儿
 
 
-def _atomic_replace(tmp: str, final: str) -> None:
+def _atomic_replace(tmp: str, final: str, *, overwrite: bool = True) -> None:
     """原子替换临时 .pptx 到最终路径，并给可操作错误（#22）。
 
     Windows 下目标文件被占用（PowerPoint 打开 / 杀软 / 资源管理器）时 os.replace
     抛 PermissionError [WinError 5]。裸异常对迭代工作流不友好——把最常见的
     「PowerPoint 实况演示锁住产物」翻译成可执行指引。
+
+    overwrite=False 时落盘前再查一次 final 是否已存在：_render_tmp 前置检查与
+    os.replace 之间有空窗（并发/外部进程可能已创建目标），复查把 TOCTOU 窗口压到
+    最小。真正无竞争的原子不覆盖需要 O_EXCL 语义，Windows 上 os.replace 不提供，
+    这里取「复查 + 拒绝」的最优近似。
     """
+    if not overwrite and os.path.exists(final):
+        raise FileConflictError(f"输出 .pptx 已存在（overwrite=False）: {final}")
     try:
         os.replace(tmp, final)
     except PermissionError as e:
@@ -444,7 +451,7 @@ def _render_stage(
         overwrite,
         defer_audit_preserve=True,
     ) as (tmp_pptx, final_out):
-        stage = RenderStage(tmp_pptx=tmp_pptx, final_pptx=final_out)
+        stage = RenderStage(tmp_pptx=tmp_pptx, final_pptx=final_out, overwrite=overwrite)
         try:
             yield stage
         except BaseException:
@@ -472,13 +479,15 @@ def render(
 
     原子替换（P0-6）：转换先写同目录临时 .pptx，图表/图标后处理作用于
     临时文件，全部成功后才 os.replace 一步替换目标。任何失败/异常都会
-    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。
+    清理临时文件——已存在的 .pptx 绝不因一次失败的渲染被破坏。双产物
+    （.pptx + 审计目录）由 RenderStage.commit 先换 pptx、后移审计目录
+    （#audit-H1：审计目录绝不先于 pptx 落位，替换失败时新旧产物一致）。
     """
-    with _render_tmp(
+    with _render_stage(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
-    ) as (tmp_pptx, final_out):
-        _atomic_replace(tmp_pptx, final_out)
-    return final_out
+    ) as stage:
+        stage.commit()
+    return stage.final_pptx
 
 
 @dataclass
@@ -516,6 +525,7 @@ class RenderStage:
     tmp_pptx: str
     final_pptx: str
     committed: bool = False
+    overwrite: bool = True
 
     @property
     def tmp_audit_dir(self) -> Path:
@@ -535,7 +545,7 @@ class RenderStage:
         """先原子替换 PPTX，成功后把 tmp 审计目录改到最终名（双产物一起落位）。"""
         if self.committed:
             return
-        _atomic_replace(self.tmp_pptx, self.final_pptx)
+        _atomic_replace(self.tmp_pptx, self.final_pptx, overwrite=self.overwrite)
         if self.tmp_audit_dir.is_dir():
             _preserve_audit_dir(self.tmp_pptx, self.final_pptx)
         self.committed = True
@@ -589,20 +599,20 @@ def render_with_report(
     if not isinstance(fail_on, Severity):
         raise InvalidArgumentError("fail_on must be a Severity")
 
-    with _render_tmp(
+    with _render_stage(
         html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
-    ) as (tmp_pptx, final_out):
-        audit_report = audit_pptx(tmp_pptx, audit_config)
+    ) as stage:
+        audit_report = audit_pptx(stage.tmp_pptx, audit_config)
         gate = audit_report.max_severity
         if audit_mode == "strict" and gate is not None and gate >= fail_on:
             raise AuditGateError(
                 f"审计门槛未通过：最高严重度 {gate.name} ≥ fail_on={fail_on.name}，"
-                f"{final_out} 未替换（旧文件保留）",
+                f"{stage.final_pptx} 未替换（旧文件保留）",
                 report=audit_report,
                 fail_on=fail_on,
             )
-        _atomic_replace(tmp_pptx, final_out)
-    return RenderResult(output_path=final_out, audit_report=audit_report)
+        stage.commit()
+    return RenderResult(output_path=stage.final_pptx, audit_report=audit_report)
 
 
 def _run_art_analysis(
