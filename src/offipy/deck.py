@@ -777,7 +777,12 @@ def _export_pixel_slides(pptx: str, out_dir: str) -> list[str]:
 
 
 def _write_deck_info(out_dir: str, pptx: str) -> None:
-    info = {"schema": 1, "pptx_sha256": _sha256_file(pptx), "run_id": None}
+    info = {
+        "schema": 1,
+        "pptx": os.path.abspath(pptx),
+        "pptx_sha256": _sha256_file(pptx),
+        "run_id": None,
+    }
     Path(out_dir, "_deck_info.json").write_text(
         json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -801,19 +806,39 @@ def _is_slide_png(name: str) -> bool:
     return name.startswith("slide_") and name.endswith(".png")
 
 
+def _slides_dir_owned(final_slides: str, final_pptx: str) -> bool:
+    """该目录的 slide_*.png 是否归本 deck？凭 _deck_info.json 的 pptx 路径判断。
+
+    首次渲染目录里没有标记 → False（没有本 deck 旧产物可清，只做复制）；
+    上次标记的 pptx 路径与当前一致 → 是 re-render，可安全清理旧页；
+    标记指向别的 pptx / 标记缺失 / 标记损坏 → 目录是别人的，绝不删任何文件。
+    """
+    info_path = Path(final_slides, "_deck_info.json")
+    if not info_path.is_file():
+        return False
+    try:
+        info = json.loads(info_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return info.get("pptx") == os.path.abspath(final_pptx)
+
+
 def _move_slides_to_final(
     staging_slides: str, stage: RenderStage, slides_output_dir: str | None
 ) -> str:
     final_slides = slides_output_dir or _default_slides_dir(stage.final_pptx)
     os.makedirs(final_slides, exist_ok=True)
-    # 先清理本 deck 先前落位的产物（slide_*.png + _deck_info.json），避免 re-render
-    # 页数变少时残留旧页；绝不删用户其他文件。
-    for f in Path(final_slides).iterdir():
-        if f.is_file() and (f.name == "_deck_info.json" or _is_slide_png(f.name)):
-            f.unlink()
+    # 只清理本 deck 先前落位的产物（slide_*.png + _deck_info.json），避免 re-render
+    # 页数变少时残留旧页。归属校验确保绝不删用户其他文件——slides_output_dir 可能
+    # 指向共享目录，里面同名的 slide_*.png 不是本 deck 的。
+    if _slides_dir_owned(final_slides, stage.final_pptx):
+        for f in Path(final_slides).iterdir():
+            if f.is_file() and (f.name == "_deck_info.json" or _is_slide_png(f.name)):
+                f.unlink()
     for f in Path(staging_slides).iterdir():
         if f.is_file():
             shutil.copy2(str(f), os.path.join(final_slides, f.name))
+    _write_deck_info(final_slides, stage.final_pptx)
     return final_slides
 
 
@@ -879,11 +904,15 @@ def close_live(doc_id: str) -> None:
     配合 #26 的 Ppt.close_pres：关闭后同路径 re-render 不再 PermissionError。
     """
     ensure_server()
-    call("ppt", "close_pres", doc_id=doc_id, save=False)
-    path = _LIVE_TMP_PATHS.pop(doc_id, None)
-    if path:
-        with contextlib.suppress(OSError):
-            os.unlink(path)
+    try:
+        call("ppt", "close_pres", doc_id=doc_id, save=False)
+    finally:
+        # 即使 close_pres 异常（如 PowerPoint 已崩、server 已断），临时副本也要清理，
+        # 不残留 offipy-live-* 孤儿。
+        path = _LIVE_TMP_PATHS.pop(doc_id, None)
+        if path:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
 
 
 def export_slides(
@@ -928,7 +957,10 @@ def make(
         # 导出必须绑定本次渲染的 deck（P0-2）：open_live 返回其 doc_id，逐页导出
         # 显式传给它，绝不依赖「当前活动焦点」——防用户中途切到别的文稿。
         doc_id = open_live(pptx)
-        export_slides(feedback_dir, doc_id=doc_id, overwrite=overwrite)
+        try:
+            export_slides(feedback_dir, doc_id=doc_id, overwrite=overwrite)
+        finally:
+            close_live(doc_id)  # 导出后即释放实况窗口 + 临时副本，不留泄漏
     elif open_live_flag:
         open_live(pptx)
     return pptx
