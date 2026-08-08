@@ -111,7 +111,12 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
 # data-* 自定义属性（data-icon/data-asset/data-chart-data 等）是逻辑值不是 URL；
 # `data-chart-data=` 会从第二个 data 处误命中 data=。前置 (?<![\w-]) 只让真实
 # 属性名（前导空格/< /"等）命中，属性名内含 - 或字母的自定义属性不重写。
-_ATTR_URL_RE = re.compile(r"((?<![\w-])(?:src|href|poster|data)\s*=\s*[\"'])([^\"']*)([\"'])")
+# 白名单含 URL 承载属性（src/href/poster/data/background/cite/action/formaction/
+# longdesc，#77）：漏一个属性就多一个注入副本下解析失败破图的点。
+_ATTR_URL_RE = re.compile(
+    r"((?<![\w-])(?:src|href|poster|data|background|cite|action|"
+    r"formaction|longdesc)\s*=\s*[\"'])([^\"']*)([\"'])"
+)
 # srcset 值里可能带引号（data: URI 的 SVG 常用单引号属性），只以属性自身的结束
 # 引号定界，不能用 [^\"']*（会把含引号的 data URI 截断）。
 _SRCSET_RE = re.compile(r'(srcset\s*=\s*(["\']))((?:(?!\2).)*)(\2)')
