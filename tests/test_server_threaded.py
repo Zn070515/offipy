@@ -212,6 +212,45 @@ def test_safe_trace_redacts_chained_exception(monkeypatch):
     assert not any(line.startswith("  ") for line in trace)
 
 
+def test_redact_message_replaces_paths_and_doc_id():
+    # #67：消息级脱敏——绝对路径（Windows/POSIX/UNC）与 doc_id 值全部替换
+    assert (
+        server._redact_message("open C:\\Users\\Alice\\AppData\\Roaming\\offipy\\tmp\\doc.pptx")
+        == "open [REDACTED]"
+    )
+    assert server._redact_message("/home/xu/.cache/offipy/art.json") == "[REDACTED]"
+    assert server._redact_message(r"\\server\share\doc.pptx") == "[REDACTED]"
+    assert server._redact_message("target doc_id: abc-123 not found") == (
+        "target [REDACTED] not found"
+    )
+    # 非路径/非标识原文不动：相对路径、URL、普通词
+    assert server._redact_message("C:foo relative\\x") == "C:foo relative\\x"
+    assert server._redact_message("see http://example.com/a") == "see http://example.com/a"
+
+
+def test_error_result_and_trace_redact_message_content():
+    # #67：c5ef6be 只删 traceback 帧，_error_result.error / _safe_trace 消息原文仍带
+    # 绝对路径与 doc_id。现在两者都经 _redact_message 脱敏。
+    msg = (
+        "open C:\\Users\\Alice\\AppData\\Roaming\\offipy\\tmp\\doc.pptx "
+        "/home/xu/.cache/offipy/art.json doc_id: abc-123"
+    )
+    try:
+        try:
+            raise ValueError("inner " + msg)
+        except ValueError as inner:
+            raise RuntimeError(msg) from inner
+    except RuntimeError as e:
+        res = server._error_result("word.new_doc", e)
+        trace = server._safe_trace(e)
+    for field in (res["error"], *trace):
+        assert "C:\\Users\\Alice" not in field
+        assert "/home/xu" not in field
+        assert "abc-123" not in field
+    assert res["error"].count("[REDACTED]") == 3
+    assert all("[REDACTED]" in line for line in trace)
+
+
 def test_call_error_400_with_domain_code(srv):
     # D4：invalid_argument 领域异常 → 400（非 500），error_code 仍往返
     status, body = _post(srv, {"app": "ppt", "op": "raises_invalid"}, token=TOKEN)
