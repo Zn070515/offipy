@@ -210,8 +210,10 @@ def test_request_id_concurrent_same_id_merges(srv):
     assert len(calls) == 1  # 合并：只执行一次
 
 
-def test_request_id_timeout_then_retry_no_double_exec(srv, monkeypatch):
-    # owner 超时(504)后同 id 重试：合并等 worker 完成，不重执行（绝无双写）
+def test_request_id_timeout_then_retry_re_executes(srv, monkeypatch):
+    # D3：owner 超时(504)时释放 inflight entry——同 id 重试重建为新的 owner
+    # 重新执行。不释放 → worker 卡死时该 request_id 永久 inflight，重试永远
+    # merge-wait → 504 死循环。代价：慢 op 超时后重试可能重复执行一次。
     port, calls = srv
     monkeypatch.setattr(server, "_CALL_TIMEOUT", 0.3)
     gate = threading.Event()
@@ -228,25 +230,43 @@ def test_request_id_timeout_then_retry_no_double_exec(srv, monkeypatch):
     body = {"app": "ppt", "op": "slow", "request_id": "rid-gated"}
 
     s1, r1 = _post(port, body, token=TOKEN)
-    assert s1 == 504  # owner 在 _CALL_TIMEOUT 内没等到 worker → 超时
-    assert entered.wait(2)  # worker 已进入（op 只执行了一次）
+    assert s1 == 504  # owner 在 _CALL_TIMEOUT 内没等到 worker → 超时并释放 entry
+    assert entered.wait(2)  # worker 已进入（op 执行了一次）
 
     gate.set()  # 放行 worker
     s2, r2 = _post(port, body, token=TOKEN)
     assert s2 == 200 and r2["data"] == "slow-done"
-    assert len(calls) == 1  # 重试不重执行
+    assert len(calls) == 2  # 释放后重试重建 owner → 重新执行（不再永久合并）
 
 
-def test_claim_inflight_merges_after_owner_timeout(monkeypatch):
-    # 状态机：owner 超时后 entry 留 inflight，同 id 重试仍合并（不重建不重执行）
+def test_claim_inflight_merges_fresh_but_reclaims_stale(monkeypatch):
+    # D3 状态机：新鲜 inflight 合并；owner 失联（started_at 超 _CALL_TIMEOUT
+    # 未释放）→ 陈旧 inflight 被接管重建为新的 owner 重新执行，不永久合并。
     server._REQUEST_ID_CACHE.clear()
     e1, is_owner1 = server._claim("rid-x", "hash-x")
     assert is_owner1 is True and e1.state == "inflight"
     e2, is_owner2 = server._claim("rid-x", "hash-x")
-    assert is_owner2 is False and e2 is e1  # 并发同 ID 合并同一 entry
+    assert is_owner2 is False and e2 is e1  # 新鲜 inflight：并发同 ID 合并同一 entry
+    # 伪造 owner 失联：把 entry 创建时刻拨回超时之前
+    e1.started_at = time.monotonic() - (server._CALL_TIMEOUT + 1)
     e3, is_owner3 = server._claim("rid-x", "hash-x")
-    assert is_owner3 is False and e3 is e1  # owner 超时后仍合并，不重执行
+    assert is_owner3 is True and e3 is not e1  # 陈旧 inflight：接管重建为新的 owner
     assert e1.state == "inflight"
+    assert server._REQUEST_ID_CACHE.get("rid-x") is e3
+
+
+def test_release_inflight_only_pops_same_entry_inflight(monkeypatch):
+    server._REQUEST_ID_CACHE.clear()
+    e1, _ = server._claim("rid-r", "hash-r")
+    e2, _ = server._claim("rid-s", "hash-s")
+    server._release_inflight("rid-r", e2)  # 缓存项不是该 entry → no-op
+    assert "rid-r" in server._REQUEST_ID_CACHE
+    server._release_inflight("rid-r", e1)  # 匹配且仍 inflight → 释放
+    assert "rid-r" not in server._REQUEST_ID_CACHE
+    e3, _ = server._claim("rid-t", "hash-t")
+    server._complete_entry(e3, {"ok": True})
+    server._release_inflight("rid-t", e3)  # 已 done → 不释放（结果仍可回放）
+    assert "rid-t" in server._REQUEST_ID_CACHE
 
 
 def test_claim_hash_mismatch_rejects(monkeypatch):

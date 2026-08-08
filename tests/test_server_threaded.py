@@ -52,13 +52,24 @@ def srv(monkeypatch):
         return object()
 
     def fake_dispatch(app, op, args, app_name):
-        from offipy.exceptions import InvalidArgumentError
+        from offipy.exceptions import (
+            ComOperationError,
+            FileConflictError,
+            InvalidArgumentError,
+            TargetNotFoundError,
+        )
 
         calls.append((app_name, op, args))
         if op == "boom":
             raise ValueError("boom op")
         if op == "raises_invalid":
             raise InvalidArgumentError("bad arg")
+        if op == "raises_notfound":
+            raise TargetNotFoundError("no target")
+        if op == "raises_conflict":
+            raise FileConflictError("file exists")
+        if op == "raises_com":
+            raise ComOperationError("com failed", hresult=-2147417848)
         if op == "slow":
             time.sleep(0.4)
             return "slow-done"
@@ -69,7 +80,18 @@ def srv(monkeypatch):
     monkeypatch.setattr(server, "get_app", fake_get_app)
     monkeypatch.setattr(server, "dispatch", fake_dispatch)
     monkeypatch.setitem(
-        server._OPS, "ppt", server._OPS["ppt"] | {"boom", "raises_invalid", "slow", "order"}
+        server._OPS,
+        "ppt",
+        server._OPS["ppt"]
+        | {
+            "boom",
+            "raises_invalid",
+            "raises_notfound",
+            "raises_conflict",
+            "raises_com",
+            "slow",
+            "order",
+        },
     )
 
     server._TOKEN = TOKEN
@@ -167,12 +189,53 @@ def test_call_error_500_with_internal_code(srv):
     assert "trace" in body and body["trace"]
 
 
-def test_call_error_500_with_domain_code(srv):
-    status, body = _post(srv, {"app": "ppt", "op": "raises_invalid"}, token=TOKEN)
+def test_error_trace_redacted_no_path_or_source(srv):
+    # D5：trace 脱敏——只留异常链 type+message，不含 File/行号/源码行（服务器信息泄露）
+    status, body = _post(srv, {"app": "ppt", "op": "boom"}, token=TOKEN)
     assert status == 500
+    assert body["trace"] == ["ValueError: boom op"]
+    for line in body["trace"]:
+        assert "File " not in line and not line.startswith("  ")
+
+
+def test_safe_trace_redacts_chained_exception(monkeypatch):
+    # D5 单测：异常链逐条只保留 type+message，绝不带 File/行号/源码行
+    try:
+        try:
+            raise ValueError("inner")
+        except ValueError as inner:
+            raise RuntimeError("outer") from inner
+    except RuntimeError as e:
+        trace = server._safe_trace(e)
+    assert trace == ["RuntimeError: outer", "ValueError: inner"]
+    assert not any("File " in line for line in trace)
+    assert not any(line.startswith("  ") for line in trace)
+
+
+def test_call_error_400_with_domain_code(srv):
+    # D4：invalid_argument 领域异常 → 400（非 500），error_code 仍往返
+    status, body = _post(srv, {"app": "ppt", "op": "raises_invalid"}, token=TOKEN)
+    assert status == 400
     assert body["ok"] is False
     assert body["error_code"] == "invalid_argument"  # 领域异常 code 往返
     assert body["resource_id"] is None
+
+
+def test_call_error_status_mapping_by_code(srv):
+    # D4：error_code → HTTP 状态码（client 仍从 body 映射，状态码只影响监控观感）
+    cases = {
+        "raises_notfound": (404, "target_not_found"),
+        "raises_conflict": (409, "file_conflict"),
+        "raises_com": (502, "com_operation"),
+        "boom": (500, "internal"),
+    }
+    for op, (status, code) in cases.items():
+        st, body = _post(srv, {"app": "ppt", "op": op}, token=TOKEN)
+        assert st == status, f"{op}: 期望 {status}，实际 {st}"
+        assert body["ok"] is False and body["error_code"] == code
+    # com_operation 带 hresult 往返
+    st, body = _post(srv, {"app": "ppt", "op": "raises_com"}, token=TOKEN)
+    assert body["hresult"]
 
 
 # --- 操作日志（P2-3）：每次 op 后落一条 ---
