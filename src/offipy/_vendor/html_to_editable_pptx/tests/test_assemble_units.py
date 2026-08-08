@@ -6,6 +6,7 @@
 - 满页半透明遮罩必须保留；与背景同色的满页 shape 才跳过
 - 圆形 带背景+四边同色边框 必须有 outline
 """
+import json
 import re
 import zipfile
 
@@ -260,3 +261,102 @@ def test_sld_sz_declares_screen16x9(tmp_path):
     assert 'type="screen16x9"' in xml
     assert 'cx="12192000"' in xml
     assert 'cy="6858000"' in xml
+
+
+# === 不可信测量边界硬化（F1）===
+# DOM 覆盖攻击（恶意 HTML 覆写 getBoundingClientRect/getComputedStyle）或手写测量 JSON
+# 可注入字符串/NaN/Inf 到数值字段、XML 非法控制字符到文本字段——装配必须降级不崩溃。
+
+def test_safe_float_guards_bad_values():
+    from assemble import _safe_float
+    assert _safe_float("abc", 0.0) == 0.0
+    assert _safe_float(float("nan"), 0.0) == 0.0
+    assert _safe_float(float("inf"), 5.0) == 5.0
+    assert _safe_float(None, 0.0) == 0.0
+    assert _safe_float("3.5", 0.0) == 3.5
+
+
+def test_sanitize_text_strips_xml_invalid_controls():
+    from assemble import _sanitize_text
+    assert _sanitize_text("a\x00b\x1f\x0b\x0e") == "a�b���"
+    # \t \n \r 是 XML 合法控制字符，必须保留
+    assert _sanitize_text("ok\t\n\r") == "ok\t\n\r"
+    assert _sanitize_text(None) == ""
+    assert _sanitize_text(123) == "123"
+
+
+def test_assemble_hostile_measurement_no_crash(tmp_path):
+    # rect 数值全是字符串/None、fontSize NaN、inkBottom 字符串、padding 垃圾、
+    # text 带 \x00 \x1f、slide 缺 background——装配降级为兜底值，不抛异常，
+    # 输出 PPTX 合法且控制字符被替换成 U+FFFD。
+    hostile = {
+        "slides": [{
+            "slide": {"theme": "t"},
+            "records": [
+                {"kind": "shape", "rect": {"x": "oops", "y": None, "w": "abc", "h": 100},
+                 "deco": {"hasBg": True, "bg": "rgb(1, 2, 3)", "borderTopWidth": "zzz"}},
+                {"kind": "text", "rect": {"x": 0, "y": 0, "w": "nan", "h": "inf"},
+                 "runs": [{"text": "bad\x00char\x1f", "fontSize": "NaN", "inkBottom": "x",
+                           "color": "rgb(0, 0, 0)"}],
+                 "style": {"fontSize": "abc", "paddingTop": "xx"}},
+                {"kind": "text", "rect": {"w": 100, "h": 30},
+                 "runs": [{"text": "normal", "fontSize": 16, "color": "rgb(0, 0, 0)"}],
+                 "style": {}},
+            ],
+        }]
+    }
+    out = tmp_path / "t.pptx"
+    assemble(hostile, out)  # must not raise
+    assert out.exists()
+    xml = zipfile.ZipFile(out).read("ppt/slides/slide1.xml").decode("utf-8")
+    assert "\x00" not in xml and "\x1f" not in xml
+    assert "�" in xml
+
+
+def test_assemble_missing_rect_and_slide_meta(tmp_path):
+    # rect 缺失 / 非 dict → 全 0；slide 整体缺失 → 仍装配成功
+    out = tmp_path / "t.pptx"
+    assemble({"slides": [
+        {"records": [{"kind": "text",
+                      "runs": [{"text": "hello", "fontSize": 16, "color": "rgb(0,0,0)"}],
+                      "style": {}}]},
+        {"slide": None, "records": [{"kind": "text", "rect": "not-a-dict",
+                                     "runs": [{"text": "x", "fontSize": 16}], "style": {}}]},
+    ]}, out)
+    assert out.exists()
+    xml = zipfile.ZipFile(out).read("ppt/slides/slide1.xml").decode("utf-8")
+    assert "hello" in xml
+
+
+def test_self_check_load_measurement_texts_guards_bad_numbers(tmp_path):
+    # F4：self_check 读不可信 measurement JSON，slide.width/height 与 rect 坐标
+    # 注入字符串/NaN 时降级为兜底，不崩（否则自检门禁被静默吞掉）
+    from self_check import _load_measurement_texts
+    m = tmp_path / "meas.json"
+    m.write_text(
+        json.dumps({"slides": [{
+            "slide": {"width": "abc", "height": "nan"},
+            "records": [
+                {"kind": "text", "runs": [{"text": "hi"}],
+                 "rect": {"x": "xx", "y": None, "w": "inf", "h": 10}},
+                {"kind": "shape", "runs": [{"text": "skip-me"}], "rect": {"x": 0, "y": 0}},
+            ],
+        }]}),
+        encoding="utf-8",
+    )
+    out = _load_measurement_texts(m, (1920, 1080))
+    assert 1 in out
+    refs = out[1]
+    assert len(refs) == 1  # 只有 text kind；shape 跳过
+    assert refs[0]["text"] == "hi"
+    assert all(v == 0.0 for v in (refs[0]["x"], refs[0]["y"], refs[0]["w"]))
+    assert refs[0]["h"] == 10.0
+
+
+def test_measure_parse_single_index_graceful():
+    # F3：single_index 非整数给 SystemExit 清晰信息，而非 ValueError traceback
+    from measure import _parse_single_index
+    assert _parse_single_index(None) is None
+    assert _parse_single_index("3") == 3
+    with pytest.raises(SystemExit, match="single_index"):
+        _parse_single_index("abc")

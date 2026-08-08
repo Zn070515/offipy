@@ -1452,6 +1452,16 @@ def measure(html_path: Path, out_json: Path | None = None, *,
     return payload
 
 
+def _parse_single_index(arg: str | None) -> int | None:
+    """CLI 第三参（可选 single_index）：非整数给清晰错误而非 ValueError traceback。"""
+    if arg is None:
+        return None
+    try:
+        return int(arg)
+    except ValueError:
+        raise SystemExit(f"measure: single_index 必须是整数，得到 {arg!r}") from None
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     flags = {a for a in sys.argv[1:] if a.startswith("--")}
@@ -1461,7 +1471,7 @@ def main():
         sys.exit(1)
     html_path = Path(args[0]).resolve()
     out_json = Path(args[1]).resolve()
-    single_index = int(args[2]) if len(args) >= 3 else None
+    single_index = _parse_single_index(args[2]) if len(args) >= 3 else None
     measure(html_path, out_json, single_index=single_index, no_screenshots=no_screenshots)
 
 
