@@ -7,14 +7,16 @@ name = "offipy"
 description = "Live Microsoft Office automation via COM (session-based) + HTML-first slide pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
-# PEP 639 SPDX 表达式：本体 + vendored 转换器/Phosphor 为 MIT，内嵌 Lucide 图标为 ISC
-# （两者都随 wheel/sdist 分发，见 THIRD_PARTY_NOTICES.md）
+# PEP 639 SPDX 表达式：本体 + vendored 转换器/图表 skill/Phosphor 为 MIT，
+# 内嵌 Lucide 图标为 ISC（都随 wheel/sdist 分发，见 THIRD_PARTY_NOTICES.md）
 license = "MIT AND ISC"
 license-files = [
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "src/offipy/assets/icons/LICENSE-*.txt",
     "src/offipy/_vendor/html_to_editable_pptx/LICENSE",
+    "src/offipy/_vendor/diagram-design/LICENSE",
+    "src/offipy/_vendor/diagram-design/THIRD_PARTY_LICENSES.md",
 ]
 # 公开 wheel/sdist 元数据不暴露学校邮箱，用 GitHub noreply（开源联系走 Issues/讨论）
 authors = [{ name = "XuXin", email = "247738477+Zn070515@users.noreply.github.com" }]

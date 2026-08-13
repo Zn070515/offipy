@@ -106,6 +106,8 @@ def main() -> int:
             "src/offipy/assets/icons/LICENSE-lucide.txt",
             "src/offipy/assets/icons/LICENSE-phosphor.txt",
             "src/offipy/_vendor/html_to_editable_pptx/LICENSE",
+            "src/offipy/_vendor/diagram-design/LICENSE",
+            "src/offipy/_vendor/diagram-design/THIRD_PARTY_LICENSES.md",
         ):
             if need not in lic_suffixes:
                 raise SystemExit(f"[verify-wheel] FAIL: licenses 缺 {need}")

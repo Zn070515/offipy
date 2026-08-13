@@ -14,6 +14,22 @@ offipy 内嵌或依赖以下第三方组件。许可证原文随产物分发，�
 - **说明**：该转换器为「vector-first」实现，产物是原生可编辑的 `.pptx`（占位符/文本/图形均保留
   可编辑性），非扁平化图片页。此文件保留原项目 LICENSE 全文。
 
+### 社论图表 skill（diagram-design）
+
+- **项目**：diagram-design（`src/offipy/_vendor/diagram-design/`）
+- **来源**：https://github.com/cathrynlavery/diagram-design
+- **上游 commit**：`f3622cf66a3c557cb2ead57b687a3c1ff63f5a2b`
+- **许可证**：MIT — Copyright (c) 2025 Cathryn Lavery
+- **用途**：27 种「社论级」图表（架构/流程图/时序/甘特等）设计系统与 HTML+SVG 模板，后续
+  接入 deck 管线（HTML→可编辑 PPTX）作为图表生成能力；本轮仅 vendoring 骨架 + 版权声明。
+- **说明**：只 vendor 运行时相关核心——`skills/diagram-design/`（SKILL.md + references +
+  assets 模板 + scripts 解析器）、`LICENSE`、`THIRD_PARTY_LICENSES.md`、`README.md`、
+  `docs/adr/`（设计决策）。跳过：插件市场元数据（`.claude-plugin/`/`.codex-plugin/`/
+  `.agents/`）、agent 命令模板（`commands/`/`prompts/`）、上游发布/校验脚本（根 `scripts/`）、
+  截图（`docs/screenshots/`）与项目治理文档（SECURITY/CONTRIBUTING/CODE_OF_CONDUCT）。
+  skill 内嵌图标来自 Tabler(MIT)/Simple Icons(CC0)/log-z(MIT)/Devicon(MIT)，其许可证全文
+  见 vendored `THIRD_PARTY_LICENSES.md`；品牌 logo 归各商标持有人，仅文档/说明性用途。
+
 ### 图标资产（Phosphor + Lucide 双集）
 
 - **项目**：Phosphor Icons（`src/offipy/assets/icons/phosphor/`）
