@@ -27,6 +27,8 @@ _NEEDED_IN_SDIST = (
     "THIRD_PARTY_NOTICES.md",
     "src/offipy/py.typed",
     "src/offipy/_vendor/html_to_editable_pptx/LICENSE",
+    "src/offipy/_vendor/diagram-design/LICENSE",
+    "src/offipy/_vendor/diagram-design/THIRD_PARTY_LICENSES.md",
     "src/offipy/assets/icons/manifest.json",
 )
 
