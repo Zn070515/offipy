@@ -98,3 +98,12 @@ jobs:
           else
             uv run pytest tests -m "${{ inputs.test_marker }}" -q
           fi
+
+      # RPC op 基准轻档（#107）：真机验证 bench 脚本不坏 + 指标能产出。
+      # bench_ops 走 COM（client.call → server → Office），只能挂有 Office 的
+      # 自托管 runner（Linux pure-module 无 Office 跑不了）；release 的
+      # install_from_wheel 调用不跑这条，发布链行为保持不变。
+      - name: Run RPC op benchmark (light gate)
+        if: ${{ !inputs.install_from_wheel }}
+        shell: bash
+        run: uv run python scripts/bench/bench_ops.py

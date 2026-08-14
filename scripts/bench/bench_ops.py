@@ -4,6 +4,11 @@
     uv run python scripts/bench/bench_ops.py
 
 输出 Markdown 表（可直接并入 docs/benchmarks.md）。结束自动 quit 各 App。
+
+CI 门禁（#107）：office-tests.yml 的真机 job 在 COM 测试后跑本脚本作为
+轻档门禁，验证脚本不坏 + 指标能产出；阈值不在此设（自托管机器波动大）。
+docs/benchmarks.md 是人工维护的静态快照——跑出结果后手动更新，别让快照
+与实测漂移成第二个不透明数字。
 """
 
 from time import perf_counter
