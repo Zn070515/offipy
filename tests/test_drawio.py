@@ -265,3 +265,26 @@ def test_render_drawio_preserves_colors(tmp_path):
     conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
     assert conns and conns[0].line.color.rgb == RGBColor(0x33, 0x33, 0x33)
     assert conns[0].line.dash_style == MSO_LINE_DASH_STYLE.DASH  # dashed=1 → 虚线
+
+
+def test_layout_drawio_no_upscale(tmp_path):
+    # 图比画布小 → scale 必须封顶 1.0（绝不放大）
+    xml = (
+        '<mxfile><diagram name="P"><mxGraphModel><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        '<mxCell id="s" value="S" vertex="1" parent="1">'
+        '<mxGeometry x="0" y="0" width="5" height="3" as="geometry"/></mxCell>'
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+    lay = layout_drawio(parse_drawio(_write(tmp_path, xml, "small.drawio")))
+    assert lay.canvas_w == pytest.approx(5.0)  # 未被放大到 12.0
+    assert lay.canvas_h == pytest.approx(3.0)
+    s = next(n for n in lay.nodes if n.id == "s")
+    assert s.w == pytest.approx(5.0) and s.h == pytest.approx(3.0)
+
+
+def test_layout_drawio_uniform_scale(tmp_path):
+    # 等比 fit：canvas 宽高比 = raw 宽高比（SINGLE_PAGE raw 340x300），
+    # x/y 各自独立缩放会被此断言抓出。
+    lay = layout_drawio(parse_drawio(_write(tmp_path)))
+    assert lay.canvas_w / lay.canvas_h == pytest.approx(340 / 300)
