@@ -300,9 +300,10 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   `offipy.diagrams.mermaid_to_pptx("graph TD\nA-->B", "out.pptx")` 直接出 16:9 整页可编辑
   PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。注意 `graph`/`flowchart` 须带显式
   方向（裸 `graph` 会被拒），暂不支持 `%%` 注释（vendored 解析器契约）。
-  也支持 draw.io：HTML 里写 `<div class="drawio" data-drawio="arch.drawio"></div>`（路径基于
-  该 HTML 所在目录），`deck render` 后由 `offipy.drawio` 把 `.drawio` 转成可编辑形状、保留
-  作者版式与配色；独立 API `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx",
+  也支持 draw.io：HTML 里写 `<div class="drawio" data-drawio="arch.drawio"></div>`（相对路径在
+  deck 管线内自动改写为 `file://` 绝对 URI，HTML 拷到临时目录也能解析），`deck render` 后由
+  `offipy.drawio` 把 `.drawio` 转成可编辑形状、保留作者版式与配色，节点 `fontSize` 随容器缩放
+  （层级不被拍平）；独立 API `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx",
   page="架构")` 直接出 16:9 整页可编辑 PPTX（page 接受 int 页码或 str 页名，默认第一页）。
 - **资源系统（Asset System v1）**：图标 / 纹理 / 图元统一走 `asset://` 资源管线
   （`data-asset` / `data-asset-param-*` / `data-asset-placement`），渲染成**可编辑的

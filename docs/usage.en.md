@@ -170,6 +170,12 @@ For `data-asset` / `data-primitive` / `data-asset-param-*` / `data-asset-placeme
 asset declarations, the `asset://` URI, providers and `assets.json` provenance, see
 [Asset System](assets.en.md).
 
+A `<div class="drawio" data-drawio="arch.drawio">` inside a `data-pptx-slide`
+`<section>` is injected as editable PowerPoint shapes after render (needs the visual
+audit measurements). Relative `data-drawio` paths are rewritten to `file://` absolute
+URIs when the HTML is staged to a temp dir, so they keep resolving; node `fontSize`
+is scaled with the container (default 12pt), keeping the text hierarchy.
+
 ## Python API
 
 ```python

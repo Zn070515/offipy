@@ -6,8 +6,9 @@
 也可作为 deck 后处理注入（postprocess_drawio：HTML <div class="drawio"
 data-drawio="..."> → 替换为可编辑形状）。
 
-vendored 提取器用 importlib 加载，保持上游文件原样；安全边界（DTD/ENTITY 拒绝、
-压缩上限）继承自 vendor 的 parse_file，offipy 不自行解析 draw.io XML。
+vendored 提取器用 importlib 加载（对上游 drawio_extract.py 有一处补丁：提取 fontSize，
+见 THIRD_PARTY_NOTICES.md）；安全边界（DTD/ENTITY 拒绝、压缩上限）继承自 vendor 的
+parse_file，offipy 不自行解析 draw.io XML。
 """
 
 from __future__ import annotations

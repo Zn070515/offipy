@@ -13,6 +13,9 @@ offipy 内嵌或依赖以下第三方组件。许可证原文随产物分发，�
   `ConversionError` 并提示安装。
 - **说明**：该转换器为「vector-first」实现，产物是原生可编辑的 `.pptx`（占位符/文本/图形均保留
   可编辑性），非扁平化图片页。此文件保留原项目 LICENSE 全文。
+- **补丁（offipy 维护的第一处 vendored 补丁，#94）**：`scripts/measure.py` 装饰门新增
+  `isDrawioPlaceholder` 判定——空 `<div class="drawio">` 占位（无背景无边框）也要测出
+  bbox 供 deck 注入定位。改动保持最小，仅扩展一个判定条件。
 
 ### 社论图表 skill（diagram-design）
 
@@ -29,6 +32,10 @@ offipy 内嵌或依赖以下第三方组件。许可证原文随产物分发，�
   截图（`docs/screenshots/`）与项目治理文档（SECURITY/CONTRIBUTING/CODE_OF_CONDUCT）。
   skill 内嵌图标来自 Tabler(MIT)/Simple Icons(CC0)/log-z(MIT)/Devicon(MIT)，其许可证全文
   见 vendored `THIRD_PARTY_LICENSES.md`；品牌 logo 归各商标持有人，仅文档/说明性用途。
+- **补丁（offipy 对 diagram-design 的第一处修改，#97）**：`skills/diagram-design/scripts/
+  drawio_extract.py` 的 `Node` 增加 `font_size` 字段、`parse_page` 提取 `fontSize`——
+  drawio 节点字号随容器缩放（层级不被拍平）。offipy 不自行解析 draw.io XML，故补丁落在
+  vendored 提取器内；安全边界（DTD/ENTITY 拒绝、压缩上限）保持不变。
 
 ### 图标资产（Phosphor + Lucide 双集）
 
