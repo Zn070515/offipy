@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from offipy.diagrams import parse_mermaid
+from offipy.diagrams import layout_diagram, parse_mermaid
 
 
 def test_parse_flowchart_basic():
@@ -49,3 +49,42 @@ def test_mermaid_missing_direction_clear_error():
     # offipy 包装预检后给清晰 ValueError（含"方向"），不透传误导性消息。
     with pytest.raises(ValueError, match="方向"):
         parse_mermaid("graph\n    A[开始] --> B[处理]")
+
+
+def test_layout_td_layers_and_coords():
+    diagram = parse_mermaid(
+        "graph TD\n    A[开始] --> B[处理]\n    B --> C[输出]\n    B --> D[结束]"
+    )
+    lay = layout_diagram(diagram)
+    # A 在 (0,0)，B 在第二层，C/D 在第三层（各占一层内的列）
+    a = next(n for n in lay.nodes if n.id == "A")
+    b = next(n for n in lay.nodes if n.id == "B")
+    c = next(n for n in lay.nodes if n.id == "C")
+    d = next(n for n in lay.nodes if n.id == "D")
+    assert b.y > a.y  # 分层：A/B 不同行
+    assert c.y > b.y
+    assert c.y == pytest.approx(d.y)  # C/D 同层同 y
+    assert c.x != d.x  # 同层不同列
+    assert all(n.w > 0 and n.h > 0 for n in lay.nodes)
+
+
+def test_layout_lr_swaps_axis():
+    diagram = parse_mermaid("graph LR\n    A --> B")
+    lay = layout_diagram(diagram)
+    a = next(n for n in lay.nodes if n.id == "A")
+    b = next(n for n in lay.nodes if n.id == "B")
+    assert b.x > a.x  # LR: 水平前进
+    assert b.y == a.y  # 同层同列
+
+
+def test_layout_fits_max():
+    diagram = parse_mermaid("graph TD\n    A --> B\n    B --> C\n    C --> D")
+    lay = layout_diagram(diagram, max_w=3.0, max_h=2.0)
+    assert lay.canvas_w <= 3.0 + 1e-9
+    assert lay.canvas_h <= 2.0 + 1e-9
+
+
+def test_layout_cycle_tolerated():
+    diagram = parse_mermaid("graph TD\n    A --> B\n    B --> A")
+    lay = layout_diagram(diagram)
+    assert {n.id for n in lay.nodes} == {"A", "B"}
