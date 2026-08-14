@@ -63,6 +63,7 @@ class DrawioNode:
     fill: str = ""
     stroke: str = ""
     font_color: str = ""
+    font_size: float | None = None
     dashed: bool = False
     rounded: bool = False
     container: bool = False
@@ -83,6 +84,16 @@ class DrawioEdge:
 class DrawioDiagram:
     nodes: list[DrawioNode]
     edges: list[DrawioEdge]
+
+
+def _parse_font_size(raw: str) -> float | None:
+    """style 里的 fontSize（字符串）→ float；空/非数值 → None（走 12pt 默认）。"""
+    if not raw or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def parse_drawio(source, *, page=None) -> DrawioDiagram:
@@ -121,6 +132,7 @@ def parse_drawio(source, *, page=None) -> DrawioDiagram:
             fill=n.fill,
             stroke=n.stroke,
             font_color=n.font_color,
+            font_size=_parse_font_size(n.font_size),
             dashed=n.dashed,
             rounded=n.rounded,
             container=n.container,

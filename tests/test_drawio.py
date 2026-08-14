@@ -312,3 +312,25 @@ def test_drawio_to_pptx_bad_source(tmp_path):
 def test_drawio_to_pptx_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         drawio_to_pptx(tmp_path / "nope.drawio", str(tmp_path / "out.pptx"))
+
+
+FONT_SIZE = """\
+<mxfile><diagram name="P"><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="a" value="大" style="fontSize=14;fillColor=#dae8fc;" vertex="1" parent="1">
+    <mxGeometry x="0" y="0" width="100" height="50" as="geometry"/></mxCell>
+  <mxCell id="b" value="小" style="rounded=0;" vertex="1" parent="1">
+    <mxGeometry x="120" y="0" width="100" height="50" as="geometry"/></mxCell>
+  <mxCell id="c" value="坏" style="fontSize=abc;" vertex="1" parent="1">
+    <mxGeometry x="240" y="0" width="100" height="50" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram></mxfile>
+"""
+
+
+def test_parse_drawio_font_size(tmp_path):
+    # #97：fontSize 从 style 提取；缺省 / 非数值 → None（走 12pt 默认）
+    d = parse_drawio(_write(tmp_path, FONT_SIZE, "font.drawio"))
+    by_id = {n.id: n for n in d.nodes}
+    assert by_id["a"].font_size == 14.0
+    assert by_id["b"].font_size is None
+    assert by_id["c"].font_size is None

@@ -101,6 +101,7 @@ class PlacedNode:
     fill: str = ""
     stroke: str = ""
     font_color: str = ""
+    font_pt: float | None = None
 
 
 @dataclass
