@@ -199,10 +199,12 @@ def layout_diagram(
             py = M + col * (H + GY)
         placed.append(PlacedNode(i, n.label, n.shape, px, py, W, H, False, n.parent))
 
-    placed_edges = _layout_edges(diagram, placed, vertical, dr)
+    placed_nodes = placed + _layout_containers(diagram, placed, scale)
+    # 容器框入 by_id → 容器端点边被路由（Task 2 的跳过分支转为死路径）
+    placed_edges = _layout_edges(diagram, placed_nodes, vertical, dr)
     canvas_w = M + (max_col * (W + GX)) if vertical else M + ((max_row + 1) * (W + GX))
     canvas_h = M + ((max_row + 1) * (H + GY)) if vertical else M + (max_col * (H + GY))
-    return DiagramLayout(placed, placed_edges, canvas_w, canvas_h)
+    return DiagramLayout(placed_nodes, placed_edges, canvas_w, canvas_h)
 
 
 def _layout_edges(
@@ -245,6 +247,60 @@ def _layout_edges(
             )
         )
     return out
+
+
+_CONTAINER_PAD_X = 0.3
+_CONTAINER_PAD_Y = 0.3
+_CONTAINER_HDR = 0.4
+
+
+def _descendants(children: dict[str, list[str]], root: str) -> set[str]:
+    seen: set[str] = set()
+    stack = list(children.get(root, []))
+    while stack:
+        i = stack.pop()
+        if i in seen:
+            continue
+        seen.add(i)
+        stack.extend(children.get(i, []))
+    return seen
+
+
+def _layout_containers(diagram, placed: list[PlacedNode], scale: float) -> list[PlacedNode]:
+    """container 节点 → 背景框 PlacedNode（覆盖其子孙叶子 bbox + padding + 标题区）。
+
+    嵌套容器：从最深层往上算（子先于父），外层框用已算好的子框扩展。
+    """
+    containers = [n for n in diagram.nodes if n.container or n.shape == "container"]
+    if not containers:
+        return []
+    # 全节点父子树（容器→子容器/叶子），供 _descendants 跨层收集嵌套后代
+    children: dict[str, list[str]] = {}
+    for n in diagram.nodes:
+        if n.parent:
+            children.setdefault(n.parent, []).append(n.id)
+    by_id = {n.id: n for n in placed}
+    # 子树高度决定计算顺序：子容器先算（parent 依赖），外框再引用已算好的子框
+    order = sorted(containers, key=lambda c: -c.depth)
+    boxes: dict[str, PlacedNode] = {}
+    for c in order:
+        members = _descendants(children, c.id)
+        rects = [by_id[i] for i in members if i in by_id]
+        rects += [boxes[i] for i in members if i in boxes]
+        if rects:
+            # 顶/左缘不小于画布原点：顶层容器（首节点在 y=M=0.5）的 y0 会算成
+            # 0.5-(0.3+0.4)=-0.2in，负坐标把容器标题渲到画布/幻灯片顶外被裁掉。
+            x0 = max(0.0, min(r.x for r in rects) - _CONTAINER_PAD_X * scale)
+            y0 = max(0.0, min(r.y for r in rects) - (_CONTAINER_PAD_Y + _CONTAINER_HDR) * scale)
+            x1 = max(r.x + r.w for r in rects) + _CONTAINER_PAD_X * scale
+            y1 = max(r.y + r.h for r in rects) + _CONTAINER_PAD_Y * scale
+        else:
+            x0 = y0 = 0.0
+            x1 = y1 = 0.5 * scale
+        boxes[c.id] = PlacedNode(
+            c.id, c.label, "container", x0, y0, x1 - x0, y1 - y0, True, c.parent
+        )
+    return list(boxes.values())
 
 
 _NODE_FONT = "Microsoft YaHei"

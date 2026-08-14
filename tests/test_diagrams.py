@@ -94,15 +94,82 @@ def test_layout_cycle_tolerated():
     assert {n.id for n in lay.nodes} == {"A", "B"}
 
 
-def test_layout_skips_container_endpoint_edges():
-    # 容器不占坐标，容器端点边（A→Z）在 Task 2 布局阶段被跳过。
-    # Task 4 容器框落地后改为路由（届时把本测试改成断言 A→Z 存在且锚在框上）。
+def test_layout_routes_container_endpoint_edges():
+    # 容器框落地后，容器端点边 A→Z 被路由到容器框（源锚底部中心，TD 方向）。
     diagram = parse_mermaid("graph TD\n    subgraph A\n        X --> Y\n    end\n    A --> Z")
     lay = layout_diagram(diagram)
-    placed_ids = {n.id for n in lay.nodes}
-    assert placed_ids == {"X", "Y", "Z"}
-    assert all(e.source in placed_ids and e.target in placed_ids for e in lay.edges)
-    assert not any(e.source == "A" or e.target == "A" for e in lay.edges)
+    box = next(n for n in lay.nodes if n.is_container)
+    assert box.id == "A"
+    assert box.x >= 0 and box.y >= 0
+    x = next(n for n in lay.nodes if n.id == "X")
+    y = next(n for n in lay.nodes if n.id == "Y")
+    assert box.x <= x.x and box.y <= y.y
+    assert box.x + box.w >= x.x + x.w
+    assert box.y + box.h >= y.y + y.h
+    e = next(e for e in lay.edges if e.source == "A" and e.target == "Z")
+    assert e.ax1 == pytest.approx(box.x + box.w / 2)
+    assert e.ay1 == pytest.approx(box.y + box.h)
+    assert len(lay.edges) == 2
+
+
+def test_layout_subgraph_container_bbox():
+    diagram = parse_mermaid(
+        "graph TD\n    subgraph 数据处理\n        A[清洗] --> B[聚合]\n    end\n    B --> C[输出]"
+    )
+    lay = layout_diagram(diagram)
+    cont = [n for n in lay.nodes if n.is_container]
+    assert len(cont) == 1
+    box = cont[0]
+    # 容器框必须包住其子节点 A/B
+    a = next(n for n in lay.nodes if n.id == "A")
+    b = next(n for n in lay.nodes if n.id == "B")
+    assert box.x <= a.x and box.y <= a.y
+    assert box.x + box.w >= b.x + b.w
+    assert box.y + box.h >= b.y + b.h
+    # 顶/左缘不越过画布原点（防容器标题被裁到画布顶外）
+    assert box.x >= 0 and box.y >= 0
+
+
+def test_render_subgraph_container_shape():
+    diagram = parse_mermaid("graph TD\n    subgraph 数据处理\n        A[清洗] --> B[聚合]\n    end")
+    prs, slide = _render(diagram)
+    texts = {sh.text_frame.text for sh in slide.shapes if sh.has_text_frame}
+    assert "数据处理" in texts
+    assert texts >= {"清洗", "聚合"}
+    # 容器背景框（RECTANGLE）与叶节点都是 autoshape
+    auto = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
+    assert len(auto) == 3
+
+
+def test_render_edge_label_text():
+    diagram = parse_mermaid("graph TD\n    A[发] -->|是| B[收]")
+    prs, slide = _render(diagram)
+    texts = {sh.text_frame.text for sh in slide.shapes if sh.has_text_frame}
+    assert "是" in texts
+
+
+def test_layout_nested_subgraph_bbox():
+    # 嵌套 subgraph：外层框必须包住内层框（内层是外层的跨层后代），内层框包住叶子。
+    diagram = parse_mermaid(
+        "graph TD\n"
+        "    subgraph 外层\n"
+        "        subgraph 内层\n"
+        "            A[开始] --> B[结束]\n"
+        "        end\n"
+        "    end"
+    )
+    lay = layout_diagram(diagram)
+    boxes = {n.label: n for n in lay.nodes if n.is_container}
+    assert set(boxes) == {"外层", "内层"}
+    outer, inner = boxes["外层"], boxes["内层"]
+    assert outer.x <= inner.x and outer.y <= inner.y
+    assert outer.x + outer.w >= inner.x + inner.w
+    assert outer.y + outer.h >= inner.y + inner.h
+    a = next(n for n in lay.nodes if n.id == "A")
+    b = next(n for n in lay.nodes if n.id == "B")
+    assert inner.x <= a.x and inner.y <= a.y
+    assert inner.x + inner.w >= b.x + b.w
+    assert inner.y + inner.h >= b.y + b.h
 
 
 @pytest.mark.parametrize(
