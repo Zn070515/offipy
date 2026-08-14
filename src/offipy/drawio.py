@@ -285,7 +285,8 @@ class _DrawioHTMLParser(HTMLParser):
 
 def parse_drawio_declarations(html_text: str) -> list[dict]:
     """HTML → [{slide, path}]（slide 1-based）。div.drawio 在 data-pptx-slide
-    <section> 之外 → ValueError（对齐 mermaid：声明必须落在 section 内）。"""
+    <section> 之外 → ValueError；同页多个 drawio 声明 → ValueError（对齐 charts
+    每页仅支持一个容器）。"""
     p = _DrawioHTMLParser()
     p.feed(html_text)
     p.close()
@@ -295,6 +296,10 @@ def parse_drawio_declarations(html_text: str) -> list[dict]:
                 'drawio 声明出现在 slide 之外——<div class="drawio"> 必须在 '
                 "data-pptx-slide 的 <section> 内"
             )
+    seen = [d["slide"] for d in p.decls]
+    dupes = sorted({s for s in seen if seen.count(s) > 1})
+    if dupes:
+        raise ValueError(f"每页仅支持一个 drawio 图（第 {dupes} 页声明了多个）")
     return p.decls
 
 

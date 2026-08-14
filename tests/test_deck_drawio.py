@@ -87,6 +87,16 @@ def test_parse_drawio_declarations_rejects_outside_section():
         parse_drawio_declarations(html)
 
 
+def test_parse_drawio_declarations_rejects_multiple_per_slide():
+    html = HTML.replace(
+        '<div class="drawio" data-drawio="arch.drawio"></div>',
+        '<div class="drawio" data-drawio="arch.drawio"></div>\n'
+        '    <div class="drawio" data-drawio="other.drawio"></div>',
+    )
+    with pytest.raises(ValueError, match="每页仅支持一个 drawio"):
+        parse_drawio_declarations(html)
+
+
 def test_postprocess_drawio_injects_shapes(tmp_path):
     html = _write(tmp_path)
     # 模拟 convert 产物：drawio 占位容器渲染成占位文本框（bbox px 60,120,400,240 → inch
