@@ -604,10 +604,9 @@ def postprocess_mermaid(html_path: str, pptx_path: str) -> None:
     """
     with open(html_path, encoding="utf-8") as f:
         html_text = f.read()
-    # 守卫兼容单/双引号：charts 用属性名 "data-chart" 天然免疫引号；这里匹配 class 值，
-    # 只认双引号会让 <pre class='mermaid'> 静默跳过（mermaid 块以字面文本留在 PPTX）。
-    if 'class="mermaid"' not in html_text and "class='mermaid'" not in html_text:
-        return
+    # 无子串守卫：HTMLParser 按 class 值分词，多 class（class="mermaid chart"）或
+    # 属性空格（class = "mermaid"）都能命中；子串守卫会漏掉这些变体导致 mermaid
+    # 块以字面文本留在 PPTX。解析本身便宜，直接走 parse 再按 decls 空判断返回。
     decls = parse_mermaid_declarations(html_text)
     if not decls:
         return

@@ -61,6 +61,15 @@ def test_parse_mermaid_declarations_skips_non_mermaid_pre():
     assert parse_mermaid_declarations(html) == []
 
 
+def test_parse_mermaid_declarations_multi_class_tokens():
+    # class 值是分词匹配：多 class（mermaid chart）也必须命中。postprocess_mermaid
+    # 不设子串守卫（会漏掉此类变体），正确性全押在 parser 的 token 语义上。
+    html = HTML.replace('<pre class="mermaid">', '<pre class="mermaid chart">')
+    decls = parse_mermaid_declarations(html)
+    assert len(decls) == 1
+    assert "A[开始]" in decls[0]["source"]
+
+
 def test_parse_mermaid_declarations_rejects_outside_section():
     html = '<html><body><pre class="mermaid">graph TD\nA --> B</pre></body></html>'
     with pytest.raises(ValueError, match="slide 之外"):
