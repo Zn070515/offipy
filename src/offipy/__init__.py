@@ -70,7 +70,7 @@ from .models import (
     shape_type_name,
 )
 
-__version__ = "0.14.5"
+__version__ = "0.15.0"
 
 __all__ = [
     "Excel",

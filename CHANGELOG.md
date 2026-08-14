@@ -3,6 +3,15 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.15.0] - 2026-08-14
+
+### Added
+- `offipy.diagrams.mermaid_to_pptx`：Mermaid flowchart → 可编辑 PPTX（16:9 整页，
+  TD/TB/LR/RL/BT 方向，subgraph 容器，中文 label）。vendored diagram-design 的
+  mermaid_extract.py 提取拓扑，offipy 自研分层布局 + python-pptx 渲染。
+- deck 集成：HTML `<pre class="mermaid">` 块在渲染后被替换为可编辑形状
+  （复用 charts 注入管线，需 visual audit 的 measurements.json）。
+
 ## [0.14.5] - 2026-08-08
 
 ### Fixed
