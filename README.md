@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.15.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.15.1（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 

@@ -3,6 +3,24 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.15.1] - 2026-08-14
+
+### Fixed
+- **server 脱敏与 503 排空（#81/#82/#83/#89）**：Windows 分支盘符路径边界补强
+  （colon / 中文尾 / 英文与管道符边界），POSIX 分支按段特征收敛，修复路径
+  泄漏与过度吞尾；`_reply_503` 排空缓冲加 1 MiB 上限，防恶意客户端持续灌字节
+  卡死 accept 线程。
+- **diagrams 分层与源判定（#84/#85）**：`_kahn_layers` 对环残留节点统一尾层、
+  结果与遍历顺序无关（幂等）；`_read_source` 路径/文本二义判定——路径形态但
+  文件不存在的字符串抛 FileNotFoundError 并给修正提示。
+- **deck 出参校验（#86/#90）**：`export_slides` 与转换管线先验 out 参数、零页
+  快失败，避免产物静默缺失。
+- **doc_id 语义文档修正（#87）**：破坏性/需目标操作（close/save/save_pdf/
+  add_sheet/export_slides 等）不再声称「缺省为活动」，改为必须显式传入 doc_id
+  或 follow_active=True；schema、docstring、gen_api_ref 与 docs/api/* 全部同步。
+- **gen_py 缓存损坏提示（#88）**：EnsureDispatch 撞 CLSIDToClassMap
+  AttributeError 时抛 OfficeUnavailableError，并给出删除 %TEMP%\gen_py 的修复指引。
+
 ## [0.15.0] - 2026-08-14
 
 ### Added
