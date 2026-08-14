@@ -3,6 +3,20 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.16.0] - 2026-08-14
+
+### Added
+
+- **diagram app：diagram-design skill 的 LLM 设计能力以 Agent 原生模式接入**——
+  offipy 自身不调 LLM、不 spawn agent：`diagram build` 把宿主 agent 按产物契约落地的
+  Mermaid/drawio 源码文件转成可编辑 PPTX（16:9 整页）；`diagram install_skill` 把
+  vendored diagram-design skill + offipy-diagram wrapper skill 安装到宿主 agent 技能
+  目录（默认 `~/.claude/skills/`，幂等不覆盖，`--force` 覆盖重建）。
+- 新增 CLI `offipy diagram build` / `offipy diagram install_skill`、MCP 工具
+  `diagram_build` / `diagram_install_skill`，三入口经 schema 一处登记自动接线。
+- `offipy-diagram` wrapper skill 钉死产物契约：Mermaid 仅支持 flowchart/graph、
+  sequenceDiagram、stateDiagram-v2、erDiagram 四种 kind；其余类型改用 draw.io 表达。
+
 ## [0.15.1] - 2026-08-14
 
 ### Fixed
