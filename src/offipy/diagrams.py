@@ -211,7 +211,9 @@ def _layout_edges(
     by_id = {n.id: n for n in placed}
     out: list[PlacedEdge] = []
     for e in diagram.edges:
-        if e.source not in by_id or e.target not in by_id:  # pragma: no cover
+        # 可达分支：容器端点边在 Task 2 布局阶段被跳过（容器不占坐标，无框可锚）。
+        # Task 4 把 placed_nodes 传给本函数后容器框入 by_id，此分支转为真正死路径。
+        if e.source not in by_id or e.target not in by_id:
             continue
         s, t = by_id[e.source], by_id[e.target]
         if vertical:

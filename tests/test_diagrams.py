@@ -88,3 +88,44 @@ def test_layout_cycle_tolerated():
     diagram = parse_mermaid("graph TD\n    A --> B\n    B --> A")
     lay = layout_diagram(diagram)
     assert {n.id for n in lay.nodes} == {"A", "B"}
+
+
+def test_layout_skips_container_endpoint_edges():
+    # 容器不占坐标，容器端点边（A→Z）在 Task 2 布局阶段被跳过。
+    # Task 4 容器框落地后改为路由（届时把本测试改成断言 A→Z 存在且锚在框上）。
+    diagram = parse_mermaid("graph TD\n    subgraph A\n        X --> Y\n    end\n    A --> Z")
+    lay = layout_diagram(diagram)
+    placed_ids = {n.id for n in lay.nodes}
+    assert placed_ids == {"X", "Y", "Z"}
+    assert all(e.source in placed_ids and e.target in placed_ids for e in lay.edges)
+    assert not any(e.source == "A" or e.target == "A" for e in lay.edges)
+
+
+@pytest.mark.parametrize(
+    "direction",
+    ["BT", "RL"],
+)
+def test_layout_reversed_directions_anchors(direction):
+    # 反向方向：BT 层 1 在层 0 上方（y 更小），RL 层 1 在层 0 左侧（x 更小）。
+    # 同时锁边锚点（BT: 源顶部/目标底部；RL: 源左缘/目标右缘）。
+    diagram = parse_mermaid(f"graph {direction}\n    A --> B")
+    lay = layout_diagram(diagram)
+    a = next(n for n in lay.nodes if n.id == "A")
+    b = next(n for n in lay.nodes if n.id == "B")
+    if direction == "BT":
+        assert b.y < a.y
+        assert b.x == a.x
+    else:
+        assert b.x < a.x
+        assert b.y == a.y
+    edge = lay.edges[0]
+    if direction == "BT":
+        assert edge.ax1 == pytest.approx(a.x + a.w / 2)
+        assert edge.ay1 == pytest.approx(a.y)
+        assert edge.ax2 == pytest.approx(b.x + b.w / 2)
+        assert edge.ay2 == pytest.approx(b.y + b.h)
+    else:  # RL
+        assert edge.ax1 == pytest.approx(a.x)
+        assert edge.ay1 == pytest.approx(a.y + a.h / 2)
+        assert edge.ax2 == pytest.approx(b.x + b.w)
+        assert edge.ay2 == pytest.approx(b.y + b.h / 2)
