@@ -369,6 +369,33 @@ def test_mermaid_to_pptx_bad_text_without_path_shape_is_value_error(tmp_path):
         mermaid_to_pptx("not mermaid at all", str(tmp_path / "x.pptx"))
 
 
+def test_looks_like_path_relative_with_separator():
+    # #92：无前缀相对路径（data/foo.mmd、foo\bar.mmd）识别为路径意图；
+    # 含 Mermaid 结构标记的文本（graph/-->）不当路径，避免误伤 [/.../] 平行四边形节点
+    from offipy.diagrams import _looks_like_path
+
+    for raw in ("data/foo.mmd", "foo\\bar.mmd", "sub/dir/flow.mmd"):
+        assert _looks_like_path(raw), raw
+    assert not _looks_like_path("graph TD\n    A[/输入/] --> B[处理]")
+    assert not _looks_like_path("graph TD; A --> B")
+    assert not _looks_like_path("plain text no separator")
+
+
+def test_read_source_relative_missing_path_raises():
+    # #92：#85 只覆盖前缀形态，data/foo.mmd、foo\bar.mmd 这类含分隔符的相对路径
+    # 文件不存在时不再静默当 Mermaid 文本 → FileNotFoundError（可定位「路径打错」）
+    for raw in ("data/foo.mmd", "foo\\bar.mmd"):
+        with pytest.raises(FileNotFoundError, match="源文件不存在"):
+            _read_source(raw)
+
+
+def test_read_source_mermaid_text_with_slashes_is_text():
+    # #92：合法 Mermaid 源码含 /（[/.../] 平行四边形节点、label 斜杠）仍按文本处理，
+    # 不因含分隔符被误判为路径 → 原样返回
+    text = "graph TD\n    A[/输入/] --> B[处理]"
+    assert _read_source(text) == text
+
+
 def test_hex_rgb_three_states():
     from offipy.diagrams import _hex_rgb
 

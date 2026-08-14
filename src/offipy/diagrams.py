@@ -527,8 +527,26 @@ def render_to_slide(
         _add_text(shape, n.label, size_pt=node_font_pt, color=_hex_rgb(n.font_color))
 
 
+_MMD_MARKER_RE = re.compile(
+    r"\b(graph|flowchart|subgraph|sequenceDiagram|classDiagram|stateDiagram|"
+    r"erDiagram|gantt|journey|mindmap|timeline)\b"
+)
+
+
+def _has_mermaid_markers(s: str) -> bool:
+    """Mermaid 结构标记（graph/flowchart/--> 等）出现即视为文本而非路径。
+
+    用于 #92 区分「含分隔符的相对路径（data/foo.mmd）」与「合法 Mermaid 源码里的 /」
+    （如 graph TD; A[/决策/] 平行四边形节点）。有标记 → 文本，无标记 → 路径意图。
+    """
+    if _MMD_MARKER_RE.search(s):
+        return True
+    return any(m in s for m in ("-->", "---", "==>", "%%"))
+
+
 def _looks_like_path(s: str) -> bool:
-    """路径形态启发（#85）：盘符（C:\\ / C:/）、前导 / 或 \\（绝对/UNC）、点相对段（./ ../）。
+    """路径形态启发（#85/#92）：盘符（C:\\ / C:/）、前导 / 或 \\（绝对/UNC）、
+    点相对段（./ ../）、无前缀相对路径（data/foo.mmd、foo\\bar.mmd）。
 
     str 入参「路径 or 文本」无法从类型区分，只能靠存在性试探。试探失败后按形态
     优先「路径意图」——这些形态不会是合法 Mermaid 源码的开头，误伤面为零。
@@ -537,7 +555,11 @@ def _looks_like_path(s: str) -> bool:
         return True
     if s.startswith(("/", "\\")):
         return True
-    return s.startswith(("./", "../"))
+    if s.startswith(("./", "../")):
+        return True
+    if "/" in s or "\\" in s:
+        return not _has_mermaid_markers(s)
+    return False
 
 
 def _read_source(source) -> str:
@@ -559,7 +581,7 @@ def _read_source(source) -> str:
         if _looks_like_path(source):
             raise FileNotFoundError(
                 f"源文件不存在: {source}（字符串按路径处理；若本意是 Mermaid 文本，"
-                "请不要以盘符 / / / \\ / ./ 等路径形态开头）"
+                "请不要让它形如路径：盘符 / / / \\ / ./ 前缀，或含 / 或 \\ 分隔符）"
             )
     return str(source)
 

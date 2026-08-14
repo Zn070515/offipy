@@ -350,11 +350,23 @@ def test_redact_message_posix_does_not_hit_protocol_tags():
     )
     out = server._redact_message(msg)
     assert out == msg
-    # 特征对照：协议标签形态不脱，真实 POSIX 绝对路径仍脱
-    assert server._redact_message("/CLI/HTTP") == "/CLI/HTTP"
+    # 特征对照：标签靠 * 前缀 / URL scheme 保护；裸 / 起头全大写段与真实全大写路径
+    # （/ALL/UPPER）结构相同，宁多勿漏 → 脱敏（#91 修 #89 段特征前瞻的全大写漏脱）
+    assert server._redact_message("/CLI/HTTP") == "[REDACTED]"
     assert server._redact_message("Remote*/CLI/HTTP") == "Remote*/CLI/HTTP"
     assert server._redact_message("http://x.com/CLI/HTTP") == "http://x.com/CLI/HTTP"
     assert server._redact_message("/usr/local/bin") == "[REDACTED]"
+
+
+def test_redact_message_posix_lowercase_labels_kept_allcaps_paths_redacted():
+    # #91：POSIX 段特征前瞻两极——小写/带数字协议标签（Remote*/cli/http、Word*/api/v2）
+    # 仍被误伤成 [REDACTED]，而全大写真实路径（/ALL/UPPER）明文泄漏。改为 / 须在
+    # token 边界（排除 * 标签前缀）+ 不要求小写/数字特征：标签靠 * 前缀保护，
+    # 路径无论大小写一律脱敏。
+    for label in ("Remote*/cli/http", "Word*/api/v2", "Excel*/2024/report", "Ppt*/api/v2"):
+        assert server._redact_message(f"经 {label} 调用") == f"经 {label} 调用", label
+    assert server._redact_message("挂载卷位于 /ALL/UPPER 目录") == "挂载卷位于 [REDACTED] 目录"
+    assert server._redact_message("/BUILD/OUTPUT 不存在") == "[REDACTED] 不存在"
 
 
 def test_reply_503_drain_caps_recv_calls():
