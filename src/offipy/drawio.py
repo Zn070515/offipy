@@ -261,8 +261,7 @@ def _layout_edges(
         a1, a2 = _edge_anchors(s, t)
         style = "dashed" if e.dashed else "solid"
         waypoints = [
-            ((wx - x0) * scale + off_x, (wy - y0) * scale + off_y)
-            for wx, wy in e.waypoints
+            ((wx - x0) * scale + off_x, (wy - y0) * scale + off_y) for wx, wy in e.waypoints
         ]
         out.append(
             PlacedEdge(
@@ -305,7 +304,7 @@ def drawio_to_pptx(source, out_path: str, *, page=None) -> str:
 
 
 class _DrawioHTMLParser(HTMLParser):
-    """扫 <div class="drawio" data-drawio="..."> → [{slide, path}]。slide 1-based。"""
+    """扫 <div class="drawio" data-drawio="..." data-drawio-page="N"> → [{slide, path, page}]。"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -318,7 +317,13 @@ class _DrawioHTMLParser(HTMLParser):
             self.slide_index += 1
             return
         if tag == "div" and "drawio" in d.get("class", "").split() and d.get("data-drawio"):
-            self.decls.append({"slide": self.slide_index, "path": d["data-drawio"]})
+            self.decls.append(
+                {
+                    "slide": self.slide_index,
+                    "path": d["data-drawio"],
+                    "page": d.get("data-drawio-page"),
+                }
+            )
 
 
 def parse_drawio_declarations(html_text: str) -> list[dict]:
@@ -370,6 +375,23 @@ def _resolve_source_path(path: str) -> Path:
     return Path(path)
 
 
+def _parse_page_arg(v: str) -> str:
+    """data-drawio-page（1 基）→ select_pages 的字符串 selector（0 基 index / 页名）。
+
+    vendored select_pages 用 isdigit() 按 p.index（0 基）匹配；这里把 1 基页面号
+    转成 0 基 index 字符串，非数字（页名）原样透传。"all" 拒绝——parse_drawio 只取
+    selected[0]，放行 "all" 会静默丢页。
+    """
+    if v.isdigit():
+        idx = int(v)
+        if idx < 1:
+            raise ValueError(f"data-drawio-page 需 >= 1，得到 {idx}")
+        return str(idx - 1)
+    if v == "all":
+        raise ValueError('data-drawio-page 不支持 "all"（parse_drawio 只取第一页会静默丢页）')
+    return v  # 页名，不区分大小写（vendored select_pages 处理）
+
+
 def _remove_bbox_shapes(slide, box_emu: dict) -> None:
     """删除与注入矩形几何一致（同位置同尺寸）的占位形状（div.drawio 占位块等）。
 
@@ -407,8 +429,22 @@ def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> 
             )
         box_emu = {k: int(v * PX_TO_EMU) for k, v in box.items()}
         slide = prs.slides[decl["slide"] - 1]
+        src = _resolve_source_path(decl["path"])
+        page = decl.get("page")
         try:
-            diagram = parse_drawio(decl["path"])
+            if page is None:
+                # 多页未指定 → 明确报错，不再静默取第一页（#99）。计数走 vendored
+                # parse_file，offipy 不自行解析 XML（安全边界）。
+                if len(_load_extractor().parse_file(src)) > 1:
+                    raise ValueError(
+                        f'{decl["path"]} 含多页，deck 注入须用 data-drawio-page="N" 指定页'
+                    )
+                diagram = parse_drawio(src)
+            else:
+                diagram = parse_drawio(src, page=_parse_page_arg(page))
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, str) else str(e)
+            raise ValueError(f"第 {decl['slide']} 页 drawio 源解析失败: {code}") from None
         except ValueError as e:
             raise ValueError(f"第 {decl['slide']} 页 drawio 源解析失败: {e}") from None
         # bbox 是 px；转换器画布 1920px = 13.333in = 12192000 EMU → 1px = 1/144 in。
