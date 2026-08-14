@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from pptx import Presentation
+from pptx.enum.dml import MSO_LINE_DASH_STYLE
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+from pptx.oxml.ns import qn
 
-from offipy.diagrams import layout_diagram, parse_mermaid
+from offipy.diagrams import layout_diagram, parse_mermaid, render_to_slide
 
 
 def test_parse_flowchart_basic():
@@ -129,3 +133,79 @@ def test_layout_reversed_directions_anchors(direction):
         assert edge.ay1 == pytest.approx(a.y + a.h / 2)
         assert edge.ax2 == pytest.approx(b.x + b.w)
         assert edge.ay2 == pytest.approx(b.y + b.h / 2)
+
+
+def _render(diagram, max_w=12.0, max_h=6.75):
+    lay = layout_diagram(diagram, max_w=max_w, max_h=max_h)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    return prs, slide
+
+
+def _shape_map(slide):
+    return {sh.shape_type: sh for sh in slide.shapes}
+
+
+def test_render_creates_editable_autoshapes():
+    diagram = parse_mermaid("graph TD\n    A[开始] --> B{判断} --> C[结束]")
+    prs, slide = _render(diagram)
+    auto = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
+    conn = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert len(auto) == 3
+    assert len(conn) == 2
+    texts = {sh.text_frame.text for sh in slide.shapes if sh.has_text_frame}
+    assert texts >= {"开始", "判断", "结束"}
+
+
+def test_render_shape_mapping_rhombus():
+    diagram = parse_mermaid("graph TD\n    A{决策} --> B[结果]")
+    prs, slide = _render(diagram)
+    diamond = [
+        sh
+        for sh in slide.shapes
+        if sh.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE and sh.auto_shape_type == MSO_SHAPE.DIAMOND
+    ]
+    assert len(diamond) == 1
+    assert diamond[0].text_frame.text == "决策"
+
+
+def test_render_arrowheads_present():
+    diagram = parse_mermaid("graph TD\n    A --> B")
+    prs, slide = _render(diagram)
+    conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert len(conns) == 1
+    ln = conns[0].line._get_or_add_ln()
+    tail = ln.find(qn("a:tailEnd"))
+    assert tail is not None
+    assert tail.get("type") == "triangle"
+
+
+def test_render_dashed_edge_when_dotted():
+    diagram = parse_mermaid("graph TD\n    A -.-> B")
+    prs, slide = _render(diagram)
+    conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert conns and conns[0].line.dash_style == MSO_LINE_DASH_STYLE.DASH
+
+
+def test_render_chinese_font_set():
+    diagram = parse_mermaid("graph TD\n    A[数据] --> B[管道]")
+    prs, slide = _render(diagram)
+    for sh in slide.shapes:
+        if sh.has_text_frame:
+            for para in sh.text_frame.paragraphs:
+                for run in para.runs:
+                    rPr = run._r.find(qn("a:rPr"))
+                    if rPr is not None:
+                        ea = rPr.find(qn("a:ea"))
+                        if ea is not None:
+                            assert ea.get("typeface") == "Microsoft YaHei"
+
+
+def test_render_no_arrowhead_when_undirected():
+    diagram = parse_mermaid("graph TD\n    A --- B")
+    prs, slide = _render(diagram)
+    conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert conns
+    ln = conns[0].line._get_or_add_ln()
+    assert ln.find(qn("a:tailEnd")) is None

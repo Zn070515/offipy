@@ -245,3 +245,151 @@ def _layout_edges(
             )
         )
     return out
+
+
+_NODE_FONT = "Microsoft YaHei"
+
+
+def _set_ea_font(run, name: str) -> None:
+    """同时设置 latin/ea/cs typeface，保证中文在 PowerPoint 正常渲染。"""
+    from pptx.oxml.ns import qn
+
+    rPr = run._r.get_or_add_rPr()
+    for tag in ("a:latin", "a:ea", "a:cs"):
+        el = rPr.find(qn(tag))
+        if el is None:
+            el = rPr.makeelement(qn(tag), {})
+            rPr.append(el)
+        el.set("typeface", name)
+
+
+def _set_tail_end(conn, kind: str) -> None:
+    from pptx.oxml.ns import qn
+
+    ln = conn.line._get_or_add_ln()
+    tail = ln.find(qn("a:tailEnd"))
+    if tail is None:
+        tail = ln.makeelement(qn("a:tailEnd"), {})
+        ln.append(tail)
+    tail.set("type", kind)
+    tail.set("w", "med")
+    tail.set("len", "med")
+
+
+def _add_text(shape, text: str, *, size_pt: float, bold: bool = False) -> None:
+    from pptx.dml.color import RGBColor
+    from pptx.util import Emu, Pt
+
+    tf = shape.text_frame
+    tf.word_wrap = True
+    tf.margin_left = tf.margin_right = Emu(91440)  # 0.1"
+    tf.margin_top = tf.margin_bottom = Emu(45720)  # 0.05"
+    tf.text = text
+    for para in tf.paragraphs:
+        para.alignment = 1  # CENTER
+        for run in para.runs:
+            run.font.size = Pt(size_pt)
+            run.font.bold = bold
+            run.font.color.rgb = RGBColor(0x2D, 0x31, 0x42)
+            _set_ea_font(run, _NODE_FONT)
+
+
+def render_to_slide(
+    slide, layout: DiagramLayout, *, offset_x: int = 0, offset_y: int = 0, node_font_pt: float = 14
+) -> None:
+    """把布局画到 slide。offset 为 EMU 偏移（deck 注入时 = bbox 左上角）。
+
+    画序：边（连线在节点下层）→ 容器背景（Task 4）→ 节点。connector/autoshape
+    全部是原生可编辑形状。所有 python-pptx import 惰性化，避免顶层 import 拖慢
+    纯 deck 路径。
+    """
+    from pptx.dml.color import RGBColor
+    from pptx.enum.dml import MSO_LINE_DASH_STYLE
+    from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
+    from pptx.util import Emu, Inches, Pt
+
+    # map 引用 pptx 枚举，须在惰性 import 之后构造（模块级会 import 即 NameError）。
+    _SHAPE_MAP = {
+        "rect": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "round": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "stadium": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "subroutine": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "asymmetric": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "cylinder": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "circle": MSO_SHAPE.OVAL,
+        "rhombus": MSO_SHAPE.DIAMOND,
+        "hexagon": MSO_SHAPE.HEXAGON,
+        "parallelogram": MSO_SHAPE.PARALLELOGRAM,
+        "trapezoid": MSO_SHAPE.TRAPEZOID,
+    }
+    _ARROW_MAP = {"circle": "oval", "cross": "triangle", "arrow": "triangle"}
+    _DASH_MAP = {
+        "solid": MSO_LINE_DASH_STYLE.SOLID,
+        "dashed": MSO_LINE_DASH_STYLE.DASH,
+        "thick": MSO_LINE_DASH_STYLE.SOLID,
+    }
+    edge_color = RGBColor(0x66, 0x70, 0x85)
+
+    for e in layout.edges:
+        x1, y1, x2, y2 = e.ax1, e.ay1, e.ax2, e.ay2
+        conn = slide.shapes.add_connector(
+            MSO_CONNECTOR.STRAIGHT,
+            Emu(offset_x) + Inches(x1),
+            Emu(offset_y) + Inches(y1),
+            Emu(offset_x) + Inches(x2),
+            Emu(offset_y) + Inches(y2),
+        )
+        conn.line.color.rgb = edge_color
+        conn.line.width = Pt(1.6 if e.style == "thick" else 1.2)
+        conn.line.dash_style = _DASH_MAP.get(e.style, MSO_LINE_DASH_STYLE.SOLID)
+        if not e.undirected:
+            _set_tail_end(conn, _ARROW_MAP.get(e.arrowhead, "triangle"))
+        if e.label:
+            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+            lab = slide.shapes.add_textbox(
+                Emu(offset_x) + Inches(mx - 0.8),
+                Emu(offset_y) + Inches(my - 0.15),
+                Inches(1.6),
+                Inches(0.3),
+            )
+            _add_text(lab, e.label, size_pt=10)
+
+    containers = [n for n in layout.nodes if n.is_container]
+    for c in containers:
+        box = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,
+            Emu(offset_x) + Inches(c.x),
+            Emu(offset_y) + Inches(c.y),
+            Inches(c.w),
+            Inches(c.h),
+        )
+        box.fill.solid()
+        box.fill.fore_color.rgb = RGBColor(0xF2, 0xF4, 0xF8)
+        box.line.color.rgb = RGBColor(0x9A, 0xA3, 0xB2)
+        box.line.width = Pt(1.0)
+        tf = box.text_frame
+        tf.margin_left = tf.margin_right = Emu(91440)
+        tf.text = c.label
+        for para in tf.paragraphs:
+            para.alignment = 1
+            for run in para.runs:
+                run.font.size = Pt(12)
+                run.font.bold = True
+                run.font.color.rgb = RGBColor(0x2D, 0x31, 0x42)
+                _set_ea_font(run, _NODE_FONT)
+
+    for n in layout.nodes:
+        if n.is_container:
+            continue
+        shape = slide.shapes.add_shape(
+            _SHAPE_MAP.get(n.shape, MSO_SHAPE.ROUNDED_RECTANGLE),
+            Emu(offset_x) + Inches(n.x),
+            Emu(offset_y) + Inches(n.y),
+            Inches(n.w),
+            Inches(n.h),
+        )
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)
+        shape.line.width = Pt(1.0)
+        _add_text(shape, n.label, size_pt=node_font_pt)
