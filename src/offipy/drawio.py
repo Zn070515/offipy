@@ -177,11 +177,12 @@ def _render_shape(shape: str, rounded: bool) -> str:
 def layout_drawio(
     diagram: DrawioDiagram, *, max_w: float = 12.0, max_h: float = 6.75
 ) -> DiagramLayout:
-    """把 draw.io IR 布局成坐标（inches）：归一化到原点 + 等比 fit + shape 名合成 + 颜色透传。
+    """把 draw.io IR 布局成坐标（inches）：归一化 + 等比 fit + 非绑定轴居中 + shape 名 + 配色。
 
-    vendored parse_page 已解析绝对坐标（父链累加）；这里只做：平移让最小坐标为 0、
-    整体等比缩放 fit 到 max_w×max_h（不改变相对位置与配色）、canonical shape → 渲染层
-    shape 名。容器节点保留自身几何（draw.io 已摆好），render 层画背景框。
+    vendored parse_page 已解析绝对坐标（父链累加）；这里只做：等比缩放 fit 到
+    max_w×max_h（不改变相对位置与配色）、非绑定轴居中留白对称、canonical shape →
+    渲染层 shape 名、字号按 scale 换算（font_pt，12pt 默认）。容器节点保留自身几何
+    （draw.io 已摆好），render 层画背景框。
     """
     nodes = diagram.nodes
     if not nodes:
@@ -196,13 +197,17 @@ def layout_drawio(
         max_w / raw_w if raw_w > 0 else 1.0,
         max_h / raw_h if raw_h > 0 else 1.0,
     )
+    content_w, content_h = raw_w * scale, raw_h * scale
+    # 非绑定轴居中（绑定轴 content 正好填满画布 → off=0）；留白对称，不再贴左上角
+    off_x = (max_w - content_w) / 2
+    off_y = (max_h - content_h) / 2
     placed = [
         PlacedNode(
             id=n.id,
             label=n.label,
             shape=_render_shape(n.shape, n.rounded),
-            x=(n.x - x0) * scale,
-            y=(n.y - y0) * scale,
+            x=(n.x - x0) * scale + off_x,
+            y=(n.y - y0) * scale + off_y,
             w=n.w * scale,
             h=n.h * scale,
             is_container=n.container,
@@ -210,11 +215,12 @@ def layout_drawio(
             fill=n.fill,
             stroke=n.stroke,
             font_color=n.font_color,
+            font_pt=(n.font_size or 12.0) * scale * 72,
         )
         for n in nodes
     ]
     edges = _layout_edges(diagram, placed)
-    return DiagramLayout(placed, edges, raw_w * scale, raw_h * scale)
+    return DiagramLayout(placed, edges, content_w, content_h)
 
 
 def _edge_anchors(s: PlacedNode, t: PlacedNode) -> tuple[tuple[float, float], tuple[float, float]]:

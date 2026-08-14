@@ -525,7 +525,7 @@ def render_to_slide(
             else:
                 shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)  # 空 → 默认深线
         shape.line.width = Pt(1.0)
-        _add_text(shape, n.label, size_pt=node_font_pt, color=_hex_rgb(n.font_color))
+        _add_text(shape, n.label, size_pt=n.font_pt or node_font_pt, color=_hex_rgb(n.font_color))
 
 
 _MMD_MARKER_RE = re.compile(
