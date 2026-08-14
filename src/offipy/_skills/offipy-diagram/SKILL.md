@@ -54,9 +54,10 @@ mermaid_to_pptx("design.mmd", "design.pptx")
 drawio_to_pptx("design.drawio", "design.pptx")
 ```
 
-**MCP**：`diagram_build(source, out, direction?, page?)` / `diagram_install_skill(target_dir?, force?)`
+**MCP**：`diagram_build(source, out, direction?, page?, overwrite?)` / `diagram_install_skill(target_dir?, force?)`
 
 ## 要求
 
 - `source` 必须是磁盘上**已存在**的 `.mmd` / `.drawio` 文件（先把设计落地成文件再转换）
+- `out` 已存在时**默认拒绝覆盖**（`FileConflictError`），重新生成需加 `--overwrite true`
 - 输出是 16:9 整页**可编辑形状** PPTX——布局由 Mermaid/drawio 引擎重排，不追求像素级还原

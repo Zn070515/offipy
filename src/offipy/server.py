@@ -236,7 +236,7 @@ def _com_error():
 
 def _alive(app) -> bool:
     """探测 app 持有的 COM 对象是否仍与 Office 进程保持连接。"""
-    if not hasattr(app, "app"):
+    if not getattr(app, "has_com_root", True):
         return True  # 纯函数 app（diagram）无 COM 根 = 无状态 = 恒存活
     try:
         _ = app.app.Visible

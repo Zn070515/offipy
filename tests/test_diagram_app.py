@@ -1,6 +1,6 @@
 # tests/test_diagram_app.py
-"""diagram app 测试：build 格式识别 / 参数透传 / 冒烟 / 惰性 import 红线。
-install_skill 与三入口接线测试在后续 Task 追加。"""
+"""diagram app 测试：build 格式识别 / 参数透传 / 覆盖保护 / 冒烟 / 惰性 import 红线，
+install_skill 幂等，MCP/server/CLI/api 三入口接线与 server dispatch。"""
 
 import subprocess
 import sys
@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from offipy.diagram import DiagramApp
+from offipy.exceptions import FileConflictError
 
 _MMD = "graph LR\n  A --> B\n"
 _DRAWIO = """\
@@ -274,3 +275,45 @@ def test_cli_diagram_install_skill_routes_to_call(tmp_path, monkeypatch):
     assert captured["app"] == "diagram"
     assert captured["op"] == "install_skill"
     assert captured["kw"] == {"target_dir": str(target), "force": True}
+
+
+# --- build 输出覆盖保护（ensure_writable）与 server dispatch 端到端 ---
+
+
+def test_build_refuses_existing_out(tmp_path):
+    src = _write(tmp_path, "flow.mmd", _MMD)
+    out = tmp_path / "out.pptx"
+    out.write_bytes(b"placeholder")
+    with pytest.raises(FileConflictError):
+        DiagramApp().build(str(src), str(out))
+
+
+def test_build_overwrite_true_replaces(tmp_path):
+    src = _write(tmp_path, "flow.mmd", _MMD)
+    out = tmp_path / "out.pptx"
+    out.write_bytes(b"placeholder")
+    res = DiagramApp().build(str(src), str(out), overwrite=True)
+    assert Path(res["pptx"]).is_file()
+    with open(out, "rb") as f:  # 占位文件被真 PPTX 覆盖
+        assert f.read(4) == b"PK\x03\x04"
+
+
+def test_server_dispatch_routes_diagram_build(tmp_path):
+    from offipy import server
+
+    src = _write(tmp_path, "flow.mmd", _MMD)
+    out = tmp_path / "out.pptx"
+    app = server.get_app("diagram")
+    res = server.dispatch(app, "build", {"source": str(src), "out": str(out)}, "diagram")
+    assert out.is_file()
+    assert Path(res["pptx"]) == out
+
+
+def test_server_dispatch_routes_diagram_install_skill(tmp_path):
+    from offipy import server
+
+    target = tmp_path / "skills"
+    app = server.get_app("diagram")
+    res = server.dispatch(app, "install_skill", {"target_dir": str(target)}, "diagram")
+    assert len(res["installed"]) == 2
+    assert (target / "offipy-diagram" / "SKILL.md").is_file()
