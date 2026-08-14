@@ -15,6 +15,11 @@
   把 `.drawio` 转成 16:9 可编辑 PPTX，保留作者版式与配色；deck 注入支持 HTML
   `<div class="drawio" data-drawio="file.drawio">` 声明。
 
+### Fixed
+- **server 脱敏盘符前紧贴 `\w` 漏脱（#80）**：Windows 分支 `\b[A-Za-z]:` 词边界在盘符前
+  紧贴中文/英文/数字/下划线（无空格分隔）时失效 → 整条绝对路径原样泄漏。去掉 `\b` +
+  盘符后 `[\\/]` 处 `(?!\/)` 排除 `http(s)://` scheme：无分隔拼接形态全脱，URL 不受影响。
+
 ## [0.14.5] - 2026-08-08
 
 ### Fixed
