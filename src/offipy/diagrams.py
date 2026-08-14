@@ -102,6 +102,9 @@ class PlacedNode:
     stroke: str = ""
     font_color: str = ""
     font_pt: float | None = None
+    stroke_width: float | None = None
+    rotation: float | None = None
+    dash_pattern: str | None = None
 
 
 @dataclass
@@ -118,6 +121,7 @@ class PlacedEdge:
     ay2: float = 0.0
     stroke: str = ""
     waypoints: list[tuple[float, float]] | None = None
+    stroke_width: float | None = None
 
 
 @dataclass
@@ -391,6 +395,46 @@ def _hex_rgb(s: str):
         return None
 
 
+def _apply_line_dash(line, pattern: str) -> None:
+    """draw.io dashPattern（空格分隔的数对，如 "3 2" / "1 1" / "8 3 2 2"）→ 自定义虚线。
+
+    常见 pattern 映射到 MSO_LINE_DASH_STYLE 预设；其余成对拆解写 a:custDash。
+    a:ln 子元素有 schema 顺序：custDash 须在 round/bevel/miter 之前。
+    """
+    from pptx.enum.dml import MSO_LINE_DASH_STYLE
+    from pptx.oxml.ns import qn
+
+    presets = {
+        "3 2": MSO_LINE_DASH_STYLE.DASH,
+        "1 1": MSO_LINE_DASH_STYLE.SQUARE_DOT,
+        "4 3 1 1": MSO_LINE_DASH_STYLE.DASH_DOT,
+    }
+    if pattern in presets:
+        line.dash_style = presets[pattern]
+        return
+    tokens = pattern.split()
+    pairs = [(tokens[i], tokens[i + 1]) for i in range(0, len(tokens) - 1, 2)]
+    if not pairs:
+        return  # 无有效数对 → 保持默认实线，不建空 custDash
+    ln = line._get_or_add_ln()
+    for tag in ("a:prstDash", "a:custDash"):
+        el = ln.find(qn(tag))
+        if el is not None:
+            ln.remove(el)
+    cust = ln.makeelement(qn("a:custDash"), {})
+    for d, sp in pairs:
+        cust.append(cust.makeelement(qn("a:ds"), {"d": d, "sp": sp}))
+    anchor = None
+    for tag in ("a:round", "a:bevel", "a:miter"):
+        anchor = ln.find(qn(tag))
+        if anchor is not None:
+            break
+    if anchor is not None:
+        anchor.addprevious(cust)
+    else:
+        ln.append(cust)
+
+
 def render_to_slide(
     slide, layout: DiagramLayout, *, offset_x: int = 0, offset_y: int = 0, node_font_pt: float = 14
 ) -> None:
@@ -443,8 +487,7 @@ def render_to_slide(
             )
             fb.add_line_segments(
                 vertices=[
-                    (Emu(offset_x) + Inches(wx), Emu(offset_y) + Inches(wy))
-                    for wx, wy in pts[1:]
+                    (Emu(offset_x) + Inches(wx), Emu(offset_y) + Inches(wy)) for wx, wy in pts[1:]
                 ],
                 close=False,
             )
@@ -466,7 +509,7 @@ def render_to_slide(
             conn.line.fill.background()  # strokeColor=none → 无线框
         else:
             conn.line.color.rgb = _hex_rgb(e.stroke) or edge_color
-        conn.line.width = Pt(1.6 if e.style == "thick" else 1.2)
+        conn.line.width = Pt(e.stroke_width or (1.6 if e.style == "thick" else 1.2))
         conn.line.dash_style = _DASH_MAP.get(e.style, MSO_LINE_DASH_STYLE.SOLID)
         if not e.undirected:
             _set_tail_end(conn, _ARROW_MAP.get(e.arrowhead, "triangle"))
@@ -546,7 +589,11 @@ def render_to_slide(
                 shape.line.color.rgb = stroke_rgb
             else:
                 shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)  # 空 → 默认深线
-        shape.line.width = Pt(1.0)
+        shape.line.width = Pt(n.stroke_width or 1.0)
+        if n.rotation:
+            shape.rotation = n.rotation
+        if n.dash_pattern:
+            _apply_line_dash(shape.line, n.dash_pattern)
         _add_text(shape, n.label, size_pt=n.font_pt or node_font_pt, color=_hex_rgb(n.font_color))
 
 

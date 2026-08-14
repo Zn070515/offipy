@@ -70,6 +70,9 @@ class DrawioNode:
     dashed: bool = False
     rounded: bool = False
     container: bool = False
+    stroke_width: float | None = None
+    rotation: float | None = None
+    dash_pattern: str | None = None
 
 
 @dataclass
@@ -83,6 +86,7 @@ class DrawioEdge:
     stroke: str = ""
     waypoints: list[tuple[float, float]] = field(default_factory=list)
     edge_style: str = ""
+    stroke_width: float | None = None
 
 
 @dataclass
@@ -91,8 +95,8 @@ class DrawioDiagram:
     edges: list[DrawioEdge]
 
 
-def _parse_font_size(raw: str) -> float | None:
-    """style 里的 fontSize（字符串）→ float；空/非数值 → None（走 12pt 默认）。"""
+def _parse_float(raw: str) -> float | None:
+    """style 里的数值字符串（fontSize/strokeWidth/rotation）→ float；空/非数值 → None。"""
     if not raw or not raw.strip():
         return None
     try:
@@ -137,10 +141,13 @@ def parse_drawio(source, *, page=None) -> DrawioDiagram:
             fill=n.fill,
             stroke=n.stroke,
             font_color=n.font_color,
-            font_size=_parse_font_size(n.font_size),
+            font_size=_parse_float(n.font_size),
             dashed=n.dashed,
             rounded=n.rounded,
             container=n.container,
+            stroke_width=_parse_float(n.stroke_width),
+            rotation=_parse_float(n.rotation),
+            dash_pattern=n.dash_pattern or None,
         )
         for n in p.nodes
     ]
@@ -156,6 +163,7 @@ def parse_drawio(source, *, page=None) -> DrawioDiagram:
             stroke=e.stroke,
             waypoints=list(e.waypoints),
             edge_style=e.edge_style,
+            stroke_width=_parse_float(e.stroke_width),
         )
         for e in p.edges
         if e.source and e.target
@@ -223,6 +231,9 @@ def layout_drawio(
             stroke=n.stroke,
             font_color=n.font_color,
             font_pt=(n.font_size or 12.0) * scale * 72,
+            stroke_width=n.stroke_width,
+            rotation=n.rotation,
+            dash_pattern=n.dash_pattern,
         )
         for n in nodes
     ]
@@ -277,6 +288,7 @@ def _layout_edges(
                 a2[1],
                 stroke=e.stroke,
                 waypoints=waypoints or None,
+                stroke_width=e.stroke_width,
             )
         )
     return out

@@ -89,6 +89,26 @@ WAYPOINTS = """\
 </root></mxGraphModel></diagram></mxfile>
 """
 
+STYLED = """\
+<mxfile><diagram name="P"><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="a" value="转"
+          style="strokeWidth=3;rotation=45;dashPattern=3 2;fillColor=#dae8fc;strokeColor=#6c8ebf;"
+          vertex="1" parent="1">
+    <mxGeometry x="0" y="0" width="100" height="50" as="geometry"/>
+  </mxCell>
+  <mxCell id="b" value="自定义"
+          style="dashPattern=8 3 2 2;fillColor=#d5e8d4;strokeColor=#82b366;"
+          vertex="1" parent="1">
+    <mxGeometry x="120" y="0" width="100" height="50" as="geometry"/>
+  </mxCell>
+  <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333333;strokeWidth=4;"
+          edge="1" source="a" target="b" parent="1">
+    <mxGeometry relative="1" as="geometry"/>
+  </mxCell>
+</root></mxGraphModel></diagram></mxfile>
+"""
+
 SHAPES = """\
 <mxfile><diagram name="P"><mxGraphModel><root>
   <mxCell id="0"/><mxCell id="1" parent="0"/>
@@ -304,6 +324,66 @@ def test_render_drawio_waypoint_polyline(tmp_path):
     assert ff.line.color.rgb == RGBColor(0x33, 0x33, 0x33)
     assert ff.line.width == Emu(15240)  # Pt(1.2)
     assert ff.line._get_or_add_ln().find(qn("a:tailEnd")) is not None  # 箭头保留
+
+
+def test_parse_drawio_stroke_rotation_dash(tmp_path):
+    d = parse_drawio(_write(tmp_path, STYLED, "styled.drawio"))
+    by_id = {n.id: n for n in d.nodes}
+    a = by_id["a"]
+    assert a.stroke_width == 3.0
+    assert a.rotation == 45.0
+    assert a.dash_pattern == "3 2"
+    b = by_id["b"]
+    assert b.dash_pattern == "8 3 2 2"
+    assert b.stroke_width is None  # 未指定 → None（默认线宽）
+    assert len(d.edges) == 1
+    assert d.edges[0].stroke_width == 4.0
+
+
+def test_parse_drawio_rotation_from_geometry(tmp_path):
+    # rotation 的真实出口是 mxGeometry 属性（非 style key）——验证 vendored 兜底
+    xml = (
+        '<mxfile><diagram name="P"><mxGraphModel><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        '<mxCell id="r" value="R" style="strokeWidth=2;" vertex="1" parent="1">'
+        '<mxGeometry x="0" y="0" width="50" height="30" rotation="90" as="geometry"/>'
+        "</mxCell>"
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+    n = parse_drawio(_write(tmp_path, xml, "rot.drawio")).nodes[0]
+    assert n.rotation == 90.0
+    assert n.stroke_width == 2.0
+
+
+def test_render_drawio_styles_propagate(tmp_path):
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.oxml.ns import qn
+    from pptx.util import Pt
+
+    from offipy.diagrams import render_to_slide
+
+    d = parse_drawio(_write(tmp_path, STYLED, "styled.drawio"))
+    lay = layout_drawio(d)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    by_text = {sh.text_frame.text: sh for sh in slide.shapes if sh.has_text_frame}
+    sh = by_text["转"]
+    assert sh.line.width == Pt(3)  # strokeWidth=3 透传（drawio 1px≈1pt）
+    assert sh.rotation == 45  # rotation 透传
+    ln = sh.line._get_or_add_ln()
+    # dashPattern="3 2" → 预设 DASH（prstDash），非 custDash
+    assert ln.find(qn("a:prstDash")) is not None
+    assert ln.find(qn("a:custDash")) is None
+    custom = by_text["自定义"]
+    cln = custom.line._get_or_add_ln()
+    cust = cln.find(qn("a:custDash"))  # "8 3 2 2" 不在预设 → 自定义
+    assert cust is not None
+    assert len(cust.findall(qn("a:ds"))) == 2
+    # 边 strokeWidth=4 透传（无 waypoints → 单直线 connector）
+    lines = [s for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert lines and lines[0].line.width == Pt(4)
 
 
 def test_render_drawio_preserves_colors(tmp_path):

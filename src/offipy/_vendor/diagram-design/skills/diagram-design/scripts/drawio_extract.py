@@ -301,6 +301,9 @@ class Node:
     h: float = 0.0
     fill: str = ""
     stroke: str = ""
+    stroke_width: str = ""
+    rotation: str = ""
+    dash_pattern: str = ""
     font_color: str = ""
     font_size: str = ""
     dashed: bool = False
@@ -326,6 +329,7 @@ class Edge:
     edge_style: str = ""
     waypoints: list = field(default_factory=list)
     stroke: str = ""
+    stroke_width: str = ""
 
 
 @dataclass
@@ -434,6 +438,10 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             h=_num(geom, "height"),
             fill=style.get("fillColor", ""),
             stroke=style.get("strokeColor", ""),
+            stroke_width=style.get("strokeWidth", ""),
+            rotation=style.get("rotation", "")
+            or (geom.get("rotation", "") if geom is not None else ""),
+            dash_pattern=style.get("dashPattern", ""),
             font_color=style.get("fontColor", ""),
             font_size=style.get("fontSize", ""),
             dashed=style.get("dashed") == "1",
@@ -505,6 +513,7 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
                 edge_style=style.get("edgeStyle", ""),
                 waypoints=waypoints,
                 stroke=style.get("strokeColor", ""),
+                stroke_width=style.get("strokeWidth", ""),
             )
         )
 
