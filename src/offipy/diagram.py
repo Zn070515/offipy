@@ -8,6 +8,7 @@ pptx（惰性 import 红线，与 diagrams.py/drawio.py 一致）。
 """
 
 import re
+import shutil
 from pathlib import Path
 
 _MMD_EXTS = {".mmd", ".mermaid", ".md"}
@@ -16,6 +17,15 @@ _DRAWIO_EXTS = {".drawio"}
 _MMD_MARKER_RE = re.compile(
     r"\b(graph|flowchart|subgraph|sequenceDiagram|classDiagram|stateDiagram|"
     r"erDiagram|gantt|journey|mindmap|timeline)\b"
+)
+
+_SKILL_SOURCES = (
+    (
+        "diagram-design",
+        Path(__file__).resolve().parent
+        / "_vendor" / "diagram-design" / "skills" / "diagram-design",
+    ),
+    ("offipy-diagram", Path(__file__).resolve().parent / "_skills" / "offipy-diagram"),
 )
 
 
@@ -56,3 +66,22 @@ class DiagramApp:
         from .drawio import drawio_to_pptx
 
         return {"pptx": drawio_to_pptx(str(path), out, page=page)}
+
+    def install_skill(self, target_dir=None, *, force=False):
+        """安装 diagram-design + offipy-diagram skill 到宿主 agent 技能目录。
+
+        默认 ~/.claude/skills/，target_dir 可指向任意技能目录。幂等：目标已存在则
+        跳过（不覆盖用户编辑）；force=True 删除并重建目标目录。
+        """
+        base = Path(target_dir) if target_dir else (Path.home() / ".claude" / "skills")
+        installed, skipped = [], []
+        for name, src in _SKILL_SOURCES:
+            dst = base / name
+            if dst.exists():
+                if not force:
+                    skipped.append(str(dst))
+                    continue
+                shutil.rmtree(dst)
+            shutil.copytree(src, dst)
+            installed.append(str(dst))
+        return {"installed": installed, "skipped": skipped}

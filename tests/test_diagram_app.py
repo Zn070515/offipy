@@ -2,6 +2,7 @@
 """diagram app 测试：build 格式识别 / 参数透传 / 冒烟 / 惰性 import 红线。
 install_skill 与三入口接线测试在后续 Task 追加。"""
 
+from pathlib import Path
 import subprocess
 import sys
 
@@ -153,3 +154,55 @@ def test_diagram_lazy_import_no_pptx():
         "assert 'pptx' not in sys.modules, 'diagram.py 顶层不得 import pptx'\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_install_skill_target_dir(tmp_path):
+    target = tmp_path / "skills"
+    res = DiagramApp().install_skill(target_dir=str(target))
+    assert len(res["installed"]) == 2
+    assert res["skipped"] == []
+    assert (target / "diagram-design" / "SKILL.md").is_file()
+    assert (target / "offipy-diagram" / "SKILL.md").is_file()
+
+
+def test_install_skill_idempotent_no_overwrite(tmp_path):
+    target = tmp_path / "skills"
+    first = DiagramApp().install_skill(target_dir=str(target))
+    second = DiagramApp().install_skill(target_dir=str(target))
+    assert len(first["installed"]) == 2
+    assert second["installed"] == []
+    assert len(second["skipped"]) == 2
+    # 用户对已存在 skill 的手动编辑不被覆盖
+    marker = target / "offipy-diagram" / "user_edit.txt"
+    marker.write_text("keep", encoding="utf-8")
+    DiagramApp().install_skill(target_dir=str(target))
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_install_skill_force_overwrites(tmp_path):
+    target = tmp_path / "skills"
+    DiagramApp().install_skill(target_dir=str(target))
+    marker = target / "offipy-diagram" / "user_edit.txt"
+    marker.write_text("keep", encoding="utf-8")
+    res = DiagramApp().install_skill(target_dir=str(target), force=True)
+    assert res["skipped"] == []
+    assert len(res["installed"]) == 2
+    assert not marker.exists()  # force 删除并重建目标目录
+
+
+def test_install_skill_default_dir(tmp_path, monkeypatch):
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    res = DiagramApp().install_skill()
+    assert res["skipped"] == []
+    assert (fake_home / ".claude" / "skills" / "offipy-diagram" / "SKILL.md").is_file()
+
+
+def test_wrapper_skill_contract_keywords():
+    skill = (
+        Path(__file__).resolve().parent.parent
+        / "src" / "offipy" / "_skills" / "offipy-diagram" / "SKILL.md"
+    )
+    text = skill.read_text(encoding="utf-8")
+    for kw in ("Mermaid", "draw.io", "offipy diagram build", "mxGraphModel"):
+        assert kw in text
