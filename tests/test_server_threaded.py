@@ -309,6 +309,83 @@ def test_redact_message_does_not_swallow_trailing_text():
         assert server._redact_message(raw) == raw, rel
 
 
+def test_redact_message_windows_path_then_colon_url_time():
+    # #81：Windows 路径后跟冒号/URL/端口/时间时不再漏脱（#80 lookahead 只认 CJK/引号/行尾）
+    cases = [
+        (
+            r"C:\Users\foo\Desktop\report.pptx: 系统找不到指定的文件",
+            r"[REDACTED]: 系统找不到指定的文件",
+        ),
+        (
+            r"load failed C:\Users\foo\mod\a.py at https://example.com/x",
+            r"load failed [REDACTED] at https://example.com/x",
+        ),
+        (r"C:\Users\foo\a.pptx:8080", r"[REDACTED]:8080"),
+        (r"C:\Users\foo\a.pptx 12:30:45", r"[REDACTED] 12:30:45"),
+    ]
+    for raw, expected in cases:
+        out = server._redact_message(raw)
+        assert out == expected, (raw, out)
+
+
+def test_redact_message_windows_path_keeps_english_tail():
+    # #82：路径后跟英文尾巴/管道时只脱路径，保留排障上下文（与 #79 的「宁多勿漏」收敛）
+    assert server._redact_message(r"Rendered C:\Users\foo\Desktop\a.pptx successfully in 1.2s") == (
+        r"Rendered [REDACTED] successfully in 1.2s"
+    )
+    assert server._redact_message(r"C:\Users\foo\a.pptx | python x.py") == (
+        r"[REDACTED] | python x.py"
+    )
+    # 对照 #81：路径后跟 URL 仍脱路径、保留 URL（漏脱与吞尾是一体两面）
+    assert server._redact_message(r"C:\Users\foo\a.pptx http://x.com") == (
+        r"[REDACTED] http://x.com"
+    )
+
+
+def test_redact_message_posix_does_not_hit_protocol_tags():
+    # #89：POSIX 分支不误伤协议/版本标签——会话式 Remote*/CLI/HTTP 文案保持原样
+    msg = (
+        "未知演示文稿句柄: 'pres123'（当前会话未打开；doc_id 只在同会话内有效，"
+        "本地直连 Ppt() 与会话式 Remote*/CLI/HTTP 互不相通；用本会话 list_docs 核对）"
+    )
+    out = server._redact_message(msg)
+    assert out == msg
+    # 特征对照：协议标签形态不脱，真实 POSIX 绝对路径仍脱
+    assert server._redact_message("/CLI/HTTP") == "/CLI/HTTP"
+    assert server._redact_message("Remote*/CLI/HTTP") == "Remote*/CLI/HTTP"
+    assert server._redact_message("http://x.com/CLI/HTTP") == "http://x.com/CLI/HTTP"
+    assert server._redact_message("/usr/local/bin") == "[REDACTED]"
+
+
+def test_reply_503_drain_caps_recv_calls():
+    # #83：恶意客户端抢到并发名额后持续灌字节时，无界 drain 会让 accept 线程卡死。
+    # recv 永不返回空 = 旧 while 死循环；新实现读满 _DRAIN_CAP 即放弃排空。
+    class FakeReq:
+        def __init__(self):
+            self.calls = 0
+
+        def sendall(self, data):
+            pass
+
+        def setblocking(self, flag):
+            pass
+
+        def recv(self, n):
+            self.calls += 1
+            return b"x" * n  # 永不空 → 触发旧实现无限循环
+
+        def close(self):
+            pass
+
+    req = FakeReq()
+    server.Server._reply_503(object(), req)  # 方法不读 self
+    cap_calls = server._DRAIN_CAP // 65536
+    assert req.calls <= cap_calls
+    assert req.calls >= 1  # 至少发过一次请求、清过一次缓冲
+    # 有界性声明：上限即排空预算，与常量为同一来源（防两处漂移）
+    assert server._DRAIN_CAP == 1 << 20
+
+
 def test_error_result_and_trace_redact_message_content():
     # #67：c5ef6be 只删 traceback 帧，_error_result.error / _safe_trace 消息原文仍带
     # 绝对路径与 doc_id。现在两者都经 _redact_message 脱敏。
