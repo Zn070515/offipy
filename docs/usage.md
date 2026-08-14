@@ -56,6 +56,44 @@ PPTX 审计的参数与退出码、Python API 详见 [docs/audit.md](audit.md)�
 `InvalidArgumentError` 同时是 `OffipyError` 与 `ValueError` 子类，CLI 捕获顺序先判
 `InvalidArgumentError → 2`、再判 `OffipyError → 1`——预运行时错误不会误报为运行时失败。
 
+## LLM 设计 → 可编辑 PPTX（Agent 原生）
+
+offipy 把 diagram-design skill（vendored，MIT）的 LLM 设计能力以 **Agent 原生**模式
+接入：offipy 自身**不调用 LLM、不 spawn agent**——把 skill 注册给宿主 agent
+（Claude Code / Codex），agent 按产物契约把设计落地为 Mermaid/drawio 源码文件，
+offipy 只做「产物 → 可编辑 PPTX」。
+
+### 安装 skill
+
+```bash
+offipy diagram install_skill                  # 装到 ~/.claude/skills/（幂等，不覆盖用户编辑）
+offipy diagram install_skill --target_dir <技能目录> --force   # 指定目录 / 覆盖重建
+```
+
+安装后宿主 agent 即可发现 `diagram-design`（设计指引）与 `offipy-diagram`（产物契约桥接）
+两个 skill。
+
+### 转换
+
+```bash
+offipy diagram build --source design.mmd --out design.pptx
+offipy diagram build --source design.drawio --out design.pptx
+```
+
+- `source` 必须是已存在的 `.mmd` / `.drawio` 文件（不接受内联文本）
+- `direction`（Mermaid 流向，LR/TB…）与 `page`（draw.io 页名/序号）按格式各自透传
+- 输出是 16:9 整页**可编辑形状** PPTX；布局由 Mermaid/drawio 引擎重排
+
+### 可转换子集（契约边界）
+
+Mermaid **只支持** `flowchart/graph`、`sequenceDiagram`、`stateDiagram-v2`、`erDiagram`；
+`gantt` / `journey` / `mindmap` / `timeline` / `gitgraph` 等不支持——请改用 draw.io
+表达或重构为上述 kind。
+
+Python API 等价：`offipy.diagrams.mermaid_to_pptx(source, out, direction=...)` /
+`offipy.drawio.drawio_to_pptx(source, out, page=...)`；MCP：`diagram_build` /
+`diagram_install_skill`。
+
 ## Server 生命周期
 
 ```bash
