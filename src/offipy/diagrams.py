@@ -98,6 +98,9 @@ class PlacedNode:
     h: float
     is_container: bool = False
     parent: str | None = None
+    fill: str = ""
+    stroke: str = ""
+    font_color: str = ""
 
 
 @dataclass
@@ -112,6 +115,7 @@ class PlacedEdge:
     ay1: float = 0.0
     ax2: float = 0.0
     ay2: float = 0.0
+    stroke: str = ""
 
 
 @dataclass
@@ -335,7 +339,7 @@ def _set_tail_end(conn, kind: str) -> None:
     tail.set("len", "med")
 
 
-def _add_text(shape, text: str, *, size_pt: float, bold: bool = False) -> None:
+def _add_text(shape, text: str, *, size_pt: float, bold: bool = False, color=None) -> None:
     from pptx.dml.color import RGBColor
     from pptx.enum.text import PP_ALIGN
     from pptx.util import Emu, Pt
@@ -350,8 +354,30 @@ def _add_text(shape, text: str, *, size_pt: float, bold: bool = False) -> None:
         for run in para.runs:
             run.font.size = Pt(size_pt)
             run.font.bold = bold
-            run.font.color.rgb = RGBColor(0x2D, 0x31, 0x42)
+            run.font.color.rgb = color if color is not None else RGBColor(0x2D, 0x31, 0x42)
             _set_ea_font(run, _NODE_FONT)
+
+
+def _hex_rgb(s: str):
+    """三态颜色解析：#RRGGBB/#RGB → RGBColor；空 / "none" / 非法 hex → None。
+
+    draw.io 的 fillColor=none / strokeColor=none 表示透明；空串表示「未指定」。
+    返回 None 时由调用方落到各自默认（白底 / 深线 / 深字）。
+    """
+    from pptx.dml.color import RGBColor
+
+    text = (s or "").strip()
+    if not text or text.lower() == "none":
+        return None
+    text = text.lstrip("#")
+    if len(text) in (3, 4):
+        text = "".join(c * 2 for c in text[:3])
+    if len(text) < 6:
+        return None
+    try:
+        return RGBColor(int(text[:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+    except ValueError:
+        return None
 
 
 def render_to_slide(
@@ -373,6 +399,9 @@ def render_to_slide(
     _SHAPE_MAP = {
         "rect": MSO_SHAPE.ROUNDED_RECTANGLE,
         "round": MSO_SHAPE.ROUNDED_RECTANGLE,
+        "rectangle": MSO_SHAPE.RECTANGLE,  # 新增：drawio 直角矩形
+        "ellipse": MSO_SHAPE.OVAL,  # 新增：drawio 椭圆
+        "triangle": MSO_SHAPE.ISOSCELES_TRIANGLE,  # 新增：drawio 三角
         "stadium": MSO_SHAPE.ROUNDED_RECTANGLE,
         "subroutine": MSO_SHAPE.ROUNDED_RECTANGLE,
         "asymmetric": MSO_SHAPE.ROUNDED_RECTANGLE,
@@ -400,7 +429,10 @@ def render_to_slide(
             Emu(offset_x) + Inches(x2),
             Emu(offset_y) + Inches(y2),
         )
-        conn.line.color.rgb = edge_color
+        if e.stroke == "none":
+            conn.line.fill.background()  # strokeColor=none → 无线框
+        else:
+            conn.line.color.rgb = _hex_rgb(e.stroke) or edge_color
         conn.line.width = Pt(1.6 if e.style == "thick" else 1.2)
         conn.line.dash_style = _DASH_MAP.get(e.style, MSO_LINE_DASH_STYLE.SOLID)
         if not e.undirected:
@@ -424,9 +456,24 @@ def render_to_slide(
             Inches(c.w),
             Inches(c.h),
         )
-        box.fill.solid()
-        box.fill.fore_color.rgb = RGBColor(0xF2, 0xF4, 0xF8)
-        box.line.color.rgb = RGBColor(0x9A, 0xA3, 0xB2)
+        if c.fill == "none":
+            box.fill.background()  # draw.io group 默认无 fillColor
+        else:
+            fill_rgb = _hex_rgb(c.fill)
+            if fill_rgb is not None:
+                box.fill.solid()
+                box.fill.fore_color.rgb = fill_rgb
+            else:
+                box.fill.solid()
+                box.fill.fore_color.rgb = RGBColor(0xF2, 0xF4, 0xF8)  # 空 → 浅灰兜底
+        if c.stroke == "none":
+            box.line.fill.background()
+        else:
+            stroke_rgb = _hex_rgb(c.stroke)
+            if stroke_rgb is not None:
+                box.line.color.rgb = stroke_rgb
+            else:
+                box.line.color.rgb = RGBColor(0x9A, 0xA3, 0xB2)
         box.line.width = Pt(1.0)
         tf = box.text_frame
         tf.margin_left = tf.margin_right = Emu(91440)
@@ -449,11 +496,26 @@ def render_to_slide(
             Inches(n.w),
             Inches(n.h),
         )
-        shape.fill.solid()
-        shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
-        shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)
+        if n.fill == "none":
+            shape.fill.background()  # fillColor=none → 透明
+        else:
+            fill_rgb = _hex_rgb(n.fill)
+            if fill_rgb is not None:
+                shape.fill.solid()
+                shape.fill.fore_color.rgb = fill_rgb
+            else:
+                shape.fill.solid()
+                shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)  # 空 → 默认白
+        if n.stroke == "none":
+            shape.line.fill.background()  # strokeColor=none → 无线框
+        else:
+            stroke_rgb = _hex_rgb(n.stroke)
+            if stroke_rgb is not None:
+                shape.line.color.rgb = stroke_rgb
+            else:
+                shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)  # 空 → 默认深线
         shape.line.width = Pt(1.0)
-        _add_text(shape, n.label, size_pt=node_font_pt)
+        _add_text(shape, n.label, size_pt=node_font_pt, color=_hex_rgb(n.font_color))
 
 
 def _read_source(source) -> str:

@@ -134,6 +134,24 @@ PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。
 注意：`graph`/`flowchart` 必须带显式方向（如 `graph TD`，裸 `graph` 会被拒）；暂不支持
 `%%` 注释（vendored 解析器契约）。
 
+### draw.io 图
+
+页面里写 `<div class="drawio" data-drawio="arch.drawio"></div>`，路径基于该 HTML 所在目录；
+`deck render` 后由 `offipy.drawio` 把 `.drawio` 转成 PowerPoint 原生可编辑形状（复用 charts
+注入管线，需 visual audit 的 measurements.json），保留 draw.io 作者摆好的版式与配色：
+
+```html
+<section data-pptx-slide>
+  <h1>部署架构</h1>
+  <div class="drawio" data-drawio="arch.drawio"></div>
+</section>
+```
+
+`deck render deck.html` 后 draw.io 块变为可编辑形状；或独立调用
+`offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx")` 直接出 16:9 整页可编辑 PPTX。
+`page=` 接受 int 页码（0 起）或 str 页名，默认第一页（不暴露 all）。已知限制：边只取首尾
+直线（折点忽略）、图标类节点（`icon:*`）兜底为矩形、draw.io 自定义形状兜底为圆角矩形。
+
 ## Python API
 
 ```python

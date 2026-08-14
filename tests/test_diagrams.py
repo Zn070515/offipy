@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from pptx import Presentation
+from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
 from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
@@ -317,3 +318,58 @@ def test_mermaid_to_pptx_missing_file_raises(tmp_path):
     src = tmp_path / "nope.mmd"
     with pytest.raises(FileNotFoundError):
         mermaid_to_pptx(src, str(tmp_path / "out.pptx"))
+
+
+def test_hex_rgb_three_states():
+    from offipy.diagrams import _hex_rgb
+
+    assert _hex_rgb("#dae8fc") == RGBColor(0xDA, 0xE8, 0xFC)
+    assert _hex_rgb("#dae8fcff") == RGBColor(0xDA, 0xE8, 0xFC)  # 带 alpha 取前 6 位
+    assert _hex_rgb("#abc") == RGBColor(0xAA, 0xBB, 0xCC)  # #RGB 容错
+    assert _hex_rgb("none") is None  # 透明
+    assert _hex_rgb("") is None  # 未指定
+    assert _hex_rgb("not-a-color") is None  # 非法 hex 宽容
+
+
+def test_render_fill_stroke_font_color_branches():
+    from offipy.diagrams import DiagramLayout, PlacedEdge, PlacedNode
+
+    lay = DiagramLayout(
+        nodes=[
+            PlacedNode(
+                "n1",
+                "彩色",
+                "rectangle",
+                0.5,
+                0.5,
+                2.0,
+                0.8,
+                fill="#dae8fc",
+                stroke="#6c8ebf",
+                font_color="#ff0000",
+            ),
+            PlacedNode("n2", "透明", "rectangle", 3.5, 0.5, 2.0, 0.8, fill="none", stroke="none"),
+            PlacedNode("n3", "默认", "rectangle", 0.5, 2.5, 2.0, 0.8),
+        ],
+        edges=[PlacedEdge("n1", "n3", "连", stroke="#333333")],
+        canvas_w=6.0,
+        canvas_h=4.0,
+    )
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    by_text = {sh.text_frame.text: sh for sh in slide.shapes if sh.has_text_frame}
+    c = by_text["彩色"]
+    assert c.fill.fore_color.rgb == RGBColor(0xDA, 0xE8, 0xFC)
+    assert c.line.color.rgb == RGBColor(0x6C, 0x8E, 0xBF)
+    assert c.text_frame.paragraphs[0].runs[0].font.color.rgb == RGBColor(0xFF, 0x00, 0x00)
+    assert c.auto_shape_type == MSO_SHAPE.RECTANGLE
+    t = by_text["透明"]
+    spPr = t._element.find(qn("p:spPr"))
+    assert spPr is not None
+    assert spPr.find(qn("a:noFill")) is not None
+    assert spPr.find(qn("a:ln")).find(qn("a:noFill")) is not None
+    d = by_text["默认"]
+    assert d.fill.fore_color.rgb == RGBColor(0xFF, 0xFF, 0xFF)
+    conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert conns and conns[0].line.color.rgb == RGBColor(0x33, 0x33, 0x33)

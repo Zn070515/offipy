@@ -92,6 +92,8 @@ _NOVA_DECLARATION_MARKERS = (
     ("data-primitive", "图元(data-primitive)"),
     ('class="mermaid"', "图示(mermaid)"),
     ("class='mermaid'", "图示(mermaid)"),  # 单引号变体，防 no_visual_audit fail-fast 漏检
+    ('class="drawio"', "图示(drawio)"),
+    ("class='drawio'", "图示(drawio)"),  # 单引号变体，同上
 )
 
 
@@ -431,6 +433,11 @@ def _render_tmp(
         from .diagrams import postprocess_mermaid
 
         _postprocess("图示", postprocess_mermaid, target, tmp_pptx)
+        # draw.io 图后处理：<div class="drawio" data-drawio="..."> → 可编辑形状
+        # （图在后，覆盖 mermaid 注入的同类 bbox 替换语义；先于 assets 避免干扰）。
+        from .drawio import postprocess_drawio
+
+        _postprocess("图示(drawio)", postprocess_drawio, target, tmp_pptx)
         # 资源后处理：data-icon/data-asset/data-primitive → 统一 asset 管线（取代
         # postprocess_icons）。图表必须先于资源：图表用自己测量的占位符替换，不应受
         # 随后添加的 asset 形状影响。返回用量报告供 assets.json 清单。

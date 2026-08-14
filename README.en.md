@@ -271,12 +271,17 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
   In the outline, use `@icons: <name>[:label]; ...` to declare icon rows (default `ph:` prefix); the skeleton automatically lands on the
   `icons-row` layout (more than 3 icons auto-wrap into 3 columns per row). See
   [`examples/outline/icons-demo.md`](https://github.com/Zn070515/offipy/blob/main/examples/outline/icons-demo.md) for an example.
-- **Native diagrams (Mermaid)**: write `<pre class="mermaid">graph TD ...</pre>` in a page; `deck render`
+- **Native diagrams (Mermaid / draw.io)**: write `<pre class="mermaid">graph TD ...</pre>` in a page; `deck render`
   lets `offipy.diagrams` replace the Mermaid flowchart with PowerPoint-native editable shapes (reusing the
   charts injection pipeline, requires the visual-audit `measurements.json`). The standalone API
   `offipy.diagrams.mermaid_to_pptx("graph TD\nA-->B", "out.pptx")` renders a full 16:9 editable PPTX
   (TD/TB/LR/RL/BT directions, subgraph containers, Chinese labels). Note `graph`/`flowchart` must carry an
   explicit direction (bare `graph` is rejected); `%%` comments are not supported (vendored parser contract).
+  draw.io is also supported: write `<div class="drawio" data-drawio="arch.drawio"></div>` in the
+  HTML (path resolved relative to that HTML file); `deck render` turns it into editable shapes,
+  keeping the author's layout and colors. Standalone
+  `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx", page="架构")` renders a full 16:9
+  editable PPTX (`page` accepts an int index or str page name, default first page).
 - **Feedback learning**: post-audit dispositions (fixed / accepted / ignored) are recorded to `~/.offipy/feedback.jsonl`; `feedback.dimension_weights()` reweights the audit weights, getting stricter the more it fixes (P2 validation build)
 
 ```python
@@ -401,6 +406,7 @@ src/offipy/
   charts.py     # native charts: chart declaration parsing + native editable chart injection (bar/line/pie) *
   icons.py      # native icons: SVG path flattening + freeform vector icon injection (ph/lu dual sets) *
   diagrams.py   # native diagrams: Mermaid flowchart extraction + layered layout + editable shape rendering (mermaid_to_pptx / deck injection) *
+  drawio.py     # native diagrams: draw.io → editable shapes (drawio_to_pptx / deck data-drawio injection) *
   assets/icons/ # vendored icon assets (Phosphor fill + Lucide) + manifest + LICENSE *
   aesthetic.py  # aesthetic audit: whitespace/font-size hierarchy/color count/contrast/consistency → scored report *
   autopick.py   # automatic pick: content structure → recommended theme + per-slide layout + reasoning *
