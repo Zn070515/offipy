@@ -310,3 +310,10 @@ def test_mermaid_to_pptx_from_path(tmp_path):
 def test_mermaid_to_pptx_bad_source(tmp_path):
     with pytest.raises(ValueError, match="无法解析"):
         mermaid_to_pptx("not mermaid at all", str(tmp_path / "x.pptx"))
+
+
+def test_mermaid_to_pptx_missing_file_raises(tmp_path):
+    # PathLike 明确表示路径：缺失 → FileNotFoundError，而非当 Mermaid 文本解析
+    src = tmp_path / "nope.mmd"
+    with pytest.raises(FileNotFoundError):
+        mermaid_to_pptx(src, str(tmp_path / "out.pptx"))

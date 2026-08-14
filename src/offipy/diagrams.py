@@ -455,8 +455,15 @@ def render_to_slide(
 
 
 def _read_source(source) -> str:
-    """source 是文件路径（存在）→ 读文件；否则当作 Mermaid 文本。"""
-    if isinstance(source, (str, os.PathLike)):
+    """source 是文件路径 → 读文件；否则当作 Mermaid 文本。"""
+    if isinstance(source, os.PathLike):
+        p = Path(source)
+        # PathLike 明确表示「这是路径」：缺失/非文件直接抛 FileNotFoundError，
+        # 不把路径字符串当文本解析（否则是误导性的「无法解析」ValueError）。
+        if not p.is_file():
+            raise FileNotFoundError(f"源文件不存在: {p}")
+        return p.read_text(encoding="utf-8")
+    if isinstance(source, str):
         p = Path(source)
         if p.exists() and p.is_file():
             return p.read_text(encoding="utf-8")
