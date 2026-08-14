@@ -21,6 +21,10 @@ processes, and provides three consistent entry points: server / CLI / MCP.
   `ComOperationError` / `ProtocolError` all inherit from `OffipyError`; RPC carries `error_code`.
 - **HTML→PPTX pipeline**: Chromium renders the HTML layout → editable PPTX, with support
   for charts, icons, and themes.
+- **diagram-design skill integration (Agent-native)**: `offipy diagram build` turns
+  Mermaid / draw.io sources that a host agent designed against the artifact contract into
+  editable PPTX; `offipy diagram install_skill` installs the design guide plus the
+  contract-bridge skill into the host agent's skill directory.
 
 ## Installation
 

@@ -42,6 +42,10 @@ Built for Python developers and AI agents to independently produce **polished, a
   `OffipyError → exit 1` (runtime domain failure), stderr without leaked tracebacks; `audit` keeps its
   0/1/2/3 and `deck audit` keeps its 0/1 dedicated contracts
 - **High-level API**: `offipy.Excel() / Word() / Ppt()` context managers, driving the library directly (see "Python API" below)
+- **diagram-design skill integration (Agent-native)**: `offipy diagram build` turns Mermaid / draw.io
+  diagrams that a host agent designed per the artifact contract into editable PPTX;
+  `offipy diagram install_skill` installs the diagram-design guide plus the offipy-diagram
+  contract-bridge skill into the host agent's skill directory
 
 ## Requirements
 
@@ -407,6 +411,7 @@ src/offipy/
   icons.py      # native icons: SVG path flattening + freeform vector icon injection (ph/lu dual sets) *
   diagrams.py   # native diagrams: Mermaid flowchart extraction + layered layout + editable shape rendering (mermaid_to_pptx / deck injection) *
   drawio.py     # native diagrams: draw.io → editable shapes (drawio_to_pptx / deck data-drawio injection) *
+  diagram.py    # diagram app: Mermaid/drawio → editable PPTX (Agent-native; install_skill installs the vendored skill) *
   assets/icons/ # vendored icon assets (Phosphor fill + Lucide) + manifest + LICENSE *
   aesthetic.py  # aesthetic audit: whitespace/font-size hierarchy/color count/contrast/consistency → scored report *
   autopick.py   # automatic pick: content structure → recommended theme + per-slide layout + reasoning *

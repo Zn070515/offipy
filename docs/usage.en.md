@@ -61,6 +61,49 @@ tracebacks. `InvalidArgumentError` is a subclass of both `OffipyError` and `Valu
 checks `InvalidArgumentError → 2` before `OffipyError → 1` — pre-runtime errors are never misreported
 as runtime failures.
 
+## LLM design → editable PPTX (Agent-native)
+
+offipy wires the LLM design capability of the vendored diagram-design skill (MIT) in
+**Agent-native** mode: offipy itself **never calls an LLM and never spawns an agent** —
+it registers the skill with the host agent (Claude Code / Codex), and the agent writes
+the design to a Mermaid / draw.io source file per the artifact contract; offipy only
+does the "artifact → editable PPTX" conversion.
+
+### Installing the skill
+
+```bash
+offipy diagram install_skill                  # installs to ~/.claude/skills/ (idempotent, never overwrites user edits)
+offipy diagram install_skill --target_dir <skills-dir> --force   # custom dir / force rebuild
+```
+
+After installation the host agent can discover two skills: `diagram-design` (design
+guidance) and `offipy-diagram` (artifact-contract bridge).
+
+### Converting
+
+```bash
+offipy diagram build --source design.mmd --out design.pptx
+offipy diagram build --source design.drawio --out design.pptx
+```
+
+- `source` must be an existing `.mmd` / `.drawio` file on disk (inline text is not accepted)
+- `direction` (Mermaid flow direction, LR/TB…) and `page` (draw.io page name/index) are
+  forwarded per format
+- An existing `out` is refused by default (`FileConflictError`, CLI exit code 1); re-generate
+  with `--overwrite true`
+- The output is a 16:9 full-page **editable-shape** PPTX; layout is re-flowed by the
+  Mermaid / draw.io engine
+
+### Convertible subset (contract boundary)
+
+Mermaid **only supports** `flowchart/graph`, `sequenceDiagram`, `stateDiagram-v2`,
+`erDiagram`; `gantt` / `journey` / `mindmap` / `timeline` / `gitgraph` etc. are not
+supported — express them with draw.io instead, or refactor into one of the supported kinds.
+
+Python API equivalent: `offipy.diagrams.mermaid_to_pptx(source, out, direction=...)` /
+`offipy.drawio.drawio_to_pptx(source, out, page=...)`; MCP: `diagram_build` /
+`diagram_install_skill`.
+
 ## Server lifecycle
 
 ```bash
