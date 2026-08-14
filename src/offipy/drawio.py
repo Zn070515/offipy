@@ -375,6 +375,11 @@ def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> 
         box = boxes.get(decl["slide"])
         if box is None:
             continue
+        if box["w"] <= 0 or box["h"] <= 0:
+            raise RuntimeError(
+                f"第 {decl['slide']} 页 drawio 容器测量尺寸为 0（w={box['w']}, "
+                f"h={box['h']}）——请给 div.drawio 设固定宽/高"
+            )
         box_emu = {k: int(v * PX_TO_EMU) for k, v in box.items()}
         slide = prs.slides[decl["slide"] - 1]
         try:

@@ -145,6 +145,21 @@ def test_postprocess_drawio_missing_source(tmp_path):
         postprocess_drawio(html, pptx_path)
 
 
+def test_postprocess_drawio_zero_height_box(tmp_path):
+    # #94 守卫：measurements 里容器 h=0 → 可操作报错，而非零缩放静默坏渲染
+    html = _write(tmp_path)
+    meas = tmp_path / "deck_audit" / "_cache" / "measurements.json"
+    m = json.loads(meas.read_text(encoding="utf-8"))
+    m["slides"][0]["records"][1]["rect"]["h"] = 0
+    meas.write_text(json.dumps(m), encoding="utf-8")
+    pptx_path = str(tmp_path / "deck.pptx")
+    prs = Presentation()
+    prs.slides.add_slide(prs.slide_layouts[6])
+    prs.save(pptx_path)
+    with pytest.raises(RuntimeError, match="尺寸为 0"):
+        postprocess_drawio(html, pptx_path)
+
+
 def test_postprocess_drawio_accepts_file_uri(tmp_path):
     # #93：data-drawio 直接用 file:// URI（deck 管线把相对路径改写成的产物）
     # → 不再被当相对路径拼到 base，注入成功

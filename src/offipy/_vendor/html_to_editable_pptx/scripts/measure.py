@@ -660,7 +660,9 @@ EXTRACT_JS = r"""
     }
 
     // 非 text leaf 但有装饰 → 单独导出形状（不带文本，文本由子节点输出）
-    if (!complexDecoration && (hasBg || hasBorder)) {
+    // div.drawio 是 deck 注入占位：空内容无背景无边框，也要测出 bbox 供注入定位
+    const isDrawioPlaceholder = el.classList.contains('drawio');
+    if (!complexDecoration && (hasBg || hasBorder || isDrawioPlaceholder)) {
       const r = el.getBoundingClientRect();
       const rotDeg = cumulativeRotation(el);
       records.push({
