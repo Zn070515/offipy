@@ -302,6 +302,7 @@ class Node:
     fill: str = ""
     stroke: str = ""
     font_color: str = ""
+    font_size: str = ""
     dashed: bool = False
     rounded: bool = False
     container: bool = False
@@ -433,6 +434,7 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             fill=style.get("fillColor", ""),
             stroke=style.get("strokeColor", ""),
             font_color=style.get("fontColor", ""),
+            font_size=style.get("fontSize", ""),
             dashed=style.get("dashed") == "1",
             rounded=style.get("rounded") == "1",
             container=style.get("container") == "1" or "swimlane" in style,

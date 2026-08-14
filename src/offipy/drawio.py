@@ -6,8 +6,9 @@
 也可作为 deck 后处理注入（postprocess_drawio：HTML <div class="drawio"
 data-drawio="..."> → 替换为可编辑形状）。
 
-vendored 提取器用 importlib 加载，保持上游文件原样；安全边界（DTD/ENTITY 拒绝、
-压缩上限）继承自 vendor 的 parse_file，offipy 不自行解析 draw.io XML。
+vendored 提取器用 importlib 加载（对上游 drawio_extract.py 有一处补丁：提取 fontSize，
+见 THIRD_PARTY_NOTICES.md）；安全边界（DTD/ENTITY 拒绝、压缩上限）继承自 vendor 的
+parse_file，offipy 不自行解析 draw.io XML。
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ import sys
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from offipy.diagrams import (
     PX_TO_EMU,
@@ -63,6 +66,7 @@ class DrawioNode:
     fill: str = ""
     stroke: str = ""
     font_color: str = ""
+    font_size: float | None = None
     dashed: bool = False
     rounded: bool = False
     container: bool = False
@@ -83,6 +87,16 @@ class DrawioEdge:
 class DrawioDiagram:
     nodes: list[DrawioNode]
     edges: list[DrawioEdge]
+
+
+def _parse_font_size(raw: str) -> float | None:
+    """style 里的 fontSize（字符串）→ float；空/非数值 → None（走 12pt 默认）。"""
+    if not raw or not raw.strip():
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def parse_drawio(source, *, page=None) -> DrawioDiagram:
@@ -121,6 +135,7 @@ def parse_drawio(source, *, page=None) -> DrawioDiagram:
             fill=n.fill,
             stroke=n.stroke,
             font_color=n.font_color,
+            font_size=_parse_font_size(n.font_size),
             dashed=n.dashed,
             rounded=n.rounded,
             container=n.container,
@@ -165,11 +180,12 @@ def _render_shape(shape: str, rounded: bool) -> str:
 def layout_drawio(
     diagram: DrawioDiagram, *, max_w: float = 12.0, max_h: float = 6.75
 ) -> DiagramLayout:
-    """把 draw.io IR 布局成坐标（inches）：归一化到原点 + 等比 fit + shape 名合成 + 颜色透传。
+    """把 draw.io IR 布局成坐标（inches）：归一化 + 等比 fit + 非绑定轴居中 + shape 名 + 配色。
 
-    vendored parse_page 已解析绝对坐标（父链累加）；这里只做：平移让最小坐标为 0、
-    整体等比缩放 fit 到 max_w×max_h（不改变相对位置与配色）、canonical shape → 渲染层
-    shape 名。容器节点保留自身几何（draw.io 已摆好），render 层画背景框。
+    vendored parse_page 已解析绝对坐标（父链累加）；这里只做：等比缩放 fit 到
+    max_w×max_h（不改变相对位置与配色）、非绑定轴居中留白对称、canonical shape →
+    渲染层 shape 名、字号按 scale 换算（font_pt，12pt 默认）。容器节点保留自身几何
+    （draw.io 已摆好），render 层画背景框。
     """
     nodes = diagram.nodes
     if not nodes:
@@ -184,13 +200,17 @@ def layout_drawio(
         max_w / raw_w if raw_w > 0 else 1.0,
         max_h / raw_h if raw_h > 0 else 1.0,
     )
+    content_w, content_h = raw_w * scale, raw_h * scale
+    # 非绑定轴居中（绑定轴 content 正好填满画布 → off=0）；留白对称，不再贴左上角
+    off_x = (max_w - content_w) / 2
+    off_y = (max_h - content_h) / 2
     placed = [
         PlacedNode(
             id=n.id,
             label=n.label,
             shape=_render_shape(n.shape, n.rounded),
-            x=(n.x - x0) * scale,
-            y=(n.y - y0) * scale,
+            x=(n.x - x0) * scale + off_x,
+            y=(n.y - y0) * scale + off_y,
             w=n.w * scale,
             h=n.h * scale,
             is_container=n.container,
@@ -198,11 +218,12 @@ def layout_drawio(
             fill=n.fill,
             stroke=n.stroke,
             font_color=n.font_color,
+            font_pt=(n.font_size or 12.0) * scale * 72,
         )
         for n in nodes
     ]
     edges = _layout_edges(diagram, placed)
-    return DiagramLayout(placed, edges, raw_w * scale, raw_h * scale)
+    return DiagramLayout(placed, edges, content_w, content_h)
 
 
 def _edge_anchors(s: PlacedNode, t: PlacedNode) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -325,20 +346,34 @@ def _measurements_path(pptx_path: str) -> str:
     return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
 
 
+def _resolve_source_path(path: str) -> Path:
+    """data-drawio 源路径归一化：file:// URI → 真实路径（deck 管线改写相对→file://）。"""
+    if path.startswith("file://"):
+        return Path(url2pathname(urlparse(path).path))
+    return Path(path)
+
+
 def _remove_bbox_shapes(slide, box_emu: dict) -> None:
-    """删除中心落在 bbox 内的占位形状（div.drawio 占位块等）。"""
-    cx, cy = box_emu["x"] + box_emu["w"] // 2, box_emu["y"] + box_emu["h"] // 2
+    """删除与注入矩形几何一致（同位置同尺寸）的占位形状（div.drawio 占位块等）。
+
+    占位矩形是确定尺寸的（box_emu = px→EMU），用户任意形状几乎不可能精确重合；
+    旧「中心点落在 bbox 内」判定会误删用户内容。容差 0.01in 吸收 px→EMU 舍入。
+    """
+    tol = int(0.01 * 914400)  # 0.01in，EMU
+    bx, by, bw, bh = box_emu["x"], box_emu["y"], box_emu["w"], box_emu["h"]
     for shape in list(slide.shapes):
         if (
-            shape.left <= cx <= shape.left + shape.width
-            and shape.top <= cy <= shape.top + shape.height
+            abs(shape.left - bx) <= tol
+            and abs(shape.top - by) <= tol
+            and abs(shape.width - bw) <= tol
+            and abs(shape.height - bh) <= tol
         ):
             slide.shapes._spTree.remove(shape._element)
 
 
 def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> None:
     """把每块 drawio 渲染成可编辑形状，替换 slide 内对应 bbox 占位。"""
-    missing = [d["path"] for d in decls if not Path(d["path"]).is_file()]
+    missing = [d["path"] for d in decls if not _resolve_source_path(d["path"]).is_file()]
     if missing:
         raise RuntimeError("drawio 源文件缺失: " + "、".join(missing))
     from pptx import Presentation
@@ -348,6 +383,11 @@ def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> 
         box = boxes.get(decl["slide"])
         if box is None:
             continue
+        if box["w"] <= 0 or box["h"] <= 0:
+            raise RuntimeError(
+                f"第 {decl['slide']} 页 drawio 容器测量尺寸为 0（w={box['w']}, "
+                f"h={box['h']}）——请给 div.drawio 设固定宽/高"
+            )
         box_emu = {k: int(v * PX_TO_EMU) for k, v in box.items()}
         slide = prs.slides[decl["slide"] - 1]
         try:
@@ -385,10 +425,12 @@ def postprocess_drawio(html_path: str, pptx_path: str) -> None:
             f'第 {missing} 页没测到 <div class="drawio"> 容器——请确认 div 有 '
             'class="drawio" 且被渲染进 visual audit'
         )
-    # data-drawio 相对路径基于 HTML 所在目录解析
+    # data-drawio 路径归一化：file:// URI → 真实绝对路径（deck 管线改写相对→file://）；
+    # 相对路径基于 HTML 所在目录解析。一律改写为绝对路径再传 inject（parse_drawio 不接受 file://）。
     base = Path(html_path).parent
     for d in decls:
-        p = Path(d["path"])
+        p = _resolve_source_path(d["path"])
         if not p.is_absolute():
-            d["path"] = str((base / p).resolve())
+            p = (base / p).resolve()
+        d["path"] = str(p)
     inject_drawio(pptx_path, decls, boxes)

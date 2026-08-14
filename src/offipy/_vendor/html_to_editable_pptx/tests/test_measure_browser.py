@@ -47,6 +47,12 @@ def mixed_block_split(tmp_path_factory):
     return _measure("mixed_block_split_deck.html", tmp_path_factory)
 
 
+@pytest.fixture(scope="module")
+def drawio_placeholder(tmp_path_factory):
+    # #94：空 div.drawio（无背景无边框）也要测出 bbox 供注入定位
+    return _measure("drawio_placeholder.html", tmp_path_factory)
+
+
 def _records(deck, page):
     return deck["slides"][page]["records"]
 
@@ -67,6 +73,17 @@ def test_fullpage_overlay_measured(deck):
                 and r["rect"]["w"] >= 1900 and r["rect"]["h"] >= 1060
                 and r["tag"] == "div"]
     assert fullpage, "满页半透明遮罩没有产生 shape 记录"
+
+
+def test_empty_drawio_placeholder_measured(drawio_placeholder):
+    # #94：空 div.drawio（无背景无边框）此前被装饰门跳过 → 「没测到容器」。
+    # 修复后必须产生 shape 记录，几何与 fixture 显式尺寸一致，供注入定位。
+    recs = [r for r in _records(drawio_placeholder, 0)
+            if r["kind"] == "shape" and "drawio" in (r["className"] or "").split()]
+    assert recs, "空 div.drawio 没有产生 shape 记录"
+    rect = recs[0]["rect"]
+    assert rect["x"] == 200 and rect["y"] == 240, f"位置偏差: {rect}"
+    assert rect["w"] == 900 and rect["h"] == 500, f"尺寸偏差: {rect}"
 
 
 def test_hidden_text_not_extracted(deck):

@@ -188,8 +188,14 @@ PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。
 
 `deck render deck.html` 后 draw.io 块变为可编辑形状；或独立调用
 `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx")` 直接出 16:9 整页可编辑 PPTX。
-`page=` 接受 int 页码（0 起）或 str 页名，默认第一页（不暴露 all）。已知限制：边只取首尾
-直线（折点忽略）、图标类节点（`icon:*`）兜底为矩形、draw.io 自定义形状兜底为圆角矩形。
+`page=` 接受 int 页码（0 起）或 str 页名，默认第一页（不暴露 all）。
+
+- 相对 `data-drawio` 路径在 deck 管线内可用：HTML 被拷到临时目录时自动改写为
+  `file://` 绝对 URI，源文件仍能解析（也可直接写 `file://` URI）。
+- 节点 `fontSize` 按容器缩放换算成 pt（缺省 12pt），字号层级随框缩放，不被拍平。
+
+已知限制：边只取首尾直线（折点忽略）、图标类节点（`icon:*`）兜底为矩形、draw.io
+自定义形状兜底为圆角矩形。
 
 ## Python API
 

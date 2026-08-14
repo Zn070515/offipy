@@ -9,7 +9,7 @@ import pytest
 from pptx import Presentation
 from pptx.util import Emu
 
-from offipy.drawio import drawio_to_pptx, layout_drawio, parse_drawio
+from offipy.drawio import _remove_bbox_shapes, drawio_to_pptx, layout_drawio, parse_drawio
 
 SINGLE_PAGE = """\
 <mxfile>
@@ -185,12 +185,19 @@ def test_drawio_lazy_import_no_pptx():
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_layout_drawio_normalizes_to_origin(tmp_path):
+def test_layout_drawio_centers_in_box(tmp_path):
+    # #95：非绑定轴居中留白对称（SINGLE_PAGE raw 340×300、max 12×6.75 → scale=0.0225、
+    # content 7.65×6.75、高度为绑定轴 → off_y=0、off_x=2.175、左右边距对称）
     d = parse_drawio(_write(tmp_path))
     lay = layout_drawio(d)
-    assert min(n.x for n in lay.nodes) == pytest.approx(0.0)
+    assert lay.canvas_w == pytest.approx(7.65)
+    assert lay.canvas_h == pytest.approx(6.75)
+    min_x = min(n.x for n in lay.nodes)
+    max_x = max(n.x + n.w for n in lay.nodes)
+    assert min_x == pytest.approx(2.175)
+    assert max_x == pytest.approx(9.825)
+    assert 12.0 - max_x == pytest.approx(min_x)  # 左右留白对称
     assert min(n.y for n in lay.nodes) == pytest.approx(0.0)
-    assert all(n.x >= 0 and n.y >= 0 for n in lay.nodes)
     assert all(n.w > 0 and n.h > 0 for n in lay.nodes if not n.is_container)
 
 
@@ -312,3 +319,90 @@ def test_drawio_to_pptx_bad_source(tmp_path):
 def test_drawio_to_pptx_missing_file_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         drawio_to_pptx(tmp_path / "nope.drawio", str(tmp_path / "out.pptx"))
+
+
+FONT_SIZE = """\
+<mxfile><diagram name="P"><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="a" value="大" style="fontSize=14;fillColor=#dae8fc;" vertex="1" parent="1">
+    <mxGeometry x="0" y="0" width="100" height="50" as="geometry"/></mxCell>
+  <mxCell id="b" value="小" style="rounded=0;" vertex="1" parent="1">
+    <mxGeometry x="120" y="0" width="100" height="50" as="geometry"/></mxCell>
+  <mxCell id="c" value="坏" style="fontSize=abc;" vertex="1" parent="1">
+    <mxGeometry x="240" y="0" width="100" height="50" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram></mxfile>
+"""
+
+
+FONT_DIAGRAM = """\
+<mxfile><diagram name="P"><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="big" value="大" style="fontSize=28;fillColor=#dae8fc;" vertex="1" parent="1">
+    <mxGeometry x="0" y="0" width="100" height="50" as="geometry"/></mxCell>
+  <mxCell id="small" value="小" style="fontSize=12;fillColor=#dae8fc;" vertex="1" parent="1">
+    <mxGeometry x="120" y="0" width="100" height="50" as="geometry"/></mxCell>
+</root></mxGraphModel></diagram></mxfile>
+"""
+
+
+def test_layout_drawio_font_scales(tmp_path):
+    # #97：#fontSize 按 scale 换算成 pt（缺省 fontSize → 12 默认），单位 in/px × pt/in
+    d = parse_drawio(_write(tmp_path, FONT_DIAGRAM, "font2.drawio"))
+    lay = layout_drawio(d)
+    scale = min(1.0, 12.0 / 220, 6.75 / 50)  # raw 220×50
+    by_id = {n.id: n for n in lay.nodes}
+    assert by_id["big"].font_pt == pytest.approx(28.0 * scale * 72)
+    assert by_id["small"].font_pt == pytest.approx(12.0 * scale * 72)
+
+
+def test_render_drawio_respects_font_size(tmp_path):
+    # #97：render 层字号 = font_pt（层级不被拍平），相对比较避免依赖绝对 scale 数学
+    from pptx import Presentation
+
+    from offipy.diagrams import render_to_slide
+
+    d = parse_drawio(_write(tmp_path, FONT_DIAGRAM, "font3.drawio"))
+    lay = layout_drawio(d)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    by_text = {sh.text_frame.text: sh for sh in slide.shapes if sh.has_text_frame}
+    big = by_text["大"].text_frame.paragraphs[0].runs[0].font.size
+    small = by_text["小"].text_frame.paragraphs[0].runs[0].font.size
+    assert big is not None and small is not None
+    assert big > small
+
+
+def test_remove_bbox_shapes_only_matches_injected():
+    # #96：占位删除改几何一致匹配——中心点落入 bbox 但尺寸不同的用户形状保留，
+    # 与注入矩形同位置同尺寸的占位才删
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    user = slide.shapes.add_textbox(Inches(0.8), Inches(0.8), Inches(2.4), Inches(1.4))
+    user.text = "用户形状"  # 中心 (2.0, 1.5) 恰与 bbox 中心重合，但尺寸不同
+    placeholder = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+    placeholder.text = "占位"
+    box_emu = {
+        "x": int(Inches(1)),
+        "y": int(Inches(1)),
+        "w": int(Inches(2)),
+        "h": int(Inches(1)),
+    }
+    _remove_bbox_shapes(slide, box_emu)
+    remaining = list(slide.shapes)
+    assert len(remaining) == 1
+    assert remaining[0].text_frame.text == "用户形状"
+
+
+def test_parse_drawio_font_size(tmp_path):
+    # #97：fontSize 从 style 提取；缺省 / 非数值 → None（走 12pt 默认）
+    d = parse_drawio(_write(tmp_path, FONT_SIZE, "font.drawio"))
+    by_id = {n.id: n for n in d.nodes}
+    assert by_id["a"].font_size == 14.0
+    assert by_id["b"].font_size is None
+    assert by_id["c"].font_size is None
