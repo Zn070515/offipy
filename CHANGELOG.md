@@ -11,6 +11,9 @@
   mermaid_extract.py 提取拓扑，offipy 自研分层布局 + python-pptx 渲染。
 - deck 集成：HTML `<pre class="mermaid">` 块在渲染后被替换为可编辑形状
   （复用 charts 注入管线，需 visual audit 的 measurements.json）。
+- 原生图示（draw.io）：`offipy.drawio.drawio_to_pptx(source, out_path, *, page=None)`
+  把 `.drawio` 转成 16:9 可编辑 PPTX，保留作者版式与配色；deck 注入支持 HTML
+  `<div class="drawio" data-drawio="file.drawio">` 声明。
 
 ## [0.14.5] - 2026-08-08
 

@@ -290,12 +290,16 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   大纲里用 `@icons: <名字>[:标签]; ...` 声明图标行（默认 `ph:` 前缀），骨架自动落
   `icons-row` 布局（超过 3 个图标自动换行，3 列/行）。示例见
   [`examples/outline/icons-demo.md`](https://github.com/Zn070515/offipy/blob/main/examples/outline/icons-demo.md)。
-- **原生图示（Mermaid）**：页面里写 `<pre class="mermaid">graph TD ...</pre>`，`deck render`
+- **原生图示（Mermaid / draw.io）**：页面里写 `<pre class="mermaid">graph TD ...</pre>`，`deck render`
   后由 `offipy.diagrams` 把 Mermaid flowchart 替换成 PowerPoint 原生可编辑形状（复用 charts
   注入管线，需 visual audit 的 measurements.json）。独立 API
   `offipy.diagrams.mermaid_to_pptx("graph TD\nA-->B", "out.pptx")` 直接出 16:9 整页可编辑
   PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。注意 `graph`/`flowchart` 须带显式
   方向（裸 `graph` 会被拒），暂不支持 `%%` 注释（vendored 解析器契约）。
+  也支持 draw.io：HTML 里写 `<div class="drawio" data-drawio="arch.drawio"></div>`（路径基于
+  该 HTML 所在目录），`deck render` 后由 `offipy.drawio` 把 `.drawio` 转成可编辑形状、保留
+  作者版式与配色；独立 API `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx",
+  page="架构")` 直接出 16:9 整页可编辑 PPTX（page 接受 int 页码或 str 页名，默认第一页）。
 - **资源系统（Asset System v1）**：图标 / 纹理 / 图元统一走 `asset://` 资源管线
   （`data-asset` / `data-asset-param-*` / `data-asset-placement`），渲染成**可编辑的
   PowerPoint 原生对象**而非位图。内置 provider：`ph`（1512 Phosphor 图标）、`lu`
@@ -434,6 +438,7 @@ src/offipy/
   charts.py     # 原生图表：图表声明解析 + 原生可编辑图表注入（bar/line/pie）*
   icons.py      # 原生图标：SVG 路径压平 + freeform 矢量图标注入（ph/lu 双集）*
   diagrams.py   # 原生图示：Mermaid flowchart 提取 + 分层布局 + 可编辑形状渲染（mermaid_to_pptx / deck 注入）*
+  drawio.py     # 原生图示：draw.io → 可编辑形状（drawio_to_pptx / deck data-drawio 注入）*
   assets/icons/ # vendored 图标资产（Phosphor fill + Lucide）+ manifest + LICENSE *
   aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
   autopick.py   # 自动选型：内容结构 → 推荐主题 + 每页布局 + 理由 *
