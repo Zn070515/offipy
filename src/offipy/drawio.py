@@ -17,6 +17,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from offipy.diagrams import DiagramLayout, PlacedEdge, PlacedNode
+
 _EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/drawio_extract.py")
 
 _extractor = None
@@ -133,3 +135,102 @@ def parse_drawio(source, *, page=None) -> DrawioDiagram:
     if not nodes and not edges:
         raise ValueError("无法解析 draw.io 源码: 未提取到任何节点或边")
     return DrawioDiagram(nodes, edges)
+
+
+def _render_shape(shape: str, rounded: bool) -> str:
+    """canonical shape → 渲染层 shape 名（rounded 决定 rect 圆角与否）。"""
+    if shape == "rect":
+        return "round" if rounded else "rectangle"
+    if shape in (
+        "ellipse",
+        "triangle",
+        "rhombus",
+        "hexagon",
+        "parallelogram",
+        "cylinder",
+    ):
+        return shape
+    return "round" if rounded else "rectangle"
+
+
+def layout_drawio(
+    diagram: DrawioDiagram, *, max_w: float = 12.0, max_h: float = 6.75
+) -> DiagramLayout:
+    """把 draw.io IR 布局成坐标（inches）：归一化到原点 + 等比 fit + shape 名合成 + 颜色透传。
+
+    vendored parse_page 已解析绝对坐标（父链累加）；这里只做：平移让最小坐标为 0、
+    整体等比缩放 fit 到 max_w×max_h（不改变相对位置与配色）、canonical shape → 渲染层
+    shape 名。容器节点保留自身几何（draw.io 已摆好），render 层画背景框。
+    """
+    nodes = diagram.nodes
+    if not nodes:
+        raise ValueError("无法布局 draw.io 图: 无节点")
+    xs = [n.x for n in nodes] + [n.x + n.w for n in nodes]
+    ys = [n.y for n in nodes] + [n.y + n.h for n in nodes]
+    x0, y0 = min(xs), min(ys)
+    x1, y1 = max(xs), max(ys)
+    raw_w, raw_h = x1 - x0, y1 - y0
+    scale = min(
+        1.0,
+        max_w / raw_w if raw_w > 0 else 1.0,
+        max_h / raw_h if raw_h > 0 else 1.0,
+    )
+    placed = [
+        PlacedNode(
+            id=n.id,
+            label=n.label,
+            shape=_render_shape(n.shape, n.rounded),
+            x=(n.x - x0) * scale,
+            y=(n.y - y0) * scale,
+            w=n.w * scale,
+            h=n.h * scale,
+            is_container=n.container,
+            parent=n.parent,
+            fill=n.fill,
+            stroke=n.stroke,
+            font_color=n.font_color,
+        )
+        for n in nodes
+    ]
+    edges = _layout_edges(diagram, placed)
+    return DiagramLayout(placed, edges, raw_w * scale, raw_h * scale)
+
+
+def _edge_anchors(s: PlacedNode, t: PlacedNode) -> tuple[tuple[float, float], tuple[float, float]]:
+    """按源/目标相对位置选边缘中点（drawio 无方向概念，固定规则，不做 BT/RL 反转）。"""
+    scx, scy = s.x + s.w / 2, s.y + s.h / 2
+    tcx, tcy = t.x + t.w / 2, t.y + t.h / 2
+    if abs(tcx - scx) >= abs(tcy - scy):
+        if tcx > scx:
+            return (s.x + s.w, s.y + s.h / 2), (t.x, t.y + t.h / 2)
+        return (s.x, s.y + s.h / 2), (t.x + t.w, t.y + t.h / 2)
+    if tcy > scy:
+        return (s.x + s.w / 2, s.y + s.h), (t.x + t.w / 2, t.y)
+    return (s.x + s.w / 2, s.y), (t.x + t.w / 2, t.y + t.h)
+
+
+def _layout_edges(diagram: DrawioDiagram, placed: list[PlacedNode]) -> list[PlacedEdge]:
+    by_id = {n.id: n for n in placed}
+    out: list[PlacedEdge] = []
+    for e in diagram.edges:
+        s, t = by_id.get(e.source), by_id.get(e.target)
+        if s is None or t is None:
+            continue  # 悬空边（parse 已过滤，此处防御）
+        a1, a2 = _edge_anchors(s, t)
+        style = "dashed" if e.dashed else "solid"
+        out.append(
+            PlacedEdge(
+                e.source,
+                e.target,
+                e.label,
+                style,
+                "arrow",
+                e.undirected,
+                a1[0],
+                a1[1],
+                a2[0],
+                a2[1],
+                stroke=e.stroke,
+            )
+        )
+    return out

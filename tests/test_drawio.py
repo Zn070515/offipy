@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from offipy.drawio import parse_drawio
+from offipy.drawio import layout_drawio, parse_drawio
 
 SINGLE_PAGE = """\
 <mxfile>
@@ -181,3 +181,87 @@ def test_drawio_lazy_import_no_pptx():
         "assert 'pptx' not in sys.modules, 'drawio.py 顶层不得 import pptx'\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_layout_drawio_normalizes_to_origin(tmp_path):
+    d = parse_drawio(_write(tmp_path))
+    lay = layout_drawio(d)
+    assert min(n.x for n in lay.nodes) == pytest.approx(0.0)
+    assert min(n.y for n in lay.nodes) == pytest.approx(0.0)
+    assert all(n.x >= 0 and n.y >= 0 for n in lay.nodes)
+    assert all(n.w > 0 and n.h > 0 for n in lay.nodes if not n.is_container)
+
+
+def test_layout_drawio_fits_max(tmp_path):
+    d = parse_drawio(_write(tmp_path))
+    lay = layout_drawio(d, max_w=3.0, max_h=2.0)
+    assert lay.canvas_w <= 3.0 + 1e-9
+    assert lay.canvas_h <= 2.0 + 1e-9
+
+
+def test_layout_drawio_color_passthrough(tmp_path):
+    d = parse_drawio(_write(tmp_path))
+    lay = layout_drawio(d)
+    by_id = {n.id: n for n in lay.nodes}
+    assert by_id["a"].fill == "#dae8fc"
+    assert by_id["a"].stroke == "#6c8ebf"
+    assert by_id["a"].font_color == "#000000"
+    assert by_id["a"].is_container is False
+    assert by_id["g"].is_container is True
+
+
+def test_layout_drawio_shape_synthesis(tmp_path):
+    d = parse_drawio(_write(tmp_path, SHAPES, "shapes.drawio"))
+    lay = layout_drawio(d)
+    by_id = {n.id: n for n in lay.nodes}
+    assert by_id["ra"].shape == "rectangle"  # rect + rounded=0 → 直角
+    assert by_id["rb"].shape == "round"  # rect + rounded=1 → 圆角
+    assert by_id["el"].shape == "ellipse"
+    assert by_id["tr"].shape == "triangle"
+
+
+def test_layout_drawio_edge_anchors_on_node_edges(tmp_path):
+    d = parse_drawio(_write(tmp_path))
+    lay = layout_drawio(d)
+    assert len(lay.edges) == 1
+    e = lay.edges[0]
+    by_id = {n.id: n for n in lay.nodes}
+    a, b = by_id["a"], by_id["b"]
+    # b 在 a 右侧且同 y → 水平主导：源取右缘中点、目标取左缘中点
+    # （无方向概念，固定规则，不做 BT/RL 反转）。精确钉死锚点，防回归成 (0,0)。
+    assert e.ax1 == pytest.approx(a.x + a.w)
+    assert e.ay1 == pytest.approx(a.y + a.h / 2)
+    assert e.ax2 == pytest.approx(b.x)
+    assert e.ay2 == pytest.approx(b.y + b.h / 2)
+    assert e.stroke == "#333333"
+    assert e.style == "dashed"
+
+
+def test_render_drawio_preserves_colors(tmp_path):
+    # spec「render_to_slide(use_colors=True)：读回 PPTX 断言形状类型、fill/stroke 颜色、
+    # label 文本」的 drawio fixture 覆盖。用函数内 import（Task 4 才把 pptx 提为顶层）。
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+    from pptx.enum.dml import MSO_LINE_DASH_STYLE
+    from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
+
+    from offipy.diagrams import render_to_slide
+
+    d = parse_drawio(_write(tmp_path))
+    lay = layout_drawio(d)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    by_text = {sh.text_frame.text: sh for sh in slide.shapes if sh.has_text_frame}
+    a = by_text["节点A"]
+    assert a.auto_shape_type == MSO_SHAPE.RECTANGLE  # rounded=0 → 直角
+    assert a.fill.fore_color.rgb == RGBColor(0xDA, 0xE8, 0xFC)
+    assert a.line.color.rgb == RGBColor(0x6C, 0x8E, 0xBF)
+    c = by_text["节点C"]
+    assert c.auto_shape_type == MSO_SHAPE.ROUNDED_RECTANGLE  # rounded=1 → 圆角
+    assert c.fill.fore_color.rgb == RGBColor(0xFF, 0xE6, 0xCC)
+    g = by_text["容器"]
+    assert g.fill.fore_color.rgb == RGBColor(0xFF, 0xF2, 0xCC)  # 容器 fillColor 保留
+    conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
+    assert conns and conns[0].line.color.rgb == RGBColor(0x33, 0x33, 0x33)
+    assert conns[0].line.dash_style == MSO_LINE_DASH_STYLE.DASH  # dashed=1 → 虚线
