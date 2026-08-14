@@ -90,6 +90,8 @@ _NOVA_DECLARATION_MARKERS = (
     ("data-icon", "图标(data-icon)"),
     ("data-asset", "资源(data-asset)"),
     ("data-primitive", "图元(data-primitive)"),
+    ('class="mermaid"', "图示(mermaid)"),
+    ("class='mermaid'", "图示(mermaid)"),  # 单引号变体，防 no_visual_audit fail-fast 漏检
 )
 
 
@@ -424,6 +426,11 @@ def _render_tmp(
         from .charts import postprocess_charts
 
         _postprocess("图表", postprocess_charts, target, tmp_pptx)
+        # Mermaid 图后处理：<pre class="mermaid"> 块 → 可编辑形状（图在后，
+        # 覆盖 charts 注入的同类 bbox 替换语义；先于 assets 避免资产形状干扰）。
+        from .diagrams import postprocess_mermaid
+
+        _postprocess("图示", postprocess_mermaid, target, tmp_pptx)
         # 资源后处理：data-icon/data-asset/data-primitive → 统一 asset 管线（取代
         # postprocess_icons）。图表必须先于资源：图表用自己测量的占位符替换，不应受
         # 随后添加的 asset 形状影响。返回用量报告供 assets.json 清单。

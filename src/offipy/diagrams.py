@@ -13,11 +13,13 @@ vendored 提取器用 importlib 加载，保持上游文件原样；仅支持 fl
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import sys
 from collections import deque
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
 _EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/mermaid_extract.py")
@@ -490,3 +492,136 @@ def mermaid_to_pptx(source, out_path: str, *, direction: str | None = None) -> s
     render_to_slide(slide, lay)
     prs.save(out_path)
     return str(out_path)
+
+
+PX_TO_EMU = 6350
+
+
+class _MermaidHTMLParser(HTMLParser):
+    """扫 <pre class="mermaid"> 块 → [{slide, source}]。slide 1-based 对齐 section 顺序。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.slide_index = 0
+        self.decls: list[dict] = []
+        self._cur: dict | None = None
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        d = {k: (v or "") for k, v in attrs}
+        if tag == "section" and "data-pptx-slide" in d:
+            self.slide_index += 1
+            self._cur = None
+            return
+        if tag == "pre" and "mermaid" in d.get("class", "").split():
+            self._cur = {"slide": self.slide_index, "source": ""}
+            return
+
+    def handle_data(self, data: str) -> None:
+        if self._cur is not None:
+            self._cur["source"] += data
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "pre" and self._cur is not None:
+            self._cur["source"] = self._cur["source"].strip()
+            self.decls.append(self._cur)
+            self._cur = None
+
+
+def parse_mermaid_declarations(html_text: str) -> list[dict]:
+    """HTML → [{slide, source}]（slide 1-based）。pre.mermaid 在 data-pptx-slide
+    <section> 之外 → ValueError（对齐 charts：声明必须落在 section 内）。"""
+    p = _MermaidHTMLParser()
+    p.feed(html_text)
+    p.close()
+    for d in p.decls:
+        if d["slide"] <= 0:
+            raise ValueError(
+                'mermaid 块出现在 slide 之外——<pre class="mermaid"> 必须在 '
+                "data-pptx-slide 的 <section> 内"
+            )
+    return p.decls
+
+
+def load_mermaid_boxes(measurements_path: str) -> dict[int, dict]:
+    """measurements.json → {slide_index(1-based): {"x","y","w","h"}}（px）。
+
+    匹配 record className 分词含 "mermaid"（pre.mermaid 的 rect）。
+    """
+    with open(measurements_path, encoding="utf-8") as f:
+        data = json.load(f)
+    boxes: dict[int, dict] = {}
+    for i, slide in enumerate(data.get("slides", []), start=1):
+        for rec in slide.get("records", []):
+            cls = (rec.get("className") or "").split()
+            if "mermaid" in cls:
+                boxes[i] = dict(rec["rect"])
+                break
+    return boxes
+
+
+def _measurements_path(pptx_path: str) -> str:
+    p = Path(pptx_path)
+    return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
+
+
+def _remove_bbox_shapes(slide, box_emu: dict) -> None:
+    """删除中心落在 bbox 内的占位形状（pre 文本块等）。"""
+    cx, cy = box_emu["x"] + box_emu["w"] // 2, box_emu["y"] + box_emu["h"] // 2
+    for shape in list(slide.shapes):
+        if (
+            shape.left <= cx <= shape.left + shape.width
+            and shape.top <= cy <= shape.top + shape.height
+        ):
+            slide.shapes._spTree.remove(shape._element)
+
+
+def inject_mermaid(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> None:
+    """把每块 mermaid 渲染成可编辑形状，替换 slide 内对应 bbox 占位。"""
+    from pptx import Presentation
+
+    prs = Presentation(pptx_path)
+    for decl in decls:
+        box = boxes.get(decl["slide"])
+        if box is None or not decl["source"].strip():
+            continue
+        box_emu = {k: int(v * PX_TO_EMU) for k, v in box.items()}
+        slide = prs.slides[decl["slide"] - 1]
+        try:
+            diagram = parse_mermaid(decl["source"])
+        except ValueError as e:
+            raise ValueError(f"第 {decl['slide']} 页 mermaid 块解析失败: {e}") from None
+        # bbox 是 px；转换器画布 1920px = 13.333in = 12192000 EMU → 1px = 1/144 in。
+        # layout 的 max_w/max_h 单位是 inches，px→inch 除以 144（不能除以 PX_TO_EMU）。
+        lay = layout_diagram(diagram, max_w=box["w"] / 144, max_h=box["h"] / 144)
+        _remove_bbox_shapes(slide, box_emu)
+        render_to_slide(slide, lay, offset_x=box_emu["x"], offset_y=box_emu["y"])
+    prs.save(pptx_path)
+
+
+def postprocess_mermaid(html_path: str, pptx_path: str) -> None:
+    """转换后调用（对齐 charts.postprocess_charts 签名）：HTML 含 <pre class="mermaid">
+    → 读 measurements → 注入可编辑形状。无声明 → 原样返回。声明/数据非法 → ValueError。
+    """
+    with open(html_path, encoding="utf-8") as f:
+        html_text = f.read()
+    # 守卫兼容单/双引号：charts 用属性名 "data-chart" 天然免疫引号；这里匹配 class 值，
+    # 只认双引号会让 <pre class='mermaid'> 静默跳过（mermaid 块以字面文本留在 PPTX）。
+    if 'class="mermaid"' not in html_text and "class='mermaid'" not in html_text:
+        return
+    decls = parse_mermaid_declarations(html_text)
+    if not decls:
+        return
+    meas_path = _measurements_path(pptx_path)
+    if not os.path.exists(meas_path):
+        raise RuntimeError(
+            f"找不到 convert 审计产物 {meas_path}——mermaid 注入需要 measurements.json，"
+            "请勿用 --no-visual-audit"
+        )
+    boxes = load_mermaid_boxes(meas_path)
+    missing = [d["slide"] for d in decls if d["slide"] not in boxes]
+    if missing:
+        raise RuntimeError(
+            f'第 {missing} 页没测到 <pre class="mermaid"> 容器——请确认 pre 有 '
+            'class="mermaid" 且被渲染进 visual audit'
+        )
+    inject_mermaid(pptx_path, decls, boxes)
