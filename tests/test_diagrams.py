@@ -10,7 +10,14 @@ from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
 from pptx.util import Emu
 
-from offipy.diagrams import layout_diagram, mermaid_to_pptx, parse_mermaid, render_to_slide
+from offipy.diagrams import (
+    _kahn_layers,
+    _read_source,
+    layout_diagram,
+    mermaid_to_pptx,
+    parse_mermaid,
+    render_to_slide,
+)
 
 
 def test_parse_flowchart_basic():
@@ -94,6 +101,28 @@ def test_layout_cycle_tolerated():
     diagram = parse_mermaid("graph TD\n    A --> B\n    B --> A")
     lay = layout_diagram(diagram)
     assert {n.id for n in lay.nodes} == {"A", "B"}
+
+
+def test_kahn_cycle_residue_unified_tail_layer():
+    # #84：纯环归一层，分层结果与 ids 迭代序无关（不再散到多层依赖输入顺序）
+    d = parse_mermaid("graph TD\n    A --> B\n    B --> C\n    C --> A")
+    leaves = [n for n in d.nodes if not n.container]
+    layer, layers = _kahn_layers([n.id for n in leaves], d.edges)
+    assert set(layer.values()) == {0}  # 纯环统一一层
+    assert sorted(layers[0]) == ["A", "B", "C"]
+    # 倒序 ids：layer 分配不变
+    layer2, _ = _kahn_layers(list(reversed([n.id for n in leaves])), d.edges)
+    assert dict(layer2) == dict(layer)
+
+
+def test_kahn_dag_feeding_cycle_tail_layer():
+    # #84：DAG 节点正常分层；环残留（成环节点及其下游）统一落 DAG 最大层 + 1
+    d = parse_mermaid("graph TD\n    D --> A\n    A --> B\n    B --> C\n    C --> A")
+    leaves = [n for n in d.nodes if not n.container]
+    layer, _ = _kahn_layers([n.id for n in leaves], d.edges)
+    assert layer["D"] == 0
+    assert layer["A"] == layer["B"] == layer["C"]
+    assert layer["A"] == 1  # = max(DAG layer) + 1
 
 
 def test_layout_routes_container_endpoint_edges():
@@ -284,7 +313,7 @@ def test_render_no_arrowhead_when_undirected():
     assert ln.find(qn("a:tailEnd")) is None
 
 
-def _read_source(tmp_path, text):
+def _write_source_file(tmp_path, text):
     p = tmp_path / "input.mmd"
     p.write_text(text, encoding="utf-8")
     return str(p)
@@ -301,7 +330,7 @@ def test_mermaid_to_pptx_from_text(tmp_path):
 
 
 def test_mermaid_to_pptx_from_path(tmp_path):
-    src = _read_source(tmp_path, "graph LR\n    A --> B")
+    src = _write_source_file(tmp_path, "graph LR\n    A --> B")
     out = str(tmp_path / "out.pptx")
     mermaid_to_pptx(src, out)
     prs = Presentation(out)
@@ -318,6 +347,26 @@ def test_mermaid_to_pptx_missing_file_raises(tmp_path):
     src = tmp_path / "nope.mmd"
     with pytest.raises(FileNotFoundError):
         mermaid_to_pptx(src, str(tmp_path / "out.pptx"))
+
+
+def test_read_source_missing_path_like_str_raises():
+    # #85：str 入参含路径形态（盘符 / 绝对 / 点相对段）但不存在 → FileNotFoundError，
+    # 与 PathLike 分支一致；不再静默当文本解析（否则是误导性「无法解析 Mermaid 源码」）
+    for raw in (r"C:\nope\dir\flow.mmd", "/nope/dir/flow.mmd", "./nope/flow.mmd"):
+        with pytest.raises(FileNotFoundError, match="源文件不存在"):
+            _read_source(raw)
+
+
+def test_mermaid_to_pptx_missing_path_str_raises(tmp_path):
+    # #85：mermaid_to_pptx 传不存在的路径字符串 → FileNotFoundError（可定位「路径打错」）
+    with pytest.raises(FileNotFoundError, match="源文件不存在"):
+        mermaid_to_pptx(r"C:\nope\dir\flow.mmd", str(tmp_path / "out.pptx"))
+
+
+def test_mermaid_to_pptx_bad_text_without_path_shape_is_value_error(tmp_path):
+    # #85：无路径形态的坏文本仍当作文本 → 「无法解析」ValueError（路径启发不误伤）
+    with pytest.raises(ValueError, match="无法解析"):
+        mermaid_to_pptx("not mermaid at all", str(tmp_path / "x.pptx"))
 
 
 def test_hex_rgb_three_states():
