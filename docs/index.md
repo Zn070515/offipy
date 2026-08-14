@@ -17,6 +17,9 @@ Word / Excel / PowerPoint，外加 HTML→可编辑 PPTX 的转换管线。它�
 - **领域异常**：`InvalidArgumentError` / `TargetNotFoundError` / `FileConflictError` /
   `ComOperationError` / `ProtocolError` 统一继承 `OffipyError`，RPC 带 `error_code`。
 - **HTML→PPTX 管线**：Chromium 渲染 HTML 布局 → 可编辑 PPTX，支持图表、图标、主题。
+- **diagram-design skill 接入（Agent 原生）**：`offipy diagram build` 把宿主 agent 按
+  产物契约设计的 Mermaid / draw.io 图转成可编辑 PPTX；`offipy diagram install_skill`
+  安装设计指引 + 契约桥 skill 到宿主 agent 技能目录。
 
 ## 安装
 
