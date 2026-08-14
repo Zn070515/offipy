@@ -41,7 +41,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Export locked requirements (no dev)
-        run: uv export --frozen --no-dev -o requirements.txt
+        # --no-emit-project：pip-audit 的 venv dry-run 装不下 editable 本地项目
+        # （无法 hash），export 只审计第三方依赖，不含项目自身。
+        run: uv export --frozen --no-dev --no-emit-project -o requirements.txt
       - uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
         with:
           inputs: requirements.txt
