@@ -112,6 +112,28 @@ playwright install chromium
 `data-asset` / `data-primitive` / `data-asset-param-*` / `data-asset-placement` 资源
 声明与 `asset://` URI、provider 与 `assets.json` 溯源，见 [资源系统](assets.md)。
 
+### Mermaid 图
+
+页面里写 `<pre class="mermaid">` 块，渲染后由 `offipy.diagrams` 替换为 PowerPoint 原生
+可编辑形状（复用 charts 注入管线，需 visual audit 的 measurements.json）：
+
+```html
+<section data-pptx-slide>
+  <h1>部署架构</h1>
+  <pre class="mermaid">graph TD
+    A[构建] --> B[测试]
+    B --> C[发布]
+    C --> D[生产]</pre>
+</section>
+```
+
+`deck render deck.html` 后 mermaid 块变为可编辑形状；或独立调用
+`offipy.diagrams.mermaid_to_pptx("graph TD\nA-->B", "out.pptx")` 直接出 16:9 整页可编辑
+PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。
+
+注意：`graph`/`flowchart` 必须带显式方向（如 `graph TD`，裸 `graph` 会被拒）；暂不支持
+`%%` 注释（vendored 解析器契约）。
+
 ## Python API
 
 ```python
