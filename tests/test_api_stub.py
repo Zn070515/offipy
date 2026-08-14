@@ -12,6 +12,8 @@ import pytest
 
 from offipy import schema
 
+_COM_APPS = ("excel", "word", "ppt")  # api.pyi 只覆盖 COM facade；diagram 不进 stub
+
 ROOT = Path(__file__).resolve().parent.parent
 STUB = ROOT / "src" / "offipy" / "api.pyi"
 GEN = ROOT / "scripts" / "gen_api_stub.py"
@@ -39,7 +41,7 @@ def _class_sigs(text: str, cls: str) -> dict[str, str]:
 def test_every_schema_op_has_stub_method():
     gen = _gen()
     text = gen.render()
-    for app in schema.apps():
+    for app in _COM_APPS:
         direct = {"excel": "Excel", "word": "Word", "ppt": "Ppt"}[app]
         remote = {"excel": "RemoteExcel", "word": "RemoteWord", "ppt": "RemotePpt"}[app]
         for op in schema.ops(app):
@@ -60,7 +62,7 @@ def test_format_paragraph_line_spacing_union_stub():
 def test_transport_params_match_entrypoint():
     gen = _gen()
     text = gen.render()
-    for app in schema.apps():
+    for app in _COM_APPS:
         direct = {"excel": "Excel", "word": "Word", "ppt": "Ppt"}[app]
         remote = {"excel": "RemoteExcel", "word": "RemoteWord", "ppt": "RemotePpt"}[app]
         for op in schema.ops(app):

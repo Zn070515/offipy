@@ -71,7 +71,7 @@ def _render_app(app: str) -> str:
 
 def _render_index() -> str:
     rows = []
-    for app in schema.apps():
+    for app in APP_NAMES:
         count = len(schema.OPS[app])
         read = len(schema.readonly_ops(app))
         destr = len(schema.destructive_ops(app))
@@ -427,9 +427,7 @@ def _en_desc(app: str, op: str) -> str:
     try:
         return _EN_DESC[(app, op)]
     except KeyError:
-        missing = [
-            f"{a}.{o}" for a in schema.apps() for o in schema.ops(a) if (a, o) not in _EN_DESC
-        ]
+        missing = [f"{a}.{o}" for a in APP_NAMES for o in schema.ops(a) if (a, o) not in _EN_DESC]
         raise ValueError(f"缺少英文描述: {missing}") from None
 
 
@@ -473,7 +471,7 @@ def _render_app_en(app: str) -> str:
 
 def _render_index_en() -> str:
     rows = []
-    for app in schema.apps():
+    for app in APP_NAMES:
         count = len(schema.OPS[app])
         read = len(schema.readonly_ops(app))
         destr = len(schema.destructive_ops(app))
@@ -498,7 +496,7 @@ def _render_index_en() -> str:
 
 
 def _guard_en_coverage() -> None:
-    missing = [f"{a}.{o}" for a in schema.apps() for o in schema.ops(a) if (a, o) not in _EN_DESC]
+    missing = [f"{a}.{o}" for a in APP_NAMES for o in schema.ops(a) if (a, o) not in _EN_DESC]
     if missing:
         raise ValueError(f"缺少英文描述: {missing}")
 
@@ -509,10 +507,10 @@ def main() -> None:
     DOCS_API.mkdir(parents=True, exist_ok=True)
     (DOCS_API / "index.md").write_text(_render_index(), encoding="utf-8")
     (DOCS_API / "index.en.md").write_text(_render_index_en(), encoding="utf-8")
-    for app in schema.apps():
+    for app in APP_NAMES:
         (DOCS_API / f"{app}.md").write_text(_render_app(app), encoding="utf-8")
         (DOCS_API / f"{app}.en.md").write_text(_render_app_en(app), encoding="utf-8")
-    print(f"generated {len(schema.apps()) + 1} pages (zh + en) under docs/api/")
+    print(f"generated {len(APP_NAMES) + 1} pages (zh + en) under docs/api/")
 
 
 if __name__ == "__main__":

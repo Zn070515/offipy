@@ -10,9 +10,14 @@
 
 import inspect
 
-from offipy import excel, mcp_server, ppt, schema, server, word
+from offipy import diagram, excel, mcp_server, ppt, schema, server, word
 
-_APP_CLASSES = {"excel": excel.ExcelApp, "word": word.WordApp, "ppt": ppt.PptApp}
+_APP_CLASSES = {
+    "diagram": diagram.DiagramApp,
+    "excel": excel.ExcelApp,
+    "word": word.WordApp,
+    "ppt": ppt.PptApp,
+}
 
 
 # --- schema ↔ server 白名单 ---
@@ -58,7 +63,7 @@ def test_server_ops_are_covered_by_schema():
 
 
 def test_schema_apps_stable_order():
-    assert schema.apps() == ("excel", "word", "ppt")
+    assert schema.apps() == ("excel", "word", "ppt", "diagram")
 
 
 # --- schema 参数名 ↔ App 方法签名 ---

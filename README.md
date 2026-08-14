@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.15.1（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.16.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -39,6 +39,10 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   `OffipyError → exit 1`（运行时领域失败），stderr 不泄露 traceback；`audit` 0/1/2/3、
   `deck audit` 0/1 专属契约保留
 - **高层 API**：`offipy.Excel() / Word() / Ppt()` 上下文管理器，库内直接驱动（见下方「Python API」）
+- **diagram-design skill 接入（Agent 原生）**：`offipy diagram build` 把宿主 agent 按
+  产物契约设计的 Mermaid / draw.io 图转成可编辑 PPTX；`offipy diagram install_skill` 把
+  diagram-design 设计指引 + offipy-diagram 契约桥 skill 装进宿主 agent 技能目录
+  （默认 `~/.claude/skills/`）。offipy 自身不调 LLM
 
 ## 环境要求
 
@@ -439,6 +443,7 @@ src/offipy/
   icons.py      # 原生图标：SVG 路径压平 + freeform 矢量图标注入（ph/lu 双集）*
   diagrams.py   # 原生图示：Mermaid flowchart 提取 + 分层布局 + 可编辑形状渲染（mermaid_to_pptx / deck 注入）*
   drawio.py     # 原生图示：draw.io → 可编辑形状（drawio_to_pptx / deck data-drawio 注入）*
+  diagram.py    # diagram app：Mermaid/drawio → 可编辑 PPTX（Agent 原生，install_skill 装 vendored skill）*
   assets/icons/ # vendored 图标资产（Phosphor fill + Lucide）+ manifest + LICENSE *
   aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
   autopick.py   # 自动选型：内容结构 → 推荐主题 + 每页布局 + 理由 *
