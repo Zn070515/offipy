@@ -118,7 +118,7 @@ def _reject_no_visual_audit_declarations(content: str) -> None:
 # 白名单含 URL 承载属性（src/href/poster/data/background/cite/action/formaction/
 # longdesc，#77）：漏一个属性就多一个注入副本下解析失败破图的点。
 _ATTR_URL_RE = re.compile(
-    r"((?<![\w-])(?:src|href|poster|data|background|cite|action|"
+    r"((?<![\w-])(?:src|href|poster|data-drawio|data|background|cite|action|"
     r"formaction|longdesc)\s*=\s*[\"'])([^\"']*)([\"'])"
 )
 # srcset 值里可能带引号（data: URI 的 SVG 常用单引号属性），只以属性自身的结束

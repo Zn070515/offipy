@@ -19,6 +19,8 @@ import sys
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 from offipy.diagrams import (
     PX_TO_EMU,
@@ -343,6 +345,13 @@ def _measurements_path(pptx_path: str) -> str:
     return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
 
 
+def _resolve_source_path(path: str) -> Path:
+    """data-drawio 源路径归一化：file:// URI → 真实路径（deck 管线改写相对→file://）。"""
+    if path.startswith("file://"):
+        return Path(url2pathname(urlparse(path).path))
+    return Path(path)
+
+
 def _remove_bbox_shapes(slide, box_emu: dict) -> None:
     """删除中心落在 bbox 内的占位形状（div.drawio 占位块等）。"""
     cx, cy = box_emu["x"] + box_emu["w"] // 2, box_emu["y"] + box_emu["h"] // 2
@@ -356,7 +365,7 @@ def _remove_bbox_shapes(slide, box_emu: dict) -> None:
 
 def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> None:
     """把每块 drawio 渲染成可编辑形状，替换 slide 内对应 bbox 占位。"""
-    missing = [d["path"] for d in decls if not Path(d["path"]).is_file()]
+    missing = [d["path"] for d in decls if not _resolve_source_path(d["path"]).is_file()]
     if missing:
         raise RuntimeError("drawio 源文件缺失: " + "、".join(missing))
     from pptx import Presentation
@@ -403,10 +412,12 @@ def postprocess_drawio(html_path: str, pptx_path: str) -> None:
             f'第 {missing} 页没测到 <div class="drawio"> 容器——请确认 div 有 '
             'class="drawio" 且被渲染进 visual audit'
         )
-    # data-drawio 相对路径基于 HTML 所在目录解析
+    # data-drawio 路径归一化：file:// URI → 真实绝对路径（deck 管线改写相对→file://）；
+    # 相对路径基于 HTML 所在目录解析。一律改写为绝对路径再传 inject（parse_drawio 不接受 file://）。
     base = Path(html_path).parent
     for d in decls:
-        p = Path(d["path"])
+        p = _resolve_source_path(d["path"])
         if not p.is_absolute():
-            d["path"] = str((base / p).resolve())
+            p = (base / p).resolve()
+        d["path"] = str(p)
     inject_drawio(pptx_path, decls, boxes)

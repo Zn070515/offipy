@@ -145,6 +145,34 @@ def test_postprocess_drawio_missing_source(tmp_path):
         postprocess_drawio(html, pptx_path)
 
 
+def test_postprocess_drawio_accepts_file_uri(tmp_path):
+    # #93：data-drawio 直接用 file:// URI（deck 管线把相对路径改写成的产物）
+    # → 不再被当相对路径拼到 base，注入成功
+    src = tmp_path / "arch.drawio"
+    src.write_text(DRAWIO, encoding="utf-8")
+    html = tmp_path / "deck.html"
+    html.write_text(
+        HTML.replace('data-drawio="arch.drawio"', f'data-drawio="{src.as_uri()}"'),
+        encoding="utf-8",
+    )
+    meas = tmp_path / "deck_audit" / "_cache" / "measurements.json"
+    meas.parent.mkdir(parents=True)
+    meas.write_text(json.dumps(_measurements()), encoding="utf-8")
+    pptx_path = str(tmp_path / "deck.pptx")
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(0.42), Inches(0.83), Inches(2.78), Inches(1.67))
+    tb.text = "占位"
+    prs.save(pptx_path)
+
+    postprocess_drawio(str(html), pptx_path)  # 不得抛「源文件缺失」
+    prs = Presentation(pptx_path)
+    texts = {sh.text_frame.text for sl in prs.slides for sh in sl.shapes if sh.has_text_frame}
+    assert "模块A" in texts and "模块B" in texts
+
+
 def test_no_visual_audit_rejects_drawio_before_browser(tmp_path, monkeypatch):
     html = tmp_path / "deck.html"
     html.write_text(HTML, encoding="utf-8")

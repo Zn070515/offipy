@@ -799,6 +799,20 @@ def test_rewrite_relative_urls_handles_poster_and_import(tmp_path):
     assert f'@import "{css}";' in rewritten
 
 
+def test_rewrite_relative_urls_handles_drawio(tmp_path):
+    # #93：data-drawio 是 URL 承载属性，相对路径在注入副本下必须改写为 file://；
+    # data-* 逻辑值（data-chart-data）仍不得被误改
+    base = tmp_path.resolve()
+    content = (
+        '<div class="drawio" data-drawio="diagrams/arch.drawio"></div>'
+        '<div data-chart-data="[{&quot;x&quot;:1}]"></div>'
+    )
+    rewritten = deck._rewrite_relative_urls(content, base)
+    d = (base / "diagrams" / "arch.drawio").resolve().as_uri()
+    assert f'data-drawio="{d}"' in rewritten
+    assert 'data-chart-data="[{&quot;x&quot;:1}]"' in rewritten
+
+
 def test_rewrite_relative_urls_handles_object_embed_data(tmp_path):
     # #69：_ATTR_URL_RE 只重写 src/href/poster，<object data> / <embed data> 的相对
     # 路径在注入副本后不解析——data 属性与 #57 同类漏网。data-* 自定义属性
