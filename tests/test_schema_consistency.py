@@ -113,7 +113,8 @@ def test_schema_flags_internally_consistent():
 # 导出类 op：overwrite 保护的是「输出文件」（path 参数），不是 Office 文档——
 # 它们不改文档，无需 doc_id 强制（P0-3：破坏性 = 改文档）。豁免
 # 「overwrite→destructive」规则，但输出文件覆盖保护仍由 paths.ensure_writable 施加。
-_OUTPUT_ONLY_OPS = {"save_pdf", "export_slides"}
+# diagram build 同属此类：只写输出 PPTX，无 Office 文档目标。
+_OUTPUT_ONLY_OPS = {"save_pdf", "export_slides", "build"}
 
 
 def test_overwrite_ops_are_destructive():

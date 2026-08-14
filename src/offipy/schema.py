@@ -34,7 +34,7 @@ class OpSpec:
 
 
 def apps() -> tuple[str, ...]:
-    """已注册的应用名（excel/word/ppt），按定义顺序。"""
+    """已注册的应用名（excel/word/ppt/diagram），按定义顺序。"""
     return tuple(OPS)
 
 
@@ -846,12 +846,19 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "自动识别：.mmd/.md/.mermaid → Mermaid，.drawio → draw.io。Mermaid 仅支持 "
                 "flowchart/graph、sequenceDiagram、stateDiagram-v2、erDiagram 四种 kind，"
                 "其余（gantt/journey/mindmap/timeline 等）报 unsupported diagram kind，"
-                "请改用 draw.io 表达。"
+                "请改用 draw.io 表达。输出已存在时默认拒绝覆盖，需 overwrite=true 才替换。"
             ),
             # 不标 destructive/requires_target：无 Office 文档目标，标了会被 P0-1
-            # 目标绑定强制拒绝。overwrite 语义继承 mermaid/drawio 独立 API（显式 out）。
+            # 目标绑定强制拒绝。overwrite 经 ensure_writable 保护输出文件——同
+            # save_pdf/export_slides 走 _OUTPUT_ONLY_OPS 豁免（只写输出文件不改文档）。
             returns="dict",  # {"pptx": <out_path>}
-            params={"source": str, "out": str, "direction": str, "page": (int, str)},
+            params={
+                "source": str,
+                "out": str,
+                "direction": str,
+                "page": (int, str),
+                "overwrite": bool,
+            },
         ),
         "install_skill": OpSpec(
             description=(

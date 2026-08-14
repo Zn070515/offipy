@@ -53,15 +53,29 @@ def _detect_format(path: Path) -> str:
 class DiagramApp:
     """纯函数 app：无 COM 根（server._alive 对它恒 True），不绑定 Office 文档目标。"""
 
-    def build(self, source, out, *, direction=None, page=None):
+    has_com_root = False  # 显式标记无 COM 根：server._alive 走恒存活分支，不做 duck-typing
+
+    def build(
+        self,
+        source: str,
+        out: str,
+        *,
+        direction: str | None = None,
+        page: int | str | None = None,
+        overwrite: bool = False,
+    ) -> dict:
         """Mermaid/drawio 源码文件 → 可编辑 PPTX（16:9 整页）。返回 {"pptx": out}。
 
         source 必须是已存在文件路径（不接受内联文本）。格式按扩展名+内容自动识别。
         direction 仅 Mermaid 用、page 仅 draw.io 用——不适用时不透传。
+        overwrite 默认 False：out 已存在则 FileConflictError（防误覆盖），True 才替换。
         """
         path = Path(source)
         if not path.is_file():
             raise FileNotFoundError(f"源文件不存在: {path}")
+        from .paths import ensure_writable
+
+        out = ensure_writable(out, overwrite)  # 覆盖保护先于转换（fail-fast）
         if _detect_format(path) == "mermaid":
             from .diagrams import mermaid_to_pptx
 
@@ -70,7 +84,7 @@ class DiagramApp:
 
         return {"pptx": drawio_to_pptx(str(path), out, page=page)}
 
-    def install_skill(self, target_dir=None, *, force=False):
+    def install_skill(self, target_dir: str | None = None, *, force: bool = False) -> dict:
         """安装 diagram-design + offipy-diagram skill 到宿主 agent 技能目录。
 
         默认 ~/.claude/skills/，target_dir 可指向任意技能目录。幂等：目标已存在则
