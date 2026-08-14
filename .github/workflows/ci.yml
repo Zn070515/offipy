@@ -118,7 +118,8 @@ jobs:
   # 会因 runner 不可用而跳过，需要在分支保护里豁免（如 paths-ignore 或 allow skip）。
   office-real:
     if: (github.event_name == 'push' || github.event_name == 'schedule') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    timeout-minutes: 30
+    # 注意：调用可复用 workflow 的 job 不能写 timeout-minutes（GitHub 解析拒绝），
+    # 超时须设在 office-tests.yml 内部 job 上（见该文件 office-tests job）。
     uses: ./.github/workflows/office-tests.yml
     with:
       install_from_wheel: false
