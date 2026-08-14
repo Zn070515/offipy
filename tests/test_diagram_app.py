@@ -2,9 +2,9 @@
 """diagram app 测试：build 格式识别 / 参数透传 / 冒烟 / 惰性 import 红线。
 install_skill 与三入口接线测试在后续 Task 追加。"""
 
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -201,7 +201,11 @@ def test_install_skill_default_dir(tmp_path, monkeypatch):
 def test_wrapper_skill_contract_keywords():
     skill = (
         Path(__file__).resolve().parent.parent
-        / "src" / "offipy" / "_skills" / "offipy-diagram" / "SKILL.md"
+        / "src"
+        / "offipy"
+        / "_skills"
+        / "offipy-diagram"
+        / "SKILL.md"
     )
     text = skill.read_text(encoding="utf-8")
     for kw in ("Mermaid", "draw.io", "offipy diagram build", "mxGraphModel"):

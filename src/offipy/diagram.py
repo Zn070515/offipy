@@ -23,7 +23,10 @@ _SKILL_SOURCES = (
     (
         "diagram-design",
         Path(__file__).resolve().parent
-        / "_vendor" / "diagram-design" / "skills" / "diagram-design",
+        / "_vendor"
+        / "diagram-design"
+        / "skills"
+        / "diagram-design",
     ),
     ("offipy-diagram", Path(__file__).resolve().parent / "_skills" / "offipy-diagram"),
 )
