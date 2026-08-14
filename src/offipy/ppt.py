@@ -869,7 +869,7 @@ class PptApp:
 
     @destructive
     def close_pres(self, save: bool = True, doc_id: str | None = None):
-        """关闭演示文稿（doc_id 缺省为活动），不退出 PowerPoint。
+        """关闭演示文稿（doc_id 必须显式传入或 follow_active=True），不退出 PowerPoint。
 
         save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
         保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。
@@ -1038,7 +1038,8 @@ class PptApp:
         overwrite: bool = False,
         doc_id: str | None = None,
     ):
-        """把当前演示文稿每一页导出为 PNG，供 Claude 视觉迭代。
+        """把 doc_id 指定（必须显式传入或 follow_active=True）的演示文稿逐页导出
+        PNG，供 Claude 视觉迭代。
 
         默认拒绝覆盖已有输出；overwrite=True 时先导出到同卷 staging 临时目录，
         全部成功后 os.replace 原子替换，中途失败不留半成品。

@@ -53,6 +53,7 @@ _SOCKET_TIMEOUT = 30  # H10（slowloris）：socket 读超时——半连接/慢
 # 有界资源（§4/§5）：队列与并发都设上限，满则快速失败（503），不做无限排队
 _COM_QUEUE_MAX = 64  # COM worker 队列容量；满 → /call 立即 503 busy
 _MAX_CONCURRENCY = 16  # 同时处理的 HTTP 连接上限；超出直接 503（防线程风暴）
+_DRAIN_CAP = 1 << 20  # _reply_503 接收缓冲排空上限（1MiB）；防恶意客户端持续灌字节卡死 accept 线程
 # request_id 幂等缓存（§4）：最近 N 个已处理请求，重试命中直接返回缓存结果
 _REQUEST_ID_MAX = 512  # LRU 上限
 _REQUEST_ID_TTL = 600.0  # 缓存存活与 _CALL_TIMEOUT 同量级：超时重试窗口内有效
@@ -374,12 +375,16 @@ def _success_result(
 
 # 失败响应消息级脱敏（#67）：异常消息本身可能含服务器绝对路径 / doc_id / 临时目录，
 # 属于 H10 信息泄露。路径与 doc_id 值统一替换为 [REDACTED]。
-# #80：Windows 分支盘符前可不分隔（\b 词边界在盘符前紧贴 \w 时失效）。
-# (?!\/) 排除 http(s) 的 :// scheme。
+# Windows 分支（#80/#81/#82）：盘符前可不分隔（\b 词边界紧贴 \w 失效，#80）；
+# 路径段允许内部空格，但「空格后还能连到 \ 或 / 的段」才属于路径本体（#82 保留英文尾巴）；
+# 终点 lookahead 认冒号（#81 路径:消息 / 路径:端口）与「空格+非路径尾巴」。
+# POSIX 分支（#89）：路径体须含小写/数字/点/连字符段特征，协议标签（Remote*/CLI/HTTP）不误伤。
 _PATH_RE = re.compile(
     r"(?:\bfile://(?:[^/\s]*/)?(?:[A-Za-z]:/)?(?:[^\s:;\"'/]+/)*[^\s:;\"']*"  # file:// URL（#78）
-    r"|[A-Za-z]:[\\/](?!\/)[^\"':\r\n]*?(?=\s+[一-鿿]|\s+doc_id|[\"']|$)"  # Windows 路径（#80）
-    r"|(?<![:/.@\w])/(?:[^\s:;\"'/]+/)+[^\s:;\"']*"  # POSIX 绝对路径（拒绝 . 前导相对段，#79）
+    r"|[A-Za-z]:[\\/](?!\/)(?:[^\\/:]+[\\/])*[^\\/:]*?"  # Windows 路径（#80/#81/#82）
+    r"(?=[:\r\n\"']|\s+[一-鿿]|\s+doc_id|\s+(?![^\s:;\"'\\/]+[\\/])|\s*$)"
+    r"|(?<![:/.@\w])/(?=[^\s:;\"']*[a-z0-9._-])"  # POSIX（#89 段特征）
+    r"(?:[^\s:;\"'/]+/)+[^\s:;\"']*"
     r"|\\\\[^\s:;\"']+"  # UNC 共享路径
     r"|\bdoc_id\s*[:=]\s*\S+)"  # 文档标识值
 )
@@ -994,10 +999,13 @@ class Server(ThreadingHTTPServer):
             # 客户端读到 ConnectionResetError 而非 503。shutdown(SHUT_RD) 只挡「还没到」
             # 的数据、对已进缓冲的字节无效——非阻塞 recv 读光当前缓冲（不等客户端继续
             # 发送），close 时缓冲为空 → 正常 FIN。BlockingIOError 即缓冲已读光，退出。
+            # #83：排空有上限（_DRAIN_CAP）——恶意客户端可抢到并发名额后持续灌字节，
+            # 无界 drain 会让 accept 线程卡在读循环，其余连接全部 503。读满上限即放弃。
             with contextlib.suppress(Exception):
                 request.setblocking(False)
-                while request.recv(65536):
-                    pass
+                for _ in range(_DRAIN_CAP // 65536):
+                    if not request.recv(65536):
+                        break
         finally:
             with contextlib.suppress(Exception):
                 request.close()

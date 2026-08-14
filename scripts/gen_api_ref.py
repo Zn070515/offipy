@@ -104,25 +104,25 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("excel", "new_book"): "Create a new blank workbook, set it active, return doc_id.",
     ("excel", "open_book"): "Open an existing .xlsx/.xls file, set it active, return doc_id.",
     ("excel", "close_book"): (
-        "Close the workbook (doc_id defaults to the active one). With save=True it saves "
+        "Close the workbook (doc_id must be given explicitly or follow_active=True). With save=True it saves "
         "first (a never-saved document auto-saves to the user data directory without the Save As "
         "dialog) and returns the save path; with save=False nothing is saved, no dialog, "
         "returns null."
     ),
     ("excel", "save"): (
-        "Save the workbook (doc_id defaults to the active one) and return the absolute path. "
+        "Save the workbook (doc_id must be given explicitly or follow_active=True) and return the absolute path. "
         "If path is given, save-as to that path; otherwise save back to the original path "
         "(a never-saved document auto-saves to the user data directory without the Save As dialog); "
         "overwrite=True allows overwriting an existing file."
     ),
     ("excel", "save_pdf"): (
-        "Export the workbook (doc_id defaults to the active one) to PDF at the given path; "
+        "Export the workbook (doc_id must be given explicitly or follow_active=True) to PDF at the given path; "
         "overwrite=True allows overwriting an existing file."
     ),
     (
         "excel",
         "add_sheet",
-    ): "Add a new worksheet to the workbook (doc_id defaults to the active one) and name it.",
+    ): "Add a new worksheet to the workbook (doc_id must be given explicitly or follow_active=True) and name it.",
     ("excel", "set_cell"): "Write a cell value; sheet takes a sheet name or index, cell like 'A1'.",
     ("excel", "get_cell"): "Read a cell value; sheet takes a sheet name or index, cell like 'A1'.",
     (
@@ -195,19 +195,19 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("word", "new_doc"): "Create a new blank document, set it active, return doc_id.",
     ("word", "open_doc"): "Open an existing .docx/.doc file, set it active, return doc_id.",
     ("word", "close_doc"): (
-        "Close the document (doc_id defaults to the active one). With save=True it saves "
+        "Close the document (doc_id must be given explicitly or follow_active=True). With save=True it saves "
         "first (a never-saved document auto-saves to the user data directory without the Save As "
         "dialog) and returns the save path; with save=False nothing is saved, no dialog, "
         "returns null."
     ),
     ("word", "save"): (
-        "Save the document (doc_id defaults to the active one) and return the absolute path. "
+        "Save the document (doc_id must be given explicitly or follow_active=True) and return the absolute path. "
         "If path is given, save-as to that path; otherwise save back to the original path "
         "(a never-saved document auto-saves to the user data directory without the Save As dialog); "
         "overwrite=True allows overwriting an existing file."
     ),
     ("word", "save_pdf"): (
-        "Export the document (doc_id defaults to the active one) to PDF at the given path; "
+        "Export the document (doc_id must be given explicitly or follow_active=True) to PDF at the given path; "
         "overwrite=True allows overwriting an existing file."
     ),
     ("word", "write"): "Append text at the end of the document (no newline).",
@@ -311,23 +311,23 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("ppt", "new_pres"): "Create a new blank presentation, set it active, return doc_id.",
     ("ppt", "open_pres"): "Open an existing .pptx file, set it active, return doc_id.",
     ("ppt", "close_pres"): (
-        "Close the presentation (doc_id defaults to the active one) without quitting PowerPoint. "
+        "Close the presentation (doc_id must be given explicitly or follow_active=True) without quitting PowerPoint. "
         "save=True saves first (a never-saved document auto-saves to the user data directory "
         "without the Save As dialog) and returns the saved path; save=False closes without saving "
         "or prompting and returns null."
     ),
     ("ppt", "save"): (
-        "Save the presentation (doc_id defaults to the active one) and return the absolute "
+        "Save the presentation (doc_id must be given explicitly or follow_active=True) and return the absolute "
         "path. If path is given, save-as to that path (.pptx); otherwise save back to the "
         "original path (a never-saved document auto-saves to the user data directory without the "
         "Save As dialog); overwrite=True allows overwriting an existing file."
     ),
     ("ppt", "save_pdf"): (
-        "Export the presentation (doc_id defaults to the active one) to PDF at the given "
+        "Export the presentation (doc_id must be given explicitly or follow_active=True) to PDF at the given "
         "path; overwrite=True allows overwriting an existing file."
     ),
     ("ppt", "export_slides"): (
-        "Export each slide of the presentation (doc_id defaults to the active one) as PNG "
+        "Export each slide of the presentation (doc_id must be given explicitly or follow_active=True) as PNG "
         "into out_dir (slide_01.png…), for visual inspection/iteration. Default 1920x1080. "
         "Returns the list of file paths."
     ),

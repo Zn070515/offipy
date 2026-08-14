@@ -127,7 +127,11 @@ class DiagramLayout:
 
 
 def _kahn_layers(ids: list[str], edges) -> tuple[dict[str, int], dict[int, list[str]]]:
-    """Kahn 拓扑分层。返回 (node→layer, layer→node_id 列表)。环残留追加尾层。"""
+    """Kahn 拓扑分层。返回 (node→layer, layer→node_id 列表)。环残留统一追加尾层。
+
+    环残留（Kahn 消不掉的节点：成环节点及其下游）不参与逐层传播，全部落在
+    DAG 最大层 + 1 的同一层——纯环归一层，分层结果与 ids 迭代序无关。
+    """
     adj: dict[str, list[str]] = {i: [] for i in ids}
     indeg = {i: 0 for i in ids}
     for e in edges:
@@ -143,15 +147,20 @@ def _kahn_layers(ids: list[str], edges) -> tuple[dict[str, int], dict[int, list[
             indeg[t] -= 1
             if indeg[t] == 0:
                 q.append(t)
-    for i in ids:
-        if i not in order:
-            order.append(i)  # 环残留：容忍
+    in_order = set(order)
+    residue = [i for i in ids if i not in in_order]
     layer = {i: 0 for i in ids}
+    # 只在 DAG 内部传播层深（层深 = 最长路径，与遍历序无关）；环残留不参与，
+    # 统一落尾层。
     for i in order:
         for t in adj[i]:
-            layer[t] = max(layer[t], layer[i] + 1)
+            if t in in_order:
+                layer[t] = max(layer[t], layer[i] + 1)
+    tail = (max((layer[i] for i in order), default=-1) + 1) if order else 0
+    for i in residue:
+        layer[i] = tail
     layers: dict[int, list[str]] = {}
-    for i in order:
+    for i in ids:
         layers.setdefault(layer[i], []).append(i)
     return layer, layers
 
@@ -518,6 +527,19 @@ def render_to_slide(
         _add_text(shape, n.label, size_pt=node_font_pt, color=_hex_rgb(n.font_color))
 
 
+def _looks_like_path(s: str) -> bool:
+    """路径形态启发（#85）：盘符（C:\\ / C:/）、前导 / 或 \\（绝对/UNC）、点相对段（./ ../）。
+
+    str 入参「路径 or 文本」无法从类型区分，只能靠存在性试探。试探失败后按形态
+    优先「路径意图」——这些形态不会是合法 Mermaid 源码的开头，误伤面为零。
+    """
+    if len(s) >= 3 and s[1] == ":" and s[0].isalpha() and s[2] in "/\\":
+        return True
+    if s.startswith(("/", "\\")):
+        return True
+    return s.startswith(("./", "../"))
+
+
 def _read_source(source) -> str:
     """source 是文件路径 → 读文件；否则当作 Mermaid 文本。"""
     if isinstance(source, os.PathLike):
@@ -531,6 +553,14 @@ def _read_source(source) -> str:
         p = Path(source)
         if p.exists() and p.is_file():
             return p.read_text(encoding="utf-8")
+        # #85：路径打错时字符串不存在，旧实现静默当文本 → 抛误导性「无法解析 Mermaid
+        # 源码」。存在性试探失败后按形态识别「路径意图」，给出与 PathLike 一致的
+        # FileNotFoundError（可定位根因）；形态不路径化才当作文本解析。
+        if _looks_like_path(source):
+            raise FileNotFoundError(
+                f"源文件不存在: {source}（字符串按路径处理；若本意是 Mermaid 文本，"
+                "请不要以盘符 / / / \\ / ./ 等路径形态开头）"
+            )
     return str(source)
 
 

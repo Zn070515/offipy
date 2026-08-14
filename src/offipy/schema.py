@@ -98,7 +98,8 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "close_book": OpSpec(
             description=(
-                "关闭工作簿（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
+                "关闭工作簿（doc_id 必须显式传入或 follow_active=True）。"
+                "save=True 先保存（从未保存过则"
                 "自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
                 "返回 null。"
             ),
@@ -108,7 +109,8 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "save": OpSpec(
             description=(
-                "保存工作簿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该"
+                "保存工作簿（doc_id 必须显式传入或 follow_active=True）并返回绝对路径。"
+                "给 path 则另存到该"
                 "路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
@@ -118,14 +120,14 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "save_pdf": OpSpec(
             description=(
-                "把工作簿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
+                "把工作簿（doc_id 必须显式传入或 follow_active=True）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
             params={"path": str, "overwrite": bool, "doc_id": str},
         ),
         "add_sheet": OpSpec(
-            description="在工作簿（doc_id 缺省为活动）中新建工作表并命名。",
+            description="在工作簿（doc_id 必须显式传入或 follow_active=True）中新建工作表并命名。",
             destructive=True,
             params={"name": str, "doc_id": str},
         ),
@@ -311,7 +313,8 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "close_doc": OpSpec(
             description=(
-                "关闭文档（doc_id 缺省为活动）。save=True 先保存（从未保存过则"
+                "关闭文档（doc_id 必须显式传入或 follow_active=True）。"
+                "save=True 先保存（从未保存过则"
                 "自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，"
                 "返回 null。"
             ),
@@ -321,7 +324,8 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "save": OpSpec(
             description=(
-                "保存文档（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该"
+                "保存文档（doc_id 必须显式传入或 follow_active=True）并返回绝对路径。"
+                "给 path 则另存到该"
                 "路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
@@ -331,7 +335,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "save_pdf": OpSpec(
             description=(
-                "把文档（doc_id 缺省为活动）导出为 PDF 到指定路径；"
+                "把文档（doc_id 必须显式传入或 follow_active=True）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
@@ -586,7 +590,8 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "close_pres": OpSpec(
             description=(
-                "关闭演示文稿（doc_id 缺省为活动），不退出 PowerPoint。save=True 先保存"
+                "关闭演示文稿（doc_id 必须显式传入或 follow_active=True），不退出 PowerPoint。"
+                "save=True 先保存"
                 "（从未保存过则自动落盘用户数据目录，不弹另存为）并返回保存路径；"
                 "save=False 不保存不弹窗，返回 null。"
             ),
@@ -596,7 +601,8 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "save": OpSpec(
             description=(
-                "保存演示文稿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到"
+                "保存演示文稿（doc_id 必须显式传入或 follow_active=True）并返回绝对路径。"
+                "给 path 则另存到"
                 "该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，"
                 "不弹另存为）；overwrite=True 允许覆盖已存在文件。"
             ),
@@ -606,7 +612,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "save_pdf": OpSpec(
             description=(
-                "把演示文稿（doc_id 缺省为活动）导出为 PDF 到指定路径；"
+                "把演示文稿（doc_id 必须显式传入或 follow_active=True）导出为 PDF 到指定路径；"
                 "overwrite=True 允许覆盖已存在文件。"
             ),
             requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档
@@ -614,7 +620,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "export_slides": OpSpec(
             description=(
-                "把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir"
+                "把演示文稿（doc_id 必须显式传入或 follow_active=True）每一页导出为 PNG 到 out_dir"
                 "（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。"
             ),
             requires_target=True,  # P0-3：写文件系统，必须显式绑定源文档

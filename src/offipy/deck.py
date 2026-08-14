@@ -352,6 +352,12 @@ def _atomic_replace(tmp: str, final: str, *, overwrite: bool = True) -> None:
         os.replace(tmp, final)
     except PermissionError as e:
         if os.name == "nt":
+            # #90：目录目标也会 WinError 5——这是「out 是目录」参数错，不是 PowerPoint
+            # 锁。先排除，避免误导 Agent 去做无意义的 close_live 排查。
+            if os.path.isdir(final):
+                raise InvalidArgumentError(
+                    f"out 是一个目录: {final}（out 应为 .pptx 输出文件路径，不是目录）"
+                ) from e
             raise ConversionError(
                 f"无法替换 {final}：目标文件被占用（WinError 5）。最常见是 PowerPoint "
                 f"实况演示仍打开着它——请先 deck.close_live() 或 offipy quit ppt 关闭，"
@@ -394,6 +400,16 @@ def _render_tmp(
         _reject_no_visual_audit_declarations(content)
     _preflight_browser()
     final_out = os.path.abspath(out) if out else _default_out(html)
+    # #90：out 前置校验——父目录不存在 / out 是目录时给可操作领域错误。否则 mkstemp
+    # 在父目录缺失处抛裸 FileNotFoundError（泄漏临时文件名），os.replace 对目录目标
+    # 抛 WinError 5 又会被误归因 PowerPoint 占用，两种都是低质量错误。
+    parent = os.path.dirname(final_out) or "."
+    if not os.path.isdir(parent):
+        raise InvalidArgumentError(f"输出目录不存在: {parent}（请先创建该目录再 render）")
+    if os.path.isdir(final_out):
+        raise InvalidArgumentError(
+            f"out 是一个目录: {final_out}（out 应为 .pptx 输出文件路径，不是目录）"
+        )
     if not overwrite and os.path.exists(final_out):
         raise FileConflictError(
             f"输出 .pptx 已存在（overwrite=False，可传 overwrite=True 覆盖）: {final_out}"
@@ -949,8 +965,9 @@ def export_slides(
     doc_id: str | None = None,
     overwrite: bool = False,
 ) -> list[str]:
-    """把 doc_id 指定（缺省活动）的演示文稿逐页导出 PNG，供 Claude 视觉迭代。
+    """把 doc_id 指定的演示文稿逐页导出 PNG，供 Claude 视觉迭代。
 
+    doc_id 必须显式传入（本 API 不隐式跟随活动文档，无 follow_active 参数）；
     overwrite=False（默认）拒绝覆盖已有输出；True 时原子替换（不残留半成品）。
     """
     ensure_server()

@@ -220,6 +220,16 @@ def ensure_app(app: str, visible: bool = True, modify_existing_visibility: bool 
     try:
         return launch(app, visible), True
     except Exception as e:  # noqa: BLE001 — win32 异常种类繁多，收拢到语义化异常
+        # #88：gen_py 类型库缓存损坏（%TEMP%\gen_py 缺 __init__.py，其中定义
+        # CLSIDToClassMap，通常由中断的首次 EnsureDispatch 生成造成）时，裸 AttributeError
+        # 只透出 typelib GUID，Agent 无法定位。识别特征并给「删除缓存」修复指引。
+        if isinstance(e, AttributeError) and "gen_py" in str(e) and "CLSIDToClassMap" in str(e):
+            raise OfficeUnavailableError(
+                "pywin32 的 gen_py 类型库缓存已损坏（Office 升级 / 上次类型库生成被"
+                "中断 / pywin32 重装常见），EnsureDispatch 无法解析 COM 成员。请删除"
+                " %TEMP%\\gen_py 目录后重试（下次启动自动重建类型库）。原始错误: "
+                f"{e}"
+            ) from e
         raise OfficeUnavailableError(f"无法启动 {_progid(app)}: {e}") from e
 
 
