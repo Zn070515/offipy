@@ -105,9 +105,11 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --strict-markers"
 # 让 tests/ 能 import scripts/pypi_smoke 等发布脚本（P0-1 门禁单测）
 pythonpath = ["."]
+# 任何 warning 视为失败：上游弃用 API 换代、测试自身警告都立刻暴露，不静默绿
+filterwarnings = ["error"]
 markers = [
     "com: 需要存活 Office/COM server 的集成测试（无 Office 环境自动跳过）",
     "deck_render: HTML→PPTX 转换管线集成测试（需 chromium 渲染，仅 Windows/真机跑）",
