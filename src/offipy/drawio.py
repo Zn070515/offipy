@@ -17,7 +17,7 @@ import importlib.util
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -81,6 +81,8 @@ class DrawioEdge:
     bidirectional: bool = False
     undirected: bool = False
     stroke: str = ""
+    waypoints: list[tuple[float, float]] = field(default_factory=list)
+    edge_style: str = ""
 
 
 @dataclass
@@ -152,6 +154,8 @@ def parse_drawio(source, *, page=None) -> DrawioDiagram:
             bidirectional=e.bidirectional,
             undirected=e.undirected,
             stroke=e.stroke,
+            waypoints=list(e.waypoints),
+            edge_style=e.edge_style,
         )
         for e in p.edges
         if e.source and e.target
@@ -222,7 +226,7 @@ def layout_drawio(
         )
         for n in nodes
     ]
-    edges = _layout_edges(diagram, placed)
+    edges = _layout_edges(diagram, placed, x0, y0, scale, off_x, off_y)
     return DiagramLayout(placed, edges, content_w, content_h)
 
 
@@ -239,7 +243,15 @@ def _edge_anchors(s: PlacedNode, t: PlacedNode) -> tuple[tuple[float, float], tu
     return (s.x + s.w / 2, s.y), (t.x + t.w / 2, t.y + t.h)
 
 
-def _layout_edges(diagram: DrawioDiagram, placed: list[PlacedNode]) -> list[PlacedEdge]:
+def _layout_edges(
+    diagram: DrawioDiagram,
+    placed: list[PlacedNode],
+    x0: float,
+    y0: float,
+    scale: float,
+    off_x: float,
+    off_y: float,
+) -> list[PlacedEdge]:
     by_id = {n.id: n for n in placed}
     out: list[PlacedEdge] = []
     for e in diagram.edges:
@@ -248,6 +260,10 @@ def _layout_edges(diagram: DrawioDiagram, placed: list[PlacedNode]) -> list[Plac
             continue  # 悬空边（parse 已过滤，此处防御）
         a1, a2 = _edge_anchors(s, t)
         style = "dashed" if e.dashed else "solid"
+        waypoints = [
+            ((wx - x0) * scale + off_x, (wy - y0) * scale + off_y)
+            for wx, wy in e.waypoints
+        ]
         out.append(
             PlacedEdge(
                 e.source,
@@ -261,6 +277,7 @@ def _layout_edges(diagram: DrawioDiagram, placed: list[PlacedNode]) -> list[Plac
                 a2[0],
                 a2[1],
                 stroke=e.stroke,
+                waypoints=waypoints or None,
             )
         )
     return out

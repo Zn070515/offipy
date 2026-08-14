@@ -117,6 +117,7 @@ class PlacedEdge:
     ax2: float = 0.0
     ay2: float = 0.0
     stroke: str = ""
+    waypoints: list[tuple[float, float]] | None = None
 
 
 @dataclass
@@ -432,13 +433,35 @@ def render_to_slide(
 
     for e in layout.edges:
         x1, y1, x2, y2 = e.ax1, e.ay1, e.ax2, e.ay2
-        conn = slide.shapes.add_connector(
-            MSO_CONNECTOR.STRAIGHT,
-            Emu(offset_x) + Inches(x1),
-            Emu(offset_y) + Inches(y1),
-            Emu(offset_x) + Inches(x2),
-            Emu(offset_y) + Inches(y2),
-        )
+        if e.waypoints:
+            # waypoint 边：open polyline（build_freeform），直线段逼近正交/曲线路径
+            pts = [(x1, y1)] + list(e.waypoints) + [(x2, y2)]
+            fb = slide.shapes.build_freeform(
+                start_x=Emu(offset_x) + Inches(x1),
+                start_y=Emu(offset_y) + Inches(y1),
+                scale=1.0,
+            )
+            fb.add_line_segments(
+                vertices=[
+                    (Emu(offset_x) + Inches(wx), Emu(offset_y) + Inches(wy))
+                    for wx, wy in pts[1:]
+                ],
+                close=False,
+            )
+            conn = fb.convert_to_shape()
+            lx, ly = (
+                sum(p[0] for p in pts) / len(pts),
+                sum(p[1] for p in pts) / len(pts),
+            )
+        else:
+            conn = slide.shapes.add_connector(
+                MSO_CONNECTOR.STRAIGHT,
+                Emu(offset_x) + Inches(x1),
+                Emu(offset_y) + Inches(y1),
+                Emu(offset_x) + Inches(x2),
+                Emu(offset_y) + Inches(y2),
+            )
+            lx, ly = (x1 + x2) / 2, (y1 + y2) / 2
         if e.stroke == "none":
             conn.line.fill.background()  # strokeColor=none → 无线框
         else:
@@ -448,10 +471,9 @@ def render_to_slide(
         if not e.undirected:
             _set_tail_end(conn, _ARROW_MAP.get(e.arrowhead, "triangle"))
         if e.label:
-            mx, my = (x1 + x2) / 2, (y1 + y2) / 2
             lab = slide.shapes.add_textbox(
-                Emu(offset_x) + Inches(mx - 0.8),
-                Emu(offset_y) + Inches(my - 0.15),
+                Emu(offset_x) + Inches(lx - 0.8),
+                Emu(offset_y) + Inches(ly - 0.15),
                 Inches(1.6),
                 Inches(0.3),
             )

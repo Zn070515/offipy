@@ -70,6 +70,25 @@ MULTI_PAGE = """\
 </mxfile>
 """
 
+WAYPOINTS = """\
+<mxfile><diagram name="P"><mxGraphModel><root>
+  <mxCell id="0"/><mxCell id="1" parent="0"/>
+  <mxCell id="a" value="A" vertex="1" parent="1">
+    <mxGeometry x="0" y="0" width="50" height="30" as="geometry"/></mxCell>
+  <mxCell id="b" value="B" vertex="1" parent="1">
+    <mxGeometry x="200" y="100" width="50" height="30" as="geometry"/></mxCell>
+  <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;strokeColor=#333333;"
+          edge="1" source="a" target="b" parent="1">
+    <mxGeometry relative="1" as="geometry">
+      <Array as="points">
+        <mxPoint x="80" y="60"/>
+        <mxPoint x="170" y="60"/>
+      </Array>
+    </mxGeometry>
+  </mxCell>
+</root></mxGraphModel></diagram></mxfile>
+"""
+
 SHAPES = """\
 <mxfile><diagram name="P"><mxGraphModel><root>
   <mxCell id="0"/><mxCell id="1" parent="0"/>
@@ -244,6 +263,47 @@ def test_layout_drawio_edge_anchors_on_node_edges(tmp_path):
     assert e.ay2 == pytest.approx(b.y + b.h / 2)
     assert e.stroke == "#333333"
     assert e.style == "dashed"
+
+
+def test_parse_drawio_edge_waypoints(tmp_path):
+    d = parse_drawio(_write(tmp_path, WAYPOINTS, "waypoints.drawio"))
+    assert len(d.edges) == 1
+    e = d.edges[0]
+    assert e.waypoints == [(80.0, 60.0), (170.0, 60.0)]  # mxPoint 坐标（排除 source/target）
+    assert e.edge_style == "orthogonalEdgeStyle"  # edgeStyle 不再坍缩成 "orthogonal"
+
+
+def test_layout_drawio_transforms_waypoints(tmp_path):
+    d = parse_drawio(_write(tmp_path, WAYPOINTS, "waypoints.drawio"))
+    lay = layout_drawio(d)
+    assert len(lay.edges) == 1
+    e = lay.edges[0]
+    assert e.waypoints is not None
+    # raw 包络 250×130（a(0,0,50,30)+b(200,100,50,30)）；max 12×6.75
+    # scale=min(1,12/250,6.75/130)=0.048 → content 12×6.24，宽度绑定轴 → off_x=0、off_y=0.255
+    assert e.waypoints[0] == pytest.approx((3.84, 3.135))
+    assert e.waypoints[1] == pytest.approx((8.16, 3.135))
+
+
+def test_render_drawio_waypoint_polyline(tmp_path):
+    from pptx import Presentation
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.oxml.ns import qn
+
+    from offipy.diagrams import render_to_slide
+
+    d = parse_drawio(_write(tmp_path, WAYPOINTS, "waypoints.drawio"))
+    lay = layout_drawio(d)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    freeforms = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.FREEFORM]
+    assert len(freeforms) == 1  # waypoint 边 → build_freeform polyline（非单直线 connector）
+    ff = freeforms[0]
+    assert ff.line.color.rgb == RGBColor(0x33, 0x33, 0x33)
+    assert ff.line.width == Emu(15240)  # Pt(1.2)
+    assert ff.line._get_or_add_ln().find(qn("a:tailEnd")) is not None  # 箭头保留
 
 
 def test_render_drawio_preserves_colors(tmp_path):
