@@ -53,7 +53,7 @@ def _record(finding: ArtFinding, *, fallback_slide: int | None) -> dict:
     }
 
 
-def project_suggestions(report: DeckQualityReport, *, source: str) -> list[dict]:
+def project_suggestions(report: DeckQualityReport, *, source: str) -> list[dict]:  # noqa: ARG001 — source 是文档化的预留接口参数（见 docstring），当前记录不携带来源
     """把 DeckQualityReport 投影成确定性建议记录列表。
 
     art 为空（无艺术分析，如 PPTX-only 证据不足路径）→ 空列表。遍历顺序：
@@ -66,8 +66,8 @@ def project_suggestions(report: DeckQualityReport, *, source: str) -> list[dict]
         return records
     for slide in art.slides:
         for dim in slide.dimensions:
-            for finding in dim.findings:
-                records.append(_record(finding, fallback_slide=slide.slide_index))
-    for finding in art.deck_findings:
-        records.append(_record(finding, fallback_slide=None))
+            records.extend(
+                _record(finding, fallback_slide=slide.slide_index) for finding in dim.findings
+            )
+    records.extend(_record(finding, fallback_slide=None) for finding in art.deck_findings)
     return records

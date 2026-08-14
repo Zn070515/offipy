@@ -6,12 +6,12 @@ import pytest
 
 pytest.importorskip("PIL")
 
-from PIL import Image  # noqa: E402
+from PIL import Image
 
-from art_helpers import make_element  # noqa: E402
-from offipy.art.models import ArtColor, ArtScene, ArtSlide  # noqa: E402
-from offipy.art.pixels import PixelEnricher, empty_scene_from_slides  # noqa: E402
-from offipy.exceptions import InvalidArgumentError  # noqa: E402
+from art_helpers import make_element
+from offipy.art.models import ArtColor, ArtScene, ArtSlide
+from offipy.art.pixels import PixelEnricher, empty_scene_from_slides
+from offipy.exceptions import InvalidArgumentError
 
 
 def _img(size=(100, 100), color=(255, 255, 255)):

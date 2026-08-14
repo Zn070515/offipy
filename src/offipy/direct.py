@@ -14,7 +14,7 @@ import contextlib
 
 from .api import Excel, Ppt, Word
 
-__all__ = ["Excel", "Word", "Ppt", "com_apartment"]
+__all__ = ["Excel", "Ppt", "Word", "com_apartment"]
 
 
 @contextlib.contextmanager

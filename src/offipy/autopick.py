@@ -14,6 +14,7 @@ P2），但用纯规则、零依赖实现——Claude 写 deck 后调用 pick()�
 
 from __future__ import annotations
 
+import pathlib
 import re
 from dataclasses import dataclass, field
 
@@ -239,7 +240,7 @@ def pick(html: str) -> DeckPick:
 
 def pick_file(html_path: str) -> DeckPick:
     """从 HTML 文件路径选型。"""
-    with open(html_path, encoding="utf-8") as f:
+    with pathlib.Path(html_path).open(encoding="utf-8") as f:
         return pick(f.read())
 
 

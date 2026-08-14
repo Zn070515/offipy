@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import shutil
 import subprocess
 import sys
@@ -39,7 +38,7 @@ def _find_sdist(explicit: str | None) -> Path:
         if not p.exists():
             raise SystemExit(f"找不到 sdist: {p}")
         return p
-    sdists = sorted(glob.glob(str(ROOT / "dist" / "offipy-*.tar.gz")))
+    sdists = sorted((ROOT / "dist").glob("offipy-*.tar.gz"))
     if not sdists:
         raise SystemExit("dist/ 里没有 sdist，先跑 uv build")
     return Path(sdists[-1])
@@ -89,7 +88,7 @@ def main() -> int:
             print(proc.stderr, file=sys.stderr)
             raise SystemExit("[verify-sdist] FAIL: 从 sdist 重建 wheel 失败")
 
-        rebuilt = sorted(glob.glob(str(rebuild / "dist" / "offipy-*.whl")))
+        rebuilt = sorted((rebuild / "dist").glob("offipy-*.whl"))
         if not rebuilt:
             raise SystemExit("[verify-sdist] FAIL: 重建未产出 wheel")
 

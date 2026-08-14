@@ -20,7 +20,7 @@ def _paths(svg: str) -> list[ET.Element]:
 
 
 def _first(svg: str) -> ET.Element:
-    return list(ET.fromstring(svg))[0]
+    return next(iter(ET.fromstring(svg)))
 
 
 def _nums_in(d: str) -> list[float]:
@@ -90,7 +90,7 @@ def test_background_rect_first_when_opaque() -> None:
     ("density", "thickness"), [(d, t) for d in (0.0, 0.5, 1.0) for t in (0.0, 0.5, 1.0)]
 )
 def test_coords_within_overscan(density: float, thickness: float) -> None:
-    for seed in range(0, 40):
+    for seed in range(40):
         svg = wave.build(seed=seed, background="transparent", density=density, thickness=thickness)
         for path in _paths(svg):
             for n in _nums_in(path.get("d", "")):

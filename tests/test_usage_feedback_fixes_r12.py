@@ -110,7 +110,7 @@ def test_format_text_paragraph_out_of_range_rejected(monkeypatch):
 
     app = word.WordApp.__new__(word.WordApp)
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: _Doc())
-    with pytest.raises(InvalidArgumentError, match="段落在 1..2 范围外"):
+    with pytest.raises(InvalidArgumentError, match=r"段落在 1..2 范围外"):
         app.format_text(paragraph=99, bold=True, doc_id="d1")
 
 
@@ -125,7 +125,7 @@ def test_format_paragraph_out_of_range_rejected(monkeypatch):
 
     app = word.WordApp.__new__(word.WordApp)
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: _Doc())
-    with pytest.raises(InvalidArgumentError, match="段落在 1..2 范围外"):
+    with pytest.raises(InvalidArgumentError, match=r"段落在 1..2 范围外"):
         app.format_paragraph(paragraph=0, alignment="center", doc_id="d1")
 
 

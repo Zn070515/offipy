@@ -40,7 +40,7 @@ def test_spacing_changes_cell_density() -> None:
 
 
 def test_element_count_bounded() -> None:
-    for seed in range(0, 20):
+    for seed in range(20):
         svg = dot_grid.build(seed=seed, background="transparent", spacing=0.5, radius=0.15)
         assert len(_circles(svg)) < 1000
 
@@ -54,7 +54,7 @@ def test_radius_zero_empty_foreground() -> None:
 
 def test_radius_zero_with_opaque_background_keeps_rect() -> None:
     svg = dot_grid.build(seed=0, background="#123456", spacing=1.0, radius=0.0)
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 def test_dots_are_distinct() -> None:
@@ -73,7 +73,7 @@ def test_dots_use_foreground_sentinel() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = dot_grid.build(seed=0, background="#ABCDEF", spacing=1.0, radius=0.15)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 def test_template_size_bounded() -> None:

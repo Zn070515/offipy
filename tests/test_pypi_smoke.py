@@ -54,7 +54,7 @@ def test_pick_wheel_url_raises_when_no_wheel():
 def test_pick_wheel_url_raises_when_missing_sha256():
     meta = _wheel_meta("", "2026-08-05T00:00:00Z")
     meta["digests"] = {}
-    with pytest.raises(SystemExit, match="缺 digests.sha256"):
+    with pytest.raises(SystemExit, match=r"缺 digests.sha256"):
         _pick_wheel_url({"urls": [meta]}, _VERSION)
 
 
@@ -130,7 +130,7 @@ def test_download_and_verify_fails_on_index_sha_mismatch(tmp_path, monkeypatch):
     payload = b"offipy wheel payload"
     _stub_fetch_download(monkeypatch, payload, index_sha="f" * 64)
 
-    with pytest.raises(SystemExit, match="!= TestPyPI digests.sha256"):
+    with pytest.raises(SystemExit, match=r"!= TestPyPI digests.sha256"):
         _download_and_verify(_INDEX, _VERSION, tmp_path, expected_sha256=None)
 
 

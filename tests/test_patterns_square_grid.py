@@ -47,7 +47,7 @@ def test_spacing_changes_line_count() -> None:
 
 
 def test_line_count_bounded() -> None:
-    for seed in range(0, 20):
+    for seed in range(20):
         svg = square_grid.build(seed=seed, background="transparent", spacing=0.5, thickness=0.5)
         assert len(_lines(svg)) < 1000
 
@@ -61,7 +61,7 @@ def test_thickness_changes_stroke_width_only() -> None:
 
 
 def test_no_duplicate_lines() -> None:
-    for seed in range(0, 20):
+    for seed in range(20):
         svg = square_grid.build(seed=seed, background="transparent", spacing=0.5, thickness=0.5)
         coords = _line_coords(svg)
         assert len(set(coords)) == len(coords)
@@ -83,7 +83,7 @@ def test_lines_use_foreground_sentinel() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = square_grid.build(seed=0, background="#ABCDEF", spacing=1.0, thickness=0.5)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 def test_template_size_bounded() -> None:

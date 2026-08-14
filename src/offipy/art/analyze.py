@@ -8,7 +8,7 @@ rev2.1：
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from offipy.audit import audit_pptx
 from offipy.exceptions import InvalidArgumentError
@@ -33,6 +33,9 @@ from .models import (
 from .profiles import ArtProfile, get_profile
 from .rules import RuleContext, apply_profile_to_finding, assess_dimension
 from .typography import RULES as TYPOGRAPHY_RULES
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _DIMENSION_RULES = {
     "hierarchy": HIERARCHY_RULES,
@@ -93,9 +96,9 @@ def analyze_scene(
             deck=scene,
             sources=frozenset(scene.sources),
         )
-        dims: list[DimensionAssessment] = []
-        for dim in _DIM_ORDER:
-            dims.append(assess_dimension(dim, _DIMENSION_RULES[dim], ctx))
+        dims: list[DimensionAssessment] = [
+            assess_dimension(dim, _DIMENSION_RULES[dim], ctx) for dim in _DIM_ORDER
+        ]
         report.slides.append(
             ArtSlideReport(
                 slide_index=slide.index,

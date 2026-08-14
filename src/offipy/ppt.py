@@ -5,6 +5,7 @@
 
 import math
 import os
+import pathlib
 import secrets
 import shutil
 import tempfile
@@ -153,7 +154,7 @@ def _iter_shapes(
                 items,
                 recursive=True,
                 parent_shape_id=sid,
-                group_path=group_path + (sid,),
+                group_path=(*group_path, sid),
                 rotated=child_rotated,
             )
 
@@ -325,6 +326,21 @@ def _shape_font(shape) -> tuple[float | None, str | None, str | None]:
     return size, name, color
 
 
+def _indexed_items(collection, count: int) -> list:
+    """按 1..count 逐个取 COM 集合项，单项读失败跳过。
+
+    COM 集合在形状删除/合并态下可能缺位（Index 空洞），一次取不到不该炸掉
+    整批——逐项容错，让调用方在收集结果上继续。
+    """
+    items = []
+    for i in range(1, count + 1):
+        try:
+            items.append(collection(i))
+        except Exception:  # noqa: PERF203 — 逐项容错是语义必需：COM 集合任意下标都可能缺位，不能整体 try
+            continue
+    return items
+
+
 def _local_z_order_rank(shapes) -> list[int]:
     """所在集合内每 shape 的 1-based z-order rank（与 shapes 元素顺序对齐）。
 
@@ -356,11 +372,7 @@ def _iter_shape_records(
         count = int(shapes.Count)
     except Exception:
         return
-    for i in range(1, count + 1):
-        try:
-            items.append(shapes(i))
-        except Exception:
-            continue
+    items = _indexed_items(shapes, count)
     ranks = _local_z_order_rank(items)
     for shape, z_order in zip(items, ranks, strict=True):
         sid = _require_shape_id(shape)
@@ -376,7 +388,7 @@ def _iter_shape_records(
                 group_items,
                 recursive=True,
                 parent_shape_id=sid,
-                group_path=group_path + (sid,),
+                group_path=(*group_path, sid),
                 rotated=child_rotated,
             )
 
@@ -666,7 +678,7 @@ def _locate_in_shapes(
                 items,
                 shape_id,
                 parent_shape_id=sid,
-                group_path=group_path + (sid,),
+                group_path=(*group_path, sid),
                 rotated=child_rotated,
             )
             if hit is not None:
@@ -698,11 +710,7 @@ def _local_rank_of(shape, collection) -> int:
         count = int(collection.Count)
     except Exception:
         raise TargetNotFoundError("shape 所在集合已不可读") from None
-    for i in range(1, count + 1):
-        try:
-            items.append(collection(i))
-        except Exception:
-            continue
+    items = _indexed_items(collection, count)
     ranks = _local_z_order_rank(items)
     target_id = _require_shape_id(shape)
     for item, rank in zip(items, ranks, strict=True):
@@ -776,7 +784,7 @@ def _require_text_frame(shape, op_desc: str) -> None:
 def _require_fill_capability(shape, op_desc: str) -> None:
     """shape 必须支持 Fill；读不到 Fill 对象 → InvalidArgumentError。"""
     try:
-        shape.Fill  # noqa: B018 — 访问成功即证明有 Fill 能力，忽略返回值
+        shape.Fill  # noqa: B018 — 访问成功即证明有 Fill，忽略返回值
     except Exception:
         raise InvalidArgumentError(f"{op_desc} 需要填充能力，但目标 shape 不支持 Fill") from None
 
@@ -784,7 +792,7 @@ def _require_fill_capability(shape, op_desc: str) -> None:
 def _require_line_capability(shape, op_desc: str) -> None:
     """shape 必须支持 Line；读不到 Line 对象 → InvalidArgumentError。"""
     try:
-        shape.Line  # noqa: B018 — 访问成功即证明有 Line 能力，忽略返回值
+        shape.Line  # noqa: B018 — 访问成功即证明有 Line，忽略返回值
     except Exception:
         raise InvalidArgumentError(f"{op_desc} 需要轮廓能力，但目标 shape 不支持 Line") from None
 
@@ -863,9 +871,9 @@ class PptApp:
 
     def open_pres(self, path: str) -> str:
         """打开现有演示文稿并设为活动。返回 doc_id。"""
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
-        return self._register(self.app.Presentations.Open(os.path.abspath(path)))
+        return self._register(self.app.Presentations.Open(pathlib.Path(path).resolve()))
 
     @destructive
     def close_pres(self, save: bool = True, doc_id: str | None = None):
@@ -1056,26 +1064,28 @@ class PptApp:
             or not 1 <= height <= _MAX_EXPORT_DIM
         ):
             raise InvalidArgumentError(f"height 必须是 1~{_MAX_EXPORT_DIM} 的整数，收到 {height!r}")
-        out_dir = os.path.abspath(out_dir)
+        out_dir = pathlib.Path(out_dir).resolve()
         pres = self._require_pres(doc_id)
         count = pres.Slides.Count
-        targets = [os.path.join(out_dir, f"slide_{i:02d}.png") for i in range(1, count + 1)]
+        targets = [str(out_dir / f"slide_{i:02d}.png") for i in range(1, count + 1)]
         if not overwrite:
-            existing = [p for p in targets if os.path.exists(p)]
+            existing = [p for p in targets if pathlib.Path(p).exists()]
             if existing:
                 raise FileConflictError(f"导出目标已存在: {existing[0]}（overwrite=True 覆盖）")
-        if os.path.exists(out_dir) and not os.path.isdir(out_dir):
+        if pathlib.Path(out_dir).exists() and not pathlib.Path(out_dir).is_dir():
             raise FileConflictError(f"输出目录已存在且不是目录: {out_dir}")
-        os.makedirs(out_dir, exist_ok=True)
-        staging = tempfile.mkdtemp(prefix=".offipy-slides-", dir=os.path.dirname(out_dir) or ".")
+        pathlib.Path(out_dir).mkdir(exist_ok=True, parents=True)
+        staging = tempfile.mkdtemp(
+            prefix=".offipy-slides-", dir=pathlib.Path(out_dir).parent or "."
+        )
         try:
             tmp_paths = []
             for i in range(1, count + 1):
-                tmp = os.path.join(staging, f"slide_{i:02d}.png")
+                tmp = str(pathlib.Path(staging) / f"slide_{i:02d}.png")
                 pres.Slides(i).Export(tmp, "PNG", width, height)
                 tmp_paths.append(tmp)
             for tmp, final in zip(tmp_paths, targets, strict=True):
-                os.replace(tmp, final)
+                pathlib.Path(tmp).replace(final)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         return targets
@@ -1156,13 +1166,13 @@ class PptApp:
         height: float,
         doc_id: str | None = None,
     ):
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
         # SaveWithDocument=msoTrue(-1)：LinkToFile=False 时必须内嵌，传 0 会被
         # PowerPoint 拒为 E_INVALIDARG。路径 normpath 归一化，COM 拒收正斜杠。
         slide.Shapes.AddPicture(
-            os.path.normpath(os.path.abspath(path)), 0, -1, left, top, width, height
+            os.path.normpath(pathlib.Path(path).resolve()), 0, -1, left, top, width, height
         )
 
     @readonly_guard
@@ -1282,7 +1292,7 @@ class PptApp:
             shape.Height = height
         if rotation is not None:
             shape.Rotation = rotation
-        return None
+        return
 
     @destructive
     def set_shape_text(
@@ -1307,7 +1317,7 @@ class PptApp:
         shape = located.shape
         _require_text_frame(shape, "set_shape_text")
         shape.TextFrame.TextRange.Text = text
-        return None
+        return
 
     @destructive
     def set_shape_font(
@@ -1364,7 +1374,7 @@ class PptApp:
             tr.Font.Italic = -1 if italic else 0
         if color is not None:
             tr.Font.Color.RGB = _rgb_to_com(color)
-        return None
+        return
 
     @destructive
     def set_shape_fill(
@@ -1390,7 +1400,7 @@ class PptApp:
         _require_fill_capability(shape, "set_shape_fill")
         if color is None and transparency is None:
             shape.Fill.Visible = 0  # 清除填充
-            return None
+            return
         if color is not None:
             color = _validate_hex_color(color, "color")
         if transparency is not None:
@@ -1402,7 +1412,7 @@ class PptApp:
             fill.ForeColor.RGB = _rgb_to_com(color)
         if transparency is not None:
             fill.Transparency = transparency
-        return None
+        return
 
     @destructive
     def set_shape_outline(
@@ -1445,7 +1455,7 @@ class PptApp:
             line.ForeColor.RGB = _rgb_to_com(color)
         if width is not None:
             line.Weight = width
-        return None
+        return
 
     @destructive
     def set_shape_visible(
@@ -1467,7 +1477,7 @@ class PptApp:
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
         located = _find_shape_by_id(slide, shape_id)
         located.shape.Visible = -1 if visible else 0
-        return None
+        return
 
     @destructive
     def delete_shape(
@@ -1484,7 +1494,7 @@ class PptApp:
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
         located = _find_shape_by_id(slide, shape_id)
         located.shape.Delete()
-        return None
+        return
 
     @destructive
     def set_shape_z_order(
@@ -1518,7 +1528,7 @@ class PptApp:
         for _ in range(count + 5):  # 循环安全上限（每次移动收敛一步）
             rank = _local_rank_of(located.shape, located.containing_collection)
             if rank == z:
-                return None
+                return
             if rank < z:
                 located.shape.ZOrder(MSO_ZORDER_BRING_FORWARD)
             else:
@@ -1547,7 +1557,7 @@ class PptApp:
             self.app.DisplayAlerts = PP_ALERTS_NONE
             pid = core.app_process_pid(self.app, "ppt") or self._pid
             self.app.Quit()
-        except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
+        except Exception as e:
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 PowerPoint 失败: {e}") from e

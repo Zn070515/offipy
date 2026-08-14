@@ -186,7 +186,7 @@ def test_call_error_500_with_internal_code(srv):
     assert body["operation"] == "ppt.boom"
     assert body["error_code"] == "internal"  # 普通异常无 code → 降级
     assert "boom op" in body["error"]
-    assert "trace" in body and body["trace"]
+    assert body.get("trace")
 
 
 def test_error_trace_redacted_no_path_or_source(srv):
@@ -465,7 +465,7 @@ def test_oplog_written_on_success(srv):
 def test_oplog_written_on_error(srv):
     from offipy import oplog
 
-    status, body = _post(srv, {"app": "ppt", "op": "boom"}, token=TOKEN)
+    status, _body = _post(srv, {"app": "ppt", "op": "boom"}, token=TOKEN)
     assert status == 500
     entries = oplog.read()
     assert any(
@@ -480,7 +480,7 @@ def test_oplog_written_on_error(srv):
 def test_oplog_session_id_matches_status(srv):
     from offipy import oplog
 
-    status, body = _get(srv, "/status", token=TOKEN)
+    _status, body = _get(srv, "/status", token=TOKEN)
     sid = body["result"]["session_id"]
     assert sid
     _post(srv, {"app": "ppt", "op": "order"}, token=TOKEN)

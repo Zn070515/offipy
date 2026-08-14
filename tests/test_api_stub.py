@@ -148,7 +148,8 @@ def test_mypy_user_example_reveals_shapeinfo_types(tmp_path):
     env = os.environ.copy()
     env["MYPYPATH"] = str(ROOT / "src")
     env["PYTHONIOENCODING"] = "utf-8"
-    cmd = _mypy_cmd() + [
+    cmd = [
+        *_mypy_cmd(),
         "--platform",
         "win32",
         "--ignore-missing-imports",
@@ -189,7 +190,8 @@ def test_mypy_user_example_reveals_sliderecord_types(tmp_path):
     env = os.environ.copy()
     env["MYPYPATH"] = str(ROOT / "src")
     env["PYTHONIOENCODING"] = "utf-8"
-    cmd = _mypy_cmd() + [
+    cmd = [
+        *_mypy_cmd(),
         "--platform",
         "win32",
         "--ignore-missing-imports",

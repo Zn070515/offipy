@@ -19,8 +19,10 @@ decoration / unknown。Role 不作为绝对事实，只用于调整规则与抑�
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
-from .extract import _ShapeRecord
+if TYPE_CHECKING:
+    from .extract import _ShapeRecord
 
 _TOP_BOTTOM_FRACTION = 0.15
 _COVERAGE_THRESHOLD = 0.9
@@ -134,7 +136,7 @@ def _is_page_number(rec: _ShapeRecord, slide_h: float) -> bool:
 
 
 def _assign_repeated(
-    records: list[_ShapeRecord], slide_w: float, slide_h: float, slide_count: int
+    records: list[_ShapeRecord], _slide_w: float, slide_h: float, slide_count: int
 ) -> None:
     if slide_count <= 1:
         return

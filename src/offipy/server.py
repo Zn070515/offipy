@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import json
 import os
+import pathlib
 import platform
 import queue
 import re
@@ -120,7 +121,7 @@ class _InflightFullError(Exception):
 
 # /status 的目标身份缓存：worker 每次 op 后刷新（worker 线程持有 COM，探测
 # 安全）；handler 线程只读快照，绝不因 status 探测拉起 Office 或触碰 COM。
-_LAST_TARGETS: dict[str, dict | None] = {name: None for name in _APPS_CLASSES}
+_LAST_TARGETS: dict[str, dict | None] = dict.fromkeys(_APPS_CLASSES)
 
 # 运行时鉴权 token；serve() 启动时装载，Handler 在请求时读取
 _TOKEN = ""
@@ -176,7 +177,7 @@ def _load_token(port: int) -> str:
     if token_file.exists():
         token = token_file.read_text(encoding="utf-8").strip()
         with contextlib.suppress(OSError):
-            os.chmod(token_file, 0o600)  # 顺手收紧既有文件权限
+            pathlib.Path(token_file).chmod(0o600)  # 顺手收紧既有文件权限
     if not token:
         token = secrets.token_urlsafe(32)
     try:
@@ -185,7 +186,7 @@ def _load_token(port: int) -> str:
     except OSError as e:
         raise ServerStartError(f"无法写入 token 文件 {token_file}: {e}") from e
     with contextlib.suppress(OSError):
-        os.chmod(token_file, 0o600)
+        pathlib.Path(token_file).chmod(0o600)
     return token
 
 
@@ -228,10 +229,10 @@ def _com_error():
     """惰性取 pywintypes.com_error；非 Windows 降级为 Exception，保 import 不炸。"""
     try:
         import pywintypes
-
-        return pywintypes.com_error
     except ImportError:
         return Exception
+    else:
+        return pywintypes.com_error
 
 
 def _alive(app) -> bool:
@@ -240,9 +241,10 @@ def _alive(app) -> bool:
         return True  # 纯函数 app（diagram）无 COM 根 = 无状态 = 恒存活
     try:
         _ = app.app.Visible
-        return True
     except (_com_error(), AttributeError):
         return False
+    else:
+        return True
 
 
 def _rebuild(app):
@@ -293,8 +295,8 @@ def _resolve_expected_target(app, expected) -> str:
             # 目标无已保存路径视为不匹配（保守方向，空串/None 不误命中）
             if not have:
                 raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际无已保存路径")
-            if os.path.normcase(os.path.abspath(str(have))) != os.path.normcase(
-                os.path.abspath(str(want))
+            if os.path.normcase(pathlib.Path(str(have)).resolve()) != os.path.normcase(
+                pathlib.Path(str(want)).resolve()
             ):
                 raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际 {have!r}")
         else:
@@ -761,6 +763,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         else:
             self._reply({"ok": False, "error": "not found"}, status=404)
+        return None
 
     def do_POST(self):
         if not _check_auth(self):
@@ -783,7 +786,7 @@ class Handler(BaseHTTPRequestHandler):
             # 线程内直调（serve_forever 要等当前请求完成，会死锁）。
             self._reply({"ok": True, "result": "shutting down"})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
-            return
+            return None
         if self.path != "/call":
             return self._reply({"ok": False, "error": "not found"}, status=404)
         ctype = (self.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
@@ -866,7 +869,7 @@ class Handler(BaseHTTPRequestHandler):
                     status=503,
                 )
             try:
-                kind, payload = resp_q.get(timeout=_CALL_TIMEOUT)
+                _, payload = resp_q.get(timeout=_CALL_TIMEOUT)
             except queue.Empty:
                 return self._reply(
                     {
@@ -877,7 +880,7 @@ class Handler(BaseHTTPRequestHandler):
                     status=504,
                 )
             _send(payload)
-            return
+            return None
 
         # 幂等路径（P0-2 方案 A）：request_id + payload hash 绑定 + in-flight 合并
         try:
@@ -901,7 +904,7 @@ class Handler(BaseHTTPRequestHandler):
             res = dict(entry.result) if entry.result else {"ok": False, "error": "幂等结果缺失"}
             res["cached"] = True
             _send(res)
-            return
+            return None
         if not is_owner:
             # 并发同 ID：合并等待 owner 完成，不重复入队
             if not entry.event.wait(_CALL_TIMEOUT):
@@ -915,7 +918,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             assert entry.result is not None
             _send(entry.result)
-            return
+            return None
         # owner：入队执行，结果由 worker 写回 entry 并经 event 唤醒
         _ensure_worker()
         try:
@@ -949,6 +952,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         assert entry.result is not None
         _send(entry.result)
+        return None
 
     def _reply(self, obj, status=200):
         status, data = _encode_reply(obj, status)
@@ -1077,7 +1081,7 @@ def _close_mutex(handle) -> None:
         handle.Close()
 
 
-def _remove_pid_file_if_owned(port: int, token: str) -> None:
+def _remove_pid_file_if_owned(port: int) -> None:
     """仅当 PID 文件属于本进程（pid+port 双匹配）时删除。
 
     启动失败 / 被替换 / 非默认实例退出时绝不误删他人 server 的 PID 文件
@@ -1116,7 +1120,7 @@ def serve(
         httpd.serve_forever()
     finally:
         _stop_worker()
-        _remove_pid_file_if_owned(port, _TOKEN)
+        _remove_pid_file_if_owned(port)
         if httpd is not None:
             httpd.server_close()
         _close_mutex(mutex_handle)

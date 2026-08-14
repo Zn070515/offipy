@@ -184,7 +184,7 @@ def test_parse_drawio_missing_file(tmp_path):
 def test_parse_drawio_bad_source(tmp_path):
     p = tmp_path / "bad.drawio"
     p.write_text("not draw.io at all", encoding="utf-8")
-    with pytest.raises(ValueError, match="无法解析 draw.io 源码"):
+    with pytest.raises(ValueError, match=r"无法解析 draw.io 源码"):
         parse_drawio(str(p))
 
 

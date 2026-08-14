@@ -20,7 +20,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +38,8 @@ from .paths import converter_data_dir
 if TYPE_CHECKING:
     # 注解用到的 art 类型（惰性：运行时已被 from __future__ import annotations
     # 字符串化，绝不触发包加载即拉 python-pptx 链）。
+    from collections.abc import Iterator
+
     from .art.models import ArtReport, DeckQualityReport
 
 # vendored 转换器位于包内 _vendor/，site-packages 下经 __file__ 自定位
@@ -58,7 +59,7 @@ def _preflight_chart_layout(
     """
     if apply_layouts:
         return
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         content = f.read()
     indices = chart_dominant_slide_indices(content)
     if only_slides:
@@ -218,8 +219,8 @@ def _prepare_target(
         return html, None
     content = _rewrite_relative_urls(content, Path(html).resolve().parent)
     tmp_html_dir = tempfile.TemporaryDirectory(prefix="offipy-deck-")
-    tmp_html = os.path.join(tmp_html_dir.name, f"{Path(html).stem}.audited.html")
-    with open(tmp_html, "w", encoding="utf-8") as f:
+    tmp_html = str(Path(tmp_html_dir.name) / f"{Path(html).stem}.audited.html")
+    with Path(tmp_html).open("w", encoding="utf-8") as f:
         f.write(content)
     return tmp_html, tmp_html_dir
 
@@ -322,14 +323,14 @@ def _preserve_audit_dir(tmp_pptx: str, final_out: str) -> None:
     （feedback.append → dimension_weights）依赖它；tmp 名是 mkstemp 随机名，必须
     换成最终输出名才能让 `deck render` 的产物被审计到。
     """
-    tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
-    if not os.path.isdir(tmp_audit):
+    tmp_audit = Path(tmp_pptx).parent / f"{Path(tmp_pptx).stem}_audit"
+    if not tmp_audit.is_dir():
         return
-    final_audit = os.path.join(os.path.dirname(final_out), f"{Path(final_out).stem}_audit")
-    if os.path.isdir(final_audit):
+    final_audit = Path(final_out).parent / f"{Path(final_out).stem}_audit"
+    if final_audit.is_dir():
         shutil.rmtree(final_audit, ignore_errors=True)
     try:
-        os.replace(tmp_audit, final_audit)
+        tmp_audit.replace(final_audit)
     except OSError:
         shutil.rmtree(tmp_audit, ignore_errors=True)  # 改名失败不残留孤儿
 
@@ -346,15 +347,15 @@ def _atomic_replace(tmp: str, final: str, *, overwrite: bool = True) -> None:
     最小。真正无竞争的原子不覆盖需要 O_EXCL 语义，Windows 上 os.replace 不提供，
     这里取「复查 + 拒绝」的最优近似。
     """
-    if not overwrite and os.path.exists(final):
+    if not overwrite and Path(final).exists():
         raise FileConflictError(f"输出 .pptx 已存在（overwrite=False）: {final}")
     try:
-        os.replace(tmp, final)
+        Path(tmp).replace(final)
     except PermissionError as e:
         if os.name == "nt":
             # #90：目录目标也会 WinError 5——这是「out 是目录」参数错，不是 PowerPoint
             # 锁。先排除，避免误导 Agent 去做无意义的 close_live 排查。
-            if os.path.isdir(final):
+            if Path(final).is_dir():
                 raise InvalidArgumentError(
                     f"out 是一个目录: {final}（out 应为 .pptx 输出文件路径，不是目录）"
                 ) from e
@@ -388,29 +389,29 @@ def _render_tmp(
     临时文件用 mkstemp（§7）：与最终输出同目录（同卷保证 os.replace 原子），
     随机后缀天然避开旧确定性名（`.x.tmp.pptx`）在并发渲染时的互踩竞态。
     """
-    html = os.path.abspath(html)
-    if not os.path.exists(html):
+    html = str(Path(html).resolve())
+    if not Path(html).exists():
         raise InvalidArgumentError(f"源 HTML 文件不存在: {html}")
     _preflight_chart_layout(html, apply_layouts, only_slides)
-    with open(html, encoding="utf-8") as f:
+    with Path(html).open(encoding="utf-8") as f:
         content = f.read()
     if no_visual_audit:
         # 声明注入依赖 visual audit 的 measurements.json；no_visual_audit 不产出
         # → 启动 chromium / 跑 convert 之前 fail-fast，省一次白跑的渲染。
         _reject_no_visual_audit_declarations(content)
     _preflight_browser()
-    final_out = os.path.abspath(out) if out else _default_out(html)
+    final_out = str(Path(out).resolve()) if out else _default_out(html)
     # #90：out 前置校验——父目录不存在 / out 是目录时给可操作领域错误。否则 mkstemp
     # 在父目录缺失处抛裸 FileNotFoundError（泄漏临时文件名），os.replace 对目录目标
     # 抛 WinError 5 又会被误归因 PowerPoint 占用，两种都是低质量错误。
-    parent = os.path.dirname(final_out) or "."
-    if not os.path.isdir(parent):
+    parent = Path(final_out).parent or "."
+    if not Path(parent).is_dir():
         raise InvalidArgumentError(f"输出目录不存在: {parent}（请先创建该目录再 render）")
-    if os.path.isdir(final_out):
+    if Path(final_out).is_dir():
         raise InvalidArgumentError(
             f"out 是一个目录: {final_out}（out 应为 .pptx 输出文件路径，不是目录）"
         )
-    if not overwrite and os.path.exists(final_out):
+    if not overwrite and Path(final_out).exists():
         raise FileConflictError(
             f"输出 .pptx 已存在（overwrite=False，可传 overwrite=True 覆盖）: {final_out}"
         )
@@ -423,10 +424,10 @@ def _render_tmp(
         fd, tmp_pptx = tempfile.mkstemp(
             prefix=f".{Path(final_out).stem}.",
             suffix=".pptx",
-            dir=os.path.dirname(final_out) or ".",
+            dir=Path(final_out).parent or ".",
         )
         os.close(fd)
-        os.unlink(tmp_pptx)
+        Path(tmp_pptx).unlink()
         cmd = _convert_cmd(target, tmp_pptx, only_slides, no_visual_audit)
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
@@ -435,7 +436,7 @@ def _render_tmp(
         r = _run_convert(cmd, timeout=timeout, env=env)
         if r.returncode != 0:
             raise ConversionError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
-        if not os.path.exists(tmp_pptx):
+        if not Path(tmp_pptx).exists():
             raise ConversionError(f"转换未产出 .pptx: {tmp_pptx}\n{r.stdout}\n{r.stderr}")
         # 图表后处理：HTML 声明了 data-chart → 读 measurements 替换成原生图表。
         # 惰性 import：charts.py 内部 import python-pptx，不拖慢无图表的路径。
@@ -465,9 +466,9 @@ def _render_tmp(
         # assets.json provenance 清单：只写进 visual-audit 的 <tmp>_audit 目录
         # （随 _preserve_audit_dir 整体改名进最终输出）；no_visual_audit 无审计
         # 目录 → 不写，资产已渲染进 PPTX、仅缺清单。
-        tmp_audit_dir = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
-        if os.path.isdir(tmp_audit_dir):
-            write_asset_manifest(os.path.join(tmp_audit_dir, "assets.json"), report)
+        tmp_audit_dir = Path(tmp_pptx).parent / f"{Path(tmp_pptx).stem}_audit"
+        if tmp_audit_dir.is_dir():
+            write_asset_manifest(str(tmp_audit_dir / "assets.json"), report)
         # 保留 convert 的 <stem>_audit 测量目录（aesthetic/feedback 回路）：
         # 默认立即改到最终名（render / render_with_report 行为不变）；
         # defer_audit_preserve=True（render_with_quality_report）保持 tmp 名，
@@ -481,11 +482,11 @@ def _render_tmp(
         # 这里只兜底清理改名失败残留的孤儿 tmp 目录。
         if tmp_html_dir is not None:
             tmp_html_dir.cleanup()  # 注入副本随整目录删除
-        if tmp_pptx and os.path.exists(tmp_pptx):
-            os.unlink(tmp_pptx)
+        if tmp_pptx and Path(tmp_pptx).exists():
+            Path(tmp_pptx).unlink()
         if tmp_pptx:
-            tmp_audit = os.path.join(os.path.dirname(tmp_pptx), f"{Path(tmp_pptx).stem}_audit")
-            if os.path.isdir(tmp_audit):
+            tmp_audit = Path(tmp_pptx).parent / f"{Path(tmp_pptx).stem}_audit"
+            if tmp_audit.is_dir():
                 shutil.rmtree(tmp_audit, ignore_errors=True)
 
 
@@ -699,7 +700,7 @@ def _run_art_analysis(
 
 def _check_art_gate() -> None:
     """v0.12 占位：艺术层默认不阻断。strict 门禁仍归几何层。"""
-    return None
+    return
 
 
 def render_with_quality_report(
@@ -754,11 +755,11 @@ def render_with_quality_report(
         try:
             if m is not None and pixel_analysis != "off":
                 staging_dir = tempfile.mkdtemp(
-                    prefix="offipy-pixel-", dir=os.path.dirname(stage.final_pptx) or "."
+                    prefix="offipy-pixel-", dir=Path(stage.final_pptx).parent or "."
                 )
-                staging_slides = os.path.join(staging_dir, "slides")
+                staging_slides = str(Path(staging_dir) / "slides")
                 try:
-                    os.makedirs(staging_slides, exist_ok=True)
+                    Path(staging_slides).mkdir(exist_ok=True, parents=True)
                     exported = _export_pixel_slides(stage.tmp_pptx, staging_slides)
                     _write_deck_info(staging_slides, stage.tmp_pptx)
                 except Exception as exc:
@@ -822,7 +823,7 @@ def _export_pixel_slides(pptx: str, out_dir: str) -> list[str]:
 def _write_deck_info(out_dir: str, pptx: str) -> None:
     info = {
         "schema": 1,
-        "pptx": os.path.abspath(pptx),
+        "pptx": str(Path(pptx).resolve()),
         "pptx_sha256": _sha256_file(pptx),
         "run_id": None,
     }
@@ -835,7 +836,7 @@ def _sha256_file(path: str) -> str:
     import hashlib
 
     h = hashlib.sha256()
-    with open(path, "rb") as f:
+    with Path(path).open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
@@ -863,14 +864,14 @@ def _slides_dir_owned(final_slides: str, final_pptx: str) -> bool:
         info = json.loads(info_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return info.get("pptx") == os.path.abspath(final_pptx)
+    return info.get("pptx") == str(Path(final_pptx).resolve())
 
 
 def _move_slides_to_final(
     staging_slides: str, stage: RenderStage, slides_output_dir: str | None
 ) -> str:
     final_slides = slides_output_dir or _default_slides_dir(stage.final_pptx)
-    os.makedirs(final_slides, exist_ok=True)
+    Path(final_slides).mkdir(exist_ok=True, parents=True)
     # 只清理本 deck 先前落位的产物（slide_*.png + _deck_info.json），避免 re-render
     # 页数变少时残留旧页。归属校验确保绝不删用户其他文件——slides_output_dir 可能
     # 指向共享目录，里面同名的 slide_*.png 不是本 deck 的。
@@ -880,7 +881,7 @@ def _move_slides_to_final(
                 f.unlink()
     for f in Path(staging_slides).iterdir():
         if f.is_file():
-            shutil.copy2(str(f), os.path.join(final_slides, f.name))
+            shutil.copy2(str(f), str(Path(final_slides) / f.name))
     _write_deck_info(final_slides, stage.final_pptx)
     return final_slides
 
@@ -894,6 +895,15 @@ _LIVE_TMP_PREFIX = "offipy-live-"
 _LIVE_TMP_PATHS: dict[str, str] = {}
 
 
+def _remove_stale_live_tmp(f: Path, stale_before: float) -> None:
+    """删单个过期副本；仍被 PowerPoint 打开（无共享删除）时跳过，不中断清理。"""
+    try:
+        if f.stat().st_mtime < stale_before:
+            f.unlink()
+    except OSError:
+        pass
+
+
 def _cleanup_stale_live_tmp() -> None:
     """清理废弃的 offipy-live-* 副本（关闭/崩溃/重启后残留）。"""
     import time
@@ -901,22 +911,18 @@ def _cleanup_stale_live_tmp() -> None:
     stale_before = time.time() - 3600  # 1 小时未动即视为废弃
     tmp_dir = Path(tempfile.gettempdir())
     for f in tmp_dir.glob(f"{_LIVE_TMP_PREFIX}*.pptx"):
-        try:
-            if f.stat().st_mtime < stale_before:
-                f.unlink()
-        except OSError:
-            pass  # 仍被 PowerPoint 打开（无共享删除）时跳过
+        _remove_stale_live_tmp(f, stale_before)
 
 
 def _live_tmp_copy(pptx: str) -> str:
     """把 .pptx 复制成 offipy-live-* 临时副本，返回副本路径。"""
-    src = os.path.abspath(pptx)
-    if not os.path.exists(src):
+    src = Path(pptx).resolve()
+    if not Path(src).exists():
         raise InvalidArgumentError(f"源 .pptx 不存在: {src}")
     _cleanup_stale_live_tmp()
     fd, tmp = tempfile.mkstemp(prefix=_LIVE_TMP_PREFIX, suffix=".pptx")
     os.close(fd)
-    os.unlink(tmp)  # 先删占位，copyfile 以正常权限全新创建
+    Path(tmp).unlink()  # 先删占位，copyfile 以正常权限全新创建
     shutil.copyfile(src, tmp)
     return tmp
 
@@ -934,7 +940,7 @@ def open_live(pptx: str) -> str:
         doc_id = call("ppt", "open_pres", path=live)
     except Exception:
         with contextlib.suppress(OSError):
-            os.unlink(live)  # 打开失败不留孤儿副本
+            Path(live).unlink()  # 打开失败不留孤儿副本
         raise
     _LIVE_TMP_PATHS[doc_id] = live
     return doc_id
@@ -955,7 +961,7 @@ def close_live(doc_id: str) -> None:
         path = _LIVE_TMP_PATHS.pop(doc_id, None)
         if path:
             with contextlib.suppress(OSError):
-                os.unlink(path)
+                Path(path).unlink()
 
 
 def export_slides(
@@ -974,7 +980,7 @@ def export_slides(
     return call(
         "ppt",
         "export_slides",
-        out_dir=os.path.abspath(out_dir),
+        out_dir=str(Path(out_dir).resolve()),
         width=width,
         height=height,
         doc_id=doc_id,

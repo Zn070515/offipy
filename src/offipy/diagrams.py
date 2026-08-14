@@ -139,7 +139,7 @@ def _kahn_layers(ids: list[str], edges) -> tuple[dict[str, int], dict[int, list[
     DAG 最大层 + 1 的同一层——纯环归一层，分层结果与 ids 迭代序无关。
     """
     adj: dict[str, list[str]] = {i: [] for i in ids}
-    indeg = {i: 0 for i in ids}
+    indeg = dict.fromkeys(ids, 0)
     for e in edges:
         if e.source in adj and e.target in adj:
             adj[e.source].append(e.target)
@@ -155,7 +155,7 @@ def _kahn_layers(ids: list[str], edges) -> tuple[dict[str, int], dict[int, list[
                 q.append(t)
     in_order = set(order)
     residue = [i for i in ids if i not in in_order]
-    layer = {i: 0 for i in ids}
+    layer = dict.fromkeys(ids, 0)
     # 只在 DAG 内部传播层深（层深 = 最长路径，与遍历序无关）；环残留不参与，
     # 统一落尾层。
     for i in order:
@@ -189,8 +189,7 @@ def layout_diagram(
     layer_of, layers = _kahn_layers(list(leaves_by_id), diagram.edges)
     col_of: dict[str, int] = {}
     for ids in layers.values():
-        for col, i in enumerate(ids):
-            col_of[i] = col
+        col_of.update({i: col for col, i in enumerate(ids)})
     max_row = max(layers) if layers else 0
     max_col = max((len(v) for v in layers.values()), default=0)
 
@@ -451,7 +450,7 @@ def render_to_slide(
     from pptx.util import Emu, Inches, Pt
 
     # map 引用 pptx 枚举，须在惰性 import 之后构造（模块级会 import 即 NameError）。
-    _SHAPE_MAP = {
+    SHAPE_MAP = {
         "rect": MSO_SHAPE.ROUNDED_RECTANGLE,
         "round": MSO_SHAPE.ROUNDED_RECTANGLE,
         "rectangle": MSO_SHAPE.RECTANGLE,  # 新增：drawio 直角矩形
@@ -467,8 +466,8 @@ def render_to_slide(
         "parallelogram": MSO_SHAPE.PARALLELOGRAM,
         "trapezoid": MSO_SHAPE.TRAPEZOID,
     }
-    _ARROW_MAP = {"circle": "oval", "cross": "triangle", "arrow": "triangle"}
-    _DASH_MAP = {
+    ARROW_MAP = {"circle": "oval", "cross": "triangle", "arrow": "triangle"}
+    DASH_MAP = {
         "solid": MSO_LINE_DASH_STYLE.SOLID,
         "dashed": MSO_LINE_DASH_STYLE.DASH,
         "thick": MSO_LINE_DASH_STYLE.SOLID,
@@ -479,7 +478,7 @@ def render_to_slide(
         x1, y1, x2, y2 = e.ax1, e.ay1, e.ax2, e.ay2
         if e.waypoints:
             # waypoint 边：open polyline（build_freeform），直线段逼近正交/曲线路径
-            pts = [(x1, y1)] + list(e.waypoints) + [(x2, y2)]
+            pts = [(x1, y1), *list(e.waypoints), (x2, y2)]
             fb = slide.shapes.build_freeform(
                 start_x=Emu(offset_x) + Inches(x1),
                 start_y=Emu(offset_y) + Inches(y1),
@@ -510,9 +509,9 @@ def render_to_slide(
         else:
             conn.line.color.rgb = _hex_rgb(e.stroke) or edge_color
         conn.line.width = Pt(e.stroke_width or (1.6 if e.style == "thick" else 1.2))
-        conn.line.dash_style = _DASH_MAP.get(e.style, MSO_LINE_DASH_STYLE.SOLID)
+        conn.line.dash_style = DASH_MAP.get(e.style, MSO_LINE_DASH_STYLE.SOLID)
         if not e.undirected:
-            _set_tail_end(conn, _ARROW_MAP.get(e.arrowhead, "triangle"))
+            _set_tail_end(conn, ARROW_MAP.get(e.arrowhead, "triangle"))
         if e.label:
             lab = slide.shapes.add_textbox(
                 Emu(offset_x) + Inches(lx - 0.8),
@@ -565,7 +564,7 @@ def render_to_slide(
         if n.is_container:
             continue
         shape = slide.shapes.add_shape(
-            _SHAPE_MAP.get(n.shape, MSO_SHAPE.ROUNDED_RECTANGLE),
+            SHAPE_MAP.get(n.shape, MSO_SHAPE.ROUNDED_RECTANGLE),
             Emu(offset_x) + Inches(n.x),
             Emu(offset_y) + Inches(n.y),
             Inches(n.w),
@@ -731,7 +730,7 @@ def load_mermaid_boxes(measurements_path: str) -> dict[int, dict]:
 
     匹配 record className 分词含 "mermaid"（pre.mermaid 的 rect）。
     """
-    with open(measurements_path, encoding="utf-8") as f:
+    with Path(measurements_path).open(encoding="utf-8") as f:
         data = json.load(f)
     boxes: dict[int, dict] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
@@ -793,7 +792,7 @@ def postprocess_mermaid(html_path: str, pptx_path: str) -> None:
     """转换后调用（对齐 charts.postprocess_charts 签名）：HTML 含 <pre class="mermaid">
     → 读 measurements → 注入可编辑形状。无声明 → 原样返回。声明/数据非法 → ValueError。
     """
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     # 无子串守卫：HTMLParser 按 class 值分词，多 class（class="mermaid chart"）或
     # 属性空格（class = "mermaid"）都能命中；子串守卫会漏掉这些变体导致 mermaid
@@ -802,7 +801,7 @@ def postprocess_mermaid(html_path: str, pptx_path: str) -> None:
     if not decls:
         return
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——mermaid 注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

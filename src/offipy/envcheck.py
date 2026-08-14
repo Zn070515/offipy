@@ -91,24 +91,33 @@ _EXTRA_HINT = {
 }
 
 
+def _check_dependency(dist: str, mod: str) -> Check:
+    try:
+        importlib.import_module(mod)
+        version = importlib.metadata.version(dist)
+        return Check("依赖", dist, True, version)
+    except ImportError:
+        return Check(
+            "依赖",
+            dist,
+            False,
+            "未安装",
+            hint=_EXTRA_HINT.get(dist, f"uv pip install {dist}"),
+        )
+
+
 def _check_dependencies() -> list[Check]:
-    out = []
-    for dist, mod in _platform_deps():
-        try:
-            importlib.import_module(mod)
-            version = importlib.metadata.version(dist)
-            out.append(Check("依赖", dist, True, version))
-        except ImportError:
-            out.append(
-                Check(
-                    "依赖",
-                    dist,
-                    False,
-                    "未安装",
-                    hint=_EXTRA_HINT.get(dist, f"uv pip install {dist}"),
-                )
-            )
-    return out
+    return [_check_dependency(dist, mod) for dist, mod in _platform_deps()]
+
+
+def _progid_exists(root, base: str, progid: str) -> bool:
+    import winreg
+
+    try:
+        with winreg.OpenKey(root, base + "\\" + progid):
+            return True
+    except OSError:
+        return False
 
 
 def _office_installed(progid: str) -> bool:
@@ -117,11 +126,8 @@ def _office_installed(progid: str) -> bool:
 
     for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
         for base in (r"SOFTWARE\Classes", r"SOFTWARE\WOW6432Node\Classes"):
-            try:
-                with winreg.OpenKey(root, base + "\\" + progid):
-                    return True
-            except OSError:
-                continue
+            if _progid_exists(root, base, progid):
+                return True
     return False
 
 
@@ -189,11 +195,9 @@ def _check_server() -> Check:
 
 def _check_pdf() -> Check:
     soffice = shutil.which("soffice")
-    try:
-        import pdf2image  # noqa: F401
-
+    if importlib.util.find_spec("pdf2image") is not None:
         pdf = "pdf2image 可用"
-    except ImportError:
+    else:
         pdf = "pdf2image 未安装"
     detail = f"LibreOffice: {'有' if soffice else '无'}；{pdf}"
     return Check("PDF 可选路径", "LibreOffice/pdf2image", True, detail, warn=True)

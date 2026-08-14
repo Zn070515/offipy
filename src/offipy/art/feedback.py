@@ -21,15 +21,15 @@ from offipy.audit import Severity
 from offipy.exceptions import InvalidArgumentError
 
 __all__ = [
-    "ArtFeedbackRecord",
-    "DEFAULT_DIR",
     "ART_FEEDBACK_FILE",
+    "DEFAULT_DIR",
     "VALID_ACTIONS",
-    "record_file",
+    "ArtFeedbackRecord",
     "append",
+    "apply_feedback",
     "load_records",
     "recommend_adjustments",
-    "apply_feedback",
+    "record_file",
 ]
 
 # 记录文件默认位置：~/.offipy/art_feedback.jsonl（与 v1 的 feedback.jsonl 分离）
@@ -88,7 +88,7 @@ class ArtFeedbackRecord:
             rule_id=rule_id,
             dimension=data["dimension"],
             severity=_coerce_severity(data["severity"]),
-            action=cast(FeedbackAction, action),
+            action=cast("FeedbackAction", action),
             slide_index=slide_index,
             message=data.get("message", ""),
             source=data.get("source", ""),
@@ -145,7 +145,7 @@ def append(
         rule_id=rule_id,
         dimension=RULE_DIMENSIONS[rule_id],
         severity=severity,
-        action=cast(FeedbackAction, action),
+        action=cast("FeedbackAction", action),
         slide_index=slide_index,
         message=message,
         source=source,

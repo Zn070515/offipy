@@ -219,7 +219,7 @@ def ensure_app(app: str, visible: bool = True, modify_existing_visibility: bool 
         return obj, False
     try:
         return launch(app, visible), True
-    except Exception as e:  # noqa: BLE001 — win32 异常种类繁多，收拢到语义化异常
+    except Exception as e:
         # #88：gen_py 类型库缓存损坏（%TEMP%\gen_py 缺 __init__.py，其中定义
         # CLSIDToClassMap，通常由中断的首次 EnsureDispatch 生成造成）时，裸 AttributeError
         # 只透出 typelib GUID，Agent 无法定位。识别特征并给「删除缓存」修复指引。
@@ -262,9 +262,10 @@ def app_process_pid(obj, app: str) -> int | None:
         getpid.restype = ctypes.c_ulong
         pid = ctypes.c_ulong()
         getpid(ctypes.c_void_p(hwnd), ctypes.byref(pid))
-        return pid.value or None
     except Exception:
         return None
+    else:
+        return pid.value or None
 
 
 def _pid_running(pid: int) -> bool:
@@ -360,9 +361,10 @@ def doc_alive(obj) -> bool:
         return False
     try:
         _ = obj.Application.Visible
-        return True
     except (AttributeError, com.pywintypes.com_error):
         return False
+    else:
+        return True
 
 
 def _set_visible(obj, visible: bool) -> None:

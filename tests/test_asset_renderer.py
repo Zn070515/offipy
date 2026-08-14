@@ -116,8 +116,10 @@ def _slide_with_three():
 
 def _children(slide):
     sp_tree = slide.shapes._spTree
-    return [sp_tree.find(f"{{{_P}}}nvGrpSpPr"), sp_tree.find(f"{{{_P}}}grpSpPr")] + list(sp_tree)[
-        2:
+    return [
+        sp_tree.find(f"{{{_P}}}nvGrpSpPr"),
+        sp_tree.find(f"{{{_P}}}grpSpPr"),
+        *list(sp_tree)[2:],
     ]
 
 

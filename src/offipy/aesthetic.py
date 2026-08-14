@@ -196,8 +196,9 @@ class AestheticReport:
         lines.append("")
         if self.deck_findings:
             lines.append("## 全 deck 一致性")
-            for f in self.deck_findings:
-                lines.append(f"- `[{f.severity}]` {f.dimension}：{f.message}")
+            lines.extend(
+                f"- `[{f.severity}]` {f.dimension}：{f.message}" for f in self.deck_findings
+            )
             lines.append("")
         for p in self.pages:
             lines.append(f"## 第 {p.index} 页 · {p.score} 分")
@@ -206,8 +207,7 @@ class AestheticReport:
                 lines.append(f"> {parts}")
             if not p.findings:
                 lines.append("_无问题_")
-            for f in p.findings:
-                lines.append(f"- `[{f.severity}]` {f.dimension}：{f.message}")
+            lines.extend(f"- `[{f.severity}]` {f.dimension}：{f.message}" for f in p.findings)
             lines.append("")
         return "\n".join(lines)
 
@@ -492,7 +492,7 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
 
 
 def _score_pages(
-    measurement: dict, theme: str | None, weights: dict[str, float] | None = None
+    measurement: dict, _theme: str | None, weights: dict[str, float] | None = None
 ) -> list[PageScore]:
     weights = weights or {}
     pages = []
@@ -543,7 +543,7 @@ def load_measurement(path: str | Path) -> dict:
         raise FileNotFoundError(p)
     data = json.loads(p.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("slides"), list):
-        raise ValueError(f"{p} 不是合法 measurement（缺 'slides' 数组）")
+        raise ValueError(f"{p} 不是合法 measurement（缺 'slides' 数组）")  # noqa: TRY004 — JSON 数据校验是「数据形状错误」用 ValueError；TypeError 留给 Python 参数类型契约
     return data
 
 

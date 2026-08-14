@@ -45,7 +45,7 @@ def _file_lock(path: Path):
     .lock 挡在门外，rename 才有保障（#48）。
     """
     lock_file = path.with_name(path.name + ".lock")
-    with open(lock_file, "a+b") as f:
+    with Path(lock_file).open("a+b") as f:
         try:
             if sys.platform == "win32":
                 import msvcrt
@@ -88,7 +88,7 @@ def _rotate(path: Path) -> None:
 def _append_locked(path: Path, line: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with _THREAD_LOCK, _file_lock(path):
-        with open(path, "ab") as f:
+        with Path(path).open("ab") as f:
             f.write(line.encode("utf-8") + b"\n")
         _rotate(path)  # #48：在跨进程锁内轮转，改名无 fd 占用才不被打断
 
@@ -119,10 +119,11 @@ def read(tail: int | None = None) -> list[dict]:
     lines = path.read_text(encoding="utf-8").splitlines()
     if tail is not None and tail > 0:
         lines = lines[-tail:]
-    out = []
-    for line in lines:
+
+    def _parse(line: str):
         try:
-            out.append(json.loads(line))
+            return json.loads(line)
         except ValueError:
-            continue
-    return out
+            return None
+
+    return [parsed for parsed in map(_parse, lines) if parsed is not None]

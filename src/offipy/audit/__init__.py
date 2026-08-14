@@ -34,8 +34,8 @@ from .pptx import audit_pptx, compare_pptx
 from .render import render_html, render_markdown, render_text
 
 __all__ = [
-    "AUDIT_SCHEMA_VERSION",
     "ALL_RULE_IDS",
+    "AUDIT_SCHEMA_VERSION",
     "RULE_AUTOFIT_GROW",
     "RULE_AUTOFIT_SHRINK",
     "RULE_BOUNDS_OFF_CANVAS",

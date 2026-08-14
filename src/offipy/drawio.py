@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import sys
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
@@ -363,7 +362,7 @@ def load_drawio_boxes(measurements_path: str) -> dict[int, dict]:
 
     匹配 record className 分词含 "drawio"（div.drawio 的 rect）。
     """
-    with open(measurements_path, encoding="utf-8") as f:
+    with Path(measurements_path).open(encoding="utf-8") as f:
         data = json.load(f)
     boxes: dict[int, dict] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
@@ -402,6 +401,11 @@ def _parse_page_arg(v: str) -> str:
     if v == "all":
         raise ValueError('data-drawio-page 不支持 "all"（parse_drawio 只取第一页会静默丢页）')
     return v  # 页名，不区分大小写（vendored select_pages 处理）
+
+
+def _raise_multipage(path: str) -> None:
+    """多页 .drawio 未指定页 → 报错（抽成函数避免 try 块内裸 raise，TRY301）。"""
+    raise ValueError(f'{path} 含多页，deck 注入须用 data-drawio-page="N" 指定页')
 
 
 def _remove_bbox_shapes(slide, box_emu: dict) -> None:
@@ -448,9 +452,7 @@ def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> 
                 # 多页未指定 → 明确报错，不再静默取第一页（#99）。计数走 vendored
                 # parse_file，offipy 不自行解析 XML（安全边界）。
                 if len(_load_extractor().parse_file(src)) > 1:
-                    raise ValueError(
-                        f'{decl["path"]} 含多页，deck 注入须用 data-drawio-page="N" 指定页'
-                    )
+                    _raise_multipage(decl["path"])
                 diagram = parse_drawio(src)
             else:
                 diagram = parse_drawio(src, page=_parse_page_arg(page))
@@ -472,13 +474,13 @@ def postprocess_drawio(html_path: str, pptx_path: str) -> None:
     data-drawio="..."> → 读 measurements → 注入可编辑形状。无声明 → 原样返回。
     声明/数据非法 → ValueError（由 deck._postprocess 归一化）。
     """
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     decls = parse_drawio_declarations(html_text)
     if not decls:
         return
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——drawio 注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

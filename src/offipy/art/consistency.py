@@ -6,12 +6,16 @@ rev2.1：按 infer_slide_role 分组，每组 ≥3 页才判断；
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from offipy.audit import Severity
 
 from .features import infer_slide_role
-from .models import ArtFinding, ArtScene, ArtSlide
 from .profiles import RULE_MARGIN_DRIFT, RULE_TITLE_DRIFT, ArtProfile
 from .rules import make_finding
+
+if TYPE_CHECKING:
+    from .models import ArtFinding, ArtScene, ArtSlide
 
 _FILTER_ROLES = {"background", "container", "decoration", "page_number", "footer"}
 

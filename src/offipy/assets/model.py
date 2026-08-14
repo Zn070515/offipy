@@ -7,11 +7,13 @@ provenance, render context. Pure stdlib; must not import python-pptx/Pillow/Play
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from offipy.exceptions import InvalidArgumentError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
 
 AssetKind = Literal[
     "icon",

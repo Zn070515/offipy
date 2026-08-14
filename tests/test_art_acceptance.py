@@ -7,7 +7,7 @@ from offipy.art.models import ArtScene
 
 FIXTURES = Path(__file__).parent / "fixtures" / "art" / "scenes"
 
-# (fixture, profile, present_rules, forbidden_rules)
+# 元组格式：fixture, profile, present_rules, forbidden_rules
 _ACCEPTANCE = [
     # 左文右图：构图平衡、有焦点、图片不失真、深灰白底高对比（不误报 low_contrast）
     # 健康场景 present 为空 []，靠测试体里「composition 维度须 assessed」断言证明规则真运行了
@@ -50,7 +50,7 @@ _ACCEPTANCE = [
 ]
 
 
-@pytest.mark.parametrize("name,profile,present,forbidden", _ACCEPTANCE)
+@pytest.mark.parametrize(("name", "profile", "present", "forbidden"), _ACCEPTANCE)
 def test_acceptance(name, profile, present, forbidden):
     path = FIXTURES / name
     data = path.read_text(encoding="utf-8")

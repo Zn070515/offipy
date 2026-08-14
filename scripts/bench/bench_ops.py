@@ -20,7 +20,7 @@ def _time(fn) -> float:
     return perf_counter() - t0
 
 
-def bench(app: str, op: str, label: str, fn) -> tuple[str, float, float]:
+def bench(_app: str, _op: str, label: str, fn) -> tuple[str, float, float]:
     cold = _time(fn)  # 该 App 首个 op：COM 应用冷启动
     for _ in range(WARMUP):
         fn()

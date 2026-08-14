@@ -445,7 +445,7 @@ def load_icon_boxes(measurements_path: str) -> dict[int, list[dict]]:
     """读 measurements.json → {slide_index: [svg record, ...]}（保序，仅 kind='svg'）。"""
     import json as _json
 
-    with open(measurements_path, encoding="utf-8") as f:
+    with Path(measurements_path).open(encoding="utf-8") as f:
         data = _json.load(f)
     boxes: dict[int, list[dict]] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
@@ -555,7 +555,7 @@ def _build_icon_shapes(
     fallback=None,
 ) -> list:
     """在 rect（px）位置画图标：每个子路径一个 freeform shape。返回创建的 shape 列表。"""
-    vbx, vby, vbw, vbh = view_box
+    vbx, vby, vbw, _ = view_box
     scale = rect["w"] / vbw if vbw else 1.0
     ox = rect["x"] - vbx * scale
     oy = rect["y"] - vby * scale
@@ -647,9 +647,8 @@ def postprocess_icons(html_path: str, pptx_path: str) -> None:
     无图标声明 → 原样返回。measurements.json 缺失 → RuntimeError。图标/数据非法
     → ValueError（从 parse 上抛）。
     """
-    import os
 
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     if "data-icon" not in html_text:
         return
@@ -657,7 +656,7 @@ def postprocess_icons(html_path: str, pptx_path: str) -> None:
     if not decls:
         return
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——图标注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

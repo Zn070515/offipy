@@ -112,30 +112,24 @@ class _RemoteFacade:
         # follow_active 额外放行只读 op（accepts_follow_active），对齐 api.op()。
         # App 方法签名不声明它们，经 schema 显式补上（与 MCP tool 同策略）。
         if schema.supports_expected_target(self._app_name, name):
-            params = params + [
+            params = [
+                *params,
                 inspect.Parameter(
-                    "expected_target",
-                    inspect.Parameter.KEYWORD_ONLY,
-                    annotation=dict,
-                    default=None,
+                    "expected_target", inspect.Parameter.KEYWORD_ONLY, annotation=dict, default=None
                 ),
             ]
         if schema.supports_follow_active(self._app_name, name):
-            params = params + [
+            params = [
+                *params,
                 inspect.Parameter(
-                    "follow_active",
-                    inspect.Parameter.KEYWORD_ONLY,
-                    annotation=bool,
-                    default=False,
+                    "follow_active", inspect.Parameter.KEYWORD_ONLY, annotation=bool, default=False
                 ),
             ]
         # P1-4：request_id 作为传输层参数暴露（幂等标识），不进 server 的 op args
-        params = params + [
+        params = [
+            *params,
             inspect.Parameter(
-                "request_id",
-                inspect.Parameter.KEYWORD_ONLY,
-                annotation=str,
-                default=None,
+                "request_id", inspect.Parameter.KEYWORD_ONLY, annotation=str, default=None
             ),
         ]
         call_sig = sig.replace(parameters=params)

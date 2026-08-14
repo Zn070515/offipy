@@ -6,11 +6,11 @@ rev2.1：返回 RuleEvaluation；covered/eligible 表达「有多少对象有证
 from __future__ import annotations
 
 from collections import Counter
+from typing import TYPE_CHECKING
 
 from offipy.audit import Severity
 
 from .features import font_hierarchy
-from .models import ArtSlide
 from .profiles import (
     RULE_FLAT_SCALE,
     RULE_MANY_FAMILIES,
@@ -22,6 +22,9 @@ from .rules import (
     RuleSpec,
     make_finding,
 )
+
+if TYPE_CHECKING:
+    from .models import ArtSlide
 
 
 def _rarest_family_el(slide: ArtSlide):

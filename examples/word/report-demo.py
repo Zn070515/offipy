@@ -4,13 +4,13 @@
 （首次调用自动拉起 8890 server + Word；产物保存到 out/word-report-demo.docx）
 """
 
-import os
+import pathlib
 
 from PIL import Image
 
 from offipy.client import call
 
-os.makedirs("out", exist_ok=True)
+pathlib.Path("out").mkdir(exist_ok=True, parents=True)
 
 # 先造一张封面示意图（Pillow 是硬依赖）
 img_path = "out/word-report-demo-cover.png"

@@ -166,25 +166,25 @@ class TestBadProviderContract:
 
 
 def _meta_with(**kw) -> AssetProviderMeta:
-    defaults = dict(
-        provider_id="ph",
-        license="ISC",
-        source_url=None,
-        source_commit=None,
-        attribution=None,
-        redistributable=True,
-    )
+    defaults = {
+        "provider_id": "ph",
+        "license": "ISC",
+        "source_url": None,
+        "source_commit": None,
+        "attribution": None,
+        "redistributable": True,
+    }
     defaults.update(kw)
     return AssetProviderMeta(**defaults)
 
 
 _BAD_PROVIDER_META = [
-    dict(license="GPL-3.0"),
-    dict(license="Apache-2.0"),
-    dict(license=""),
-    dict(license="CC-BY-4.0"),
-    dict(license="CC-BY-4.0", source_url="https://x"),
-    dict(license="CC-BY-4.0", attribution="A"),
+    {"license": "GPL-3.0"},
+    {"license": "Apache-2.0"},
+    {"license": ""},
+    {"license": "CC-BY-4.0"},
+    {"license": "CC-BY-4.0", "source_url": "https://x"},
+    {"license": "CC-BY-4.0", "attribution": "A"},
 ]
 
 

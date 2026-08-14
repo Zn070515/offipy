@@ -7,10 +7,14 @@ gate that also requires source, source_commit and a matching count.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
-from offipy.assets.model import AssetProviderMeta
 from offipy.exceptions import InvalidArgumentError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetProviderMeta
 
 ALLOWED_LICENSES = frozenset({"MIT", "ISC", "CC0-1.0", "CC-BY-4.0"})
 

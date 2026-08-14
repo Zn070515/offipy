@@ -4,7 +4,7 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
-import os
+import pathlib
 import re
 import secrets
 from contextlib import contextmanager, suppress
@@ -26,7 +26,7 @@ _MAX_COL = 16384
 _MAX_ROW = 1048576
 # 控制字符（U+0000-U+001F、U+007F、U+0080-U+009F）：工作表名/单元格文本不得携带。
 # 用 chr() 构造，避免在源码里嵌转义。
-_CTRL_CP = list(range(32)) + [127] + list(range(128, 160))
+_CTRL_CP = [*list(range(32)), 127, *list(range(128, 160))]
 _CONTROL_CHARS_RE = re.compile("[" + "".join(chr(c) for c in _CTRL_CP) + "]")
 
 
@@ -270,10 +270,10 @@ class ExcelApp:
 
     def open_book(self, path: str) -> str:
         """打开现有工作簿并设为活动。返回 doc_id。"""
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         # H6：COM Open 按自身工作目录（通常 System32）解析相对路径 → 先规范为绝对路径
-        return self._register(self.app.Workbooks.Open(os.path.abspath(path)))
+        return self._register(self.app.Workbooks.Open(pathlib.Path(path).resolve()))
 
     def active_book(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
@@ -722,7 +722,7 @@ class ExcelApp:
             self.app.DisplayAlerts = False
             pid = core.app_process_pid(self.app, "excel") or self._pid
             self.app.Quit()
-        except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
+        except Exception as e:
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Excel 失败: {e}") from e

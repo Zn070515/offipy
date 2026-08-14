@@ -34,7 +34,7 @@ def test_readme_docs_and_examples_links_are_absolute():
     for name in _README_PATHS:
         text = (_ROOT / name).read_text(encoding="utf-8")
         for target in _link_targets(text):
-            if target.startswith("docs/") or target.startswith("examples/"):
+            if target.startswith(("docs/", "examples/")):
                 pytest.fail(f"{name}: docs/examples 链接未转绝对 URL: {target}")
 
 

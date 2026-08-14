@@ -6,12 +6,16 @@ rev2.2：前景色 foreground / run color；背景一律 effective_background（
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from offipy.audit import Severity
 
 from .features import effective_background, palette_features
-from .models import ArtColor, ArtElement, ArtSlide
 from .profiles import RULE_ACCENT_FLOOD, RULE_LOW_CONTRAST, RULE_NO_ACCENT
 from .rules import RuleContext, RuleEvaluation, RuleSpec, make_finding
+
+if TYPE_CHECKING:
+    from .models import ArtColor, ArtElement, ArtSlide
 
 
 def _relative_luminance(c: ArtColor) -> float:
@@ -147,7 +151,7 @@ def accent_flood_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     )
 
 
-def no_accent_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
+def no_accent_rule(slide: ArtSlide, _ctx: RuleContext) -> RuleEvaluation:
     ratio, _primary = _area_weighted_accent_ratio(slide)
     eligible, covered = _accent_rule_eval(slide)
     if covered == 0 or ratio != 0.0:

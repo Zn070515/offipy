@@ -96,7 +96,7 @@ def render(slide, params, context) -> tuple[object, ...]:
     """Draw the process arrow and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)
-    steps = [s for s in params["steps"].split(",")]
+    steps = list(params["steps"].split(","))
     if params.get("direction", "horizontal") == "vertical":
         shapes = _vertical(slide, steps, colors, rect)
     else:

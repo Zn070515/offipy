@@ -403,7 +403,7 @@ def test_import_extract_does_not_load_pptx(monkeypatch):
         return orig_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", guarded)
-    import offipy.audit.extract as m  # noqa: F401
+    import offipy.audit.extract as m
 
     assert m is not None
 

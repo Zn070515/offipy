@@ -81,7 +81,7 @@ def _fetch_json(url: str) -> dict:
 
 def _download_wheel(url: str, dest: Path) -> None:
     try:
-        with urllib.request.urlopen(url, timeout=120) as resp, open(dest, "wb") as fh:
+        with urllib.request.urlopen(url, timeout=120) as resp, Path(dest).open("wb") as fh:
             shutil.copyfileobj(resp, fh)
     except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
         raise SystemExit(f"[pypi-smoke] FAIL: 无法下载 wheel {url}: {exc}") from exc

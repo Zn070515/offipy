@@ -34,7 +34,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 import shutil
@@ -82,7 +81,7 @@ def _pick_wheel(explicit: str | None) -> Path:
         if not p.exists():
             raise SystemExit(f"找不到 wheel: {p}")
         return p
-    wheels = sorted(glob.glob(str(ROOT / "dist" / "offipy-*.whl")))
+    wheels = sorted((ROOT / "dist").glob("offipy-*.whl"))
     if not wheels:
         raise SystemExit("dist/ 里没有 wheel，先跑 uv build")
     return Path(wheels[-1])
@@ -154,7 +153,7 @@ def main() -> int:
             wheel = _pick_wheel(args.wheel)
             req = f"{wheel}{extras}"
             print(f"[install-smoke] uv pip install {req}（依赖走 uv 缓存）...")
-        _run(install_cmd + [req])
+        _run([*install_cmd, req])
 
         print("[install-smoke] import + 版本 + converter 存在 + check 可跑 ...")
         r = _run([py, "-c", CHECK_JSON])

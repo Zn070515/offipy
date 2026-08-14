@@ -14,7 +14,6 @@ deck_generated.pptx 由 offipy deck 渲染示例 starter 产生（需 chromium�
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from pptx import Presentation
@@ -156,13 +155,12 @@ def _compare_pair() -> tuple[Presentation, Presentation]:
 
 
 def main() -> None:
-    os.makedirs(HERE, exist_ok=True)
+    Path(HERE).mkdir(exist_ok=True, parents=True)
     _synthetic().save(HERE / "synthetic.pptx")
     _edge_cases().save(HERE / "edge_cases.pptx")
     base, cand = _compare_pair()
     base.save(HERE / "baseline.pptx")
     cand.save(HERE / "candidate.pptx")
-    print("已生成:", sorted(p.name for p in HERE.glob("*.pptx")))
 
 
 if __name__ == "__main__":

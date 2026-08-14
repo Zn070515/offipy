@@ -74,9 +74,7 @@ def test_defaults_applied(pattern: str, expected: dict[str, int | float]) -> Non
 
 
 @pytest.mark.parametrize(("pattern", "param", "low", "high"), _BOUNDARY_CASES)
-def test_boundary_min_max_accepted(
-    pattern: str, param: str, low: int | float, high: int | float
-) -> None:
+def test_boundary_min_max_accepted(pattern: str, param: str, low: float, high: float) -> None:
     for edge in (low, high):
         got = _coerce_params(pattern, ((param, str(edge)),))
         if isinstance(edge, int):
@@ -86,9 +84,7 @@ def test_boundary_min_max_accepted(
 
 
 @pytest.mark.parametrize(("pattern", "param", "low", "high"), _BOUNDARY_CASES)
-def test_boundary_outside_rejected(
-    pattern: str, param: str, low: int | float, high: int | float
-) -> None:
+def test_boundary_outside_rejected(pattern: str, param: str, low: float, high: float) -> None:
     bad = [low - 1, high + 1] if isinstance(low, int) else [low - 0.001, high + 0.001]
     for value in bad:
         with pytest.raises(InvalidArgumentError):

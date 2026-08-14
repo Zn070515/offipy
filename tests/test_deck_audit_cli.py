@@ -4,9 +4,9 @@
 """
 
 import json
-import os
 import tempfile
 import types
+from pathlib import Path
 
 import pytest
 
@@ -296,7 +296,7 @@ def test_deck_audit_suggestion_default():
 
     # 无 remediation cue → 精确 "无自动建议"
     recs = project_suggestions(_report(), source="x.html")
-    slide_rec = [r for r in recs if r["rule_id"] == "art.hierarchy.title_size"][0]
+    slide_rec = next(r for r in recs if r["rule_id"] == "art.hierarchy.title_size")
     assert slide_rec["suggestion"] == "无自动建议"
 
     # details 携带非空 "suggestion" 键 → 透出
@@ -328,10 +328,10 @@ def test_deck_audit_temp_workspace_cleaned(monkeypatch):
         raise ConversionError("渲染失败（模拟）")
 
     monkeypatch.setattr("offipy.deck.render_with_quality_report", boom)
-    tmpdir = tempfile.gettempdir()
-    before = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
+    tmpdir = Path(tempfile.gettempdir())
+    before = {d.name for d in tmpdir.iterdir() if d.name.startswith("offipy-deck-audit-")}
     assert cli.main(["deck", "audit", "x.html"]) == 1
-    after = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
+    after = {d.name for d in tmpdir.iterdir() if d.name.startswith("offipy-deck-audit-")}
     assert after == before  # 失败路径也不残留临时工作区
 
 
@@ -342,10 +342,10 @@ def test_deck_audit_success_cleans_temp(monkeypatch, capsys):
     monkeypatch.setattr(
         "offipy.deck.render_with_quality_report", lambda html, **kw: _render_result()
     )
-    tmpdir = tempfile.gettempdir()
-    before = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
+    tmpdir = Path(tempfile.gettempdir())
+    before = {d.name for d in tmpdir.iterdir() if d.name.startswith("offipy-deck-audit-")}
     cli.main(["deck", "audit", "x.html", "--json"])
-    after = {d for d in os.listdir(tmpdir) if d.startswith("offipy-deck-audit-")}
+    after = {d.name for d in tmpdir.iterdir() if d.name.startswith("offipy-deck-audit-")}
     assert after == before  # 成功路径不残留临时工作区
 
 

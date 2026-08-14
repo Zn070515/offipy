@@ -17,9 +17,8 @@ import hashlib
 import math
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .extract import _PresentationExtract, _ShapeRecord
 from .models import (
     AUDIT_SCHEMA_VERSION,
     AuditConfig,
@@ -31,6 +30,9 @@ from .models import (
 )
 from .rules import run_rules
 
+if TYPE_CHECKING:
+    from .extract import _PresentationExtract, _ShapeRecord
+
 _MOVE_TOL = 0.01  # 英寸，位置/尺寸变化判定容差
 _MATCH_GEOM_TOL = 1.0  # 英寸，文本匹配时中心距离容差
 
@@ -41,7 +43,7 @@ _KeyMap = dict[_ShapeKey, _ShapeKey]
 
 def _sha256(path: str | Path) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as f:
+    with Path(path).open("rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
@@ -312,13 +314,11 @@ def build_diff(
         c_list = cand_by_slide.get(slide_idx, [])
         mapping, ub, uc = _match_slide(b_list, c_list)
         for c_id, b_id in mapping.items():
-            cand_to_base[(slide_idx, c_id)] = (slide_idx, b_id)
+            cand_to_base[slide_idx, c_id] = (slide_idx, b_id)
         b_by_id = {r.shape_id: r for r in b_list}
         c_by_id = {r.shape_id: r for r in c_list}
-        for r in ub:
-            removed_shapes.append(_change(r, "removed"))
-        for r in uc:
-            added_shapes.append(_change(r, "added"))
+        removed_shapes.extend(_change(r, "removed") for r in ub)
+        added_shapes.extend(_change(r, "added") for r in uc)
         for c_id, b_id in mapping.items():
             _record_geometry_changes(
                 b_by_id[b_id], c_by_id[c_id], moved_shapes, resized_shapes, text_changes
@@ -327,11 +327,9 @@ def build_diff(
         unmatched_cand.extend(uc)
 
     for slide_idx in range(shared + 1, len(cand_ext.slides) + 1):
-        for r in cand_by_slide.get(slide_idx, []):
-            added_shapes.append(_change(r, "added"))
+        added_shapes.extend(_change(r, "added") for r in cand_by_slide.get(slide_idx, []))
     for slide_idx in range(shared + 1, len(base_ext.slides) + 1):
-        for r in base_by_slide.get(slide_idx, []):
-            removed_shapes.append(_change(r, "removed"))
+        removed_shapes.extend(_change(r, "removed") for r in base_by_slide.get(slide_idx, []))
 
     added_findings, resolved_findings, changed_findings = _diff_findings(
         base_findings, cand_findings, cand_to_base

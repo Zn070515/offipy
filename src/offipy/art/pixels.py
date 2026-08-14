@@ -375,7 +375,7 @@ class PixelEnricher:
     def __init__(self, slides_dir: str | Path) -> None:
         self._slides_dir = Path(slides_dir)
 
-    def _image_size(self, path: Path) -> tuple[int, int]:
+    def image_size(self, path: Path) -> tuple[int, int]:
         Image, _ = _pil()
         with Image.open(path) as im:
             return im.size
@@ -547,7 +547,7 @@ def empty_scene_from_slides(slides_dir: str | Path) -> ArtScene:
     slides: list[ArtSlide] = []
     for idx, p in sorted(pages.items()):
         try:
-            width, height = enricher._image_size(p)
+            width, height = enricher.image_size(p)
         except Exception as exc:
             warnings.append(
                 ArtWarning(code="art.pixel.decode_failed", message=f"页 {idx} PNG 解码失败: {exc}")

@@ -13,17 +13,21 @@ placeholder z-order themselves.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Pt
 
 from offipy.assets.materialize import resolve_asset_color
-from offipy.assets.model import AssetRect, AssetRenderContext
 from offipy.exceptions import InvalidArgumentError
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from pptx.enum.shapes import MSO_SHAPE
+
+    from offipy.assets.model import AssetRect, AssetRenderContext
 
 PX_TO_EMU = 6350  # same conversion as the converter (1920×1080 px canvas)
 
@@ -34,7 +38,7 @@ _EMPTY_RECT_MIN = 1.0  # px
 
 
 def px_to_emu(v: float) -> int:
-    return int(round(v * PX_TO_EMU))
+    return round(v * PX_TO_EMU)
 
 
 def require_rect(ctx: AssetRenderContext) -> AssetRect:

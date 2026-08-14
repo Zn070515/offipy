@@ -52,6 +52,11 @@ class _DeclarationExtractor(HTMLParser):
         self._slide_depth = 0
         self._ordinals: dict[int, int] = {}
 
+    @property
+    def insertions(self) -> list[tuple[int, str]]:
+        """按位置插入的重写片段（供宿主重写 HTML）；公开访问避免越界私属性。"""
+        return self._insertions
+
     def _abs_pos(self) -> int:
         lineno, offset = self.getpos()
         return self._line_starts[lineno - 1] + offset
@@ -201,7 +206,7 @@ class _InjectedExtractor(HTMLParser):
                 declaration_id=declaration_id,
                 slide_index=self._slide_opened,
                 request=request,
-                placement=cast(AssetPlacement, placement),
+                placement=cast("AssetPlacement", placement),
                 html_tag=tag,
             )
         )
@@ -237,10 +242,10 @@ def preprocess_asset_declarations(html_text: str) -> tuple[str, list[AssetDeclar
     extractor = _DeclarationExtractor(html_text)
     extractor.feed(html_text)
     extractor.close()
-    if not extractor._insertions:
+    if not extractor.insertions:
         return html_text, extractor.declarations
     out = html_text
-    for pos, s in sorted(extractor._insertions, key=lambda t: t[0], reverse=True):
+    for pos, s in sorted(extractor.insertions, key=lambda t: t[0], reverse=True):
         out = out[:pos] + s + out[pos:]
     return out, extractor.declarations
 

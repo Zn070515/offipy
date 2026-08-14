@@ -116,22 +116,18 @@ def _build_tool(app: str, op: str) -> None:
     # op 暴露；follow_active（显式跟随活动文档）额外放行只读 op（accepts_follow_active）。
     # 随 args 透传给 server dispatch。
     if schema.supports_expected_target(app, op):
-        params = params + [
+        params = [
+            *params,
             inspect.Parameter(
-                "expected_target",
-                inspect.Parameter.KEYWORD_ONLY,
-                annotation=dict,
-                default=None,
+                "expected_target", inspect.Parameter.KEYWORD_ONLY, annotation=dict, default=None
             ),
         ]
         defaults["expected_target"] = None
     if schema.supports_follow_active(app, op):
-        params = params + [
+        params = [
+            *params,
             inspect.Parameter(
-                "follow_active",
-                inspect.Parameter.KEYWORD_ONLY,
-                annotation=bool,
-                default=False,
+                "follow_active", inspect.Parameter.KEYWORD_ONLY, annotation=bool, default=False
             ),
         ]
         defaults["follow_active"] = False
@@ -151,7 +147,7 @@ def _build_tool(app: str, op: str) -> None:
         rid = getattr(ctx, "request_id", None) if ctx is not None else None
         return _invoke(app, op, request_id=rid, **args)
 
-    fn = cast(Any, tool_fn)
+    fn = cast("Any", tool_fn)
     fn.__name__ = fn_name
     fn.__qualname__ = fn_name
     fn.__doc__ = spec.description

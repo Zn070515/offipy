@@ -486,7 +486,7 @@ def test_main_coerces_before_call(monkeypatch):
 
     def fake_call(app, op, **kw):
         captured.update(kw)
-        return None
+        return
 
     monkeypatch.setattr("offipy.cli.call", fake_call)
     # add_slide 是破坏性 op：必须带目标（doc_id/expected-target/follow-active）
@@ -543,7 +543,7 @@ def test_required_payload_keys_count_as_provided(monkeypatch):
 
     def fake_call(app, op, **kw):
         captured.update(kw)
-        return None
+        return
 
     monkeypatch.setattr("offipy.cli.call", fake_call)
     # set_cell 是破坏性 op：payload 之外补 --follow-active 满足目标要求
@@ -675,7 +675,7 @@ def test_main_expected_target_passed_through(monkeypatch):
 
     def fake_call(app, op, **kw):
         captured.update(kw)
-        return None
+        return
 
     monkeypatch.setattr("offipy.cli.call", fake_call)
     cli.main(
@@ -1207,7 +1207,7 @@ def test_ppt_add_picture_missing_file_exits_2(monkeypatch, capsys):
 # --- S5 Task 5：跨命令冒烟矩阵（冻结退出码策略 + 无 traceback） ---
 
 _CLI_SMOKE_MATRIX = [
-    # (args, exc_cls, msg, exit_code, snippets, absent)
+    # 元组格式：args, exc_cls, msg, exit_code, snippets, absent
     # word —— 运行前非法输入（缺源文件）→ 2
     (
         ["word", "open_doc", "--path", "C:\\nope.docx"],
@@ -1313,7 +1313,7 @@ _CLI_SMOKE_IDS = [f"{row[0][1]}::{row[0][2]}" for row in _CLI_SMOKE_MATRIX]
 
 
 @pytest.mark.parametrize(
-    "args,exc_cls,msg,code,snippets,absent",
+    ("args", "exc_cls", "msg", "code", "snippets", "absent"),
     _CLI_SMOKE_MATRIX,
     ids=_CLI_SMOKE_IDS,
 )

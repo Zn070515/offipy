@@ -38,7 +38,7 @@ def test_append_creates_dir(tmp_path):
 
 def test_weights_default_when_no_records(tmp_path):
     w = dimension_weights(tmp_path)
-    assert w == {d: 1.0 for d in feedback.ALL_DIMENSIONS}
+    assert w == dict.fromkeys(feedback.ALL_DIMENSIONS, 1.0)
 
 
 def test_weights_missing_file_ok(tmp_path):

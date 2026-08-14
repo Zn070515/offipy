@@ -193,9 +193,9 @@ def test_process_arrow_steps_min_max() -> None:
     assert dict(payload.params)["steps"] == "a,b"
     payload = _resolve("process-arrow", (("steps", "a,b,c,d,e,f,g,h"),))
     assert len(dict(payload.params)["steps"].split(",")) == 8
-    with pytest.raises(InvalidArgumentError, match="2..8"):
+    with pytest.raises(InvalidArgumentError, match=r"2..8"):
         _resolve("process-arrow", (("steps", "a"),))
-    with pytest.raises(InvalidArgumentError, match="2..8"):
+    with pytest.raises(InvalidArgumentError, match=r"2..8"):
         _resolve("process-arrow", (("steps", "a,b,c,d,e,f,g,h,i"),))
 
 
@@ -275,7 +275,7 @@ def test_unknown_param_rejected(name: str) -> None:
 
 @pytest.mark.parametrize("forbidden", ["screenshot", "src", "image"])
 def test_forbidden_params_explicit_v014(forbidden: str) -> None:
-    with pytest.raises(InvalidArgumentError, match="not supported in v0.14"):
+    with pytest.raises(InvalidArgumentError, match=r"not supported in v0.14"):
         _resolve("browser-mockup", ((forbidden, "x"),))
 
 

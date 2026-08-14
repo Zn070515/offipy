@@ -9,8 +9,8 @@ rev2.1：
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from offipy.audit import Severity
 
@@ -23,7 +23,11 @@ from .models import (
     DimensionAssessment,
     Grade,
 )
-from .profiles import ArtProfile
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from .profiles import ArtProfile
 
 _SEVERITY_WEIGHT = {Severity.LOW: 0.5, Severity.MID: 1.5, Severity.HIGH: 3.0}
 # 契约：finding_confidence < 0.35 不驱动降级（低置信发现不进 penalty 求和）
@@ -205,8 +209,10 @@ def assess_dimension(
         ):
             reliability_terms.append(ev.reliability)
             reliability_weights.append(ev.covered_count)
-        for f in ev.findings:
-            findings.append(apply_profile_to_finding(f, ctx.profile, experimental=rs.experimental))
+        findings.extend(
+            apply_profile_to_finding(f, ctx.profile, experimental=rs.experimental)
+            for f in ev.findings
+        )
     coverage = (covered / eligible) if eligible else 0.0
     if coverage < _COVERAGE_MIN:
         # 证据不足 → 不误报：丢弃低置信 finding，只保留 coverage 状态与 warnings

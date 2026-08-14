@@ -41,10 +41,9 @@ def test_exception_subclass_of_offipy(exc):
 
 @pytest.mark.parametrize("exc", _ALL)
 def test_exception_catchable_as_base(exc):
-    try:
+    with pytest.raises(OffipyError) as ei:
         raise exc("boom")
-    except OffipyError as e:
-        assert str(e) == "boom"
+    assert str(ei.value) == "boom"
 
 
 # --- 策略 A：领域异常带 code，RPC error_code 与异常一一对应（P1-4） ---

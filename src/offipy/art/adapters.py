@@ -324,7 +324,7 @@ def _sha256_file(path: str | Path) -> str:
     import hashlib
 
     h = hashlib.sha256()
-    with open(path, "rb") as f:
+    with Path(path).open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()

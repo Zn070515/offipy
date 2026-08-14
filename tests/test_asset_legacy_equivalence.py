@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from io import BytesIO
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE
@@ -37,6 +37,9 @@ from pptx.util import Emu
 from offipy.assets.declarations import preprocess_asset_declarations
 from offipy.assets.render import PLACEHOLDER_PREFIX, postprocess_assets
 from offipy.icons import postprocess_icons
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _PX_TO_EMU = 6350
 
@@ -93,7 +96,7 @@ def _source_html(specs: list[_SlideSpec], theme_style: str | None = None) -> str
 
 
 def _to_emu(v: float) -> int:
-    return int(round(v * _PX_TO_EMU))
+    return round(v * _PX_TO_EMU)
 
 
 def _add_content_shape(slide, s: dict) -> None:

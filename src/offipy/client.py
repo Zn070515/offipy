@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -401,7 +402,7 @@ def ensure_server():
     popen_kwargs = {}
     if hasattr(subprocess, "CREATE_NO_WINDOW"):
         popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
-    with open(logpath, "a", encoding="utf-8") as logfile:
+    with pathlib.Path(logpath).open("a", encoding="utf-8") as logfile:
         subprocess.Popen(
             [sys.executable, "-m", SERVER_MOD, "--port", str(port())],
             stdout=logfile,
@@ -456,12 +457,12 @@ def request(
         ensure_server()
     for k in _PATH_KEYS:
         if k in args and isinstance(args[k], str):
-            args[k] = os.path.abspath(args[k])
+            args[k] = str(pathlib.Path(args[k]).resolve())
     # P1-2：expected_target.path 与其它路径参数一致，按调用方 CWD 绝对化——
     # server 的 path 规范化比较基于 abspath，相对写法在跨 CWD 时语义漂移。
     et = args.get("expected_target")
     if isinstance(et, dict) and isinstance(et.get("path"), str):
-        args["expected_target"] = {**et, "path": os.path.abspath(et["path"])}
+        args["expected_target"] = {**et, "path": str(pathlib.Path(et["path"]).resolve())}
     if request_id is None:
         request_id = str(uuid.uuid4())
     # request_id 幂等标识（§4/方案 A）：client 重试带同一 id，server 命中缓存

@@ -13,13 +13,17 @@ convert.py 转换照常跑（图表区渲染成占位形状）；转换后读 co
 from __future__ import annotations
 
 import json
+import pathlib
 import re
-from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from typing import TYPE_CHECKING
 
 from .design import THEMES, Theme
 from .layouts import chart_dominant_slide_indices
+
+if TYPE_CHECKING:
+    from collections.abc import Set as AbstractSet
 
 PX_TO_EMU = 6350
 
@@ -60,7 +64,7 @@ class _Container:
 def _parse_data(json_text: str) -> ChartData:
     raw = json.loads(json_text)
     if not isinstance(raw, dict):
-        raise ValueError("图表数据必须是对象 {categories, series}")
+        raise ValueError("图表数据必须是对象 {categories, series}")  # noqa: TRY004 — JSON 数据形状错误，语义是数据校验而非参数类型契约
     categories = raw.get("categories")
     series_raw = raw.get("series")
     if (
@@ -74,7 +78,7 @@ def _parse_data(json_text: str) -> ChartData:
     series: list[ChartSeries] = []
     for sr in series_raw:
         if not isinstance(sr, dict):
-            raise ValueError("图表数据 series 每项必须是对象 {name, values}")
+            raise ValueError("图表数据 series 每项必须是对象 {name, values}")  # noqa: TRY004 — JSON 数据形状错误，语义是数据校验而非参数类型契约
         name = sr.get("name", "")
         values = sr.get("values")
         if (
@@ -361,7 +365,7 @@ def load_chart_boxes(measurements_path: str) -> dict[int, dict]:
     """
     import json as _json
 
-    with open(measurements_path, encoding="utf-8") as f:
+    with pathlib.Path(measurements_path).open(encoding="utf-8") as f:
         data = _json.load(f)
     boxes: dict[int, dict] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
@@ -473,9 +477,8 @@ def postprocess_charts(html_path: str, pptx_path: str) -> None:
     无图表声明 → 原样返回。measurements.json 缺失（--no-visual-audit）→ RuntimeError，
     让调用方知道图表不会变成原生。图表声明/数据非法 → ValueError（从 parse 上抛）。
     """
-    import os
 
-    with open(html_path, encoding="utf-8") as f:
+    with pathlib.Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     if "data-chart" not in html_text:
         return
@@ -483,7 +486,7 @@ def postprocess_charts(html_path: str, pptx_path: str) -> None:
     if not decls:
         return
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not pathlib.Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——图表注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

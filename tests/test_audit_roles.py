@@ -152,7 +152,7 @@ def test_single_shape_not_repeated_stays_unknown(tmp_path):
     prs = _repeated_pages(3, lambda s: None)
     prs.slides[0].shapes.add_shape(1, Inches(0.1), Inches(0.1), Inches(0.5), Inches(0.5))
     records = _extract(prs, tmp_path)
-    lonely = [r for r in records if r.shape_type == "AUTO_SHAPE"][0]
+    lonely = next(r for r in records if r.shape_type == "AUTO_SHAPE")
     assert lonely.role == "unknown"
 
 

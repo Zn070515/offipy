@@ -20,20 +20,20 @@ from pathlib import Path
 from .aesthetic import ALL_DIMENSIONS, CONSISTENCY, CONTRAST, PALETTE, TYPE_SCALE, WHITESPACE
 
 __all__ = [
-    "FeedbackRecord",
+    "ALL_DIMENSIONS",
+    "CONSISTENCY",
+    "CONTRAST",
     "DEFAULT_DIR",
     "FEEDBACK_FILE",
-    "VALID_ACTIONS",
-    "ALL_DIMENSIONS",
     "PALETTE",
-    "WHITESPACE",
     "TYPE_SCALE",
-    "CONTRAST",
-    "CONSISTENCY",
-    "record_file",
+    "VALID_ACTIONS",
+    "WHITESPACE",
+    "FeedbackRecord",
     "append",
-    "load_records",
     "dimension_weights",
+    "load_records",
+    "record_file",
 ]
 
 # 记录文件默认位置：~/.offipy/feedback.jsonl
@@ -154,7 +154,7 @@ def dimension_weights(
     base = (
         {d: float(base.get(d, 1.0)) for d in ALL_DIMENSIONS}
         if base
-        else {d: 1.0 for d in ALL_DIMENSIONS}
+        else dict.fromkeys(ALL_DIMENSIONS, 1.0)
     )
     for rec in load_records(feedback_dir):
         if rec.action == "fixed":

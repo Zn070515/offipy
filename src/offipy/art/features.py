@@ -6,9 +6,12 @@ visual_mass 的 dominant 取 ink 贡献最大者。
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from .models import ArtColor, ArtElement, ArtSlide
+if TYPE_CHECKING:
+    from .models import ArtColor, ArtElement, ArtSlide
 
 _SKIP_ROLES = {
     "background",
@@ -85,7 +88,7 @@ def _gaps(elements: list[ArtElement], axis: str) -> list[float]:
 
     ordered = sorted(elements, key=center)
     out: list[float] = []
-    for cur, nxt in zip(ordered, ordered[1:], strict=False):
+    for cur, nxt in itertools.pairwise(ordered):
         span = center(nxt) - center(cur)
         gap = span - half(cur) - half(nxt)
         out.append(round(max(gap, 0.0), 6))
@@ -202,7 +205,7 @@ def _union_area(elements: list[ArtElement]) -> float:
     if len(xs) < 2:
         return 0.0
     total = 0.0
-    for x0, x1 in zip(xs, xs[1:], strict=False):
+    for x0, x1 in itertools.pairwise(xs):
         if x1 - x0 <= 0:
             continue
         # 覆盖该 x 段的元素，收集其 y 区间

@@ -195,7 +195,7 @@ def test_save_tools_pass_overwrite_to_call(monkeypatch):
 
     def fake_call(app, op, request_id=None, **kw):
         captured[op] = kw
-        return None
+        return
 
     monkeypatch.setattr(mcp_server, "_call", fake_call)
     mcp_server.ppt_save(path="a.pptx", overwrite=True)
@@ -215,7 +215,7 @@ def test_tool_fn_passes_ctx_request_id(monkeypatch):
 
     def fake_call(app, op, request_id=None, **kw):
         captured["request_id"] = request_id
-        return None
+        return
 
     monkeypatch.setattr(mcp_server, "_call", fake_call)
 

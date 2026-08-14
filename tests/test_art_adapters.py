@@ -28,7 +28,7 @@ def test_measurement_adapter_real_fixture():
     assert abs(title.width - 1152.0 / 1920.0) < 1e-6
     # style.color → foreground
     assert title.foreground == ArtColor(30, 30, 30)
-    # font_size_norm = 52/1080
+    # font_size_norm 期望值 52/1080
     assert abs(title.font_size_norm - 52.0 / 1080.0) < 1e-9
     # canvas（有 naturalSize 的 div）→ image，自然尺寸带过来
     canvas = slide.elements[2]

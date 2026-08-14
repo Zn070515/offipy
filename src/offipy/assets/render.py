@@ -13,9 +13,9 @@ import contextlib
 import json
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from offipy.assets.declarations import (
     AssetDeclaration,
@@ -36,6 +36,9 @@ from offipy.assets.registry import get_default_registry
 from offipy.assets.uri import format_asset_uri
 from offipy.exceptions import InvalidArgumentError
 from offipy.icons import _measurements_path
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 PLACEHOLDER_PREFIX = "OFFIPY_ASSET::"
 
@@ -249,7 +252,7 @@ def _render_raster_picture(slide, rect: AssetRect, payload: RasterPayload):
 
     from pptx.util import Emu
 
-    x, y, w, h = (int(round(v * _PX_TO_EMU)) for v in (rect.x, rect.y, rect.width, rect.height))
+    x, y, w, h = (round(v * _PX_TO_EMU) for v in (rect.x, rect.y, rect.width, rect.height))
     return slide.shapes.add_picture(BytesIO(payload.data), Emu(x), Emu(y), Emu(w), Emu(h))
 
 
@@ -287,7 +290,7 @@ def _render_svg_picture(slide, rect: AssetRect, svg_text: str, png_bytes: bytes 
     svg_ext_uri = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}"
 
     etree.register_namespace("asvg", asvg)
-    x, y, w, h = (int(round(v * _PX_TO_EMU)) for v in (rect.x, rect.y, rect.width, rect.height))
+    x, y, w, h = (round(v * _PX_TO_EMU) for v in (rect.x, rect.y, rect.width, rect.height))
 
     sp_tree = slide.shapes._spTree
     pic = etree.SubElement(sp_tree, f"{{{p}}}pic")
@@ -334,8 +337,8 @@ def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
     if not all(math.isfinite(v) for v in (vx, vy, vw, vh)) or vw <= 0 or vh <= 0:
         return None
     clip_x, clip_y = max(0.0, vx), max(0.0, vy)
-    width = min(max(1, int(math.ceil(clip_x + vw))), _MAX_SVG_DIM)
-    height = min(max(1, int(math.ceil(clip_y + vh))), _MAX_SVG_DIM)
+    width = min(max(1, math.ceil(clip_x + vw)), _MAX_SVG_DIM)
+    height = min(max(1, math.ceil(clip_y + vh)), _MAX_SVG_DIM)
     page.set_viewport_size({"width": width, "height": height})
     page.set_content(
         "<html><head><style>html,body{margin:0;padding:0}"
@@ -480,9 +483,8 @@ def postprocess_assets(html_path: str, pptx_path: str) -> AssetUsageReport:
     RuntimeError（deck._postprocess 统一映射为 ConversionError）。打开/保存 PPTX
     各一次，绝不逐资产重复。
     """
-    import os
 
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     if "data-offipy-asset-id" not in html_text:
         return AssetUsageReport(())
@@ -490,7 +492,7 @@ def postprocess_assets(html_path: str, pptx_path: str) -> AssetUsageReport:
     if not decls:
         return AssetUsageReport(())
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——asset 注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

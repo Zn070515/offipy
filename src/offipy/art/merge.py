@@ -122,8 +122,7 @@ def merge_scenes(primary: ArtScene, secondary: ArtScene) -> tuple[ArtScene, list
                     message=f"secondary 缺 slide {ps.index}",
                 )
             )
-            for el in ps.elements:
-                elements.append(_merge_element(el, None, None))
+            elements.extend(_merge_element(el, None, None) for el in ps.elements)
             out_slides.append(
                 ArtSlide(
                     index=ps.index,

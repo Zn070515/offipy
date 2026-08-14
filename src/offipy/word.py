@@ -4,6 +4,7 @@
 """
 
 import os
+import pathlib
 import secrets
 from contextlib import contextmanager, suppress
 from typing import Any, Literal, TypeVar
@@ -289,10 +290,10 @@ class WordApp:
 
     def open_doc(self, path: str) -> str:
         """打开现有文档并设为活动。返回 doc_id。"""
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         # H6：COM Open 按自身工作目录（通常 System32）解析相对路径 → 先规范为绝对路径
-        return self._register(self.app.Documents.Open(os.path.abspath(path)))
+        return self._register(self.app.Documents.Open(pathlib.Path(path).resolve()))
 
     def active_doc(self, doc_id: str | None = None):
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
@@ -755,16 +756,16 @@ class WordApp:
             # 合并单元格后 Columns(col) 本身就被拒访（「表格有混合的单元格宽度」），
             # 连 Columns(col).Cells 也一样。彻底绕开列对象：逐行取 table.Cell(r, col)，
             # 每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
-            for r in range(1, table.Rows.Count + 1):
-                try:
+            try:
+                for r in range(1, table.Rows.Count + 1):
                     table.Cell(r, col).Width = width
-                except _COM_ERROR:
-                    # 目标列落在合并区域内（Cell(r, col) 不独立存在），无法独立设宽——
-                    # 语义化转义，而非漏原始 COM 消息。
-                    raise ComOperationError(
-                        f"set_table_col_width: 目标列 {col} 在第 {r} 行被合并区域覆盖，"
-                        "无法独立设宽；请对合并后的整体单元格设宽或先拆分合并"
-                    ) from None
+            except _COM_ERROR as e:
+                # 目标列落在合并区域内（Cell(r, col) 不独立存在），无法独立设宽——
+                # 语义化转义，而非漏原始 COM 消息。
+                raise ComOperationError(
+                    f"set_table_col_width: 目标列 {col} 被合并区域覆盖，无法独立设宽；"
+                    "请对合并后的整体单元格设宽或先拆分合并"
+                ) from e
 
     @destructive
     def set_table_row_height(
@@ -814,11 +815,11 @@ class WordApp:
         height: float | None = None,
         doc_id: str | None = None,
     ):
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         doc = self._require_doc(doc_id)
         shape = doc.InlineShapes.AddPicture(
-            os.path.normpath(os.path.abspath(path)), Range=_end_range(doc)
+            os.path.normpath(pathlib.Path(path).resolve()), Range=_end_range(doc)
         )
         if width is not None:
             shape.Width = width
@@ -861,7 +862,7 @@ class WordApp:
             self.app.DisplayAlerts = WD_ALERTS_NONE
             pid = core.app_process_pid(self.app, "word") or self._pid
             self.app.Quit()
-        except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
+        except Exception as e:
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Word 失败: {e}") from e

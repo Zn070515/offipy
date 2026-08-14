@@ -114,7 +114,7 @@ def _reload(pptx_path):
 
 class TestPostprocessAssets:
     def test_renders_all_declarations_and_reports_in_order(self, tmp_path):
-        html, decls, pptx = _fixture(tmp_path, HTML_TWO)
+        html, _decls, pptx = _fixture(tmp_path, HTML_TWO)
         report = postprocess_assets(html, pptx)
         assert isinstance(report, AssetUsageReport)
         assert len(report.records) == 2
@@ -160,7 +160,7 @@ class TestPostprocessAssets:
             sp.name = f"OFFIPY_ASSET::{d.declaration_id}"
         pptx = tmp_path / "t.pptx"
         prs.save(pptx)
-        with pytest.raises(RuntimeError, match="measurements.json"):
+        with pytest.raises(RuntimeError, match=r"measurements.json"):
             postprocess_assets(html, str(pptx))
 
     def test_nonpositive_rect_raises_invalid_argument(self, tmp_path):

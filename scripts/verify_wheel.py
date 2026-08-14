@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import re
 import zipfile
@@ -34,7 +33,7 @@ def _find_wheel(explicit: str | None) -> Path:
         if not p.exists():
             raise SystemExit(f"找不到 wheel: {p}")
         return p
-    wheels = sorted(glob.glob(str(ROOT / "dist" / "offipy-*.whl")))
+    wheels = sorted((ROOT / "dist").glob("offipy-*.whl"))
     if not wheels:
         raise SystemExit("dist/ 里没有 wheel，先跑 uv build")
     return Path(wheels[-1])

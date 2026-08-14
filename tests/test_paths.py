@@ -2,6 +2,7 @@
 
 import sys
 from datetime import datetime as _real_datetime
+from datetime import timezone
 from pathlib import Path
 
 import pytest
@@ -49,8 +50,8 @@ class _FixedDatetime:
     """钉住 default_save_path 的时间戳，让断言确定。"""
 
     @classmethod
-    def now(cls):
-        return _real_datetime(2026, 8, 5, 9, 15, 30)
+    def now(cls, tz=None):
+        return _real_datetime(2026, 8, 5, 9, 15, 30, tzinfo=timezone.utc)
 
 
 def test_default_save_path_sanitizes_name_and_stamps(monkeypatch, tmp_path):
@@ -85,9 +86,9 @@ class _AdvancingDatetime:
     _counter = 0
 
     @classmethod
-    def now(cls):
+    def now(cls, tz=None):
         cls._counter += 1
-        return _real_datetime(2026, 8, 5, 9, 15, 30, cls._counter)
+        return _real_datetime(2026, 8, 5, 9, 15, 30, cls._counter, tzinfo=timezone.utc)
 
 
 def test_default_save_path_no_collision_same_second(monkeypatch, tmp_path):

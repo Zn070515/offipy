@@ -40,7 +40,7 @@ def _guarded(fn):
         except _COM_ERROR as e:
             raise ComOperationError(str(e), hresult=getattr(e, "hresult", None), cause=e) from e
 
-    wrapper._offipy_guarded = True
+    wrapper._offipy_guarded = True  # noqa: SLF001 — 下划线标记是刻意的：避免与真实属性碰撞，仅本模块守卫读取
     return wrapper
 
 
@@ -52,16 +52,25 @@ SAVE_RETRY_ATTEMPTS = 5
 SAVE_RETRY_DELAY = 0.2
 
 
+def _save_attempt(save_call) -> Exception | None:
+    """单次保存尝试：成功返回 None；_COM_ERROR 睡短延迟后返回异常供重试。"""
+    try:
+        save_call()
+    except _COM_ERROR as e:
+        time.sleep(SAVE_RETRY_DELAY)
+        return e
+    else:
+        return None
+
+
 def save_with_lock_retry(save_call, *, what: str) -> None:
     """执行带锁感知短重试的保存调用；超时给可读错误，绝不透传裸 COM 失败。"""
     last: Exception | None = None
     for _ in range(SAVE_RETRY_ATTEMPTS):
-        try:
-            save_call()
+        err = _save_attempt(save_call)
+        if err is None:
             return
-        except _COM_ERROR as e:
-            last = e
-            time.sleep(SAVE_RETRY_DELAY)
+        last = err
     raise ComOperationError(
         f"{what}失败: 目标文件可能被其他进程占用（如残留的 Office 进程持有文件锁）。"
         f"请关闭占用该文件的 Office 进程后重试。原因: {last}"

@@ -26,7 +26,6 @@
 import argparse
 import inspect
 import json
-import os
 import re
 import sys
 import tempfile
@@ -184,7 +183,7 @@ class _BoolAction(argparse.Action):
         kwargs.setdefault("default", False)
         super().__init__(option_strings, dest, **kwargs)
 
-    def __call__(self, parser, namespace, values, option_string=None):
+    def __call__(self, _parser, namespace, values, _option_string=None):
         if values is None:
             setattr(namespace, self.dest, True)
             return
@@ -557,7 +556,7 @@ def _main(argv=None):
             )
             return 2
         mcp_main()
-        return
+        return None
     if args.app == "check":
         from .envcheck import main as check_main
 
@@ -568,7 +567,7 @@ def _main(argv=None):
         ensure_server()
         call(args.target, "quit", force=args.force)
         print("quit ok")
-        return
+        return None
     if args.app == "server":
         if args.action == "status":
             # 只读探测（P0-3）：未运行不拉起，直接报状态
@@ -583,7 +582,7 @@ def _main(argv=None):
             print(stop_server())
             ensure_server()
             print("server 已重启")
-        return
+        return None
     if args.app == "log":
         from . import oplog
 
@@ -591,10 +590,10 @@ def _main(argv=None):
         entries = oplog.read(tail=args.tail)
         if not entries:
             print("（暂无操作日志）")
-            return
+            return None
         for e in entries:
             print(json.dumps(e, ensure_ascii=False))
-        return
+        return None
     if args.app == "deck":
         if args.action == "make":
             if args.source:
@@ -631,7 +630,7 @@ def _main(argv=None):
                     "[--theme <name>] [--out <deck.html>]"
                 )
             try:
-                with open(md_path, encoding="utf-8") as f:
+                with Path(md_path).open(encoding="utf-8") as f:
                     outline = parse_outline(f.read())
             except FileNotFoundError:
                 _usage_exit(f"找不到文件: {md_path}")
@@ -640,16 +639,16 @@ def _main(argv=None):
             html = to_deck_html(outline, theme=args.theme)
             if args.out:
                 try:
-                    with open(args.out, "w", encoding="utf-8") as f:
+                    with Path(args.out).open("w", encoding="utf-8") as f:
                         f.write(html)
                 except OSError as e:
                     _usage_exit(f"无法写入输出文件: {args.out}: {e}")
-                print(json.dumps({"html": os.path.abspath(args.out)}, ensure_ascii=False))
+                print(json.dumps({"html": str(Path(args.out).resolve())}, ensure_ascii=False))
             else:
                 print(outline.to_json())
         else:  # audit
             return _deck_audit(args)
-        return
+        return None
     kw = _parse_kwargs(args.kwargs)
     _validate_kwargs(args.app, args.op, kw)
     _validate_required(args.app, args.op, kw)
@@ -658,6 +657,7 @@ def _main(argv=None):
     result = call(args.app, args.op, **kw)
     if result is not None:
         print(json.dumps(result, ensure_ascii=False))
+    return None
 
 
 def main(argv=None):
@@ -725,7 +725,7 @@ def _write_audit_report(path: str, report) -> None:
         text = render_html(report)
     else:
         text = render_text(report)
-    with open(path, "w", encoding="utf-8") as f:
+    with Path(path).open("w", encoding="utf-8") as f:
         f.write(text)
     print(f"offipy: 审计报告已写入 {path}")
 
@@ -808,7 +808,7 @@ def _deck_audit(args) -> int | None:
             with tempfile.TemporaryDirectory(prefix="offipy-deck-audit-") as td:
                 result = render_with_quality_report(
                     args.source,
-                    out=os.path.join(td, "audit.pptx"),
+                    out=str(Path(td) / "audit.pptx"),
                     theme=args.theme,
                     apply_layouts=args.layouts,
                     overwrite=True,
@@ -935,7 +935,7 @@ def _audit_main(args) -> int:
         out_path = str(p.with_name(p.stem + ".audit.html"))
     text = _audit_render(report, args)
     if out_path:
-        with open(out_path, "w", encoding="utf-8") as f:
+        with Path(out_path).open("w", encoding="utf-8") as f:
             f.write(text)
         print(f"offipy: 报告已写入 {out_path}")
     else:

@@ -134,7 +134,7 @@ def test_set_notes_auto_adds_textbox_when_missing():
 
 
 @pytest.mark.parametrize(
-    "method, args",
+    ("method", "args"),
     [
         ("set_title", (1, "")),
         ("set_title", (1, None)),

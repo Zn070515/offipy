@@ -8,7 +8,7 @@
 
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .exceptions import FileConflictError, InvalidArgumentError, OffipyError
@@ -59,13 +59,12 @@ def ensure_writable(path: str, overwrite: bool = False) -> str:
     InvalidArgumentError（CLI 边界转 exit 2）。父目录为空串（裸文件名，
     用 CWD）时跳过检查。
     """
-    abs_path = os.path.abspath(path)
-    parent = os.path.dirname(abs_path)
-    if parent and not os.path.isdir(parent):
-        raise InvalidArgumentError(f"输出目录不存在: {parent}")
-    if not overwrite and os.path.exists(abs_path):
+    abs_path = Path(path).resolve()
+    if abs_path.parent and not abs_path.parent.is_dir():
+        raise InvalidArgumentError(f"输出目录不存在: {abs_path.parent}")
+    if not overwrite and abs_path.exists():
         raise FileConflictError(f"目标文件已存在: {abs_path}（如确要覆盖请传 overwrite=True）")
-    return abs_path
+    return str(abs_path)
 
 
 def default_save_path(doc_name: str, ext: str) -> str:
@@ -86,7 +85,7 @@ def default_save_path(doc_name: str, ext: str) -> str:
         dest_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         raise OffipyError(f"无法创建默认保存目录 {dest_dir}: {e}") from e
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     candidate = dest_dir / f"{safe}_{stamp}{ext}"
     for n in range(1, 100):
         if not candidate.exists():

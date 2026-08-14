@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
-from offipy.audit import Severity
+if TYPE_CHECKING:
+    from offipy.audit import Severity
 
 ART_SCHEMA_VERSION = "0.2"
 ART_REPORT_SCHEMA_VERSION = "0.3"
@@ -236,8 +237,8 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
             ],
             natural_width=float(data["natural_width"]) if data.get("natural_width") else None,
             natural_height=float(data["natural_height"]) if data.get("natural_height") else None,
-            container=bool(data.get("container", False)),
-            decoration=bool(data.get("decoration", False)),
+            container=bool(data.get("container")),
+            decoration=bool(data.get("decoration")),
             pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
         )
     return ArtElement(
@@ -252,7 +253,7 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
         foreground=_color_from(fg),
         background=_color_from(bg),
         border=_color_from(data.get("border")),
-        is_background=bool(data.get("is_background", False)),
+        is_background=bool(data.get("is_background")),
         text=data.get("text", ""),
         font_size=float(data["font_size"]) if data.get("font_size") else None,
         font_size_unit=data.get("font_size_unit", "unknown"),
@@ -269,8 +270,8 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
         ],
         natural_width=float(data["natural_width"]) if data.get("natural_width") else None,
         natural_height=float(data["natural_height"]) if data.get("natural_height") else None,
-        container=bool(data.get("container", False)),
-        decoration=bool(data.get("decoration", False)),
+        container=bool(data.get("container")),
+        decoration=bool(data.get("decoration")),
         pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
     )
 

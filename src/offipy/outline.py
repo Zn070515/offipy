@@ -100,10 +100,8 @@ class DeckOutline:
             lines.append(f"## {s.title}{layout}")
             if s.kicker:
                 lines.append(f"@kicker: {s.kicker}")
-            for b in s.body:
-                lines.append(b)
-            for b in s.bullets:
-                lines.append(f"- {b}")
+            lines.extend(s.body)
+            lines.extend(f"- {b}" for b in s.bullets)
             if s.chart_type or s.chart_data:
                 if s.chart_type:
                     lines.append(f"@chart: {s.chart_type}")
@@ -278,8 +276,7 @@ def _slide_section(s: SlideContent) -> str:
         row = "\n".join(items)
         parts.append(f'  <div class="icon-row">\n{row}\n  </div>')
     else:
-        for b in s.body:
-            parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
+        parts.extend(f'  <div class="col"><p>{_esc(b)}</p></div>' for b in s.body)
         if s.bullets:
             cards = "\n".join(
                 f'    <div class="card"><div class="txt">{_esc(b)}</div></div>' for b in s.bullets

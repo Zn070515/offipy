@@ -217,7 +217,6 @@ def _make():
     cap.text_frame.text = "图片说明"
 
     prs.save(OUT)
-    print(f"written {OUT} ({OUT.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

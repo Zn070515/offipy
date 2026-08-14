@@ -4,7 +4,7 @@ COM 服务的 Open 按自身工作目录（通常 System32）解析相对路径�
 开错文件或报错。与 ppt.open_pres 对齐，先 os.path.abspath。
 """
 
-import os
+import pathlib
 from types import SimpleNamespace
 
 from offipy import excel, word
@@ -18,7 +18,7 @@ def test_open_book_passes_abspath_to_com(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "book.xlsx").write_bytes(b"x")
     assert app.open_book("book.xlsx") == "book1"
-    assert opened == [os.path.abspath("book.xlsx")]
+    assert opened == [pathlib.Path("book.xlsx").resolve()]
 
 
 def test_open_doc_passes_abspath_to_com(monkeypatch, tmp_path):
@@ -29,4 +29,4 @@ def test_open_doc_passes_abspath_to_com(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "doc.docx").write_bytes(b"x")
     assert app.open_doc("doc.docx") == "doc1"
-    assert opened == [os.path.abspath("doc.docx")]
+    assert opened == [pathlib.Path("doc.docx").resolve()]

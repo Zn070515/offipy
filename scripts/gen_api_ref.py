@@ -48,7 +48,7 @@ def _flags(spec: schema.OpSpec) -> list[str]:
     return out
 
 
-def _render_op(app: str, op: str, spec: schema.OpSpec) -> str:
+def _render_op(_app: str, op: str, spec: schema.OpSpec) -> str:
     lines = [
         f"### `{op}`",
         "",
@@ -425,7 +425,7 @@ _EN_DESC: dict[tuple[str, str], str] = {
 
 def _en_desc(app: str, op: str) -> str:
     try:
-        return _EN_DESC[(app, op)]
+        return _EN_DESC[app, op]
     except KeyError:
         missing = [f"{a}.{o}" for a in APP_NAMES for o in schema.ops(a) if (a, o) not in _EN_DESC]
         raise ValueError(f"缺少英文描述: {missing}") from None

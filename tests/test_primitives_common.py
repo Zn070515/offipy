@@ -42,13 +42,13 @@ _THEME = {
 
 
 def _ctx(**overrides) -> AssetRenderContext:
-    kwargs = dict(
-        slide_index=1,
-        rect=AssetRect(x=0, y=0, width=400, height=200),
-        theme_name="mckinsey",
-        theme_vars=dict(_THEME),
-        placement="replace",
-    )
+    kwargs = {
+        "slide_index": 1,
+        "rect": AssetRect(x=0, y=0, width=400, height=200),
+        "theme_name": "mckinsey",
+        "theme_vars": dict(_THEME),
+        "placement": "replace",
+    }
     kwargs.update(overrides)
     return AssetRenderContext(**kwargs)
 

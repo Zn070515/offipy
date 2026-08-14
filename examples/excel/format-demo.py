@@ -5,11 +5,11 @@
 （首次调用自动拉起 8890 server + Excel；产物保存到 out/excel-format-demo.xlsx）
 """
 
-import os
+import pathlib
 
 from offipy.client import call
 
-os.makedirs("out", exist_ok=True)
+pathlib.Path("out").mkdir(exist_ok=True, parents=True)
 
 call("excel", "new_book")
 
