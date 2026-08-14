@@ -15,8 +15,9 @@ import inspect
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from .exceptions import (
     ComOperationError,
@@ -25,6 +26,8 @@ from .exceptions import (
     TargetNotFoundError,
     UnsupportedPlatformError,
 )
+
+_T = TypeVar("_T")
 
 PROGIDS = {
     "word": "Word.Application",
@@ -84,7 +87,7 @@ def _progid(app: str) -> str:
     return PROGIDS[key]
 
 
-def _target_guard(fn, msg: str):
+def _target_guard(fn: Callable[..., _T], msg: str) -> Callable[..., _T]:
     """目标绑定守卫工厂（P0-3 doc_id 权威）：强制「显式 doc_id 或 follow_active=True」。
 
     destructive 与 requires_target 共用同一逻辑：doc_id 缺失且未开 follow_active
@@ -95,7 +98,7 @@ def _target_guard(fn, msg: str):
     sig = inspect.signature(fn)
 
     @functools.wraps(fn)
-    def wrapper(self, *args, follow_active=False, **kw):
+    def wrapper(self: Any, *args: Any, follow_active: bool = False, **kw: Any) -> _T:
         bound = sig.bind_partial(self, *args, **kw)
         did = bound.arguments.get("doc_id")
         if did is None:
@@ -112,17 +115,17 @@ def _target_guard(fn, msg: str):
     return wrapper
 
 
-def destructive(fn):
+def destructive(fn: Callable[..., _T]) -> Callable[..., _T]:
     """破坏性操作守卫：强制「显式 doc_id 或 follow_active=True」（改源文档）。"""
     return _target_guard(fn, "破坏性操作需要显式 doc_id 或 follow_active=True")
 
 
-def requires_target(fn):
+def requires_target(fn: Callable[..., _T]) -> Callable[..., _T]:
     """导出/写文件操作守卫：不修改源文档但写文件系统，同样强制绑定目标。"""
     return _target_guard(fn, "导出/写文件操作需要显式 doc_id 或 follow_active=True")
 
 
-def readonly_guard(fn):
+def readonly_guard(fn: Callable[..., _T]) -> Callable[..., _T]:
     """只读操作守卫：可选 follow_active（#25：只读 op 对齐破坏性语义）。
 
     只读 op 的 doc_id 缺省本就实时解析当前活动文档；follow_active=True 是显式
@@ -133,7 +136,7 @@ def readonly_guard(fn):
     sig = inspect.signature(fn)
 
     @functools.wraps(fn)
-    def wrapper(self, *args, follow_active=False, **kw):
+    def wrapper(self: Any, *args: Any, follow_active: bool = False, **kw: Any) -> _T:
         bound = sig.bind_partial(self, *args, **kw)
         did = bound.arguments.get("doc_id")
         if did is None and follow_active:
@@ -161,7 +164,7 @@ _NOT_RUNNING_HRS = {
 _CO_E_NOTINITIALIZED = -2147221008
 
 
-def connect(app: str):
+def connect(app: str) -> Any:
     """重连已运行的 Office 实例；没有存活实例时返回 None。
 
     仅「未运行 / 类未注册」两类 HRESULT 返回 None（触发 launch）；其余 COM
@@ -188,7 +191,7 @@ def connect(app: str):
         raise ComOperationError(f"无法连接 {_progid(app)}: HRESULT {fmt}", hresult=hr) from e
 
 
-def launch(app: str, visible: bool = True):
+def launch(app: str, visible: bool = True) -> Any:
     """新建 Office 实例并设置可见性，移交用户控制使其跨进程存活。
 
     用 gencache.EnsureDispatch（early binding）：COM 成员编译为稳定类，
@@ -202,7 +205,11 @@ def launch(app: str, visible: bool = True):
     return obj
 
 
-def ensure_app(app: str, visible: bool = True, modify_existing_visibility: bool = False):
+def ensure_app(
+    app: str,
+    visible: bool = True,
+    modify_existing_visibility: bool = False,
+) -> tuple[Any, bool]:
     """优先重连已运行实例，否则新建。返回 (obj, created)。
 
     连到既有实例时默认不改其可见性（P1-2：用户正在用的窗口不被抢改）；
@@ -219,7 +226,7 @@ def ensure_app(app: str, visible: bool = True, modify_existing_visibility: bool 
         return obj, False
     try:
         return launch(app, visible), True
-    except Exception as e:  # noqa: BLE001 — win32 异常种类繁多，收拢到语义化异常
+    except Exception as e:
         # #88：gen_py 类型库缓存损坏（%TEMP%\gen_py 缺 __init__.py，其中定义
         # CLSIDToClassMap，通常由中断的首次 EnsureDispatch 生成造成）时，裸 AttributeError
         # 只透出 typelib GUID，Agent 无法定位。识别特征并给「删除缓存」修复指引。
@@ -242,7 +249,7 @@ _APP_HWND_PATH = {
 }
 
 
-def app_process_pid(obj, app: str) -> int | None:
+def app_process_pid(obj: Any, app: str) -> int | None:
     """经 COM 窗口句柄反查进程 PID（只用于精确清理本库附着过的实例）。
 
     拿不到句柄（无活动窗口/断连/启动早期）→ None，调用方跳过清理——
@@ -262,9 +269,10 @@ def app_process_pid(obj, app: str) -> int | None:
         getpid.restype = ctypes.c_ulong
         pid = ctypes.c_ulong()
         getpid(ctypes.c_void_p(hwnd), ctypes.byref(pid))
-        return pid.value or None
     except Exception:
         return None
+    else:
+        return pid.value or None
 
 
 def _pid_running(pid: int) -> bool:
@@ -333,7 +341,7 @@ def running(app: str) -> bool:
     return connect(app) is not None
 
 
-def active_doc(app: str, attr: str):
+def active_doc(app: str, attr: str) -> Any:
     """会话语义（P1.2）：GetActiveObject 取实时活动文档。
 
     attr 为 ActivePresentation / ActiveWorkbook / ActiveDocument 之一。
@@ -348,7 +356,7 @@ def active_doc(app: str, attr: str):
         return None
 
 
-def doc_alive(obj) -> bool:
+def doc_alive(obj: Any) -> bool:
     """缓存文档句柄的 liveness probe：仍连着存活实例才可用。
 
     COM 不可用（非 Windows / 缺 pywin32）无法探测 → 返回 False，
@@ -360,12 +368,13 @@ def doc_alive(obj) -> bool:
         return False
     try:
         _ = obj.Application.Visible
-        return True
     except (AttributeError, com.pywintypes.com_error):
         return False
+    else:
+        return True
 
 
-def _set_visible(obj, visible: bool) -> None:
+def _set_visible(obj: Any, visible: bool) -> None:
     # 个别应用/版本不允许在启动早期设 Visible，静默忽略，
     # 窗口是否可见由 Office 自身决定。
     com = _com()
@@ -373,7 +382,7 @@ def _set_visible(obj, visible: bool) -> None:
         obj.Visible = visible
 
 
-def _set_usercontrol(obj) -> None:
+def _set_usercontrol(obj: Any) -> None:
     # UserControl=True 是关键：让 Office 应用独立于 COM 客户端存活，
     # 否则 Python 进程退出时应用会被回收，窗口随之关闭。
     com = _com()

@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import json
 import os
+import pathlib
 import platform
 import queue
 import re
@@ -29,7 +30,7 @@ import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import Any, cast
 
 from . import __version__, oplog, schema
 from .diagram import DiagramApp
@@ -83,7 +84,7 @@ _OPS = {app: frozenset(schema.ops(app)) for app in schema.apps()}
 # 实例都绑定 worker 线程；HTTP handler 线程只入队/取回结果，慢 op 不阻塞
 # /ping /status /shutdown。队列与 worker 均为模块级（与 _APPS 同级共享）。
 # 有界队列（§4）：容量 _COM_QUEUE_MAX，满则 handler 立即 503，不无限阻塞。
-_COM_QUEUE: "queue.Queue[tuple | None]" = queue.Queue(maxsize=_COM_QUEUE_MAX)
+_COM_QUEUE: "queue.Queue[tuple[Any, ...] | None]" = queue.Queue(maxsize=_COM_QUEUE_MAX)
 _WORKER: threading.Thread | None = None
 _WORKER_LOCK = threading.Lock()
 
@@ -99,7 +100,7 @@ class _IdempotencyEntry:
     request_id: str
     payload_hash: str
     state: str = "inflight"
-    result: dict | None = None
+    result: dict[str, Any] | None = None
     expiry: float = 0.0  # done 后 = 完成时刻 + TTL；inflight 恒 0（不参与过期）
     event: threading.Event = field(default_factory=threading.Event)
     started_at: float = field(default_factory=time.monotonic)  # 创建时刻（inflight 陈旧判定）
@@ -120,19 +121,19 @@ class _InflightFullError(Exception):
 
 # /status 的目标身份缓存：worker 每次 op 后刷新（worker 线程持有 COM，探测
 # 安全）；handler 线程只读快照，绝不因 status 探测拉起 Office 或触碰 COM。
-_LAST_TARGETS: dict[str, dict | None] = {name: None for name in _APPS_CLASSES}
+_LAST_TARGETS: dict[str, dict[str, Any] | None] = dict.fromkeys(_APPS_CLASSES)
 
 # 运行时鉴权 token；serve() 启动时装载，Handler 在请求时读取
 _TOKEN = ""
 
 
-def _token_path(port: int):
+def _token_path(port: int) -> pathlib.Path:
     # 默认端口沿用旧文件名（token），非默认端口按端口隔离（token-{port}）
     name = _TOKEN_FILENAME if port == DEFAULT_PORT else f"{_TOKEN_FILENAME}-{port}"
     return user_data_dir() / name
 
 
-def _pid_path(port: int):
+def _pid_path(port: int) -> pathlib.Path:
     # 默认端口沿用旧文件名（server.pid），非默认端口按端口隔离（server-{port}.pid）
     name = "server.pid" if port == DEFAULT_PORT else f"server-{port}.pid"
     return user_data_dir() / name
@@ -176,7 +177,7 @@ def _load_token(port: int) -> str:
     if token_file.exists():
         token = token_file.read_text(encoding="utf-8").strip()
         with contextlib.suppress(OSError):
-            os.chmod(token_file, 0o600)  # 顺手收紧既有文件权限
+            pathlib.Path(token_file).chmod(0o600)  # 顺手收紧既有文件权限
     if not token:
         token = secrets.token_urlsafe(32)
     try:
@@ -185,11 +186,11 @@ def _load_token(port: int) -> str:
     except OSError as e:
         raise ServerStartError(f"无法写入 token 文件 {token_file}: {e}") from e
     with contextlib.suppress(OSError):
-        os.chmod(token_file, 0o600)
+        pathlib.Path(token_file).chmod(0o600)
     return token
 
 
-def get_app(name: str):
+def get_app(name: str) -> Any:
     cls = _APPS_CLASSES.get(name)
     if cls is None:
         raise ValueError(f"未知应用: {name}，可选 {list(_APPS_CLASSES)}")
@@ -198,7 +199,7 @@ def get_app(name: str):
     return _APPS[name]
 
 
-def _serialize(v):
+def _serialize(v: Any) -> Any:
     if v is None or isinstance(v, (int, float, str, bool)):
         return v
     if isinstance(v, (list, tuple)):
@@ -224,28 +225,29 @@ _DISCONNECTED_HRS = {
 }
 
 
-def _com_error():
+def _com_error() -> Any:
     """惰性取 pywintypes.com_error；非 Windows 降级为 Exception，保 import 不炸。"""
     try:
         import pywintypes
-
-        return pywintypes.com_error
     except ImportError:
         return Exception
+    else:
+        return pywintypes.com_error
 
 
-def _alive(app) -> bool:
+def _alive(app: Any) -> bool:
     """探测 app 持有的 COM 对象是否仍与 Office 进程保持连接。"""
     if not getattr(app, "has_com_root", True):
         return True  # 纯函数 app（diagram）无 COM 根 = 无状态 = 恒存活
     try:
         _ = app.app.Visible
-        return True
     except (_com_error(), AttributeError):
         return False
+    else:
+        return True
 
 
-def _rebuild(app):
+def _rebuild(app: Any) -> Any:
     """丢弃失效的 App 实例并重建（复用新进程里已恢复的 Office）。"""
     name = next((k for k, v in _APPS.items() if v is app), None)
     if name is None:
@@ -263,7 +265,7 @@ def _rebuild(app):
 _TARGET_KEYS = ("doc_id", "name", "path")
 
 
-def _resolve_expected_target(app, expected) -> str:
+def _resolve_expected_target(app: Any, expected: Any) -> str:
     """expected_target 绑定：resolve-once，返回校验通过后的 doc_id。
 
     P0-4/5：校验与执行用同一个 doc_id（校验时解析、注入方法调用参数），
@@ -293,20 +295,20 @@ def _resolve_expected_target(app, expected) -> str:
             # 目标无已保存路径视为不匹配（保守方向，空串/None 不误命中）
             if not have:
                 raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际无已保存路径")
-            if os.path.normcase(os.path.abspath(str(have))) != os.path.normcase(
-                os.path.abspath(str(want))
+            if os.path.normcase(pathlib.Path(str(have)).resolve()) != os.path.normcase(
+                pathlib.Path(str(want)).resolve()
             ):
                 raise TargetNotFoundError(f"目标绑定失败: 期望 path={want!r}，实际 {have!r}")
         else:
             # name 按 casefold 对碰，忽略大小写差异
             if str(have).casefold() != str(want).casefold():
                 raise TargetNotFoundError(f"目标绑定失败: 期望 {key}={want!r}，实际 {have!r}")
-    return target["doc_id"]
+    return str(target["doc_id"])
 
 
-def _current_targets() -> dict[str, dict | None]:
+def _current_targets() -> dict[str, dict[str, Any] | None]:
     """当前会话各 App 的目标身份；未初始化的 App 不拉起，报 null。只读。"""
-    targets: dict[str, dict | None] = {}
+    targets: dict[str, dict[str, Any] | None] = {}
     for name in _APPS_CLASSES:
         app = _APPS.get(name)
         if app is None:
@@ -356,8 +358,8 @@ def _deprecation_warning(op_name: str) -> str | None:
 
 
 def _success_result(
-    op_name: str, result, doc_id: str | None = None, request_id: str | None = None
-) -> dict:
+    op_name: str, result: Any, doc_id: str | None = None, request_id: str | None = None
+) -> dict[str, Any]:
     """OperationResult 归一化成功响应；data 已 _serialize，另附 result 兼容别名。"""
     data = _serialize(result)
     app_name, _, _ = op_name.partition(".")
@@ -418,7 +420,7 @@ def _safe_trace(e: Exception) -> list[str]:
     return lines
 
 
-def _error_result(op_name: str, e: Exception, request_id: str | None = None) -> dict:
+def _error_result(op_name: str, e: Exception, request_id: str | None = None) -> dict[str, Any]:
     """失败响应：带 error_code（异常 code），client 据此映射回领域异常。"""
     res = {
         "ok": False,
@@ -452,7 +454,9 @@ _ERROR_STATUS = {
 }
 
 
-def _append_oplog(app_name: str, op: str, kind: str, payload: dict, duration_ms: int) -> None:
+def _append_oplog(
+    app_name: str, op: str, kind: str, payload: dict[str, Any], duration_ms: int
+) -> None:
     """每次 op 后落一条操作日志（P2-3）；失败静默，不拖垮请求。"""
     with contextlib.suppress(Exception):
         oplog.append(
@@ -466,7 +470,7 @@ def _append_oplog(app_name: str, op: str, kind: str, payload: dict, duration_ms:
         )
 
 
-def _payload_hash(app_name: str, op: str, args: dict) -> str:
+def _payload_hash(app_name: str, op: str, args: dict[str, Any]) -> str:
     """幂等 payload 指纹：app+op+args 规范化 JSON 的 sha256。
 
     同 request_id 必须对应同一 payload；参数漂移 → hash 不匹配 → 拒绝，
@@ -524,7 +528,7 @@ def _claim(request_id: str, payload_hash: str) -> tuple[_IdempotencyEntry, bool]
         return entry, True
 
 
-def _complete_entry(entry: _IdempotencyEntry, payload: dict) -> None:
+def _complete_entry(entry: _IdempotencyEntry, payload: dict[str, Any]) -> None:
     """worker 完成 entry：写结果、置 done、起 TTL、醒所有等待线程。"""
     with _REQUEST_LOCK:
         entry.result = payload
@@ -561,7 +565,7 @@ def _evict_lru() -> None:
             return  # 只剩 inflight：无法淘汰，由 _REQUEST_MAX_INFLIGHT 硬限兜底
 
 
-def _idempotency_stats() -> dict:
+def _idempotency_stats() -> dict[str, int]:
     """幂等缓存运行态统计（/status 暴露，P1-5）。"""
     with _REQUEST_LOCK:
         inflight = sum(1 for e in _REQUEST_ID_CACHE.values() if e.state == "inflight")
@@ -652,7 +656,7 @@ def _worker_loop() -> None:
             pythoncom.CoUninitialize()
 
 
-def dispatch(app, op: str, args: dict, app_name: str):
+def dispatch(app: Any, op: str, args: dict[str, Any], app_name: str) -> Any:
     if op.startswith("_"):
         raise PermissionError(f"不允许调用私有操作: {op}")
     if op != "quit" and not _alive(app):
@@ -712,12 +716,12 @@ def dispatch(app, op: str, args: dict, app_name: str):
         return getattr(_rebuild(app), op)(**args)
 
 
-def _check_auth(handler) -> bool:
+def _check_auth(handler: Any) -> bool:
     # 恒定时间比较，避免按长度早期短路泄露 token 信息
     return secrets.compare_digest(handler.headers.get("Authorization", ""), f"Bearer {_TOKEN}")
 
 
-def _encode_reply(obj, status: int = 200) -> tuple[int, bytes]:
+def _encode_reply(obj: Any, status: int = 200) -> tuple[int, bytes]:
     """序列化响应；超过响应上限降级为 500 错误，不向客户端写超大 payload。"""
     data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
     if len(data) > _MAX_RESPONSE:
@@ -735,7 +739,7 @@ class Handler(BaseHTTPRequestHandler):
     # _MAX_CONCURRENCY 槽位，拖垮 /call。
     timeout = _SOCKET_TIMEOUT
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         if self.path == "/ping":
             # 健康检查免鉴权：不暴露任何数据，供 client 探测存活
             self._reply({"ok": True, "result": "pong"})
@@ -761,8 +765,9 @@ class Handler(BaseHTTPRequestHandler):
             )
         else:
             self._reply({"ok": False, "error": "not found"}, status=404)
+        return None
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         if not _check_auth(self):
             return self._reply({"ok": False, "error": "unauthorized"}, status=401)
         if self.path in ("/call", "/shutdown") and (
@@ -783,7 +788,7 @@ class Handler(BaseHTTPRequestHandler):
             # 线程内直调（serve_forever 要等当前请求完成，会死锁）。
             self._reply({"ok": True, "result": "shutting down"})
             threading.Thread(target=self.server.shutdown, daemon=True).start()
-            return
+            return None
         if self.path != "/call":
             return self._reply({"ok": False, "error": "not found"}, status=404)
         ctype = (self.headers.get("Content-Type", "") or "").split(";")[0].strip().lower()
@@ -808,8 +813,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply({"ok": False, "error": f"JSON 解析失败: {e}"}, status=400)
         if not isinstance(body, dict):
             return self._reply({"ok": False, "error": "请求体必须是 JSON 对象"}, status=400)
-        app_name = body.get("app")
-        op = body.get("op")
+        # JSON 值可能是任意类型；白名单校验（_OPS.get / op not in allowed）兜底，
+        # 走到 _payload_hash 时两者必为合法字符串，故可安全 cast。
+        app_name = cast("str", body.get("app"))
+        op = cast("str", body.get("op"))
         allowed = _OPS.get(app_name)
         if allowed is None:
             return self._reply(
@@ -852,7 +859,7 @@ class Handler(BaseHTTPRequestHandler):
             # 无 request_id（旧 client / 调用方不要求幂等）：保留原 resp_q 路径，
             # 不入幂等缓存（不去重、不合并）。
             _ensure_worker()
-            resp_q: queue.Queue[tuple] = queue.Queue(maxsize=1)
+            resp_q: queue.Queue[tuple[Any, ...]] = queue.Queue(maxsize=1)
             try:
                 _COM_QUEUE.put_nowait((app_name, op, raw_args, resp_q, None))
             except queue.Full:
@@ -866,7 +873,7 @@ class Handler(BaseHTTPRequestHandler):
                     status=503,
                 )
             try:
-                kind, payload = resp_q.get(timeout=_CALL_TIMEOUT)
+                _, payload = resp_q.get(timeout=_CALL_TIMEOUT)
             except queue.Empty:
                 return self._reply(
                     {
@@ -877,7 +884,7 @@ class Handler(BaseHTTPRequestHandler):
                     status=504,
                 )
             _send(payload)
-            return
+            return None
 
         # 幂等路径（P0-2 方案 A）：request_id + payload hash 绑定 + in-flight 合并
         try:
@@ -901,7 +908,7 @@ class Handler(BaseHTTPRequestHandler):
             res = dict(entry.result) if entry.result else {"ok": False, "error": "幂等结果缺失"}
             res["cached"] = True
             _send(res)
-            return
+            return None
         if not is_owner:
             # 并发同 ID：合并等待 owner 完成，不重复入队
             if not entry.event.wait(_CALL_TIMEOUT):
@@ -915,7 +922,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             assert entry.result is not None
             _send(entry.result)
-            return
+            return None
         # owner：入队执行，结果由 worker 写回 entry 并经 event 唤醒
         _ensure_worker()
         try:
@@ -949,8 +956,9 @@ class Handler(BaseHTTPRequestHandler):
             )
         assert entry.result is not None
         _send(entry.result)
+        return None
 
-    def _reply(self, obj, status=200):
+    def _reply(self, obj: Any, status: int = 200) -> None:
         status, data = _encode_reply(obj, status)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -958,7 +966,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def log_message(self, *args):
+    def log_message(self, *args: Any) -> None:
         pass
 
 
@@ -971,7 +979,7 @@ class Server(ThreadingHTTPServer):
     allow_reuse_address = False
     _SLOT = threading.BoundedSemaphore(_MAX_CONCURRENCY)
 
-    def process_request(self, request, client_address):
+    def process_request(self, request: Any, client_address: Any) -> None:
         if not self._SLOT.acquire(blocking=False):
             # 并发已满：连接级直回 503，不让客户端挂到传输超时
             self._reply_503(request)
@@ -982,13 +990,13 @@ class Server(ThreadingHTTPServer):
             self._SLOT.release()
             raise
 
-    def process_request_thread(self, request, client_address):
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
         try:
             super().process_request_thread(request, client_address)
         finally:
             self._SLOT.release()
 
-    def _reply_503(self, request) -> None:
+    def _reply_503(self, request: Any) -> None:
         body = json.dumps(
             {"ok": False, "error": "server 忙（并发连接数已满）", "error_code": "busy"},
             ensure_ascii=False,
@@ -1044,7 +1052,7 @@ def _warn_if_remote(host: str) -> None:
         )
 
 
-def _acquire_startup_lock(port: int):
+def _acquire_startup_lock(port: int) -> Any:
     """Windows named mutex 防双启（P1-1）：同端口重复 serve 直接拒绝。
 
     mutex 句柄随进程持有，进程退出（含崩溃）即释放命名——比文件锁天然
@@ -1065,7 +1073,7 @@ def _acquire_startup_lock(port: int):
     return handle
 
 
-def _close_mutex(handle) -> None:
+def _close_mutex(handle: Any) -> None:
     """释放启动锁 mutex 句柄；非 Windows / None 为 no-op。
 
     锁必须持有到 serve() 退出（进程生命周期）：句柄随进程持有才是命名
@@ -1077,7 +1085,7 @@ def _close_mutex(handle) -> None:
         handle.Close()
 
 
-def _remove_pid_file_if_owned(port: int, token: str) -> None:
+def _remove_pid_file_if_owned(port: int) -> None:
     """仅当 PID 文件属于本进程（pid+port 双匹配）时删除。
 
     启动失败 / 被替换 / 非默认实例退出时绝不误删他人 server 的 PID 文件
@@ -1097,12 +1105,12 @@ def serve(
     port: int = DEFAULT_PORT,
     host: str = "127.0.0.1",
     allow_remote: bool = False,
-):
+) -> None:
     global _TOKEN
     _validate_host(host, allow_remote)
     # 防双启锁：句柄存到局部变量，随进程生命周期持有（P0-1），finally 释放
     mutex_handle = _acquire_startup_lock(port)
-    httpd = None
+    httpd: Server | None = None
     try:
         oplog.configure(port)  # P2-2 多实例：日志按端口隔离
         _TOKEN = _load_token(port)
@@ -1116,7 +1124,7 @@ def serve(
         httpd.serve_forever()
     finally:
         _stop_worker()
-        _remove_pid_file_if_owned(port, _TOKEN)
+        _remove_pid_file_if_owned(port)
         if httpd is not None:
             httpd.server_close()
         _close_mutex(mutex_handle)

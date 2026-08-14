@@ -4,9 +4,10 @@
 ActiveWorkbook 定位当前工作簿（即用户在 Excel 里当前激活的那个）。
 """
 
-import os
+import pathlib
 import re
 import secrets
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from typing import Any
 
@@ -26,7 +27,7 @@ _MAX_COL = 16384
 _MAX_ROW = 1048576
 # 控制字符（U+0000-U+001F、U+007F、U+0080-U+009F）：工作表名/单元格文本不得携带。
 # 用 chr() 构造，避免在源码里嵌转义。
-_CTRL_CP = list(range(32)) + [127] + list(range(128, 160))
+_CTRL_CP = [*list(range(32)), 127, *list(range(128, 160))]
 _CONTROL_CHARS_RE = re.compile("[" + "".join(chr(c) for c in _CTRL_CP) + "]")
 
 
@@ -46,7 +47,7 @@ def _validate_sheet_name(name: str) -> None:
         raise InvalidArgumentError(f"add_sheet: name {name!r} 含控制字符")
 
 
-def _parse_cell(cell: str):
+def _parse_cell(cell: str) -> tuple[int, int]:
     r"""把 'A1' 解析成 (row, col)，行列为 1 基。
 
     收严为 Excel 真实坐标：`^([A-Za-z]{1,3})(\d{1,7})$`。畸形（如 'A1B2'——
@@ -70,7 +71,7 @@ def _parse_cell(cell: str):
 _RANGE_RE = re.compile(r"^([A-Za-z]{1,3}\d{1,7})(?::([A-Za-z]{1,3}\d{1,7}))?$")
 
 
-def _parse_range(range_addr: str):
+def _parse_range(range_addr: str) -> None:
     """合并类区域的地址校验：单格或两角形式，坐标越界/畸形抛 InvalidArgumentError。
 
     参照 _parse_cell 的坐标校验，把「???」这类畸形地址的裸 COM 错误前置成
@@ -84,7 +85,7 @@ def _parse_range(range_addr: str):
             _parse_cell(part)
 
 
-def _value_shape(values) -> tuple[int, int]:
+def _value_shape(values: Any) -> tuple[int, int]:
     """把 set_range 的 values 归一成 (rows, cols)；标量视为 (1, 1)。"""
     if isinstance(values, (list, tuple)):
         if not values:
@@ -107,7 +108,7 @@ def _rgb(hex_color: str) -> int:
     return r + (g << 8) + (b << 16)
 
 
-def _normalize_range(values):
+def _normalize_range(values: Any) -> list[list[Any]]:
     """把 COM Range.Value 归一成二维 list：单格→[[v]]，空→[]。
 
     COM 按行外层/列内层返回：A1:B2 → ((r1c1,r1c2),(r2c1,r2c2))；单格返回
@@ -207,7 +208,7 @@ class ExcelApp:
         self._active_id: str | None = None
 
     @contextmanager
-    def _alerts_scope(self, value: bool = False):
+    def _alerts_scope(self, value: bool = False) -> Iterator[None]:
         """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
         prev = self.app.DisplayAlerts
         self.app.DisplayAlerts = value
@@ -216,7 +217,7 @@ class ExcelApp:
         finally:
             self.app.DisplayAlerts = prev
 
-    def _stable_identity(self, obj):
+    def _stable_identity(self, obj: Any) -> tuple[str | None, str | None]:
         """稳定身份键（P0-4）：已保存 → (FullName.lower(), None)；未保存 → (None, Name.lower())。
 
         pywin32 的 wrapper 每次获取都可能是新对象（`is` 不成立），但底层文档的
@@ -239,7 +240,7 @@ class ExcelApp:
             return (str(fullname).lower() if fullname else None, None)
         return (None, name.lower() if name else None)
 
-    def _register(self, obj) -> str:
+    def _register(self, obj: Any) -> str:
         """登记新文档句柄，分配 doc_id 并设为活动；同底层文档复用已有 doc_id。"""
         ident = self._stable_identity(obj)
         if ident != (None, None):
@@ -255,7 +256,7 @@ class ExcelApp:
         self._active_id = did
         return did
 
-    def _sync_registered(self, obj) -> str:
+    def _sync_registered(self, obj: Any) -> str:
         """把实时解析到的句柄并入文档表：已登记则复用并置活动，否则登记为新文档。"""
         for did, book in self._docs.items():
             if book is obj:
@@ -270,12 +271,12 @@ class ExcelApp:
 
     def open_book(self, path: str) -> str:
         """打开现有工作簿并设为活动。返回 doc_id。"""
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         # H6：COM Open 按自身工作目录（通常 System32）解析相对路径 → 先规范为绝对路径
-        return self._register(self.app.Workbooks.Open(os.path.abspath(path)))
+        return self._register(self.app.Workbooks.Open(pathlib.Path(path).resolve()))
 
-    def active_book(self, doc_id: str | None = None):
+    def active_book(self, doc_id: str | None = None) -> Any:
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
         # 缺省 active：实时解析 ActiveWorkbook（doc_id 权威——绝不静默用陈旧的
         # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
@@ -298,7 +299,7 @@ class ExcelApp:
         self._sync_registered(book)
         return book
 
-    def _require_book(self, doc_id: str | None = None):
+    def _require_book(self, doc_id: str | None = None) -> Any:
         """操作前置：目标工作簿不存在则抛 TargetNotFoundError，不隐式创建。"""
         book = self.active_book(doc_id)
         if book is None:
@@ -325,7 +326,7 @@ class ExcelApp:
             raise ComOperationError(f"激活工作簿 {doc_id} 失败: {e}") from e
         return doc_id
 
-    def list_docs(self) -> dict:
+    def list_docs(self) -> dict[str, dict[str, Any]]:
         """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。
 
         P1-5：先并入真实活动焦点（active_book 解析 ActiveWorkbook 进文档表、
@@ -348,7 +349,7 @@ class ExcelApp:
             out[did] = {"name": name, "path": path, "active": did == self._active_id}
         return out
 
-    def get_target(self, doc_id: str | None = None):
+    def get_target(self, doc_id: str | None = None) -> dict[str, Any] | None:
         """目标身份 {app, doc_id, name, path}；无目标返回 None。只读探测。
 
         显式 doc_id：只查文档表，未注册/失效抛 TargetNotFoundError；
@@ -375,7 +376,7 @@ class ExcelApp:
         return {"app": "excel", "doc_id": resolved, "name": name, "path": path}
 
     @destructive
-    def close_book(self, save: bool = True, doc_id: str | None = None):
+    def close_book(self, save: bool = True, doc_id: str | None = None) -> str | None:
         """关闭工作簿（doc_id 必须显式传入或 follow_active=True）。
 
         save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
@@ -383,8 +384,9 @@ class ExcelApp:
         """
         book = self._require_book(doc_id)
         did = doc_id if doc_id is not None else self._active_id
+        path: str | None
         if save:
-            path = book.FullName if book.Path else self.save(doc_id=did)
+            path = str(book.FullName) if book.Path else self.save(doc_id=did)
             with self._alerts_scope():
                 book.Close(SaveChanges=1)
         else:
@@ -402,7 +404,9 @@ class ExcelApp:
         return path
 
     @destructive
-    def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
+    def save(
+        self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None
+    ) -> str:
         """保存工作簿并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
@@ -419,13 +423,13 @@ class ExcelApp:
         with self._alerts_scope():
             if book.Path:  # 已有保存路径 → 原位保存
                 book.Save()
-                return book.FullName
+                return str(book.FullName)
             dest = default_save_path(book.Name, ".xlsx")
             book.SaveAs(dest)
             return dest
 
     @requires_target
-    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
+    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None) -> None:
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():
             save_with_lock_retry(
@@ -434,7 +438,7 @@ class ExcelApp:
             )
 
     # --- 工作表 ---
-    def _ws(self, sheet, doc_id: str | None = None):
+    def _ws(self, sheet: Any, doc_id: str | None = None) -> Any:
         book = self._require_book(doc_id)
         if isinstance(sheet, str):
             try:
@@ -449,7 +453,7 @@ class ExcelApp:
         return book.Worksheets(sheet)
 
     @destructive
-    def add_sheet(self, name: str, doc_id: str | None = None):
+    def add_sheet(self, name: str, doc_id: str | None = None) -> Any:
         _validate_sheet_name(name)
         book = self._require_book(doc_id)
         try:
@@ -461,17 +465,19 @@ class ExcelApp:
 
     # --- 单元格 ---
     @destructive
-    def set_cell(self, sheet, cell: str, value, doc_id: str | None = None):
+    def set_cell(self, sheet: Any, cell: str, value: Any, doc_id: str | None = None) -> None:
         row, col = _parse_cell(cell)
         self._ws(sheet, doc_id).Cells(row, col).Value = value
 
     @readonly_guard
-    def get_cell(self, sheet, cell: str, doc_id: str | None = None):
+    def get_cell(self, sheet: Any, cell: str, doc_id: str | None = None) -> Any:
         row, col = _parse_cell(cell)
         return self._ws(sheet, doc_id).Cells(row, col).Value
 
     @destructive
-    def set_range(self, sheet, range_addr: str, values, doc_id: str | None = None):
+    def set_range(
+        self, sheet: Any, range_addr: str, values: Any, doc_id: str | None = None
+    ) -> None:
         _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         rng = self._ws(sheet, doc_id).Range(range_addr)
         # 数据维度与目标范围必须一致；标量（非 list/tuple）会广播填满整个范围，
@@ -487,11 +493,11 @@ class ExcelApp:
         rng.Value = values
 
     @destructive
-    def set_col_width(self, sheet, col, width, doc_id: str | None = None):
+    def set_col_width(self, sheet: Any, col: Any, width: Any, doc_id: str | None = None) -> None:
         self._ws(sheet, doc_id).Columns(col).ColumnWidth = width
 
     @readonly_guard
-    def read_range(self, sheet, range_addr, doc_id: str | None = None):
+    def read_range(self, sheet: Any, range_addr: Any, doc_id: str | None = None) -> list[list[Any]]:
         """读取区域值，返回二维 list（行→列）。只读，不改状态。"""
         _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         return _normalize_range(self._ws(sheet, doc_id).Range(range_addr).Value)
@@ -500,16 +506,16 @@ class ExcelApp:
     @destructive
     def format_cell(
         self,
-        sheet,
+        sheet: Any,
         cell: str,
-        bold=None,
-        size=None,
-        italic=None,
-        bg=None,
-        fg=None,
-        align=None,
+        bold: Any = None,
+        size: Any = None,
+        italic: Any = None,
+        bg: Any = None,
+        fg: Any = None,
+        align: Any = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         row, col = _parse_cell(cell)
         cell_obj = self._ws(sheet, doc_id).Cells(row, col)
         font = cell_obj.Font
@@ -528,12 +534,12 @@ class ExcelApp:
 
     # --- 合并单元格 ---
     @destructive
-    def merge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
+    def merge_cells(self, sheet: Any, range_addr: str, doc_id: str | None = None) -> None:
         _parse_range(range_addr)
         self._ws(sheet, doc_id).Range(range_addr).Merge()
 
     @destructive
-    def unmerge_cells(self, sheet, range_addr: str, doc_id: str | None = None):
+    def unmerge_cells(self, sheet: Any, range_addr: str, doc_id: str | None = None) -> None:
         _parse_range(range_addr)
         self._ws(sheet, doc_id).Range(range_addr).UnMerge()
 
@@ -541,14 +547,14 @@ class ExcelApp:
     @destructive
     def set_border(
         self,
-        sheet,
+        sheet: Any,
         range_addr: str,
         side: str = "all",
         style: str = "continuous",
         weight: str = "thin",
         color: str | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
         rng = ws.Range(range_addr)
@@ -563,7 +569,9 @@ class ExcelApp:
 
     # --- 冻结窗格 ---
     @destructive
-    def freeze_panes(self, sheet, rows: int = 0, cols: int = 0, doc_id: str | None = None):
+    def freeze_panes(
+        self, sheet: Any, rows: int = 0, cols: int = 0, doc_id: str | None = None
+    ) -> None:
         if isinstance(rows, bool) or not isinstance(rows, int):
             raise InvalidArgumentError(f"freeze_panes: rows 必须是整数，收到 {rows!r}")
         if isinstance(cols, bool) or not isinstance(cols, int):
@@ -583,7 +591,7 @@ class ExcelApp:
     @destructive
     def page_setup(
         self,
-        sheet,
+        sheet: Any,
         orientation: str | None = None,
         paper: str | None = None,
         fit_to_pages_wide: int | None = None,
@@ -595,7 +603,7 @@ class ExcelApp:
         print_titles_rows: str | None = None,
         print_titles_cols: str | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         ps = self._ws(sheet, doc_id).PageSetup
         if orientation is not None:
             ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
@@ -627,19 +635,19 @@ class ExcelApp:
     @destructive
     def add_conditional_format(
         self,
-        sheet,
+        sheet: Any,
         range_addr: str,
         rule: str,
         operator: str | None = None,
-        value=None,
-        value2=None,
+        value: Any = None,
+        value2: Any = None,
         bg: str | None = None,
         fg: str | None = None,
         min_color: str | None = None,
         max_color: str | None = None,
         mid_color: str | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         rule = rule.strip().lower()
         _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
@@ -675,23 +683,27 @@ class ExcelApp:
 
     # --- 基础三件套 ---
     @destructive
-    def set_row_height(self, sheet, row, height: float, doc_id: str | None = None):
+    def set_row_height(
+        self, sheet: Any, row: Any, height: float, doc_id: str | None = None
+    ) -> None:
         self._ws(sheet, doc_id).Rows(row).RowHeight = height
 
     @destructive
-    def set_number_format(self, sheet, range_addr: str, fmt: str, doc_id: str | None = None):
+    def set_number_format(
+        self, sheet: Any, range_addr: str, fmt: str, doc_id: str | None = None
+    ) -> None:
         _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         self._ws(sheet, doc_id).Range(range_addr).NumberFormat = fmt
 
     @destructive
     def autofit(
         self,
-        sheet,
+        sheet: Any,
         range_addr: str | None = None,
         columns: bool = True,
         rows: bool = True,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         if range_addr is not None:
             _parse_range(range_addr)  # #35：畸形地址先于触 COM 抛 InvalidArgumentError
         ws = self._ws(sheet, doc_id)
@@ -702,7 +714,7 @@ class ExcelApp:
             target.Rows.AutoFit()
 
     # --- 生命周期 ---
-    def quit(self, force: bool = False):
+    def quit(self, force: bool = False) -> bool | None:
         """退出 Excel 会话。
 
         own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
@@ -722,7 +734,7 @@ class ExcelApp:
             self.app.DisplayAlerts = False
             pid = core.app_process_pid(self.app, "excel") or self._pid
             self.app.Quit()
-        except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
+        except Exception as e:
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Excel 失败: {e}") from e

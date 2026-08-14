@@ -229,7 +229,7 @@ def test_postprocess_drawio_missing_measurements(tmp_path):
     html.write_text(HTML, encoding="utf-8")
     (tmp_path / "arch.drawio").write_text(DRAWIO, encoding="utf-8")
     # 不写 measurements.json
-    with pytest.raises(RuntimeError, match="measurements.json"):
+    with pytest.raises(RuntimeError, match=r"measurements.json"):
         postprocess_drawio(str(html), str(tmp_path / "deck.pptx"))
 
 
@@ -240,7 +240,7 @@ def test_postprocess_drawio_missing_source(tmp_path):
     prs = Presentation()
     prs.slides.add_slide(prs.slide_layouts[6])
     prs.save(pptx_path)
-    with pytest.raises(RuntimeError, match="arch.drawio"):
+    with pytest.raises(RuntimeError, match=r"arch.drawio"):
         postprocess_drawio(html, pptx_path)
 
 

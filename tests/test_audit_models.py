@@ -1,6 +1,7 @@
 """audit 公共模型：Severity 序/序列化、AuditConfig 默认值、JSON 安全、空报告。"""
 
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -17,13 +18,15 @@ from offipy.audit import (
     Severity,
     SuppressedFinding,
 )
-from offipy.audit.models import JsonValue
+
+if TYPE_CHECKING:
+    from offipy.audit.models import JsonValue
 
 # ---------------------------------------------------------------- Severity
 
 
 @pytest.mark.parametrize(
-    "sev,name",
+    ("sev", "name"),
     [(Severity.LOW, "LOW"), (Severity.MID, "MID"), (Severity.HIGH, "HIGH")],
 )
 def test_severity_order_and_name(sev, name):
@@ -229,7 +232,7 @@ def test_import_audit_models_does_not_load_pptx(monkeypatch):
         return orig_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", guarded)
-    from offipy.audit.models import Severity as S  # noqa: F401
+    from offipy.audit.models import Severity as S
 
     assert S.HIGH == 3
 

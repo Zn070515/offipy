@@ -17,9 +17,8 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from .extract import _Paragraph, _ShapeRecord, _TextRun
 from .geometry import Rect, overlap_area, rect_contains, rect_intersection
 from .models import (
     RULE_AUTOFIT_GROW,
@@ -34,6 +33,9 @@ from .models import (
     SuppressionReason,
 )
 from .roles import classify_presentation
+
+if TYPE_CHECKING:
+    from .extract import _Paragraph, _ShapeRecord, _TextRun
 
 _TINY_AREA = 0.0025  # in²，极小装饰点
 _MIN_DIM = 1e-6  # in，退化矩形（水平/垂直线条）判空宽高阈值
@@ -121,7 +123,7 @@ def _finding(
     message: str,
     primary: AuditShapeRef,
     secondary: AuditShapeRef | None = None,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
     confidence: float = 1.0,
 ) -> AuditFinding:
     return AuditFinding(
@@ -179,7 +181,7 @@ class BoundsRule:
             }
             off_edges = {e for e, d in over.items() if d > tol}
             if off_edges:
-                context.bounds_edges[(rec.slide_index, rec.shape_id)] = off_edges
+                context.bounds_edges[rec.slide_index, rec.shape_id] = off_edges
             if rect_intersection(r, page) is None:
                 sev = Severity.MID if r.area() >= _OFF_CANVAS_MID_AREA else Severity.LOW
                 findings.append(
@@ -359,7 +361,8 @@ def _classify_overlap(
     a: _ShapeRecord, b: _ShapeRecord, context: RuleContext
 ) -> AuditFinding | None:
     ra, rb = _rect(a), _rect(b)
-    assert ra is not None and rb is not None
+    assert ra is not None
+    assert rb is not None
     inter = rect_intersection(ra, rb)
     if inter is None:
         return None
@@ -498,7 +501,8 @@ def _contained_result(
 ) -> AuditFinding | None:
     """一方完全包含另一方（含相等矩形）时的分类。on_top 决定文本是否被遮挡。"""
     ra, rb = _rect(a), _rect(b)
-    assert ra is not None and rb is not None
+    assert ra is not None
+    assert rb is not None
     on_top, below = _on_top_below(a, b, ra.area(), rb.area(), same_parent)
     if _is_picture_chart(on_top):
         # 图片/图表盖住：下方有文本 → 内容被遮挡 HIGH；下方无文本 → 无内容可遮挡
@@ -548,7 +552,7 @@ def _cover_finding(
     covered: _ShapeRecord,
     cover: _ShapeRecord,
     ratio: float,
-    context: RuleContext,
+    _context: RuleContext,
     confidence: float,
     approx_note: str,
     high: bool = False,
@@ -585,7 +589,7 @@ def _partial_finding(
     a: _ShapeRecord,
     b: _ShapeRecord,
     ratio: float,
-    context: RuleContext,
+    _context: RuleContext,
     severity: Severity,
     confidence: float,
     approx_note: str,
@@ -697,25 +701,28 @@ def _font_candidates(name: str, bold: bool) -> list[Path]:
     return cands
 
 
-def _load_font(font_name: str | None, bold: bool, size_pt: float):
+def _load_font(font_name: str | None, bold: bool, size_pt: float) -> Any:
     """定位字体文件加载 PIL 字体；失败返回 None（走字符权重回退）。"""
     try:
         from PIL import ImageFont
     except Exception:
         return None
+
+    def _try_load(path: str) -> Any:
+        try:
+            return ImageFont.truetype(path, int(size_pt))
+        except Exception:
+            return None
+
     name = (font_name or "Arial").strip()
     for path in _font_candidates(name, bold):
-        try:
-            return ImageFont.truetype(str(path), int(size_pt))
-        except Exception:
-            continue
-    try:
-        return ImageFont.truetype(name, int(size_pt))  # 允许 font_name 本身是绝对路径
-    except Exception:
-        return None
+        font = _try_load(str(path))
+        if font is not None:
+            return font
+    return _try_load(name)  # 允许 font_name 本身是绝对路径
 
 
-def _pairpos_kerning(sub) -> dict[tuple[str, str], int]:
+def _pairpos_kerning(sub: Any) -> dict[tuple[str, str], int]:
     """GPOS PairPos subtable → {(first_glyph, second_glyph): xadvance}。"""
     kern: dict[tuple[str, str], int] = {}
     if getattr(sub, "Format", None) == 1:
@@ -725,7 +732,7 @@ def _pairpos_kerning(sub) -> dict[tuple[str, str], int]:
                 v1 = pv.Value1
                 xadv = v1.XAdvance if v1 and v1.XAdvance else 0
                 if xadv:
-                    kern[(first, pv.SecondGlyph)] = xadv
+                    kern[first, pv.SecondGlyph] = xadv
     elif getattr(sub, "Format", None) == 2:
         firsts = sub.Coverage.glyphs
         c1map = sub.ClassDef1.classDefs
@@ -740,11 +747,11 @@ def _pairpos_kerning(sub) -> dict[tuple[str, str], int]:
                     continue
                 for second, sc in c2map.items():
                     if sc == c2:
-                        kern[(first, second)] = xadv
+                        kern[first, second] = xadv
     return kern
 
 
-def _font_kerning_pairs(tt) -> dict[tuple[str, str], int]:
+def _font_kerning_pairs(tt: Any) -> dict[tuple[str, str], int]:
     """{(left_glyph, right_glyph): xadvance font-units}。优先旧式 kern，无则 GPOS。"""
     kern: dict[tuple[str, str], int] = {}
     if "kern" in tt:
@@ -783,13 +790,14 @@ def _font_metrics(
         advances = {gname: m[0] for gname, m in tt["hmtx"].metrics.items()}
         kern = _font_kerning_pairs(tt)
         cmap = tt.getBestCmap()
-        return upem, advances, kern, cmap
     except Exception:
         return None
+    else:
+        return upem, advances, kern, cmap
 
 
 @functools.lru_cache(maxsize=32)
-def _find_font_metrics(font_name: str, bold: bool):
+def _find_font_metrics(font_name: str, bold: bool) -> Any:
     """定位字体文件并读 fontTools 度量；找不到/解析失败 → None。"""
     for path in _font_candidates(font_name, bold):
         if path.exists():

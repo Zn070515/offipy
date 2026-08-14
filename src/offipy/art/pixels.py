@@ -17,6 +17,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any, cast
 
 from offipy.exceptions import InvalidArgumentError
 
@@ -61,14 +62,14 @@ _SENTINEL_BUCKET = (
 )
 
 
-def _pil():
+def _pil() -> tuple[Any, Any]:
     """惰性 import Pillow：pixels.py 顶层不依赖 PIL，纯 `import offipy` 不加载。"""
     from PIL import Image, ImageChops
 
     return Image, ImageChops
 
 
-def _decode_png(path: Path):
+def _decode_png(path: Path) -> Any:
     """解码页 PNG；像素数超上限（解压炸弹）硬拒绝为 InvalidArgumentError。
 
     关闭 Pillow 内建阈值（默认 ~89M）由本函数显式上限把关，保证任意尺寸的
@@ -98,7 +99,7 @@ def _bucket_dist(a: tuple[int, int, int], b: tuple[int, int, int]) -> int:
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]), abs(a[2] - b[2]))
 
 
-def _composite(im, bg: ArtColor):
+def _composite(im: Any, bg: ArtColor) -> Any:
     """有 alpha 的图按已知背景合成；无 alpha 直接返回。"""
     Image, _ = _pil()
     if im.mode == "RGBA":
@@ -107,7 +108,7 @@ def _composite(im, bg: ArtColor):
     return im
 
 
-def _mask_opaque(im):
+def _mask_opaque(im: Any) -> Any:
     """背景未知：把透明像素替换成 sentinel（后续统计时排除该桶）。"""
     Image, _ = _pil()
     if im.mode != "RGBA":
@@ -118,7 +119,7 @@ def _mask_opaque(im):
     return Image.composite(Image.new("RGB", rgb.size, _OPAQUE_SENTINEL), rgb, transparent)
 
 
-def _pixel_stats(im, bg: ArtColor | None) -> dict[tuple[int, int, int], int]:
+def _pixel_stats(im: Any, bg: ArtColor | None) -> dict[tuple[int, int, int], int]:
     """区域颜色桶直方图：合成或掩码 → /32 分桶 → getcolors。
 
     Pillow 12 的 point() 只接受平坦 LUT（每通道 256 值，RGB 共 768）；
@@ -137,7 +138,7 @@ def _pixel_stats(im, bg: ArtColor | None) -> dict[tuple[int, int, int], int]:
     return counts
 
 
-def _palette(counts: dict) -> list[PixelColorShare]:
+def _palette(counts: dict[tuple[int, int, int], int]) -> list[PixelColorShare]:
     total = sum(counts.values())
     if not total:
         return []
@@ -145,7 +146,7 @@ def _palette(counts: dict) -> list[PixelColorShare]:
     return [PixelColorShare(color=_bucket_rep(k), ratio=round(c / total, 4)) for k, c in top]
 
 
-def _match_ratio(counts: dict, c: ArtColor) -> float:
+def _match_ratio(counts: dict[tuple[int, int, int], int], c: ArtColor) -> float:
     bucket = (c.r // _PALETTE_BUCKET, c.g // _PALETTE_BUCKET, c.b // _PALETTE_BUCKET)
     total = sum(counts.values())
     if not total:
@@ -156,7 +157,7 @@ def _match_ratio(counts: dict, c: ArtColor) -> float:
     return matched / total
 
 
-def _complexity(counts: dict) -> float:
+def _complexity(counts: dict[tuple[int, int, int], int]) -> float:
     total = sum(counts.values())
     if not total:
         return 0.0
@@ -164,7 +165,7 @@ def _complexity(counts: dict) -> float:
     return min(1.0, diverse / 8.0)
 
 
-def _downsample(im):
+def _downsample(im: Any) -> Any:
     w, h = im.size
     longest = max(w, h)
     if longest <= _MAX_DIM_SAMPLE:
@@ -176,7 +177,7 @@ def _downsample(im):
     )
 
 
-def _background_like_ratio(im, bg: ArtColor) -> float:
+def _background_like_ratio(im: Any, bg: ArtColor) -> float:
     """背景相似像素占比：三通道差和 ≤ 3×tol 视为接近，透明像素排除出分母。"""
     Image, ImageChops = _pil()
     if im.mode == "RGBA":
@@ -202,7 +203,7 @@ def _background_like_ratio(im, bg: ArtColor) -> float:
     is_sentinel = ssum.point(lambda v: 1 if v == 0 else 0)
     sentinel_count = is_sentinel.histogram()[1]
     valid = max(1, im.width * im.height - sentinel_count)
-    return matched / valid
+    return cast("float", matched / valid)
 
 
 @dataclass(frozen=True)
@@ -213,7 +214,7 @@ class _BgEstimate:
     like_ratio: float
 
 
-def _estimate_background(im) -> _BgEstimate:
+def _estimate_background(im: Any) -> _BgEstimate:
     """8 采样点（4 角 + 4 边中点）估背景：置信度 + 均匀度 + 背景相似占比。"""
     w, h = im.size
     if w <= 2 or h <= 2:
@@ -256,7 +257,7 @@ def _estimate_background(im) -> _BgEstimate:
     return _BgEstimate(bg, round(confidence, 4), round(uniformity, 4), round(like_ratio, 4))
 
 
-def _page_evidence(im) -> SlidePixelEvidence:
+def _page_evidence(im: Any) -> SlidePixelEvidence:
     small = _downsample(im)
     est = _estimate_background(small)
     counts = _pixel_stats(small, est.background)
@@ -276,7 +277,7 @@ def _declared_fg(el: ArtElement) -> ArtColor | None:
     return el.foreground
 
 
-def _text_evidence(region, el: ArtElement, bg: ArtColor | None) -> ElementPixelEvidence:
+def _text_evidence(region: Any, el: ArtElement, bg: ArtColor | None) -> ElementPixelEvidence:
     fg = _declared_fg(el)
     if fg is None:
         return ElementPixelEvidence(
@@ -305,7 +306,7 @@ def _text_evidence(region, el: ArtElement, bg: ArtColor | None) -> ElementPixelE
     )
 
 
-def _shape_evidence(region, el: ArtElement) -> ElementPixelEvidence:
+def _shape_evidence(region: Any, el: ArtElement) -> ElementPixelEvidence:
     fill = el.background
     if fill is None or el.has_text() or el.container:
         return ElementPixelEvidence(
@@ -343,7 +344,7 @@ def _shape_evidence(region, el: ArtElement) -> ElementPixelEvidence:
     )
 
 
-def _element_evidence(im, el: ArtElement, bg: ArtColor | None) -> ElementPixelEvidence:
+def _element_evidence(im: Any, el: ArtElement, bg: ArtColor | None) -> ElementPixelEvidence:
     x0 = int(el.x * im.width)
     y0 = int(el.y * im.height)
     x1 = int((el.x + el.width) * im.width)
@@ -362,7 +363,7 @@ def _element_evidence(im, el: ArtElement, bg: ArtColor | None) -> ElementPixelEv
     )
 
 
-def _replace_pixel_evidence(el: ArtElement, im, bg: ArtColor | None) -> ArtElement:
+def _replace_pixel_evidence(el: ArtElement, im: Any, bg: ArtColor | None) -> ArtElement:
     return replace(el, pixel_evidence=_element_evidence(im, el, bg))
 
 
@@ -375,10 +376,10 @@ class PixelEnricher:
     def __init__(self, slides_dir: str | Path) -> None:
         self._slides_dir = Path(slides_dir)
 
-    def _image_size(self, path: Path) -> tuple[int, int]:
+    def image_size(self, path: Path) -> tuple[int, int]:
         Image, _ = _pil()
         with Image.open(path) as im:
-            return im.size
+            return cast("tuple[int, int]", im.size)
 
     def scan(self) -> tuple[dict[int, Path], list[ArtWarning]]:
         """扫描目录：返回 {整数页号: PNG 路径} 与冲突/无页 warning。"""
@@ -412,18 +413,18 @@ class PixelEnricher:
             )
         return pages, warnings
 
-    def _read_deck_info(self) -> dict:
+    def _read_deck_info(self) -> dict[str, Any]:
         info_path = self._slides_dir / "_deck_info.json"
         if not info_path.is_file():
             return {}
         try:
-            return json.loads(info_path.read_text(encoding="utf-8"))
+            return cast("dict[str, Any]", json.loads(info_path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             return {}
 
     def _verify_fingerprint(
         self,
-        info: dict,
+        info: dict[str, Any],
         expected_sha256: str | None,
         run_id: str | None,
         scene: ArtScene,
@@ -547,7 +548,7 @@ def empty_scene_from_slides(slides_dir: str | Path) -> ArtScene:
     slides: list[ArtSlide] = []
     for idx, p in sorted(pages.items()):
         try:
-            width, height = enricher._image_size(p)
+            width, height = enricher.image_size(p)
         except Exception as exc:
             warnings.append(
                 ArtWarning(code="art.pixel.decode_failed", message=f"页 {idx} PNG 解码失败: {exc}")

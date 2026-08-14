@@ -38,14 +38,14 @@ def build(*, seed: int, background: str, spacing: float, thickness: float) -> st
     body: list[str] = []
     if background != "transparent":
         body.append(f'<rect width="1000" height="1000" fill="{BG}"/>')
-    for x in _line_positions(off_x, cell):
-        body.append(
-            f'<line x1="{x}" y1="0" x2="{x}" y2="1000" stroke="{FG}" '
-            f'stroke-width="{_fmt(line_width)}"/>'
-        )
-    for y in _line_positions(off_y, cell):
-        body.append(
-            f'<line x1="0" y1="{y}" x2="1000" y2="{y}" stroke="{FG}" '
-            f'stroke-width="{_fmt(line_width)}"/>'
-        )
+    body.extend(
+        f'<line x1="{x}" y1="0" x2="{x}" y2="1000" stroke="{FG}" '
+        f'stroke-width="{_fmt(line_width)}"/>'
+        for x in _line_positions(off_x, cell)
+    )
+    body.extend(
+        f'<line x1="0" y1="{y}" x2="1000" y2="{y}" stroke="{FG}" '
+        f'stroke-width="{_fmt(line_width)}"/>'
+        for y in _line_positions(off_y, cell)
+    )
     return svg_open() + "".join(body) + "</svg>"

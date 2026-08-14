@@ -11,14 +11,15 @@ facade 时，每个线程都应包一层 com_apartment()（线程各自 CoInitia
 """
 
 import contextlib
+from collections.abc import Iterator
 
 from .api import Excel, Ppt, Word
 
-__all__ = ["Excel", "Word", "Ppt", "com_apartment"]
+__all__ = ["Excel", "Ppt", "Word", "com_apartment"]
 
 
 @contextlib.contextmanager
-def com_apartment():
+def com_apartment() -> Iterator[None]:
     """STA COM 套间：direct facade 须在创建它的同一线程内使用。
 
     跨线程需各自包一层 com_apartment()（线程各自 CoInitialize/CoUninitialize

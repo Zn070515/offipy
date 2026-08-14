@@ -153,8 +153,7 @@ def _render_class(cls: str, app: str, remote: bool) -> list[str]:
     lines.append("")
     # 用 dict（插入序）而非 schema.ops() 的 frozenset——后者跨进程迭代顺序
     # 不稳定（hash 随机化），会让漂移测试偶发失败
-    for op in schema.OPS[app]:
-        lines.append(_method_sig(app, op, remote))
+    lines.extend(_method_sig(app, op, remote) for op in schema.OPS[app])
     lines.append("")
     return lines
 

@@ -8,9 +8,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from offipy.audit import Severity
+if TYPE_CHECKING:
+    from offipy.audit import Severity
 
 ART_SCHEMA_VERSION = "0.2"
 ART_REPORT_SCHEMA_VERSION = "0.3"
@@ -29,7 +30,7 @@ class ArtColor:
     a: float = 1.0
 
     @classmethod
-    def from_dict(cls, data: dict) -> ArtColor | None:
+    def from_dict(cls, data: dict[str, Any]) -> ArtColor | None:
         """未受信 color dict：r/g/b 缺失或非数字 → None（无颜色证据），不抛 ValueError。"""
         try:
             r, g, b = (int(v) for v in (data["r"], data["g"], data["b"]))
@@ -50,7 +51,7 @@ class ArtColor:
         out_b = round((self.b * sa + other.b * da * (1 - sa)) / out_a)
         return ArtColor(out_r, out_g, out_b, round(out_a, 6))
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {"r": self.r, "g": self.g, "b": self.b, "a": self.a}
 
 
@@ -62,7 +63,7 @@ class ArtTextRun:
     font_family: str | None = None
     color: ArtColor | None = None  # 该 run 的前景色（文本前景）
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "font_size": self.font_size,
@@ -79,7 +80,7 @@ class ArtElementRef:
     kind: str
     role: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | int]:
         return {
             "slide_index": self.slide_index,
             "element_id": self.element_id,
@@ -110,7 +111,7 @@ class ArtElement:
     natural_width: float | None = None
     natural_height: float | None = None
     source: str = "measurement"  # "measurement" | "pptx" | "merged"
-    evidence: dict = field(default_factory=dict)
+    evidence: dict[str, Any] = field(default_factory=dict)
     container: bool = False
     decoration: bool = False
     pixel_evidence: ElementPixelEvidence | None = None
@@ -122,7 +123,7 @@ class ArtElement:
     def has_text(self) -> bool:
         return bool(self.text and self.text.strip())
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "element_id": self.element_id,
             "kind": self.kind,
@@ -170,10 +171,10 @@ class ArtScene:
     width_unit: str = "px"  # "px" | "pt"
     warnings: list[ArtWarning] = field(default_factory=list)
     sources: set[str] = field(default_factory=set)
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict) -> ArtScene:
+    def from_dict(cls, data: dict[str, Any]) -> ArtScene:
         """手写/测试场景输入协议（与 MeasurementAdapter 的真实格式分离）。"""
         slides: list[ArtSlide] = []
         for i, s in enumerate(data.get("slides", [])):
@@ -204,7 +205,7 @@ class ArtScene:
         return next((s for s in self.slides if s.index == index), None)
 
 
-def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElement:
+def _element_from_dict(data: dict[str, Any], slide_index: int, height: float) -> ArtElement:
     fg = data.get("foreground") or data.get("color")
     bg = data.get("background")
     pe = data.get("pixel_evidence")
@@ -236,8 +237,8 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
             ],
             natural_width=float(data["natural_width"]) if data.get("natural_width") else None,
             natural_height=float(data["natural_height"]) if data.get("natural_height") else None,
-            container=bool(data.get("container", False)),
-            decoration=bool(data.get("decoration", False)),
+            container=bool(data.get("container")),
+            decoration=bool(data.get("decoration")),
             pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
         )
     return ArtElement(
@@ -252,7 +253,7 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
         foreground=_color_from(fg),
         background=_color_from(bg),
         border=_color_from(data.get("border")),
-        is_background=bool(data.get("is_background", False)),
+        is_background=bool(data.get("is_background")),
         text=data.get("text", ""),
         font_size=float(data["font_size"]) if data.get("font_size") else None,
         font_size_unit=data.get("font_size_unit", "unknown"),
@@ -269,13 +270,13 @@ def _element_from_dict(data: dict, slide_index: int, height: float) -> ArtElemen
         ],
         natural_width=float(data["natural_width"]) if data.get("natural_width") else None,
         natural_height=float(data["natural_height"]) if data.get("natural_height") else None,
-        container=bool(data.get("container", False)),
-        decoration=bool(data.get("decoration", False)),
+        container=bool(data.get("container")),
+        decoration=bool(data.get("decoration")),
         pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
     )
 
 
-def _norm_of(data: dict, height: float) -> float | None:
+def _norm_of(data: dict[str, Any], height: float) -> float | None:
     """手写场景的 norm：显式提供用显式值；否则 px/pt 同单位直接除。"""
     explicit = data.get("font_size_norm")
     if explicit is not None:
@@ -287,7 +288,7 @@ def _norm_of(data: dict, height: float) -> float | None:
     return float(fs) / height
 
 
-def _color_from(c) -> ArtColor | None:
+def _color_from(c: object) -> ArtColor | None:
     if c is None:
         return None
     if isinstance(c, ArtColor):
@@ -299,7 +300,7 @@ def _color_from(c) -> ArtColor | None:
     return None
 
 
-def _opt_float(v) -> float | None:
+def _opt_float(v: Any) -> float | None:
     """序列化可选浮点：None 原样，其余转 float。"""
     return float(v) if v is not None else None
 
@@ -318,11 +319,11 @@ class PixelColorShare:
     color: ArtColor
     ratio: float
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {"color": self.color.to_dict(), "ratio": self.ratio}
 
     @classmethod
-    def from_dict(cls, data: dict) -> PixelColorShare:
+    def from_dict(cls, data: dict[str, Any]) -> PixelColorShare:
         color = ArtColor.from_dict(data["color"])
         if color is None:
             color = ArtColor(0, 0, 0)  # 损坏颜色兜底，不崩
@@ -339,7 +340,7 @@ class SlidePixelEvidence:
     method: PixelEvidenceMethod = "unsupported"
     unsupported_reason: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "background": self.background.to_dict() if self.background else None,
             "background_confidence": self.background_confidence,
@@ -351,7 +352,7 @@ class SlidePixelEvidence:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> SlidePixelEvidence:
+    def from_dict(cls, data: dict[str, Any]) -> SlidePixelEvidence:
         return cls(
             background=ArtColor.from_dict(data["background"]) if data.get("background") else None,
             background_confidence=_opt_float(data.get("background_confidence")),
@@ -374,7 +375,7 @@ class ElementPixelEvidence:
     method: PixelEvidenceMethod = "unsupported"
     unsupported_reason: str | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "foreground": self.foreground.to_dict() if self.foreground else None,
             "background": self.background.to_dict() if self.background else None,
@@ -387,7 +388,7 @@ class ElementPixelEvidence:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> ElementPixelEvidence:
+    def from_dict(cls, data: dict[str, Any]) -> ElementPixelEvidence:
         return cls(
             foreground=ArtColor.from_dict(data["foreground"]) if data.get("foreground") else None,
             background=ArtColor.from_dict(data["background"]) if data.get("background") else None,
@@ -405,7 +406,7 @@ class ArtWarning:
     code: str
     message: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str]:
         return {"code": self.code, "message": self.message}
 
 
@@ -426,7 +427,7 @@ class ArtFinding:
     severity_override: bool = False
     severity_override_source: Literal["user", "feedback"] | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "rule_id": self.rule_id,
             "dimension": self.dimension,
@@ -461,7 +462,7 @@ class DimensionAssessment:
     reliability: float | None = None
     minimum_reliability: float | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dimension": self.dimension,
             "status": self.status,
@@ -483,13 +484,13 @@ class DimensionAssessment:
 class ArtSlideReport:
     slide_index: int
     dimensions: list[DimensionAssessment] = field(default_factory=list)
-    dominant_focus: dict | None = None
-    visual_balance: dict | None = None
+    dominant_focus: dict[str, Any] | None = None
+    visual_balance: dict[str, Any] | None = None
 
     def by_dimension(self, dim: str) -> DimensionAssessment | None:
         return next((d for d in self.dimensions if d.dimension == dim), None)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "slide_index": self.slide_index,
             "dimensions": [d.to_dict() for d in self.dimensions],
@@ -506,7 +507,7 @@ class ArtReport:
     deck_findings: list[ArtFinding] = field(default_factory=list)
     experimental_score: float | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "schema_version": self.schema_version,
             "profile": self.profile,
@@ -522,7 +523,7 @@ class DeckQualityReport:
     art: ArtReport | None = None
     warnings: list[ArtWarning] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "geometry": (
                 self.geometry.to_dict() if hasattr(self.geometry, "to_dict") else self.geometry

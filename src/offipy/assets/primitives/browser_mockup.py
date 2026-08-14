@@ -9,6 +9,8 @@ single-line and raises if it cannot fit at the floor.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 
 from offipy.assets.primitives._common import (
@@ -21,6 +23,11 @@ from offipy.assets.primitives._common import (
     shape_elements,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetRenderContext
+
 _CHROME = "#D9DDE3"
 _VIEWPORT = "#FFFFFF"
 _WHITE = "#FFFFFF"
@@ -31,7 +38,11 @@ _PAD_FRACTION = 0.03
 _MIN_PT = 7.0
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the browser mockup and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

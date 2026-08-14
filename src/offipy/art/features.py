@@ -6,9 +6,12 @@ visual_mass 的 dominant 取 ink 贡献最大者。
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
-from .models import ArtColor, ArtElement, ArtSlide
+if TYPE_CHECKING:
+    from .models import ArtColor, ArtElement, ArtSlide
 
 _SKIP_ROLES = {
     "background",
@@ -27,7 +30,7 @@ class AlignmentLine:
     members: tuple[str, ...]
     axis: str  # "vertical" | "horizontal"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {"position": self.position, "members": list(self.members), "axis": self.axis}
 
 
@@ -43,7 +46,7 @@ def _cluster_items(values: list[float], ids: list[str], tol: float = 0.01) -> li
     return [members for _v, members in clusters if len(members) >= 3]
 
 
-def alignment_features(elements: list[ArtElement]) -> dict:
+def alignment_features(elements: list[ArtElement]) -> dict[str, Any]:
     """共享边对齐线：left/center/right + top/middle/bottom，每条 ≥3 成员。"""
     lines: list[AlignmentLine] = []
     els = [e for e in elements if e.area > 0]
@@ -77,15 +80,15 @@ def _gaps(elements: list[ArtElement], axis: str) -> list[float]:
     if len(elements) < 2:
         return []
 
-    def center(e):
+    def center(e: ArtElement) -> float:
         return (e.x + e.width / 2) if axis == "x" else (e.y + e.height / 2)
 
-    def half(e):
+    def half(e: ArtElement) -> float:
         return (e.width / 2) if axis == "x" else (e.height / 2)
 
     ordered = sorted(elements, key=center)
     out: list[float] = []
-    for cur, nxt in zip(ordered, ordered[1:], strict=False):
+    for cur, nxt in itertools.pairwise(ordered):
         span = center(nxt) - center(cur)
         gap = span - half(cur) - half(nxt)
         out.append(round(max(gap, 0.0), 6))
@@ -130,7 +133,7 @@ def _drifted_count(values: list[float], tol: float | None = None) -> int:
     return sum(1 for v in values if abs(v - median) > t)
 
 
-def _one_axis_spacing(elements: list[ArtElement], axis: str) -> dict:
+def _one_axis_spacing(elements: list[ArtElement], axis: str) -> dict[str, Any]:
     """行/列聚类后，组内算 gap 漂移；跨组不产生相邻。"""
     groups = _row_clusters(elements) if axis == "x" else _column_clusters(elements)
     gaps: list[float] = []
@@ -151,7 +154,7 @@ def _one_axis_spacing(elements: list[ArtElement], axis: str) -> dict:
     }
 
 
-def spacing_features(elements: list[ArtElement]) -> dict:
+def spacing_features(elements: list[ArtElement]) -> dict[str, Any]:
     """水平/垂直组内间隙漂移统计（先行列聚类，跨组不误报）。"""
     return {
         "horizontal": _one_axis_spacing(elements, "x"),
@@ -169,7 +172,7 @@ def _element_ink(e: ArtElement) -> float:
     return e.area * 0.5
 
 
-def visual_mass(elements: list[ArtElement]) -> dict:
+def visual_mass(elements: list[ArtElement]) -> dict[str, Any]:
     """视觉重量：按角色过滤后的 ink 质量；dominant 取 ink 贡献最大者。"""
     ink = 0.0
     count = 0
@@ -202,7 +205,7 @@ def _union_area(elements: list[ArtElement]) -> float:
     if len(xs) < 2:
         return 0.0
     total = 0.0
-    for x0, x1 in zip(xs, xs[1:], strict=False):
+    for x0, x1 in itertools.pairwise(xs):
         if x1 - x0 <= 0:
             continue
         # 覆盖该 x 段的元素，收集其 y 区间
@@ -222,7 +225,7 @@ def _union_area(elements: list[ArtElement]) -> float:
     return total
 
 
-def density_features(elements: list[ArtElement]) -> dict:
+def density_features(elements: list[ArtElement]) -> dict[str, Any]:
     els = [e for e in elements if e.role not in _SKIP_ROLES and not e.is_background]
     sum_area = sum(e.area for e in els)
     union = _union_area(els)
@@ -274,7 +277,7 @@ def effective_background(el: ArtElement, slide: ArtSlide) -> ArtColor | None:
     return slide.background_color
 
 
-def font_hierarchy(slide: ArtSlide) -> dict:
+def font_hierarchy(slide: ArtSlide) -> dict[str, Any]:
     """标题/正文字号层级：title_size_norm、max_body_size_norm、ratio、title_id。"""
     title = next((e for e in slide.elements if e.role == "title"), None)
     title_size = title.font_size_norm if title else None
@@ -300,7 +303,7 @@ def _is_accent(c: ArtColor) -> bool:
     return (mx - mn) > 60 and mx > 160
 
 
-def palette_features(slide: ArtSlide) -> dict:
+def palette_features(slide: ArtSlide) -> dict[str, Any]:
     """RGB 分桶 + 面积加权 accent 占比（只算前景色）+ dominant 色。"""
     buckets: dict[tuple[int, int, int], float] = {}
     accent_area = 0.0
@@ -326,7 +329,7 @@ def palette_features(slide: ArtSlide) -> dict:
     }
 
 
-def focus_features(slide: ArtSlide) -> dict:
+def focus_features(slide: ArtSlide) -> dict[str, Any]:
     """视觉焦点：≥3 元素且最大/中位字号比 ≥1.5。"""
     sizes = [e.font_size_norm for e in slide.elements if e.font_size_norm is not None]
     if len(slide.elements) < 3 or len(sizes) < 2:
@@ -337,7 +340,7 @@ def focus_features(slide: ArtSlide) -> dict:
     return {"has_focus": ratio >= 1.5, "ratio": round(ratio, 6)}
 
 
-def compute_features(slide: ArtSlide) -> dict:
+def compute_features(slide: ArtSlide) -> dict[str, Any]:
     """汇总 8 个特征 key（alignment/spacing/mass/font_hierarchy/palette/density/focus/签名）。"""
     els = slide.elements
     role = infer_slide_role(slide)

@@ -202,7 +202,7 @@ def test_add_picture_embeds_with_save_with_document(tmp_path, monkeypatch):
     app.add_picture(1, str(img), 100, 200, 300, 400, doc_id="p1")
     assert captured["save"] == -1  # msoTrue：内嵌（LinkToFile=False 时传 0 会被拒）
     assert captured["link"] == 0
-    assert captured["path"] == os.path.normpath(os.path.abspath(str(img)))
+    assert captured["path"] == os.path.normpath(Path(str(img)).resolve())
     assert captured["left"] == 100 and captured["top"] == 200
 
 
@@ -239,7 +239,7 @@ def test_insert_image_passes_normalized_path_and_end_range(tmp_path, monkeypatch
     app = word.WordApp.__new__(word.WordApp)
     monkeypatch.setattr(app, "_require_doc", lambda doc_id: doc)
     app.insert_image(str(img), width=200, height=150, doc_id="d1")
-    assert captured["path"] == os.path.normpath(os.path.abspath(str(img)))
+    assert captured["path"] == os.path.normpath(Path(str(img)).resolve())
     assert captured["has_range"] is True  # 插图落在文末 Range，不覆盖既有内容
     assert captured["collapse"] == 0  # wdCollapseEnd
 

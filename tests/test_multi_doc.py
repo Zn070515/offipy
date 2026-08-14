@@ -9,7 +9,6 @@
 - word/ppt 套同模式
 """
 
-import os
 from pathlib import Path
 
 import pytest
@@ -61,7 +60,7 @@ class _FakeBook:
 
     def SaveAs(self, path):
         self.saveas_calls.append(path)
-        self.Path = os.path.dirname(path)
+        self.Path = Path(path).parent
         self.FullName = path
         self.Saved = True
 
@@ -136,11 +135,11 @@ def test_excel_multi_doc_flow(monkeypatch):
     app.activate(a)
     assert app._docs[a].activated == 1  # P0-6：activate 同步真实 UI（Workbook.Activate）
     app.set_cell(1, "A1", 100, follow_active=True)
-    assert app._docs[a]._cells[(1, 1)] == 100
+    assert app._docs[a]._cells[1, 1] == 100
     assert (1, 1) not in app._docs[b]._cells
     # 显式 doc_id 路由到指定工作簿，不受活动目标影响
     app.set_cell(1, "B2", 200, doc_id=b)
-    assert app._docs[b]._cells[(2, 2)] == 200
+    assert app._docs[b]._cells[2, 2] == 200
     assert (2, 2) not in app._docs[a]._cells
     # get_cell 读回，缺省走活动、显式路由指定
     assert app.get_cell(1, "A1") == 100
@@ -267,7 +266,7 @@ def test_excel_close_save_unsaved_autosaves(monkeypatch, tmp_path):
     path = app.close_book(save=True, follow_active=True)
     assert book.saveas_calls  # 自动落盘，不弹另存为
     assert path == book.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path / "documents")  # 用户数据目录
+    assert Path(path).parent == tmp_path / "documents"  # 用户数据目录
     assert path.endswith(".xlsx")
     assert book.close_calls[-1]["SaveChanges"] == 1  # xlSaveChanges
     assert book.closed
@@ -292,7 +291,7 @@ def test_excel_save_unsaved_autosaves(monkeypatch, tmp_path):
     path = app.save(follow_active=True)
     assert book.saveas_calls
     assert path == book.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path / "documents")
+    assert Path(path).parent == tmp_path / "documents"
     assert path.endswith(".xlsx")
 
 
@@ -309,7 +308,7 @@ def test_excel_save_saved_uses_in_place(monkeypatch):
 def test_excel_save_explicit_path_overwrite_protection(monkeypatch, tmp_path):
     app = _new_excel(monkeypatch)
     book = app._docs[app.new_book()]
-    dest = os.path.join(str(tmp_path), "out.xlsx")
+    dest = str(tmp_path / "out.xlsx")
     assert app.save(dest, follow_active=True) == dest
     assert book.saveas_calls == [dest]
     Path(dest).write_text("x")  # 真实落盘，ensure_writable 才判定已存在
@@ -357,7 +356,7 @@ class _FakeWordDoc:
 
     def SaveAs2(self, path):
         self.saveas_calls.append(path)
-        self.Path = os.path.dirname(path)
+        self.Path = Path(path).parent
         self.FullName = path
         self.Saved = True
 
@@ -423,7 +422,7 @@ def test_word_close_save_unsaved_autosaves(monkeypatch, tmp_path):
     path = app.close_doc(save=True, follow_active=True)
     assert doc.saveas_calls
     assert path == doc.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path / "documents")
+    assert Path(path).parent == tmp_path / "documents"
     assert path.endswith(".docx")
     assert doc.close_calls[-1]["SaveChanges"] == -1  # wdSaveChanges
 
@@ -436,7 +435,7 @@ def test_word_save_unsaved_autosaves(monkeypatch, tmp_path):
     path = app.save(follow_active=True)
     assert doc.saveas_calls
     assert path == doc.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path / "documents")
+    assert Path(path).parent == tmp_path / "documents"
     assert path.endswith(".docx")
 
 
@@ -460,7 +459,7 @@ class _FakePres:
 
     def SaveAs(self, path):
         self.saveas_calls.append(path)
-        self.Path = os.path.dirname(path)
+        self.Path = Path(path).parent
         self.FullName = path
         self.Saved = True
 
@@ -511,7 +510,7 @@ def test_ppt_save_unsaved_autosaves(monkeypatch, tmp_path):
     path = app.save(follow_active=True)
     assert pres.saveas_calls
     assert path == pres.saveas_calls[-1]
-    assert os.path.dirname(path) == str(tmp_path / "documents")
+    assert Path(path).parent == tmp_path / "documents"
     assert path.endswith(".pptx")
 
 

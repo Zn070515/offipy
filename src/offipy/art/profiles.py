@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from offipy.audit import Severity
 from offipy.exceptions import InvalidArgumentError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.audit import Severity
 
 # ---- 规则 ID 常量（canonical，勿改名）----
 RULE_NO_FOCUS = "art.hierarchy.no_focus"

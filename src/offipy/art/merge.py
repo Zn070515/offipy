@@ -10,7 +10,7 @@ content/footer）导致 100% 未匹配。匹配改为文本强佐证 + 几何兜
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from .models import ArtElement, ArtScene, ArtSlide, ArtWarning
 
@@ -48,7 +48,7 @@ def _match_confidence(primary_el: ArtElement, secondary_el: ArtElement) -> float
         return 0.7
     pcx, pcy = primary_el.x + primary_el.width / 2, primary_el.y + primary_el.height / 2
     ecx, ecy = secondary_el.x + secondary_el.width / 2, secondary_el.y + secondary_el.height / 2
-    d = ((pcx - ecx) ** 2 + (pcy - ecy) ** 2) ** 0.5
+    d = cast("float", ((pcx - ecx) ** 2 + (pcy - ecy) ** 2) ** 0.5)
     # 双方都有文本但不同 → 非同一元素（即使几何接近也不合并）
     if p_text and s_text:
         return None
@@ -122,8 +122,7 @@ def merge_scenes(primary: ArtScene, secondary: ArtScene) -> tuple[ArtScene, list
                     message=f"secondary 缺 slide {ps.index}",
                 )
             )
-            for el in ps.elements:
-                elements.append(_merge_element(el, None, None))
+            elements.extend(_merge_element(el, None, None) for el in ps.elements)
             out_slides.append(
                 ArtSlide(
                     index=ps.index,
@@ -195,7 +194,7 @@ def merge_scenes(primary: ArtScene, secondary: ArtScene) -> tuple[ArtScene, list
     return scene, warnings
 
 
-def _snapshot(el: ArtElement) -> dict:
+def _snapshot(el: ArtElement) -> dict[str, Any]:
     return {
         "font_size": el.font_size,
         "font_size_unit": el.font_size_unit,

@@ -4,7 +4,7 @@ guard 必须在触 COM 之前触发（fail-fast）；overwrite=True 放行。用
 `__new__` 构造实例跳过 __init__ 的 COM 初始化，专注测保护层本身。
 """
 
-import os
+import pathlib
 import types
 
 import pytest
@@ -23,12 +23,12 @@ def test_ensure_writable_refuses_existing(tmp_path):
 def test_ensure_writable_allows_overwrite(tmp_path):
     f = tmp_path / "x.pptx"
     f.write_text("x")
-    assert paths.ensure_writable(str(f), overwrite=True) == os.path.abspath(str(f))
+    assert paths.ensure_writable(str(f), overwrite=True) == str(pathlib.Path(str(f)).resolve())
 
 
 def test_ensure_writable_missing_ok(tmp_path):
     f = tmp_path / "new.pptx"
-    assert paths.ensure_writable(str(f)) == os.path.abspath(str(f))
+    assert paths.ensure_writable(str(f)) == str(pathlib.Path(str(f)).resolve())
 
 
 class _FakePres:
@@ -56,7 +56,7 @@ def test_ppt_save_overwrite_proceeds(tmp_path):
     fake = _FakePres()
     p.active_pres = lambda doc_id=None: fake
     p.save(str(target), overwrite=True, doc_id="pres1")
-    assert fake.saved == os.path.abspath(str(target))
+    assert fake.saved == str(pathlib.Path(str(target)).resolve())
 
 
 def test_excel_save_pdf_guard_fires(tmp_path):
@@ -182,8 +182,8 @@ def test_ppt_save_pdf_uses_export_as_fixed_format(tmp_path):
     fake = _FakePresExport()
     p.active_pres = lambda doc_id=None: fake
     p.save_pdf(str(target), doc_id="pres1")
-    path, args, kwargs = fake.calls[0]
-    assert path == os.path.abspath(str(target))
+    path, _args, kwargs = fake.calls[0]
+    assert path == str(pathlib.Path(str(target)).resolve())
     assert kwargs["FixedFormatType"] == ppt.PP_FIXED_FORMAT_TYPE_PDF  # PDF 格式
     assert kwargs["Intent"] == 2  # ppFixedFormatIntentPrint
     # PrintRange 是 VT_DISPATCH 槽位，必须显式 None（makepy 默认 0 会转换失败）
@@ -197,8 +197,8 @@ def test_word_save_pdf_uses_export_as_fixed_format(tmp_path):
     fake = _FakeDocExport()
     d.active_doc = lambda doc_id=None: fake
     d.save_pdf(str(target), doc_id="doc1")
-    path, args, kwargs = fake.calls[0]
-    assert path == os.path.abspath(str(target))
+    path, _args, kwargs = fake.calls[0]
+    assert path == str(pathlib.Path(str(target)).resolve())
     assert kwargs["ExportFormat"] == word.WD_EXPORT_FORMAT_PDF
 
 
@@ -337,7 +337,7 @@ def test_ppt_save_retries_lock_then_succeeds(monkeypatch, tmp_path):
     p.app = types.SimpleNamespace(DisplayAlerts=0)
     p.active_pres = lambda doc_id=None: _FakePres()
     dest = p.save(str(target), overwrite=True, doc_id="pres1")
-    assert dest == os.path.abspath(str(target))
+    assert dest == str(pathlib.Path(str(target)).resolve())
     assert calls["n"] == 3
 
 

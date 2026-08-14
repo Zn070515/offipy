@@ -10,6 +10,9 @@ from .models import ArtFinding, ArtReport, ArtWarning, Grade
 
 ChangeStatus = Literal["new", "resolved", "unchanged", "improved", "worsened", "changed"]
 
+# finding 稳定身份键：rule_id + slide_index + primary element_id + occurrence 摘要
+_StableKey = tuple[str, int | None, str | None, str]
+
 
 @dataclass
 class FindingChange:
@@ -56,12 +59,12 @@ def _occurrence(f: ArtFinding) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
 
 
-def _stable_key(f: ArtFinding) -> tuple:
+def _stable_key(f: ArtFinding) -> _StableKey:
     return (f.rule_id, f.slide_index, f.primary.element_id if f.primary else None, _occurrence(f))
 
 
-def _flatten(report: ArtReport) -> dict[tuple, ArtFinding]:
-    flat: dict[tuple, ArtFinding] = {}
+def _flatten(report: ArtReport) -> dict[_StableKey, ArtFinding]:
+    flat: dict[_StableKey, ArtFinding] = {}
     for s in report.slides:
         for d in s.dimensions:
             for f in d.findings:

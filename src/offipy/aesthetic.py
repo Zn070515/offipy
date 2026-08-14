@@ -21,6 +21,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from . import design
 
@@ -85,7 +86,9 @@ def _blend(
     )
 
 
-def _composite(rgba, base: tuple[int, int, int]) -> tuple[int, int, int] | None:
+def _composite(
+    rgba: tuple[int, int, int, float] | None, base: tuple[int, int, int]
+) -> tuple[int, int, int] | None:
     """rgba 与底色合成；解析失败/全透明 → None（无颜色，交由调用方兜底）。"""
     if rgba is None:
         return None
@@ -143,9 +146,9 @@ class Finding:
     severity: str  # HIGH / MID / LOW
     page: int
     message: str
-    detail: dict = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dimension": self.dimension,
             "severity": self.severity,
@@ -160,9 +163,9 @@ class PageScore:
     index: int
     score: int
     findings: list[Finding] = field(default_factory=list)
-    metrics: dict = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "index": self.index,
             "score": self.score,
@@ -179,7 +182,7 @@ class AestheticReport:
     warnings: list[str] = field(default_factory=list)
     deck_findings: list[Finding] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_score": self.total_score,
             "theme": self.theme,
@@ -196,8 +199,9 @@ class AestheticReport:
         lines.append("")
         if self.deck_findings:
             lines.append("## 全 deck 一致性")
-            for f in self.deck_findings:
-                lines.append(f"- `[{f.severity}]` {f.dimension}：{f.message}")
+            lines.extend(
+                f"- `[{f.severity}]` {f.dimension}：{f.message}" for f in self.deck_findings
+            )
             lines.append("")
         for p in self.pages:
             lines.append(f"## 第 {p.index} 页 · {p.score} 分")
@@ -206,8 +210,7 @@ class AestheticReport:
                 lines.append(f"> {parts}")
             if not p.findings:
                 lines.append("_无问题_")
-            for f in p.findings:
-                lines.append(f"- `[{f.severity}]` {f.dimension}：{f.message}")
+            lines.extend(f"- `[{f.severity}]` {f.dimension}：{f.message}" for f in p.findings)
             lines.append("")
         return "\n".join(lines)
 
@@ -215,7 +218,7 @@ class AestheticReport:
 # ---------------------------------------------------------------- 单页审计
 
 
-def _num(value, default: float = 0.0) -> float:
+def _num(value: Any, default: float = 0.0) -> float:
     """安全转 float：非法/NaN 值回退 default，不让畸形 measurement 崩整个审计。"""
     try:
         f = float(value)
@@ -224,13 +227,18 @@ def _num(value, default: float = 0.0) -> float:
     return default if f != f else f  # NaN 自不等
 
 
-def _records(slide: dict) -> list:
+def _records(slide: dict[str, Any]) -> list[dict[str, Any]]:
     recs = slide.get("records")
     return recs if isinstance(recs, list) else []
 
 
-def _collect_text_runs(records: list[dict]) -> list[dict]:
-    runs = []
+def _rec_runs(rec: dict[str, Any]) -> list[dict[str, Any]]:
+    runs = rec.get("runs")
+    return runs if isinstance(runs, list) else []
+
+
+def _collect_text_runs(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
     for rec in records:
         if rec.get("kind") != "text":
             continue
@@ -243,7 +251,7 @@ def _collect_text_runs(records: list[dict]) -> list[dict]:
     return runs
 
 
-def _rect_area(rec: dict) -> float:
+def _rect_area(rec: dict[str, Any]) -> float:
     r = rec.get("rect") or {}
     return max(0.0, _num(r.get("w"))) * max(0.0, _num(r.get("h")))
 
@@ -263,7 +271,7 @@ def _cluster_font_sizes(sizes: list[float], tolerance: float = 2.0) -> int:
 
 
 def _audit_whitespace(
-    records: list[dict], page_index: int, background: str | None = None
+    records: list[dict[str, Any]], page_index: int, background: str | None = None
 ) -> tuple[list[Finding], float]:
     page_area = _CANVAS_W * _CANVAS_H
     bg = parse_rgb(background)
@@ -295,7 +303,7 @@ def _audit_whitespace(
     return findings, ratio
 
 
-def _audit_type_scale(runs: list[dict], page_index: int) -> tuple[list[Finding], int]:
+def _audit_type_scale(runs: list[dict[str, Any]], page_index: int) -> tuple[list[Finding], int]:
     sizes = [_num(r.get("fontSize")) for r in runs if _num(r.get("fontSize")) > 0]
     n = _cluster_font_sizes(sizes)
     findings = []
@@ -318,7 +326,7 @@ def _audit_type_scale(runs: list[dict], page_index: int) -> tuple[list[Finding],
 
 
 def _audit_palette(
-    records: list[dict], background: str | None, page_index: int
+    records: list[dict[str, Any]], background: str | None, page_index: int
 ) -> tuple[list[Finding], int]:
     """非中性色计数（背景 + 文本 + 形状/装饰填充色）。"""
     colors: set[tuple[int, int, int]] = set()
@@ -361,7 +369,9 @@ def _audit_palette(
     return findings, n
 
 
-def _audit_contrast(records: list[dict], background: str | None, page_index: int) -> list[Finding]:
+def _audit_contrast(
+    records: list[dict[str, Any]], background: str | None, page_index: int
+) -> list[Finding]:
     bg = parse_rgb(background) or (255, 255, 255)
     findings = []
     # 同一前景色在不同背景（页面 vs 色卡）上对比度不同，seen 需带背景键
@@ -402,7 +412,7 @@ def _audit_contrast(records: list[dict], background: str | None, page_index: int
 # ---------------------------------------------------------------- 一致性（task #43）
 
 
-def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]:
+def _consistency_findings(measurement: dict[str, Any], theme: str | None) -> list[Finding]:
     slides = measurement.get("slides") or []
     if len(slides) < 2:
         return []
@@ -416,7 +426,7 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
             _num(r.get("fontSize"))
             for rec in _records(s)
             if rec.get("kind") == "text"
-            for r in (rec.get("runs") if isinstance(rec.get("runs"), list) else [])
+            for r in _rec_runs(rec)
             if _num(r.get("fontSize")) > 0 and _num(r.get("fontSize")) <= 120
         ]
         if sizes:
@@ -492,7 +502,7 @@ def _consistency_findings(measurement: dict, theme: str | None) -> list[Finding]
 
 
 def _score_pages(
-    measurement: dict, theme: str | None, weights: dict[str, float] | None = None
+    measurement: dict[str, Any], _theme: str | None, weights: dict[str, float] | None = None
 ) -> list[PageScore]:
     weights = weights or {}
     pages = []
@@ -536,19 +546,21 @@ def _score_pages(
 # ---------------------------------------------------------------- 入口
 
 
-def load_measurement(path: str | Path) -> dict:
+def load_measurement(path: str | Path) -> dict[str, Any]:
     """读 measurement JSON（HTML→PPTX 管线产物）。"""
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(p)
     data = json.loads(p.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not isinstance(data.get("slides"), list):
-        raise ValueError(f"{p} 不是合法 measurement（缺 'slides' 数组）")
+        raise ValueError(f"{p} 不是合法 measurement（缺 'slides' 数组）")  # noqa: TRY004 — JSON 数据校验是「数据形状错误」用 ValueError；TypeError 留给 Python 参数类型契约
     return data
 
 
 def audit_measurement(
-    measurement: dict, theme: str | None = None, weights: dict[str, float] | None = None
+    measurement: dict[str, Any],
+    theme: str | None = None,
+    weights: dict[str, float] | None = None,
 ) -> AestheticReport:
     """对 measurement 数据做审美审计，返回报告。"""
     weights = weights or {}

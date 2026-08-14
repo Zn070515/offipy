@@ -22,13 +22,15 @@ from __future__ import annotations
 import hashlib
 import zipfile
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from offipy.exceptions import ConversionError
 
 from .geometry import Affine2D, Rect
 from .models import AuditWarning
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _EMU_PER_INCH = 914400.0
 
@@ -236,7 +238,7 @@ def _flatten(
         )
         return []
     if rec.is_group:
-        child_path = group_path + (rec.shape_id,)
+        child_path = (*group_path, rec.shape_id)
         children: list[_ShapeRecord] = []
         for c_z, child in enumerate(shape.shapes):  # type: ignore[attr-defined]
             children.extend(
@@ -380,7 +382,7 @@ def _read_text_frame(shape: object) -> _TextFrameData:
     )
 
 
-def _read_line_spacing(para) -> tuple[float | None, float | None]:
+def _read_line_spacing(para: Any) -> tuple[float | None, float | None]:
     """段落行距 a:lnSpc → (spcPts 点值, spcPct 百分比)。
 
     spcPts val 单位 1/100pt（绝对值）；spcPct val 单位 1/1000%（相对单行高）。
@@ -553,8 +555,7 @@ def _group_matrix(t: _GroupTransform) -> Affine2D:
         m = m.compose(Affine2D.flip_h())
     m = m.compose(Affine2D.translate(-t.ext_cx / 2.0, -t.ext_cy / 2.0))
     m = m.compose(Affine2D.scale(sx, sy))
-    m = m.compose(Affine2D.translate(-t.ch_off_x, -t.ch_off_y))
-    return m
+    return m.compose(Affine2D.translate(-t.ch_off_x, -t.ch_off_y))
 
 
 def _own_rotate_about_center(rec: _ShapeRecord) -> Affine2D:
@@ -571,8 +572,7 @@ def _own_rotate_about_center(rec: _ShapeRecord) -> Affine2D:
     cy = rec.top + rec.height / 2.0
     m = Affine2D.translate(cx, cy)
     m = m.compose(Affine2D.rotate(rec.rotation))
-    m = m.compose(Affine2D.translate(-cx, -cy))
-    return m
+    return m.compose(Affine2D.translate(-cx, -cy))
 
 
 def _is_axis_aligned(deg: float) -> bool:

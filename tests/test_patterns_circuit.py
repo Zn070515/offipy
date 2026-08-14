@@ -50,7 +50,7 @@ def test_exact_unique_node_count(nodes: int) -> None:
 
 
 def test_no_duplicate_nodes_across_seeds() -> None:
-    for seed in range(0, 40):
+    for seed in range(40):
         coords = _nodes(circuit.build(seed=seed, background="transparent", nodes=60, density=1.0))
         assert len(set(coords)) == len(coords)
 
@@ -96,7 +96,7 @@ def test_paths_and_nodes_use_foreground_sentinel() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = circuit.build(seed=0, background="#123456", nodes=20, density=0.5)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 def test_template_size_bounded() -> None:

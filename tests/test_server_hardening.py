@@ -93,7 +93,7 @@ def _wait_ready(port: int) -> None:
             status, _ = _get(port, "/ping")
             if status == 200:
                 return
-        except OSError:
+        except OSError:  # noqa: PERF203 — 启动轮询必须每轮捕获连接失败
             time.sleep(0.05)
     raise RuntimeError("server 未就绪")
 
@@ -178,7 +178,7 @@ def test_request_id_same_id_different_payload_rejected(srv):
     # 同 request_id 不同 payload → 400 invalid_argument，不静默返回旧结果
     port, calls = srv
     base = {"app": "ppt", "op": "slow", "request_id": "rid-dup"}
-    s1, r1 = _post(port, {**base, "args": {"a": 1}}, token=TOKEN)
+    s1, _r1 = _post(port, {**base, "args": {"a": 1}}, token=TOKEN)
     assert s1 == 200
     s2, r2 = _post(port, {**base, "args": {"a": 2}}, token=TOKEN)
     assert s2 == 400
@@ -229,7 +229,7 @@ def test_request_id_timeout_then_retry_re_executes(srv, monkeypatch):
     calls.clear()
     body = {"app": "ppt", "op": "slow", "request_id": "rid-gated"}
 
-    s1, r1 = _post(port, body, token=TOKEN)
+    s1, _r1 = _post(port, body, token=TOKEN)
     assert s1 == 504  # owner 在 _CALL_TIMEOUT 内没等到 worker → 超时并释放 entry
     assert entered.wait(2)  # worker 已进入（op 执行了一次）
 
@@ -292,7 +292,7 @@ def test_idempotency_lru_skips_inflight(monkeypatch):
     server._REQUEST_ID_CACHE.clear()
     monkeypatch.setattr(server, "_REQUEST_ID_MAX", 2)
     e1, _ = server._claim("a", "h-a")
-    e2, _ = server._claim("b", "h-b")
+    _e2, _ = server._claim("b", "h-b")
     server._complete_entry(e1, {"ok": True})
     server._claim("c", "h-c")  # 超限：只淘汰 done(a)，保留 inflight b 与 c
     assert "a" not in server._REQUEST_ID_CACHE
@@ -433,7 +433,7 @@ def test_idempotent_queue_full_rollback_wakes_non_owner(monkeypatch):
         a.join(10)
         b.join(10)
         assert "a" in results and "b" in results, "非 owner 线程必须被回滚唤醒，不能空等"
-        status_b, body_b = results["b"]
+        _status_b, body_b = results["b"]
         assert body_b["error_code"] == "busy"
         assert "忙" in body_b["error"]
         assert "超时" not in body_b.get("error", "")  # 不是误导性的 504 超时
@@ -516,19 +516,19 @@ def test_remove_pid_file_if_owned(monkeypatch, tmp_path):
     pid_file.write_text(
         json.dumps({"port": server.DEFAULT_PORT, "pid": os.getpid()}), encoding="utf-8"
     )
-    server._remove_pid_file_if_owned(server.DEFAULT_PORT, "tok")
+    server._remove_pid_file_if_owned(server.DEFAULT_PORT)
     assert not pid_file.exists()
     # 他人进程 pid → 保留（绝不误删）
     pid_file.write_text(json.dumps({"port": server.DEFAULT_PORT, "pid": 123456}), encoding="utf-8")
-    server._remove_pid_file_if_owned(server.DEFAULT_PORT, "tok")
+    server._remove_pid_file_if_owned(server.DEFAULT_PORT)
     assert pid_file.exists()
     # port 不匹配 → 保留
     pid_file.write_text(json.dumps({"port": 9999, "pid": os.getpid()}), encoding="utf-8")
-    server._remove_pid_file_if_owned(server.DEFAULT_PORT, "tok")
+    server._remove_pid_file_if_owned(server.DEFAULT_PORT)
     assert pid_file.exists()
     # 坏 JSON → 保留（无法证明归属就不删）
     pid_file.write_text("not-json", encoding="utf-8")
-    server._remove_pid_file_if_owned(server.DEFAULT_PORT, "tok")
+    server._remove_pid_file_if_owned(server.DEFAULT_PORT)
     assert pid_file.exists()
 
 
@@ -556,7 +556,7 @@ def test_serve_holds_mutex_until_exit(monkeypatch):
     monkeypatch.setattr(server, "_write_pid_file", lambda port, token: None)
     monkeypatch.setattr(server, "_ensure_worker", lambda: None)
     monkeypatch.setattr(server, "_stop_worker", lambda: None)
-    monkeypatch.setattr(server, "_remove_pid_file_if_owned", lambda port, token: None)
+    monkeypatch.setattr(server, "_remove_pid_file_if_owned", lambda port: None)
     monkeypatch.setattr(server, "_TOKEN", "t")
 
     class FakeHTTPServer:
@@ -592,9 +592,7 @@ def test_serve_bind_failure_no_pid_and_mutex_closed(monkeypatch):
     )
     monkeypatch.setattr(server, "_ensure_worker", lambda: None)
     monkeypatch.setattr(server, "_stop_worker", lambda: None)
-    monkeypatch.setattr(
-        server, "_remove_pid_file_if_owned", lambda port, token: removes.append(port)
-    )
+    monkeypatch.setattr(server, "_remove_pid_file_if_owned", lambda port: removes.append(port))
     monkeypatch.setattr(server, "_TOKEN", "t")
 
     class BindingServer:
@@ -706,7 +704,7 @@ def test_load_token_chmod_0600(monkeypatch, tmp_path):
     calls = []
     real = os.chmod
 
-    def spy(path, mode):
+    def spy(path, mode, **kwargs):
         calls.append((str(path), mode))
         real(path, mode)
 

@@ -9,7 +9,10 @@ pulls in python-pptx until a native primitive is actually rendered.
 from __future__ import annotations
 
 import importlib
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, cast
 
+from offipy.assets.model import AssetRenderContext
 from offipy.exceptions import InvalidArgumentError
 
 _RENDERER_MODULES: dict[str, str] = {
@@ -24,7 +27,10 @@ _RENDERER_MODULES: dict[str, str] = {
 }
 
 
-def get_native_renderer(primitive: str):
+Renderer = Callable[[Any, Mapping[str, str], AssetRenderContext], Sequence[object]]
+
+
+def get_native_renderer(primitive: str) -> Renderer:
     """Return the ``render(slide, params, ctx)`` callable for a primitive name.
 
     Unknown primitive reaching the renderer is a contract violation and raises.
@@ -36,4 +42,4 @@ def get_native_renderer(primitive: str):
     render = getattr(module, "render", None)
     if render is None:
         raise InvalidArgumentError(f"native primitive {primitive!r} has no render()")
-    return render
+    return cast("Renderer", render)

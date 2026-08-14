@@ -123,13 +123,58 @@ src = ["src", "tests"]
 exclude = ["docs/", "test/", "src/offipy/_vendor/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = [
+    "E", "F", "I", "UP", "B", "SIM",
+    "A", "ARG", "C4", "DTZ", "ERA", "FLY", "ICN", "INP", "INT", "PERF",
+    "PIE", "PT", "PTH", "PYI", "Q", "RET", "RUF", "SLF", "T", "TC", "TID",
+    "TRY",
+]
+# TRY003（raise-vanilla-args）不启用：库的错误消息刻意用描述性中文多行文本
+# 直接进 CLI/协议面，TRY003 要求的「自定义异常类承载长消息」是相反的设计哲学，
+# 全库约 400 处全改会退化成无信息异常或几百个空壳异常类，收益为零。
+ignore = ["TRY003"]
+# 中文文档/注释/字符串里的全角标点与数学符号是正常排版（非同形字攻击），
+# RUF001/002/003 只查 Unicode confusables 表，这里放行本项目实际使用的字符。
+allowed-confusables = [
+    "（", "）", "，", "：", "；", "？", "＋",
+    "×", "−", "–", "∪",
+]
 
 [tool.ruff.lint.per-file-ignores]
 # gen_api_ref.py 的 _EN_DESC 是英文翻译数据表，长描述字符串天然超 100 列
 "scripts/gen_api_ref.py" = ["E501"]
-# api.pyi 是生成的类型 stub，长签名行天然超 100 列；由生成器 + 漂移测试保证一致
-"src/offipy/api.pyi" = ["E501"]
+# api.pyi 是生成的类型 stub，长签名行天然超 100 列；PYI* 规则约束的
+# exit 注解/泛型写法、Q000 的单引号风格都与生成器输出冲突——均由生成器 +
+# 漂移测试保证一致，手改无效
+"src/offipy/api.pyi" = ["E501", "PYI", "Q000"]
+# T201（print）在 CLI/诊断路径是「输出即接口」：cli.py 打印命令结果、
+# envcheck.py 打印环境诊断、server.py 打印启动/警告——改成 logging 会破坏契约，
+# 定向放行，非调试残留。
+"src/offipy/cli.py" = ["T201"]
+"src/offipy/envcheck.py" = ["T201"]
+"src/offipy/server.py" = ["T201"]
+# SLF001（私有成员访问）：这几个模块按设计工作在 python-pptx 的 OOXML XML 层
+# （_element/_spTree/_get_or_add_ln/_txBody/_p/_r 等），python-pptx 对 raw XML
+# 元素访问不提供公开 API，下划线属性访问是唯一途径且刻意为之——定向放行。
+"src/offipy/assets/render.py" = ["SLF001"]
+"src/offipy/audit/extract.py" = ["SLF001"]
+"src/offipy/charts.py" = ["SLF001"]
+"src/offipy/diagrams.py" = ["SLF001"]
+"src/offipy/drawio.py" = ["SLF001"]
+"src/offipy/icons.py" = ["SLF001"]
+# tests/** 测试惯用模式定向放行（非 blanket ignore，只放行这组）：SLF001 是
+# python-pptx 内部 XML 断言（验证产出结构），ARG001-005 是 fixture/回调未用参数，
+# PT011/PT012/PT018 是 pytest 宽泛/复合断言——都是测试的常见写法，逐条改反而
+# 降低可读性；其余规则 tests 照常参与门禁。
+# TRY301：测试里刻意在 try 块内构造异常链（验证 _safe_trace/脱敏），抽象成辅助函数反而失焦
+"tests/**" = ["SLF001", "ARG001", "ARG002", "ARG003", "ARG004", "ARG005", "PT011", "PT012", "PT018", "TRY301"]
+# examples/** 与 scripts/** 是独立脚本（刻意不设 __init__.py 成包）：
+# INP001 属误报；T201 print 即这些脚本的输出界面（demo/bench/smoke/生成器）。
+"examples/**" = ["INP001", "T201"]
+"scripts/**" = ["INP001", "T201"]
+# tests/fixtures/ 下的 generate_*.py 是手工重生成 fixture 的独立脚本（同 scripts/，
+# 刻意不成包）
+"tests/fixtures/**" = ["INP001"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -146,3 +191,10 @@ files = ["src/offipy"]
 exclude = ["src/offipy/_vendor/"]
 ignore_missing_imports = true
 show_error_codes = true
+strict = true
+
+[[tool.mypy.overrides]]
+# api.pyi 是生成桩：统一省略泛型参数是生成器的约定输出，strict 的
+# disallow_any_generics 与生成器风格冲突——手改桩无效，漂移测试保证一致
+module = "offipy.api"
+disallow_any_generics = false

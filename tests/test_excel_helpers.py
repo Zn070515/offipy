@@ -116,7 +116,7 @@ def excel_stub(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "op, kwargs",
+    ("op", "kwargs"),
     [
         ("set_number_format", {"range_addr": "???", "fmt": "#,##0"}),
         (
@@ -132,7 +132,7 @@ def test_malformed_range_rejected_before_com(excel_stub, op, kwargs):
 
 
 @pytest.mark.parametrize(
-    "op, kwargs",
+    ("op", "kwargs"),
     [
         ("set_number_format", {"range_addr": "A1:B2", "fmt": "#,##0"}),
         (

@@ -10,12 +10,15 @@ immutable `SvgPayload` preserving the template view box.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from offipy.assets._xml import parse_svg
 from offipy.assets.color import _HEX_COLOR_RE, validate_color_value
 from offipy.assets.model import SvgPayload, SvgTemplatePayload
 from offipy.exceptions import InvalidArgumentError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _SENTINEL_RE = re.compile(r"__[A-Za-z0-9_-]+__")
 

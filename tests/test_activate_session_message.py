@@ -45,7 +45,7 @@ def _make_app(monkeypatch, module):
     return app
 
 
-@pytest.mark.parametrize("module,prefix", APPS)
+@pytest.mark.parametrize(("module", "prefix"), APPS)
 def test_activate_unknown_id_message_session_boundary(monkeypatch, module, prefix):
     app = _make_app(monkeypatch, module)
     with pytest.raises(TargetNotFoundError) as ei:
@@ -55,7 +55,7 @@ def test_activate_unknown_id_message_session_boundary(monkeypatch, module, prefi
     assert "list_docs" in msg
 
 
-@pytest.mark.parametrize("module,prefix", APPS)
+@pytest.mark.parametrize(("module", "prefix"), APPS)
 def test_activate_valid_id_works(monkeypatch, module, prefix):
     app = _make_app(monkeypatch, module)
     live = _LiveDoc(f"{prefix}1")

@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -140,8 +139,6 @@ def test_render_with_quality_report_pixel_off_default(tmp_path, monkeypatch):
 
 
 def test_render_with_quality_report_pixel_required_failure_raises(tmp_path, monkeypatch):
-    import pytest as _pytest
-
     out_dir = tmp_path / "out"
     out_dir.mkdir(parents=True)
     audit_dir = out_dir / "tmp_audit" / "_cache"
@@ -157,7 +154,7 @@ def test_render_with_quality_report_pixel_required_failure_raises(tmp_path, monk
     )
     monkeypatch.setattr(deck, "_atomic_replace", lambda src, dst: None)
 
-    with _pytest.raises(ConversionError):
+    with pytest.raises(ConversionError):
         deck.render_with_quality_report("in.html", pixel_analysis="required")
     assert not list(out_dir.glob("offipy-pixel-*"))  # staging 已清理
 
@@ -253,20 +250,20 @@ def test_move_slides_to_final_scrubs_stale(tmp_path):
     # 归属校验：#audit 分支A——只有 _deck_info.json 标记该目录归本 deck 才清旧页。
     final = tmp_path / "final"
     final.mkdir(parents=True)
-    final_pptx = os.path.abspath(str(final / "deck.pptx"))
+    final_pptx = Path(str(final / "deck.pptx")).resolve()
     (final / "deck.pptx").write_bytes(b"pptx")  # _write_deck_info 会哈希该文件
 
     staging = tmp_path / "staging" / "slides"
     staging.mkdir(parents=True)
     (staging / "slide_1.png").write_bytes(b"fresh1")
     (staging / "_deck_info.json").write_text(
-        json.dumps({"schema": 1, "pptx": final_pptx}), encoding="utf-8"
+        json.dumps({"schema": 1, "pptx": str(final_pptx)}), encoding="utf-8"
     )
 
     (final / "slide_1.png").write_bytes(b"old1")
     (final / "slide_2.png").write_bytes(b"old2")
     (final / "_deck_info.json").write_text(
-        json.dumps({"schema": 1, "pptx": final_pptx}), encoding="utf-8"
+        json.dumps({"schema": 1, "pptx": str(final_pptx)}), encoding="utf-8"
     )
     (final / "notes.txt").write_text("keep", encoding="utf-8")
 
@@ -278,7 +275,8 @@ def test_move_slides_to_final_scrubs_stale(tmp_path):
 
     assert (final / "slide_1.png").read_bytes() == b"fresh1"
     # 标记被重写为当前 pptx 归属
-    assert json.loads((final / "_deck_info.json").read_text(encoding="utf-8"))["pptx"] == final_pptx
+    info = json.loads((final / "_deck_info.json").read_text(encoding="utf-8"))
+    assert info["pptx"] == str(final_pptx)
     assert (final / "notes.txt").read_text(encoding="utf-8") == "keep"
     assert not (final / "slide_2.png").exists()  # 旧页残留被清掉
 

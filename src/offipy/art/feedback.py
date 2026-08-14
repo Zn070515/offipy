@@ -14,22 +14,22 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from offipy.art.profiles import RULE_DIMENSIONS, ArtProfile, get_profile
 from offipy.audit import Severity
 from offipy.exceptions import InvalidArgumentError
 
 __all__ = [
-    "ArtFeedbackRecord",
-    "DEFAULT_DIR",
     "ART_FEEDBACK_FILE",
+    "DEFAULT_DIR",
     "VALID_ACTIONS",
-    "record_file",
+    "ArtFeedbackRecord",
     "append",
+    "apply_feedback",
     "load_records",
     "recommend_adjustments",
-    "apply_feedback",
+    "record_file",
 ]
 
 # 记录文件默认位置：~/.offipy/art_feedback.jsonl（与 v1 的 feedback.jsonl 分离）
@@ -56,7 +56,7 @@ class ArtFeedbackRecord:
     message: str = ""
     source: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ts": self.ts,
             "profile": self.profile,
@@ -70,7 +70,7 @@ class ArtFeedbackRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> ArtFeedbackRecord:
+    def from_dict(cls, data: dict[str, Any]) -> ArtFeedbackRecord:
         rule_id = data["rule_id"]
         if rule_id not in RULE_DIMENSIONS:
             raise ValueError(f"未知 rule_id {rule_id!r}")
@@ -88,14 +88,14 @@ class ArtFeedbackRecord:
             rule_id=rule_id,
             dimension=data["dimension"],
             severity=_coerce_severity(data["severity"]),
-            action=cast(FeedbackAction, action),
+            action=cast("FeedbackAction", action),
             slide_index=slide_index,
             message=data.get("message", ""),
             source=data.get("source", ""),
         )
 
 
-def _coerce_severity(raw) -> Severity:
+def _coerce_severity(raw: str | int) -> Severity:
     """severity 兼容两种表示：名字字符串（"HIGH"，主）与 int 值（3，容错）。"""
     if isinstance(raw, str):
         return Severity[raw]
@@ -108,7 +108,9 @@ def record_file(feedback_dir: str | Path | None = None) -> Path:
     return d / ART_FEEDBACK_FILE
 
 
-def _validate(profile: str, rule_id: str, action: str, severity: Severity, slide_index) -> None:
+def _validate(
+    profile: str, rule_id: str, action: str, severity: Severity, slide_index: int | None
+) -> None:
     if not isinstance(profile, str) or not profile:
         raise InvalidArgumentError("profile 必须是非空字符串")
     if rule_id not in RULE_DIMENSIONS:
@@ -145,7 +147,7 @@ def append(
         rule_id=rule_id,
         dimension=RULE_DIMENSIONS[rule_id],
         severity=severity,
-        action=cast(FeedbackAction, action),
+        action=cast("FeedbackAction", action),
         slide_index=slide_index,
         message=message,
         source=source,

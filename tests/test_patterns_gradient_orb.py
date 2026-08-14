@@ -17,10 +17,10 @@ _NUM = r"[0-9.eE+-]+"
 
 
 def _orbs(svg: str) -> list[tuple[float, float, float]]:
-    out = []
-    for c in ET.fromstring(svg).findall(f".//{_NS}circle"):
-        out.append((float(c.get("cx", "0")), float(c.get("cy", "0")), float(c.get("r", "0"))))
-    return out
+    return [
+        (float(c.get("cx", "0")), float(c.get("cy", "0")), float(c.get("r", "0")))
+        for c in ET.fromstring(svg).findall(f".//{_NS}circle")
+    ]
 
 
 def _default(seed: int = 0) -> str:
@@ -90,12 +90,12 @@ def test_gradients_use_foreground_sentinel() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = gradient_orb.build(seed=0, background="#123456", orb_count=3, blur=0.5)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 @pytest.mark.parametrize("orb_count", [1, 3, 6])
 def test_extent_within_overscan(orb_count: int) -> None:
-    for seed in range(0, 40):
+    for seed in range(40):
         svg = gradient_orb.build(seed=seed, background="transparent", orb_count=orb_count, blur=1.0)
         for cx, cy, radius in _orbs(svg):
             for v in (cx - radius, cx + radius, cy - radius, cy + radius):

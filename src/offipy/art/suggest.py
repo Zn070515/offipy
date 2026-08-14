@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import ArtElementRef, ArtFinding, DeckQualityReport
@@ -40,7 +40,7 @@ def _remediation_for(finding: ArtFinding) -> str | None:
     return None
 
 
-def _record(finding: ArtFinding, *, fallback_slide: int | None) -> dict:
+def _record(finding: ArtFinding, *, fallback_slide: int | None) -> dict[str, Any]:
     """单条 finding → 建议记录（键序固定，投影确定）。"""
     return {
         "dimension": finding.dimension,
@@ -53,21 +53,21 @@ def _record(finding: ArtFinding, *, fallback_slide: int | None) -> dict:
     }
 
 
-def project_suggestions(report: DeckQualityReport, *, source: str) -> list[dict]:
+def project_suggestions(report: DeckQualityReport, *, source: str) -> list[dict[str, Any]]:  # noqa: ARG001 — source 是文档化的预留接口参数（见 docstring），当前记录不携带来源
     """把 DeckQualityReport 投影成确定性建议记录列表。
 
     art 为空（无艺术分析，如 PPTX-only 证据不足路径）→ 空列表。遍历顺序：
     每个 slide 的每个 dimension 的每个 finding，随后 deck_findings。source 预留
     供未来记录透传来源；当前记录本身不含 source。
     """
-    records: list[dict] = []
+    records: list[dict[str, Any]] = []
     art = report.art
     if art is None:
         return records
     for slide in art.slides:
         for dim in slide.dimensions:
-            for finding in dim.findings:
-                records.append(_record(finding, fallback_slide=slide.slide_index))
-    for finding in art.deck_findings:
-        records.append(_record(finding, fallback_slide=None))
+            records.extend(
+                _record(finding, fallback_slide=slide.slide_index) for finding in dim.findings
+            )
+    records.extend(_record(finding, fallback_slide=None) for finding in art.deck_findings)
     return records

@@ -79,7 +79,7 @@ def parse_asset_uri(uri: str) -> AssetRequest:
     # kind is validated at runtime by AssetRef.__post_init__; cast narrows it
     # for static typing from the raw path segment str.
     params = _parse_query(query_part) if query_part else ()
-    return AssetRequest(AssetRef(provider, cast(AssetKind, kind), name), params)
+    return AssetRequest(AssetRef(provider, cast("AssetKind", kind), name), params)
 
 
 def format_asset_uri(request: AssetRequest) -> str:

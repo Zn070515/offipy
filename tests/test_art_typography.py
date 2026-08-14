@@ -23,7 +23,7 @@ def _ctx(slide, profile="balanced"):
 
 
 def _families(*families):
-    el = ArtElement(
+    return ArtElement(
         element_id="t",
         kind="text",
         role="body",
@@ -37,7 +37,6 @@ def _families(*families):
         font_size=24.0,
         font_size_unit="px",
     )
-    return el
 
 
 def test_many_families_fires_over_three():

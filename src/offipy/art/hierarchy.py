@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from offipy.audit import Severity
 
-from .models import ArtSlide
 from .profiles import RULE_NO_FOCUS, RULE_TITLE_TOO_SMALL
 from .rules import RuleContext, RuleEvaluation, RuleSpec, make_finding
 
+if TYPE_CHECKING:
+    from .models import ArtElement, ArtSlide
 
-def _title_el(slide: ArtSlide):
+
+def _title_el(slide: ArtSlide) -> ArtElement | None:
     return next((e for e in slide.elements if e.role == "title"), None)
 
 

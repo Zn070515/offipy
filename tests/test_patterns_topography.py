@@ -116,13 +116,13 @@ def test_paths_use_foreground_sentinel() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = topography.build(seed=0, background="#123456", density=0.5, lines=10)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 @pytest.mark.parametrize("density", [0.0, 0.5, 1.0])
 @pytest.mark.parametrize("lines", [3, 10, 24])
 def test_extent_within_overscan(density: float, lines: int) -> None:
-    for seed in range(0, 40):
+    for seed in range(40):
         svg = topography.build(seed=seed, background="transparent", density=density, lines=lines)
         for x, y in _all_points(svg):
             assert -100.0 <= x <= 1100.0

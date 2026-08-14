@@ -4,7 +4,9 @@
 """
 
 import os
+import pathlib
 import secrets
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from typing import Any, Literal, TypeVar
 
@@ -155,14 +157,14 @@ def _resolve_table_sides(sides: str | None) -> list[int]:
     return result
 
 
-def _end_range(doc):
+def _end_range(doc: Any) -> Any:
     """返回折叠到文档末尾的 Range（用于文末插入）。"""
     rng = doc.Content
     rng.Collapse(0)  # wdCollapseEnd
     return rng
 
 
-def _check_paragraph(doc, paragraph: int) -> None:
+def _check_paragraph(doc: Any, paragraph: int) -> None:
     """段落索引前置校验：1..文档段落数，越界抛 InvalidArgumentError。
 
     参照 format_text/format_paragraph 的枚举校验，把「集合所要求的成员不存在」
@@ -173,12 +175,12 @@ def _check_paragraph(doc, paragraph: int) -> None:
         raise InvalidArgumentError(f"段落在 1..{count} 范围外（paragraph={paragraph}）")
 
 
-def _has_page_field(hf) -> bool:
+def _has_page_field(hf: Any) -> bool:
     """页脚是否已含 PAGE 域（Type==33）；append 幂等判断用。"""
     return any(f.Type == _WD_FIELD_PAGE for f in hf.Range.Fields)
 
 
-def _add_page_field_at_end(hf):
+def _add_page_field_at_end(hf: Any) -> Any:
     """在页脚文本末尾（结尾段落符前）插入活的 PAGE 域，返回 Field。
 
     实探配方（见 docs/development/probe_word_page_number.md）：MoveEnd(1,-1)
@@ -191,7 +193,7 @@ def _add_page_field_at_end(hf):
     return rng.Fields.Add(rng, _WD_FIELD_PAGE)
 
 
-def _style_field_only(fld, color: str | None, size: float | None) -> None:
+def _style_field_only(fld: Any, color: str | None, size: float | None) -> None:
     """只样式化页码域本身（fld.Result.Font），不污染页脚其余文本。
 
     Field/PageNumber 对象没有 Font 属性（实探 AttributeError），
@@ -203,7 +205,7 @@ def _style_field_only(fld, color: str | None, size: float | None) -> None:
         fld.Result.Font.Size = size
 
 
-def _footer_text_width(doc) -> float:
+def _footer_text_width(doc: Any) -> float:
     """页脚可写文本区宽度（pt）= 页宽 − 左边距 − 右边距。
 
     读不到 PageSetup（如 fake）时回退 Letter 默认 468pt。
@@ -231,7 +233,7 @@ class WordApp:
         self._active_id: str | None = None
 
     @contextmanager
-    def _alerts_scope(self, value: int = WD_ALERTS_NONE):
+    def _alerts_scope(self, value: int = WD_ALERTS_NONE) -> Iterator[None]:
         """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
         prev = self.app.DisplayAlerts
         self.app.DisplayAlerts = value
@@ -240,7 +242,7 @@ class WordApp:
         finally:
             self.app.DisplayAlerts = prev
 
-    def _stable_identity(self, obj):
+    def _stable_identity(self, obj: Any) -> tuple[str | None, str | None]:
         """稳定身份键（P0-4）：已保存 → (FullName.lower(), None)；未保存 → (None, Name.lower())。"""
         try:
             fullname = obj.FullName
@@ -258,7 +260,7 @@ class WordApp:
             return (str(fullname).lower() if fullname else None, None)
         return (None, name.lower() if name else None)
 
-    def _register(self, obj) -> str:
+    def _register(self, obj: Any) -> str:
         """登记新文档句柄，分配 doc_id 并设为活动；同底层文档复用已有 doc_id。"""
         ident = self._stable_identity(obj)
         if ident != (None, None):
@@ -274,7 +276,7 @@ class WordApp:
         self._active_id = did
         return did
 
-    def _sync_registered(self, obj) -> str:
+    def _sync_registered(self, obj: Any) -> str:
         """把实时解析到的句柄并入文档表：已登记则复用并置活动，否则登记为新文档。"""
         for did, doc in self._docs.items():
             if doc is obj:
@@ -289,12 +291,12 @@ class WordApp:
 
     def open_doc(self, path: str) -> str:
         """打开现有文档并设为活动。返回 doc_id。"""
-        if not os.path.isfile(path):
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         # H6：COM Open 按自身工作目录（通常 System32）解析相对路径 → 先规范为绝对路径
-        return self._register(self.app.Documents.Open(os.path.abspath(path)))
+        return self._register(self.app.Documents.Open(pathlib.Path(path).resolve()))
 
-    def active_doc(self, doc_id: str | None = None):
+    def active_doc(self, doc_id: str | None = None) -> Any:
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
         # 缺省 active：实时解析 ActiveDocument（doc_id 权威——绝不静默用陈旧的
         # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
@@ -317,7 +319,7 @@ class WordApp:
         self._sync_registered(doc)
         return doc
 
-    def _require_doc(self, doc_id: str | None = None):
+    def _require_doc(self, doc_id: str | None = None) -> Any:
         """操作前置：目标文档不存在则抛 TargetNotFoundError，不隐式创建。"""
         doc = self.active_doc(doc_id)
         if doc is None:
@@ -344,7 +346,7 @@ class WordApp:
             raise ComOperationError(f"激活文档 {doc_id} 失败: {e}") from e
         return doc_id
 
-    def list_docs(self) -> dict:
+    def list_docs(self) -> dict[str, dict[str, Any]]:
         """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。
 
         P1-5：先并入真实活动焦点（active_doc 解析 ActiveDocument 进文档表、
@@ -367,7 +369,7 @@ class WordApp:
             out[did] = {"name": name, "path": path, "active": did == self._active_id}
         return out
 
-    def get_target(self, doc_id: str | None = None):
+    def get_target(self, doc_id: str | None = None) -> dict[str, Any] | None:
         """目标身份 {app, doc_id, name, path}；无目标返回 None。只读探测。
 
         显式 doc_id：只查文档表，未注册/失效抛 TargetNotFoundError；
@@ -394,7 +396,7 @@ class WordApp:
         return {"app": "word", "doc_id": resolved, "name": name, "path": path}
 
     @destructive
-    def close_doc(self, save: bool = True, doc_id: str | None = None):
+    def close_doc(self, save: bool = True, doc_id: str | None = None) -> str | None:
         """关闭文档（doc_id 必须显式传入或 follow_active=True）。
 
         save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
@@ -402,8 +404,9 @@ class WordApp:
         """
         doc = self._require_doc(doc_id)
         did = doc_id if doc_id is not None else self._active_id
+        path: str | None
         if save:
-            path = doc.FullName if doc.Path else self.save(doc_id=did)
+            path = str(doc.FullName) if doc.Path else self.save(doc_id=did)
             with self._alerts_scope():
                 doc.Close(SaveChanges=-1)
         else:
@@ -418,7 +421,9 @@ class WordApp:
         return path
 
     @destructive
-    def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
+    def save(
+        self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None
+    ) -> str:
         """保存文档并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
@@ -434,13 +439,13 @@ class WordApp:
         with self._alerts_scope():
             if doc.Path:  # 已有保存路径 → 原位保存
                 doc.Save()
-                return doc.FullName
+                return str(doc.FullName)
             dest = default_save_path(doc.Name, ".docx")
             doc.SaveAs2(dest)
             return dest
 
     @requires_target
-    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
+    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None) -> None:
         dest = ensure_writable(path, overwrite)
         with self._alerts_scope():
             save_with_lock_retry(
@@ -452,15 +457,15 @@ class WordApp:
 
     # --- 内容 ---
     @destructive
-    def write(self, text: str, doc_id: str | None = None):
+    def write(self, text: str, doc_id: str | None = None) -> None:
         self._require_doc(doc_id).Content.InsertAfter(text)
 
     @destructive
-    def write_line(self, text: str, doc_id: str | None = None):
+    def write_line(self, text: str, doc_id: str | None = None) -> None:
         self._require_doc(doc_id).Content.InsertAfter(text + "\r\n")
 
     @destructive
-    def add_heading(self, text: str, level: int = 1, doc_id: str | None = None):
+    def add_heading(self, text: str, level: int = 1, doc_id: str | None = None) -> None:
         if level not in (1, 2, 3):
             # #43：越界 level 曾静默降级为 Heading 1，调用方不知情——显式拒绝
             raise InvalidArgumentError(f"add_heading: level 必须为 1/2/3（收到 {level}）")
@@ -473,19 +478,19 @@ class WordApp:
         doc.Paragraphs(doc.Paragraphs.Count - 1).Style = style
 
     @destructive
-    def add_table(self, rows: int, cols: int, doc_id: str | None = None):
+    def add_table(self, rows: int, cols: int, doc_id: str | None = None) -> int:
         if rows < 1 or cols < 1:
             raise InvalidArgumentError(f"add_table: 行列必须 ≥ 1（rows={rows}, cols={cols}）")
         doc = self._require_doc(doc_id)
         rng = doc.Content
         rng.Collapse(0)  # wdCollapseEnd：折叠到文末
         doc.Tables.Add(rng, rows, cols)
-        return doc.Tables.Count
+        return int(doc.Tables.Count)
 
     @destructive
     def set_table_cell(
         self, table_idx: int, row: int, col: int, text: str, doc_id: str | None = None
-    ):
+    ) -> None:
         self._require_doc(doc_id).Tables(table_idx).Cell(row, col).Range.Text = text
 
     # --- 样式系统：文字格式 ---
@@ -501,7 +506,7 @@ class WordApp:
         underline: str | None = None,
         highlight: str | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         doc = self._require_doc(doc_id)
         _check_paragraph(doc, paragraph)
         font = doc.Paragraphs(paragraph).Range.Font
@@ -532,7 +537,7 @@ class WordApp:
         left_indent: float | None = None,
         first_line_indent: float | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         doc = self._require_doc(doc_id)
         _check_paragraph(doc, paragraph)
         fmt = doc.Paragraphs(paragraph).Format
@@ -553,11 +558,11 @@ class WordApp:
 
     # --- 页面结构：页眉页脚 / 页码 / 页面设置 ---
     @destructive
-    def set_header_text(self, text: str, section: int = 1, doc_id: str | None = None):
+    def set_header_text(self, text: str, section: int = 1, doc_id: str | None = None) -> None:
         self._require_doc(doc_id).Sections(section).Headers(1).Range.Text = text
 
     @destructive
-    def set_footer_text(self, text: str, section: int = 1, doc_id: str | None = None):
+    def set_footer_text(self, text: str, section: int = 1, doc_id: str | None = None) -> None:
         self._require_doc(doc_id).Sections(section).Footers(1).Range.Text = text
 
     @destructive
@@ -569,7 +574,7 @@ class WordApp:
         doc_id: str | None = None,
         *,
         mode: Literal["replace", "append", "standalone"] = "replace",
-    ):
+    ) -> str:
         """在页脚插入页码域。
 
         mode:
@@ -638,7 +643,7 @@ class WordApp:
             fld = _add_page_field_at_end(hf)
         if fld is not None:
             _style_field_only(fld, color, size)
-        return hf.Range.Text
+        return str(hf.Range.Text)
 
     @destructive
     def page_setup(
@@ -651,7 +656,7 @@ class WordApp:
         bottom_margin: float | None = None,
         gutter: float | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         ps = self._require_doc(doc_id).PageSetup
         if orientation is not None:
             ps.Orientation = _resolve_style(orientation, _ORIENTATION, "页面方向")
@@ -670,22 +675,22 @@ class WordApp:
 
     # --- 页面结构：目录 ---
     @destructive
-    def insert_toc(self, levels: int = 3, doc_id: str | None = None):
+    def insert_toc(self, levels: int = 3, doc_id: str | None = None) -> int:
         doc = self._require_doc(doc_id)
         doc.TablesOfContents.Add(
             doc.Range(0, 0), UseHeadingStyles=True, UpperHeadingLevel=1, LowerHeadingLevel=levels
         )
-        return doc.TablesOfContents.Count
+        return int(doc.TablesOfContents.Count)
 
     @destructive
-    def update_toc(self, doc_id: str | None = None):
+    def update_toc(self, doc_id: str | None = None) -> int:
         doc = self._require_doc(doc_id)
         doc.TablesOfContents(1).Update()
-        return doc.TablesOfContents.Count
+        return int(doc.TablesOfContents.Count)
 
     # --- 列表 ---
     @destructive
-    def add_list(self, lines: list[str], style: str = "bullet", doc_id: str | None = None):
+    def add_list(self, lines: list[str], style: str = "bullet", doc_id: str | None = None) -> int:
         if not lines:
             raise InvalidArgumentError("add_list: lines 不能为空")
         list_kind = _resolve_style(style, _LIST_STYLE, "列表样式")
@@ -716,7 +721,7 @@ class WordApp:
         end_row: int,
         end_col: int,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         t = self._require_doc(doc_id).Tables(table_idx)
         t.Cell(start_row, start_col).Merge(t.Cell(end_row, end_col))
 
@@ -729,7 +734,7 @@ class WordApp:
         color: str | None = None,
         sides: str | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         t = self._require_doc(doc_id).Tables(table_idx)
         const = _resolve_style(style, _LINE_STYLE, "线型")
         for idx in _resolve_table_sides(sides):
@@ -743,7 +748,7 @@ class WordApp:
     @destructive
     def set_table_col_width(
         self, table_idx: int, col: int, width: float, doc_id: str | None = None
-    ):
+    ) -> None:
         if width < 7:
             raise InvalidArgumentError(f"set_table_col_width: 列宽需 ≥ 7pt（width={width}）")
         table = self._require_doc(doc_id).Tables(table_idx)
@@ -755,16 +760,16 @@ class WordApp:
             # 合并单元格后 Columns(col) 本身就被拒访（「表格有混合的单元格宽度」），
             # 连 Columns(col).Cells 也一样。彻底绕开列对象：逐行取 table.Cell(r, col)，
             # 每个 cell 有独立 Width 可写，先合并后调列宽也能成立。
-            for r in range(1, table.Rows.Count + 1):
-                try:
+            try:
+                for r in range(1, table.Rows.Count + 1):
                     table.Cell(r, col).Width = width
-                except _COM_ERROR:
-                    # 目标列落在合并区域内（Cell(r, col) 不独立存在），无法独立设宽——
-                    # 语义化转义，而非漏原始 COM 消息。
-                    raise ComOperationError(
-                        f"set_table_col_width: 目标列 {col} 在第 {r} 行被合并区域覆盖，"
-                        "无法独立设宽；请对合并后的整体单元格设宽或先拆分合并"
-                    ) from None
+            except _COM_ERROR as e:
+                # 目标列落在合并区域内（Cell(r, col) 不独立存在），无法独立设宽——
+                # 语义化转义，而非漏原始 COM 消息。
+                raise ComOperationError(
+                    f"set_table_col_width: 目标列 {col} 被合并区域覆盖，无法独立设宽；"
+                    "请对合并后的整体单元格设宽或先拆分合并"
+                ) from e
 
     @destructive
     def set_table_row_height(
@@ -774,13 +779,15 @@ class WordApp:
         height: float,
         rule: str = "at_least",
         doc_id: str | None = None,
-    ):
+    ) -> None:
         r = self._require_doc(doc_id).Tables(table_idx).Rows(row)
         r.Height = height
         r.HeightRule = _resolve_style(rule, _ROW_HEIGHT_RULE, "行高规则")
 
     @destructive
-    def autofit_table(self, table_idx: int, behavior: str = "content", doc_id: str | None = None):
+    def autofit_table(
+        self, table_idx: int, behavior: str = "content", doc_id: str | None = None
+    ) -> None:
         self._require_doc(doc_id).Tables(table_idx).AutoFitBehavior(
             _resolve_style(behavior, _AUTOFIT, "自动调整")
         )
@@ -795,7 +802,7 @@ class WordApp:
         whole_word: bool = False,
         replace_all: bool = True,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         f = self._require_doc(doc_id).Content.Find
         f.Execute(
             FindText=find,
@@ -813,35 +820,35 @@ class WordApp:
         width: float | None = None,
         height: float | None = None,
         doc_id: str | None = None,
-    ):
-        if not os.path.isfile(path):
+    ) -> int:
+        if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         doc = self._require_doc(doc_id)
         shape = doc.InlineShapes.AddPicture(
-            os.path.normpath(os.path.abspath(path)), Range=_end_range(doc)
+            os.path.normpath(pathlib.Path(path).resolve()), Range=_end_range(doc)
         )
         if width is not None:
             shape.Width = width
         if height is not None:
             shape.Height = height
-        return doc.InlineShapes.Count
+        return int(doc.InlineShapes.Count)
 
     @destructive
-    def insert_page_break(self, doc_id: str | None = None):
+    def insert_page_break(self, doc_id: str | None = None) -> None:
         _end_range(self._require_doc(doc_id)).InsertBreak(7)  # wdPageBreak
 
     # --- 只读辅助（支撑 Agent 文本层读回迭代） ---
     @readonly_guard
-    def read_doc_text(self, doc_id: str | None = None):
+    def read_doc_text(self, doc_id: str | None = None) -> str:
         """读取当前文档全文文本（只读，不改任何状态）。
 
         表格 cell 结束符 \\x07 替换成 " | "、段落符 \\r\\n / \\r 归一化成 \\n
         （\\r\\n 先行避免双换行），消费端直接得到可读结构，无需自行剥离 Word 原始标记。
         """
-        text = self._require_doc(doc_id).Content.Text
+        text = str(self._require_doc(doc_id).Content.Text)
         return text.replace("\x07", " | ").replace("\r\n", "\n").replace("\r", "\n")
 
-    def quit(self, force: bool = False):
+    def quit(self, force: bool = False) -> bool | None:
         """退出 Word 会话。
 
         own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝
@@ -861,7 +868,7 @@ class WordApp:
             self.app.DisplayAlerts = WD_ALERTS_NONE
             pid = core.app_process_pid(self.app, "word") or self._pid
             self.app.Quit()
-        except Exception as e:  # noqa: BLE001 — com_error/断连异常统一走 liveness 判定
+        except Exception as e:
             if not core.doc_alive(self.app):
                 return True  # 已退出：liveness 探针证实进程已结束
             raise ComOperationError(f"退出 Word 失败: {e}") from e

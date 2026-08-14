@@ -39,7 +39,7 @@ def test_ensure_app_attached_modify_existing_visibility(monkeypatch):
         "offipy.core._set_visible", lambda obj, visible: calls.append(f"visible:{visible}")
     )
     monkeypatch.setattr("offipy.core._set_usercontrol", lambda obj: calls.append("usercontrol"))
-    obj, created = core.ensure_app("excel", visible=False, modify_existing_visibility=True)
+    _obj, created = core.ensure_app("excel", visible=False, modify_existing_visibility=True)
     assert created is False
     assert calls == ["visible:False", "usercontrol"]  # 显式要求才改可见性
 
@@ -52,7 +52,7 @@ def test_ensure_app_launch_sets_visible(monkeypatch):
         "offipy.core.launch", lambda app_name, visible: calls.append(f"visible:{visible}") or app
     )
     monkeypatch.setattr("offipy.core._set_usercontrol", lambda obj: None)
-    obj, created = core.ensure_app("word", visible=True)
+    _obj, created = core.ensure_app("word", visible=True)
     assert created is True
     assert calls == ["visible:True"]
 

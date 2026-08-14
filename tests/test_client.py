@@ -1,6 +1,6 @@
 import io
 import json
-import os
+import pathlib
 import urllib.error
 
 import pytest
@@ -397,8 +397,8 @@ def test_request_uses_per_port_token_and_absolutizes_paths(monkeypatch, tmp_path
         expected_target={"doc_id": "p1", "path": "rel/notes.docx"},
     )
     args = captured["data"]["args"]
-    assert args["out_dir"] == os.path.abspath("rel/out")
-    assert args["expected_target"]["path"] == os.path.abspath("rel/notes.docx")
+    assert args["out_dir"] == str(pathlib.Path("rel/out").resolve())
+    assert args["expected_target"]["path"] == str(pathlib.Path("rel/notes.docx").resolve())
     assert args["expected_target"]["doc_id"] == "p1"  # 其余字段保留
     assert captured["url"] == "http://127.0.0.1:8901/call"
     assert captured["auth"] == "Bearer p8901"  # P1-1：token 按 base_url 端口取

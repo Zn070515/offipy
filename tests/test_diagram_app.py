@@ -294,7 +294,7 @@ def test_build_overwrite_true_replaces(tmp_path):
     out.write_bytes(b"placeholder")
     res = DiagramApp().build(str(src), str(out), overwrite=True)
     assert Path(res["pptx"]).is_file()
-    with open(out, "rb") as f:  # 占位文件被真 PPTX 覆盖
+    with Path(out).open("rb") as f:  # 占位文件被真 PPTX 覆盖
         assert f.read(4) == b"PK\x03\x04"
 
 

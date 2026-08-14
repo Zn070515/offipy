@@ -188,7 +188,7 @@ def test_load_icon_svg_ph_resolves_fill_suffix():
 def test_svg_to_subpaths_phosphor(fake_assets):
     from offipy.icons import _svg_to_subpaths
 
-    subpaths, sw = _svg_to_subpaths(load_icon_svg("ph:check"))
+    subpaths, _sw = _svg_to_subpaths(load_icon_svg("ph:check"))
     assert len(subpaths) == 1
     assert subpaths[0].close is True
     assert len(subpaths[0].points) >= 3

@@ -9,6 +9,8 @@ dispatch 据此识别断连 HRESULT 触发重建重试；client 也能把 COM �
 
 import functools
 import time
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 from .exceptions import ComOperationError
 
@@ -20,7 +22,7 @@ except ImportError:
     _COM_ERROR = ()
 
 
-def guard_com(cls):
+def guard_com(cls: type[Any]) -> type[Any]:
     """类装饰器：包裹 App 全部公开方法（跳过 `_` 私有与已包装者）。"""
     for name in dir(cls):
         if name.startswith("_"):
@@ -32,16 +34,20 @@ def guard_com(cls):
     return cls
 
 
-def _guarded(fn):
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _guarded(fn: _F) -> _F:
     @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
         except _COM_ERROR as e:
             raise ComOperationError(str(e), hresult=getattr(e, "hresult", None), cause=e) from e
 
-    wrapper._offipy_guarded = True
-    return wrapper
+    # 标记已包裹：wrapper 上挂动态属性，mypy 不认 Callable 的任意属性，用 setattr 绕开
+    setattr(wrapper, "_offipy_guarded", True)  # noqa: B010 — setattr 是 mypy 绕开手段，非普通属性赋值
+    return cast("_F", wrapper)
 
 
 # #37：SaveAs/ExportAsFixedFormat 的锁感知短重试。目标文件可能被其他进程（残留的
@@ -52,16 +58,25 @@ SAVE_RETRY_ATTEMPTS = 5
 SAVE_RETRY_DELAY = 0.2
 
 
-def save_with_lock_retry(save_call, *, what: str) -> None:
+def _save_attempt(save_call: Callable[[], None]) -> Exception | None:
+    """单次保存尝试：成功返回 None；_COM_ERROR 睡短延迟后返回异常供重试。"""
+    try:
+        save_call()
+    except _COM_ERROR as e:
+        time.sleep(SAVE_RETRY_DELAY)
+        return cast("Exception", e)
+    else:
+        return None
+
+
+def save_with_lock_retry(save_call: Callable[[], None], *, what: str) -> None:
     """执行带锁感知短重试的保存调用；超时给可读错误，绝不透传裸 COM 失败。"""
     last: Exception | None = None
     for _ in range(SAVE_RETRY_ATTEMPTS):
-        try:
-            save_call()
+        err = _save_attempt(save_call)
+        if err is None:
             return
-        except _COM_ERROR as e:
-            last = e
-            time.sleep(SAVE_RETRY_DELAY)
+        last = err
     raise ComOperationError(
         f"{what}失败: 目标文件可能被其他进程占用（如残留的 Office 进程持有文件锁）。"
         f"请关闭占用该文件的 Office 进程后重试。原因: {last}"

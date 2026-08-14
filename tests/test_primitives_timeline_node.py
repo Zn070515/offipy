@@ -26,13 +26,13 @@ _THEME = {
 
 
 def _ctx(**overrides) -> AssetRenderContext:
-    kwargs = dict(
-        slide_index=1,
-        rect=AssetRect(x=0, y=0, width=400, height=200),
-        theme_name="mckinsey",
-        theme_vars=dict(_THEME),
-        placement="replace",
-    )
+    kwargs = {
+        "slide_index": 1,
+        "rect": AssetRect(x=0, y=0, width=400, height=200),
+        "theme_name": "mckinsey",
+        "theme_vars": dict(_THEME),
+        "placement": "replace",
+    }
     kwargs.update(overrides)
     return AssetRenderContext(**kwargs)
 
@@ -73,7 +73,7 @@ def _marker(slide):
 
 
 def _assert_within_rect(slide, rect: AssetRect, tol_px: float = 1.0) -> None:
-    tol = int(round(tol_px * 6350))
+    tol = round(tol_px * 6350)
     x0, y0 = int(rect.x * 6350), int(rect.y * 6350)
     x1, y1 = int((rect.x + rect.width) * 6350), int((rect.y + rect.height) * 6350)
     for sp in slide.shapes:

@@ -68,12 +68,12 @@ def test_rings_use_foreground_sentinel() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = rings.build(seed=0, background="#123456", count=5, thickness=0.5)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 @pytest.mark.parametrize("count", [1, 6, 12])
 def test_extent_within_overscan(count: int) -> None:
-    for seed in range(0, 40):
+    for seed in range(40):
         svg = rings.build(seed=seed, background="transparent", count=count, thickness=1.0)
         for c in _circles(svg):
             cx, cy, r = float(c.get("cx", "0")), float(c.get("cy", "0")), float(c.get("r", "0"))

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from offipy.audit import Severity
 
 from .features import physical_aspect_ratio
-from .models import ArtSlide
 from .profiles import (
     RULE_DISTORTED_IMAGE,
     RULE_MIXED_IMAGE_SIZES,
@@ -13,8 +14,11 @@ from .profiles import (
 )
 from .rules import RuleContext, RuleEvaluation, RuleSpec, make_finding
 
+if TYPE_CHECKING:
+    from .models import ArtElement, ArtSlide
 
-def _images(slide: ArtSlide):
+
+def _images(slide: ArtSlide) -> list[ArtElement]:
     return [e for e in slide.elements if e.kind == "image"]
 
 
@@ -28,7 +32,8 @@ def distorted_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     ]
     out = []
     for e in covered:
-        natural = e.natural_width / e.natural_height
+        # covered 过滤保证 natural_width/natural_height 非 None
+        natural = cast("float", e.natural_width) / cast("float", e.natural_height)
         physical = physical_aspect_ratio(e, slide.width, slide.height)
         if natural == 0:
             continue
@@ -54,20 +59,19 @@ def distorted_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
 
 def tiny_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     imgs = _images(slide)
-    out = []
-    for e in imgs:
-        if e.area < ctx.profile.min_image_area:
-            out.append(
-                make_finding(
-                    RULE_TINY_IMAGE,
-                    "media",
-                    Severity.LOW,
-                    f"图片过小（面积占比 {e.area:.4f}）。",
-                    0.5,
-                    slide.index,
-                    primary=e,
-                )
-            )
+    out = [
+        make_finding(
+            RULE_TINY_IMAGE,
+            "media",
+            Severity.LOW,
+            f"图片过小（面积占比 {e.area:.4f}）。",
+            0.5,
+            slide.index,
+            primary=e,
+        )
+        for e in imgs
+        if e.area < ctx.profile.min_image_area
+    ]
     return RuleEvaluation(findings=out, covered_count=len(imgs), eligible_count=len(imgs))
 
 

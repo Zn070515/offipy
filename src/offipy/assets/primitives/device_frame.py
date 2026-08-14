@@ -9,6 +9,8 @@ producing degenerate geometry.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 
 from offipy.assets.primitives._common import (
@@ -19,13 +21,18 @@ from offipy.assets.primitives._common import (
 )
 from offipy.exceptions import InvalidArgumentError
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetRect, AssetRenderContext
+
 _BEZEL = "#1F2937"
 _ASPECT = {"phone": 0.5, "tablet": 0.75, "desktop": 1.5}
 _MIN_W_PX = 16.0
 _MIN_H_PX = 24.0
 
 
-def _fit(rect, aspect: float) -> tuple[float, float, float, float]:
+def _fit(rect: AssetRect, aspect: float) -> tuple[float, float, float, float]:
     """Center a device of the given width/height aspect inside the rect."""
     x, y, w, h = rect.x, rect.y, rect.width, rect.height
     if w / h >= aspect:
@@ -43,7 +50,7 @@ def _require_device_size(dev_w: float, dev_h: float) -> None:
         )
 
 
-def _phone(slide, colors, rect) -> list:
+def _phone(slide: Any, colors: Mapping[str, str], rect: AssetRect) -> list[Any]:
     x, y, w, h = _fit(rect, _ASPECT["phone"])
     _require_device_size(w, h)
     t = max(0.045 * w, 2.0)
@@ -99,7 +106,7 @@ def _phone(slide, colors, rect) -> list:
     return shapes
 
 
-def _tablet(slide, colors, rect) -> list:
+def _tablet(slide: Any, colors: Mapping[str, str], rect: AssetRect) -> list[Any]:
     x, y, w, h = _fit(rect, _ASPECT["tablet"])
     _require_device_size(w, h)
     t = max(0.045 * w, 2.0)
@@ -143,7 +150,7 @@ def _tablet(slide, colors, rect) -> list:
     return shapes
 
 
-def _desktop(slide, colors, rect) -> list:
+def _desktop(slide: Any, colors: Mapping[str, str], rect: AssetRect) -> list[Any]:
     x, y, w, h = _fit(rect, _ASPECT["desktop"])
     _require_device_size(w, h)
     t = max(0.03 * w, 2.0)
@@ -199,7 +206,11 @@ def _desktop(slide, colors, rect) -> list:
     return shapes
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the device frame and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

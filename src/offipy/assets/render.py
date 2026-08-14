@@ -13,9 +13,9 @@ import contextlib
 import json
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 from offipy.assets.declarations import (
     AssetDeclaration,
@@ -37,6 +37,12 @@ from offipy.assets.uri import format_asset_uri
 from offipy.exceptions import InvalidArgumentError
 from offipy.icons import _measurements_path
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from playwright.sync_api import Page
+    from pptx.dml.color import RGBColor
+
 PLACEHOLDER_PREFIX = "OFFIPY_ASSET::"
 
 
@@ -56,9 +62,9 @@ class AssetMeasurement:
         object.__setattr__(self, "theme_vars", dict(self.theme_vars))
 
 
-def _load_slides_data(data) -> list[dict]:
+def _load_slides_data(data: Any) -> list[dict[str, Any]]:
     if isinstance(data, dict) and "slides" in data:
-        return data["slides"]
+        return cast("list[dict[str, Any]]", data["slides"])
     if isinstance(data, list):
         return data
     raise InvalidArgumentError("measurements.json 缺少 slides 数组")
@@ -104,7 +110,7 @@ def load_asset_measurements(path: str | Path) -> dict[str, AssetMeasurement]:
     return result
 
 
-def find_asset_placeholder(slide, declaration_id: str):
+def find_asset_placeholder(slide: Any, declaration_id: str) -> Any:
     """在已装配 slide 里按 name 精确查找透明占位符。
 
     必须恰好一个；0 或 >1 都是绑定错误。不做 outerHTML / 空间匹配兜底。
@@ -161,7 +167,7 @@ def _px_rect(rect: AssetRect) -> dict[str, float]:
     return {"x": rect.x, "y": rect.y, "w": rect.width, "h": rect.height}
 
 
-def _accent_rgb(context: AssetRenderContext):
+def _accent_rgb(context: AssetRenderContext) -> RGBColor | None:
     """theme_vars['accent'] → RGBColor（图标 computed color 缺失时的 v0.13.2 兜底）。
 
     与 legacy `_parse_color` 同源解析：接受 #RRGGBB 与 rgb(r,g,b)（computed CSS
@@ -175,11 +181,13 @@ def _accent_rgb(context: AssetRenderContext):
 
     m = re.fullmatch(r"#([0-9a-fA-F]{6})", accent.strip())
     if m:
-        return RGBColor.from_string(m.group(1))
+        # python-pptx RGBColor.from_string is unannotated → returns Any
+        return cast("RGBColor", RGBColor.from_string(m.group(1)))  # type: ignore[no-untyped-call]
     m = re.search(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", accent)
     if m:
         # CSS 对超界分量按最近边界钳制；RGBColor 严格 0-255，越界会抛 ValueError
-        return RGBColor(
+        # python-pptx RGBColor.__new__ is unannotated → no-untyped-call
+        return RGBColor(  # type: ignore[no-untyped-call]
             max(0, min(255, int(m.group(1)))),
             max(0, min(255, int(m.group(2)))),
             max(0, min(255, int(m.group(3)))),
@@ -188,13 +196,13 @@ def _accent_rgb(context: AssetRenderContext):
 
 
 def render_asset(
-    slide,
+    slide: Any,
     resolved: ResolvedAsset,
     context: AssetRenderContext,
     *,
     color: str | None = None,
     svg_to_png: Callable[[str], bytes | None] | None = None,
-) -> list:
+) -> list[Any]:
     """按 payload 类型把 ResolvedAsset 渲染进 slide，返回创建的形状/元素列表。
 
     - freeform_svg → 既有图标 freeform 渲染器（ph fill / lu stroke）；
@@ -244,16 +252,18 @@ def render_asset(
     raise InvalidArgumentError(f"unknown asset payload type {type(payload).__name__}")
 
 
-def _render_raster_picture(slide, rect: AssetRect, payload: RasterPayload):
+def _render_raster_picture(slide: Any, rect: AssetRect, payload: RasterPayload) -> Any:
     from io import BytesIO
 
     from pptx.util import Emu
 
-    x, y, w, h = (int(round(v * _PX_TO_EMU)) for v in (rect.x, rect.y, rect.width, rect.height))
+    x, y, w, h = (round(v * _PX_TO_EMU) for v in (rect.x, rect.y, rect.width, rect.height))
     return slide.shapes.add_picture(BytesIO(payload.data), Emu(x), Emu(y), Emu(w), Emu(h))
 
 
-def _render_svg_picture(slide, rect: AssetRect, svg_text: str, png_bytes: bytes | None = None):
+def _render_svg_picture(
+    slide: Any, rect: AssetRect, svg_text: str, png_bytes: bytes | None = None
+) -> Any:
     """OOXML SVG picture（asvg svgBlip + 可选 raster fallback blip）。
 
     结构匹配 PowerPoint 自己对 SVG 产出的形式（COM AddPicture 对照验证过）。
@@ -287,7 +297,7 @@ def _render_svg_picture(slide, rect: AssetRect, svg_text: str, png_bytes: bytes 
     svg_ext_uri = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}"
 
     etree.register_namespace("asvg", asvg)
-    x, y, w, h = (int(round(v * _PX_TO_EMU)) for v in (rect.x, rect.y, rect.width, rect.height))
+    x, y, w, h = (round(v * _PX_TO_EMU) for v in (rect.x, rect.y, rect.width, rect.height))
 
     sp_tree = slide.shapes._spTree
     pic = etree.SubElement(sp_tree, f"{{{p}}}pic")
@@ -314,7 +324,7 @@ def _render_svg_picture(slide, rect: AssetRect, svg_text: str, png_bytes: bytes 
     return pic
 
 
-def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
+def _svg_page_screenshot(page: Page, svg_text: str) -> bytes | None:
     """用浏览器页面把 SVG 渲染成 PNG；viewBox 尺寸定画布，失败返回 None。"""
     import math
     import re
@@ -334,8 +344,8 @@ def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
     if not all(math.isfinite(v) for v in (vx, vy, vw, vh)) or vw <= 0 or vh <= 0:
         return None
     clip_x, clip_y = max(0.0, vx), max(0.0, vy)
-    width = min(max(1, int(math.ceil(clip_x + vw))), _MAX_SVG_DIM)
-    height = min(max(1, int(math.ceil(clip_y + vh))), _MAX_SVG_DIM)
+    width = min(max(1, math.ceil(clip_x + vw)), _MAX_SVG_DIM)
+    height = min(max(1, math.ceil(clip_y + vh)), _MAX_SVG_DIM)
     page.set_viewport_size({"width": width, "height": height})
     page.set_content(
         "<html><head><style>html,body{margin:0;padding:0}"
@@ -355,7 +365,7 @@ def _svg_page_screenshot(page, svg_text: str) -> bytes | None:
     )
 
 
-def _make_svg_to_png():
+def _make_svg_to_png() -> tuple[Callable[[str], bytes | None], Callable[[], None]]:
     """惰性共享 Playwright chromium 的 SVG→PNG 渲染器（#58）。
 
     首次 convert 调用启动一次 browser，之后复用；返回 (convert, close)。Playwright
@@ -403,18 +413,20 @@ def _make_svg_to_png():
     return convert, close
 
 
-def _next_shape_id(slide) -> int:
+def _next_shape_id(slide: Any) -> int:
     """spTree 里下一个可用 cNvPr id（当前最大 id + 1，无则 2）。"""
     ids = [int(sp.get("id") or 0) for sp in slide.shapes._spTree.iter() if sp.tag.endswith("cNvPr")]
     return max(ids, default=1) + 1
 
 
-def _as_element(item):
+def _as_element(item: Any) -> Any:
     """python-pptx shape → 其 XML 元素；lxml 元素原样返回。"""
     return getattr(item, "_element", item)
 
 
-def place_rendered_elements(slide, placeholder, rendered, placement):
+def place_rendered_elements(
+    slide: Any, placeholder: Any, rendered: Sequence[object], placement: AssetPlacement
+) -> None:
     """把渲染产物精确放入占位符 XML 槽位，不使用 z_order 猜测或 send_to_back 循环。
 
     replace/decorative：记录占位符 XML 索引 → 产物按渲染顺序插回该槽 → 移除占位符
@@ -480,9 +492,8 @@ def postprocess_assets(html_path: str, pptx_path: str) -> AssetUsageReport:
     RuntimeError（deck._postprocess 统一映射为 ConversionError）。打开/保存 PPTX
     各一次，绝不逐资产重复。
     """
-    import os
 
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     if "data-offipy-asset-id" not in html_text:
         return AssetUsageReport(())
@@ -490,7 +501,7 @@ def postprocess_assets(html_path: str, pptx_path: str) -> AssetUsageReport:
     if not decls:
         return AssetUsageReport(())
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——asset 注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

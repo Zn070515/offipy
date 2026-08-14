@@ -1,0 +1,6 @@
+name: offipy CodeQL config
+
+# 第三方 vendored 代码（src/offipy/_vendor/）不扫——MIT 上游原样内嵌，非本仓库产物。
+# offipy 对 vendored 的补丁记录在 THIRD_PARTY_NOTICES.md，改动极小（加字段/提取）。
+paths-ignore:
+  - "src/offipy/_vendor/**"

@@ -25,6 +25,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from html import escape
+from typing import Any
 
 from .autopick import pick_layouts
 from .design import inject_theme
@@ -52,8 +53,8 @@ class SlideContent:
     chart_data: str = ""  # raw JSON 字符串（未转义原样存储）
     icons: list[tuple[str, str]] = field(default_factory=list)  # [(data_icon, label), ...]
 
-    def to_dict(self) -> dict:
-        d: dict = {"index": self.index, "title": self.title}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"index": self.index, "title": self.title}
         if self.kicker:
             d["kicker"] = self.kicker
         if self.layout:
@@ -79,7 +80,7 @@ class DeckOutline:
     subtitle: str = ""
     slides: list[SlideContent] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             **({"subtitle": self.subtitle} if self.subtitle else {}),
@@ -100,10 +101,8 @@ class DeckOutline:
             lines.append(f"## {s.title}{layout}")
             if s.kicker:
                 lines.append(f"@kicker: {s.kicker}")
-            for b in s.body:
-                lines.append(b)
-            for b in s.bullets:
-                lines.append(f"- {b}")
+            lines.extend(s.body)
+            lines.extend(f"- {b}" for b in s.bullets)
             if s.chart_type or s.chart_data:
                 if s.chart_type:
                     lines.append(f"@chart: {s.chart_type}")
@@ -278,8 +277,7 @@ def _slide_section(s: SlideContent) -> str:
         row = "\n".join(items)
         parts.append(f'  <div class="icon-row">\n{row}\n  </div>')
     else:
-        for b in s.body:
-            parts.append(f'  <div class="col"><p>{_esc(b)}</p></div>')
+        parts.extend(f'  <div class="col"><p>{_esc(b)}</p></div>' for b in s.body)
         if s.bullets:
             cards = "\n".join(
                 f'    <div class="card"><div class="txt">{_esc(b)}</div></div>' for b in s.bullets

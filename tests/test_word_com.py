@@ -7,7 +7,7 @@ P0-3 doc_id 权威：破坏性 op 需显式 doc_id，故每个测试捕获 new_d
 doc_id 并传给后续写入/格式 op。
 """
 
-import os
+import pathlib
 import sys
 
 import pytest
@@ -417,8 +417,8 @@ def test_save_chinese_path(tmp_path):
     did = call("word", "new_doc")
     call("word", "write_line", text="中文路径", doc_id=did)
     out = call("word", "save", path=str(tmp_path / "中文报告.docx"), overwrite=True, doc_id=did)
-    assert os.path.basename(out) == "中文报告.docx"
-    assert os.path.exists(out)
+    assert pathlib.Path(out).name == "中文报告.docx"
+    assert pathlib.Path(out).exists()
 
 
 def test_save_overlong_path_graceful(tmp_path):

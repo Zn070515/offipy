@@ -6,12 +6,16 @@ rev2.1：按 infer_slide_role 分组，每组 ≥3 页才判断；
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 from offipy.audit import Severity
 
 from .features import infer_slide_role
-from .models import ArtFinding, ArtScene, ArtSlide
 from .profiles import RULE_MARGIN_DRIFT, RULE_TITLE_DRIFT, ArtProfile
 from .rules import make_finding
+
+if TYPE_CHECKING:
+    from .models import ArtElement, ArtFinding, ArtScene, ArtSlide
 
 _FILTER_ROLES = {"background", "container", "decoration", "page_number", "footer"}
 
@@ -33,10 +37,10 @@ def _relative_drift(values: list[float]) -> float | None:
     if mean == 0:
         return None
     var = sum((v - mean) ** 2 for v in values) / len(values)
-    return (var**0.5) / mean
+    return cast("float", (var**0.5) / mean)
 
 
-def _title_of(slide: ArtSlide):
+def _title_of(slide: ArtSlide) -> ArtElement | None:
     return next((e for e in slide.elements if e.role == "title" and e.has_text()), None)
 
 
@@ -52,12 +56,13 @@ def _title_drift_findings(
     title_ref = _title_of(ref_slide)
     if title_ref is None:
         return out
-    xs = [_title_of(s).x for s in group if _title_of(s) is not None]
+    # 守卫 `_title_of(s) is not None` 在独立调用上，mypy 无法跨调用收窄 → 显式 cast
+    xs = [cast("ArtElement", _title_of(s)).x for s in group if _title_of(s) is not None]
     x_drift = _relative_drift(xs) if len(xs) >= 3 else None
     sizes = [
-        _title_of(s).font_size_norm
+        cast("float", cast("ArtElement", _title_of(s)).font_size_norm)
         for s in group
-        if _title_of(s) is not None and _title_of(s).font_size_norm is not None
+        if _title_of(s) is not None and cast("ArtElement", _title_of(s)).font_size_norm is not None
     ]
     size_drift = _relative_drift(sizes) if len(sizes) >= 3 else None
     drifted = False

@@ -163,7 +163,7 @@ def test_layout_subgraph_container_bbox():
 
 def test_render_subgraph_container_shape():
     diagram = parse_mermaid("graph TD\n    subgraph 数据处理\n        A[清洗] --> B[聚合]\n    end")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     texts = {sh.text_frame.text for sh in slide.shapes if sh.has_text_frame}
     assert "数据处理" in texts
     assert texts >= {"清洗", "聚合"}
@@ -174,7 +174,7 @@ def test_render_subgraph_container_shape():
 
 def test_render_edge_label_text():
     diagram = parse_mermaid("graph TD\n    A[发] -->|是| B[收]")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     texts = {sh.text_frame.text for sh in slide.shapes if sh.has_text_frame}
     assert "是" in texts
 
@@ -247,7 +247,7 @@ def _shape_map(slide):
 
 def test_render_creates_editable_autoshapes():
     diagram = parse_mermaid("graph TD\n    A[开始] --> B{判断} --> C[结束]")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     auto = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
     conn = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
     assert len(auto) == 3
@@ -258,7 +258,7 @@ def test_render_creates_editable_autoshapes():
 
 def test_render_shape_mapping_rhombus():
     diagram = parse_mermaid("graph TD\n    A{决策} --> B[结果]")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     diamond = [
         sh
         for sh in slide.shapes
@@ -270,7 +270,7 @@ def test_render_shape_mapping_rhombus():
 
 def test_render_arrowheads_present():
     diagram = parse_mermaid("graph TD\n    A --> B")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
     assert len(conns) == 1
     ln = conns[0].line._get_or_add_ln()
@@ -281,14 +281,14 @@ def test_render_arrowheads_present():
 
 def test_render_dashed_edge_when_dotted():
     diagram = parse_mermaid("graph TD\n    A -.-> B")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
     assert conns and conns[0].line.dash_style == MSO_LINE_DASH_STYLE.DASH
 
 
 def test_render_chinese_font_set():
     diagram = parse_mermaid("graph TD\n    A[数据] --> B[管道]")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     assert slide.shapes
     for sh in slide.shapes:
         if not sh.has_text_frame:
@@ -306,7 +306,7 @@ def test_render_chinese_font_set():
 
 def test_render_no_arrowhead_when_undirected():
     diagram = parse_mermaid("graph TD\n    A --- B")
-    prs, slide = _render(diagram)
+    _prs, slide = _render(diagram)
     conns = [sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.LINE]
     assert conns
     ln = conns[0].line._get_or_add_ln()

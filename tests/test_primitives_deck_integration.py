@@ -163,13 +163,12 @@ def _texts_of_shapes(shapes) -> list[str]:
         if not hasattr(s, "text_frame"):
             continue
         for p in s.text_frame.paragraphs:
-            for r in p.runs:
-                out.append(r.text)
+            out.extend(r.text for r in p.runs)
     return out
 
 
 def _assert_within_rect(shapes, rect: dict, tol_px: float = 1.0) -> None:
-    tol = int(round(tol_px * 6350))
+    tol = round(tol_px * 6350)
     x0, y0 = int(rect["x"] * 6350), int(rect["y"] * 6350)
     x1, y1 = int((rect["x"] + rect["w"]) * 6350), int((rect["y"] + rect["h"]) * 6350)
     for s in shapes:
@@ -180,11 +179,9 @@ def _assert_within_rect(shapes, rect: dict, tol_px: float = 1.0) -> None:
 
 
 def _cNvPr_ids(slide) -> list[int]:
-    ids = []
-    for el in slide.shapes._spTree.iter():
-        if el.tag.endswith("cNvPr"):
-            ids.append(int(el.get("id") or 0))
-    return ids
+    return [
+        int(el.get("id") or 0) for el in slide.shapes._spTree.iter() if el.tag.endswith("cNvPr")
+    ]
 
 
 # ---------------------------------------------------------------------------

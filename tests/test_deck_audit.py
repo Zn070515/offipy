@@ -54,8 +54,8 @@ def fake_tmp(monkeypatch, tmp_path):
         try:
             yield tmp, final
         finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+            if Path(tmp).exists():
+                Path(tmp).unlink()
 
     monkeypatch.setattr(deck, "_render_tmp", _fake_tmp)
 

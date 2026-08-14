@@ -368,7 +368,7 @@ _register(
 )
 
 
-def layouts() -> list[dict]:
+def layouts() -> list[dict[str, str]]:
     """所有布局的元数据清单（给自动选型 / 文档用）。"""
     return [
         {"name": layout.name, "title": layout.title, "description": layout.description}

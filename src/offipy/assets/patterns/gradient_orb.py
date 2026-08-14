@@ -36,14 +36,14 @@ def build(*, seed: int, background: str, orb_count: int, blur: float) -> str:
     if background != "transparent":
         body.append(f'<rect width="1000" height="1000" fill="{BG}"/>')
     defs = ["<defs>"]
-    for i in range(orb_count):
-        defs.append(
-            f'<radialGradient id="orb-{i}" cx="50%" cy="50%" r="50%">'
-            f'<stop offset="0%" stop-color="{FG}" stop-opacity="1"/>'
-            f'<stop offset="{_fmt(falloff * 100.0)}%" stop-color="{FG}" stop-opacity="1"/>'
-            f'<stop offset="100%" stop-color="{FG}" stop-opacity="0"/>'
-            f"</radialGradient>"
-        )
+    defs.extend(
+        f'<radialGradient id="orb-{i}" cx="50%" cy="50%" r="50%">'
+        f'<stop offset="0%" stop-color="{FG}" stop-opacity="1"/>'
+        f'<stop offset="{_fmt(falloff * 100.0)}%" stop-color="{FG}" stop-opacity="1"/>'
+        f'<stop offset="100%" stop-color="{FG}" stop-opacity="0"/>'
+        f"</radialGradient>"
+        for i in range(orb_count)
+    )
     defs.append("</defs>")
     body.append("".join(defs))
     for i, (cx, cy, radius) in enumerate(orbs):

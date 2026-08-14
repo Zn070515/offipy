@@ -14,9 +14,16 @@ from offipy.audit import Severity
 
 
 def _el(**kw):
-    defaults = dict(
-        element_id="a", kind="text", role="body", x=0.1, y=0.1, width=0.2, height=0.1, slide_index=1
-    )
+    defaults = {
+        "element_id": "a",
+        "kind": "text",
+        "role": "body",
+        "x": 0.1,
+        "y": 0.1,
+        "width": 0.2,
+        "height": 0.1,
+        "slide_index": 1,
+    }
     defaults.update(kw)
     return ArtElement(**defaults)
 

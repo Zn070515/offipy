@@ -66,7 +66,7 @@ def test_foreground_sentinel_fill() -> None:
 def test_background_rect_first_when_opaque() -> None:
     svg = blob.build(seed=0, background="#123456", complexity=5)
     assert BG in svg
-    assert list(ET.fromstring(svg))[0].tag == _NS + "rect"
+    assert next(iter(ET.fromstring(svg))).tag == _NS + "rect"
 
 
 def test_background_omitted_when_transparent() -> None:
@@ -76,7 +76,7 @@ def test_background_omitted_when_transparent() -> None:
 
 @pytest.mark.parametrize("complexity", [2, 5, 8])
 def test_coords_within_overscan(complexity: int) -> None:
-    for seed in range(0, 40):
+    for seed in range(40):
         svg = blob.build(seed=seed, background="transparent", complexity=complexity)
         for n in _NUM_RE.findall(_d(svg)):
             assert -100.0 <= float(n) <= 1100.0

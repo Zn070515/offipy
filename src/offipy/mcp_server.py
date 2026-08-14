@@ -30,7 +30,7 @@ from .ppt import PptApp
 from .word import WordApp
 
 
-def _call(app: str, op: str, request_id: str | None = None, **kwargs):
+def _call(app: str, op: str, request_id: str | None = None, **kwargs: Any) -> Any:
     """转成 8890 server 调用；失败抛 RuntimeError 让模型看到原因。"""
     try:
         resp = request(app, op, request_id=request_id, **kwargs)
@@ -42,7 +42,7 @@ def _call(app: str, op: str, request_id: str | None = None, **kwargs):
     return resp["data"] if "data" in resp else resp.get("result")
 
 
-def _invoke(app: str, op: str, request_id: str | None = None, **kwargs):
+def _invoke(app: str, op: str, request_id: str | None = None, **kwargs: Any) -> Any:
     """统一返回封装：void op 返回 "ok (op)"，有值 op 结构化透传（int/list/str 等）。
 
     COM 对象结果在 server 侧 _serialize 成 null，落到这里就是 None → 返回
@@ -116,22 +116,18 @@ def _build_tool(app: str, op: str) -> None:
     # op 暴露；follow_active（显式跟随活动文档）额外放行只读 op（accepts_follow_active）。
     # 随 args 透传给 server dispatch。
     if schema.supports_expected_target(app, op):
-        params = params + [
+        params = [
+            *params,
             inspect.Parameter(
-                "expected_target",
-                inspect.Parameter.KEYWORD_ONLY,
-                annotation=dict,
-                default=None,
+                "expected_target", inspect.Parameter.KEYWORD_ONLY, annotation=dict, default=None
             ),
         ]
         defaults["expected_target"] = None
     if schema.supports_follow_active(app, op):
-        params = params + [
+        params = [
+            *params,
             inspect.Parameter(
-                "follow_active",
-                inspect.Parameter.KEYWORD_ONLY,
-                annotation=bool,
-                default=False,
+                "follow_active", inspect.Parameter.KEYWORD_ONLY, annotation=bool, default=False
             ),
         ]
         defaults["follow_active"] = False
@@ -151,7 +147,7 @@ def _build_tool(app: str, op: str) -> None:
         rid = getattr(ctx, "request_id", None) if ctx is not None else None
         return _invoke(app, op, request_id=rid, **args)
 
-    fn = cast(Any, tool_fn)
+    fn = cast("Any", tool_fn)
     fn.__name__ = fn_name
     fn.__qualname__ = fn_name
     fn.__doc__ = spec.description
@@ -179,7 +175,7 @@ def _register_tools() -> None:
 _register_tools()
 
 
-def main():
+def main() -> None:
     # stdio 传输：MCP 客户端（Claude Desktop 等）以子进程方式拉起并接管 stdin/stdout
     server.run()
 

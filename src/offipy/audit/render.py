@@ -149,7 +149,7 @@ def _text_audit(report: PptxAuditReport) -> str:
     out.append("")
     for section in _audit_sections(report):
         out.extend(section)
-    counts = {sev: 0 for sev in Severity}
+    counts = dict.fromkeys(Severity, 0)
     for f in report.findings:
         counts[f.severity] += 1
     out.append("概要")
@@ -188,14 +188,12 @@ def _append_shape_changes(out: list[str], report: PptxDiffReport) -> None:
 def _append_finding_changes(out: list[str], report: PptxDiffReport) -> None:
     out.append("  新增:")
     if report.added_findings:
-        for f in report.added_findings:
-            out.append(f"    {_finding_line(f)}")
+        out.extend(f"    {_finding_line(f)}" for f in report.added_findings)
     else:
         out.append("    无")
     out.append("  已解决:")
     if report.resolved_findings:
-        for f in report.resolved_findings:
-            out.append(f"    {_finding_line(f)}")
+        out.extend(f"    {_finding_line(f)}" for f in report.resolved_findings)
     else:
         out.append("    无")
     out.append("  变化:")
@@ -232,15 +230,18 @@ def _text_diff(report: PptxDiffReport) -> str:
     if report.unmatched_baseline or report.unmatched_candidate:
         out.append("")
         out.append("无法可靠匹配")
-        for r in report.unmatched_baseline:
-            out.append(f'  [基线] 第{r.slide_index}页 #{r.shape_id} "{r.name}"')
-        for r in report.unmatched_candidate:
-            out.append(f'  [候选] 第{r.slide_index}页 #{r.shape_id} "{r.name}"')
+        out.extend(
+            f'  [基线] 第{r.slide_index}页 #{r.shape_id} "{r.name}"'
+            for r in report.unmatched_baseline
+        )
+        out.extend(
+            f'  [候选] 第{r.slide_index}页 #{r.shape_id} "{r.name}"'
+            for r in report.unmatched_candidate
+        )
     if report.warnings:
         out.append("")
         out.append("警告")
-        for wd in report.warnings:
-            out.append(f"  {_warning_line(wd)}")
+        out.extend(f"  {_warning_line(wd)}" for wd in report.warnings)
     gate = report.gate_severity()
     if gate is not None:
         out.append("")
@@ -289,15 +290,16 @@ def _markdown_audit(report: PptxAuditReport) -> str:
                 sid = f"#{wd.shape_id}" if wd.shape_id is not None else ""
                 out.append(f"- `{wd.code}` {sid} {_md_cell(wd.message)}")
             out.append("")
-    counts = {sev: 0 for sev in Severity}
+    counts = dict.fromkeys(Severity, 0)
     for f in report.findings:
         counts[f.severity] += 1
     out.append("## 概要")
     out.append("")
     out.append("| 严重度 | 数量 |")
     out.append("|---|---|")
-    for sev in (Severity.HIGH, Severity.MID, Severity.LOW):
-        out.append(f"| {sev.name} | {counts[sev]} |")
+    out.extend(
+        f"| {sev.name} | {counts[sev]} |" for sev in (Severity.HIGH, Severity.MID, Severity.LOW)
+    )
     out.append(f"| 豁免 | {len(report.suppressed)} |")
     out.append(f"| 警告 | {len(report.warnings)} |")
     out.append("")
@@ -375,10 +377,13 @@ def _markdown_diff(report: PptxDiffReport) -> str:
     if report.unmatched_baseline or report.unmatched_candidate:
         out.append("## 无法可靠匹配")
         out.append("")
-        for r in report.unmatched_baseline:
-            out.append(f"- 基线: 第{r.slide_index}页 #{r.shape_id} {r.name}")
-        for r in report.unmatched_candidate:
-            out.append(f"- 候选: 第{r.slide_index}页 #{r.shape_id} {r.name}")
+        out.extend(
+            f"- 基线: 第{r.slide_index}页 #{r.shape_id} {r.name}" for r in report.unmatched_baseline
+        )
+        out.extend(
+            f"- 候选: 第{r.slide_index}页 #{r.shape_id} {r.name}"
+            for r in report.unmatched_candidate
+        )
         out.append("")
     if report.warnings:
         out.append("## 警告")
@@ -653,7 +658,7 @@ def _html_audit(report: PptxAuditReport, slides_dir: str | None) -> str:
         f"<p>页面 {w:.2f} x {h:.2f} in | {report.slide_count} 页 | "
         f"sha256 <code>{report.source_sha256}</code></p>"
     )
-    counts = {sev: 0 for sev in Severity}
+    counts = dict.fromkeys(Severity, 0)
     for f in report.findings:
         counts[f.severity] += 1
     legend = [

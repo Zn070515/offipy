@@ -37,8 +37,8 @@ def test_py_typed_present():
 def test_changelog_top_version_matches():
     # P0-5 对齐：CHANGELOG 首个具体版本号必须等于 __version__（未发布不重复 bump）
     changelog = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
-    _ver = r"^## \[(\d+\.\d+\.\d+(?:a\d+|b\d+|rc\d+)?)\]"
-    m = re.search(_ver, changelog.read_text(encoding="utf-8"), re.M)
+    ver = r"^## \[(\d+\.\d+\.\d+(?:a\d+|b\d+|rc\d+)?)\]"
+    m = re.search(ver, changelog.read_text(encoding="utf-8"), re.M)
     assert m, "CHANGELOG 找不到版本标题"
     assert m.group(1) == offipy.__version__
 

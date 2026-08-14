@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import html as html_lib
 import math
+from typing import TYPE_CHECKING, Any
 
-from .models import ArtFinding, ArtReport, DimensionAssessment
+if TYPE_CHECKING:
+    from .models import ArtFinding, ArtReport, DimensionAssessment
 
 _GRADE_LEVEL = {"excellent": 4, "good": 3, "attention": 2, "poor": 1}
 
@@ -16,7 +18,7 @@ _STATUS_LABEL = {
 }
 
 
-def report_to_json(report: ArtReport) -> dict:
+def report_to_json(report: ArtReport) -> dict[str, Any]:
     return report.to_dict()
 
 
@@ -180,8 +182,7 @@ def render_html(report: ArtReport) -> str:
         lines.append("</table>")
     if report.deck_findings:
         lines.append("<h2>Deck 级</h2><ul>")
-        for f in report.deck_findings:
-            lines.append(f"<li>{_finding_html(f)}</li>")
+        lines.extend(f"<li>{_finding_html(f)}</li>" for f in report.deck_findings)
         lines.append("</ul>")
     lines.append("</body></html>")
     return "\n".join(lines)

@@ -30,13 +30,13 @@ _DEVICES = ("phone", "tablet", "desktop")
 
 
 def _ctx(**overrides) -> AssetRenderContext:
-    kwargs = dict(
-        slide_index=1,
-        rect=AssetRect(x=0, y=0, width=400, height=200),
-        theme_name="mckinsey",
-        theme_vars=dict(_THEME),
-        placement="replace",
-    )
+    kwargs = {
+        "slide_index": 1,
+        "rect": AssetRect(x=0, y=0, width=400, height=200),
+        "theme_name": "mckinsey",
+        "theme_vars": dict(_THEME),
+        "placement": "replace",
+    }
     kwargs.update(overrides)
     return AssetRenderContext(**kwargs)
 
@@ -73,7 +73,7 @@ def _solid_fill_shapes(slide, hex_color: str) -> list:
 
 
 def _assert_within_rect(slide, rect: AssetRect, tol_px: float = 1.0) -> None:
-    tol = int(round(tol_px * 6350))
+    tol = round(tol_px * 6350)
     x0, y0 = int(rect.x * 6350), int(rect.y * 6350)
     x1, y1 = int((rect.x + rect.width) * 6350), int((rect.y + rect.height) * 6350)
     for sp in slide.shapes:
@@ -109,14 +109,14 @@ def test_device_frame_custom_fill_screen_color(device: str) -> None:
     assert len(screens) == 1, f"expected exactly one screen with fill 123456, got {len(screens)}"
 
 
-@pytest.mark.parametrize("device", ("phone", "desktop"))
+@pytest.mark.parametrize("device", ["phone", "desktop"])
 def test_device_frame_accent_highlight_color(device: str) -> None:
     slide = _render({"device": device, "accent": "#FF0000"})
     highlights = _solid_fill_shapes(slide, "#FF0000")
     assert len(highlights) == 1, f"expected exactly one accent shape, got {len(highlights)}"
 
 
-@pytest.mark.parametrize("device", ("phone", "desktop"))
+@pytest.mark.parametrize("device", ["phone", "desktop"])
 def test_device_frame_tiny_rect_raises(device: str) -> None:
     with pytest.raises(InvalidArgumentError, match="too small"):
         _render({"device": device}, rect=AssetRect(x=0, y=0, width=30, height=30))

@@ -25,7 +25,7 @@ def _weighted(elements: list[ArtElement]) -> list[ArtElement]:
     return [e for e in elements if e.role not in _SKIP_ROLES and not e.is_background]
 
 
-def _quadrant_mass(elements: list[ArtElement]) -> dict:
+def _quadrant_mass(elements: list[ArtElement]) -> dict[str, float]:
     """四象限质量占比（TL/TR/BL/BR，归一化坐标）。"""
     q = {"TL": 0.0, "TR": 0.0, "BL": 0.0, "BR": 0.0}
     total = 0.0

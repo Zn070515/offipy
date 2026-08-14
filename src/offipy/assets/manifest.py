@@ -11,11 +11,12 @@ means a failed render leaves the old final audit dir (and its assets.json) intac
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from offipy.assets.model import AssetProviderMeta
-from offipy.assets.render import AssetUsageReport
+if TYPE_CHECKING:
+    from offipy.assets.model import AssetProviderMeta
+    from offipy.assets.render import AssetUsageRecord, AssetUsageReport
 
 _SCHEMA_VERSION = 1
 
@@ -32,7 +33,7 @@ def _provider_dict(provider: AssetProviderMeta) -> dict[str, object]:
     }
 
 
-def _record_dict(record) -> dict[str, object]:
+def _record_dict(record: AssetUsageRecord) -> dict[str, object]:
     return {
         "declaration_id": record.declaration_id,
         "slide_index": record.slide_index,
@@ -61,4 +62,4 @@ def write_asset_manifest(path: str | Path, report: AssetUsageReport) -> None:
     p = Path(path)
     tmp = p.with_name(f".{p.name}.tmp")
     tmp.write_text(build_manifest_json(report), encoding="utf-8")
-    os.replace(tmp, p)
+    Path(tmp).replace(p)

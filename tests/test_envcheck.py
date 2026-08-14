@@ -8,7 +8,7 @@ import builtins
 import json
 import sys
 import types
-from collections import namedtuple
+from typing import NamedTuple
 
 from offipy import envcheck
 
@@ -22,7 +22,11 @@ def test_check_python_ok():
 
 
 def test_check_python_old_fails(monkeypatch):
-    Ver = namedtuple("Ver", "major minor micro")
+    class Ver(NamedTuple):
+        major: int
+        minor: int
+        micro: int
+
     monkeypatch.setattr(envcheck.sys, "version_info", Ver(3, 9, 5))
     c = envcheck._check_python()
     assert c.ok is False
@@ -94,10 +98,12 @@ class _Ctx:
 class _FakeWinreg:
     HKEY_LOCAL_MACHINE = object()
     HKEY_CURRENT_USER = object()
-    existing = {
-        r"SOFTWARE\Classes\Word.Application",
-        r"SOFTWARE\Classes\Excel.Application",
-    }
+    existing = frozenset(
+        {
+            r"SOFTWARE\Classes\Word.Application",
+            r"SOFTWARE\Classes\Excel.Application",
+        }
+    )
 
     @staticmethod
     def OpenKey(root, path):
@@ -245,7 +251,11 @@ def test_check_server_auth_fail_warns(monkeypatch):
 
 def test_check_pdf_both_present(monkeypatch):
     monkeypatch.setattr(envcheck.shutil, "which", lambda name: "C:/soft/soffice.exe")
-    monkeypatch.setitem(sys.modules, "pdf2image", types.ModuleType("pdf2image"))
+    monkeypatch.setattr(
+        envcheck.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "pdf2image" else None,
+    )
     c = envcheck._check_pdf()
     assert c.warn is True
     assert "LibreOffice: 有" in c.detail
@@ -254,14 +264,7 @@ def test_check_pdf_both_present(monkeypatch):
 
 def test_check_pdf_both_missing(monkeypatch):
     monkeypatch.setattr(envcheck.shutil, "which", lambda name: None)
-    real_import = builtins.__import__
-
-    def fake_import(name, *args, **kwargs):
-        if name == "pdf2image":
-            raise ImportError("no pdf2image")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(envcheck.importlib.util, "find_spec", lambda name: None)
     c = envcheck._check_pdf()
     assert c.warn is True
     assert "LibreOffice: 无" in c.detail

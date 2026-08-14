@@ -19,15 +19,15 @@ _NOTICES = _REPO_ROOT / "THIRD_PARTY_NOTICES.md"
 
 
 def _meta(**kw) -> AssetProviderMeta:
-    defaults = dict(
-        provider_id="ph",
-        license="ISC",
-        source_url=None,
-        source_commit=None,
-        attribution=None,
-        redistributable=True,
-        first_party=False,
-    )
+    defaults = {
+        "provider_id": "ph",
+        "license": "ISC",
+        "source_url": None,
+        "source_commit": None,
+        "attribution": None,
+        "redistributable": True,
+        "first_party": False,
+    }
     defaults.update(kw)
     return AssetProviderMeta(**defaults)
 

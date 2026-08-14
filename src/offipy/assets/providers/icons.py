@@ -48,7 +48,7 @@ def icon_render_mode(provider_id: str) -> Literal["fill", "stroke"]:
 def _manifest() -> dict[str, dict[str, object]]:
     global _manifest_cache
     if _manifest_cache is None:
-        with open(_ICONS_DIR / "manifest.json", encoding="utf-8") as f:
+        with Path(_ICONS_DIR / "manifest.json").open(encoding="utf-8") as f:
             _manifest_cache = json.load(f)
     return _manifest_cache
 

@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import sys
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -33,10 +33,10 @@ from offipy.diagrams import (
 
 _EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/drawio_extract.py")
 
-_extractor = None
+_extractor: Any = None
 
 
-def _load_extractor():
+def _load_extractor() -> Any:
     """惰性加载 vendored drawio_extract（importlib，保持上游原样）。"""
     global _extractor
     if _extractor is None:
@@ -45,9 +45,10 @@ def _load_extractor():
             raise RuntimeError(f"vendored drawio_extract 缺失: {script}")
         name = "offipy_vendored_drawio_extract"
         spec = importlib.util.spec_from_file_location(name, script)
+        assert spec is not None
+        assert spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
-        assert spec.loader is not None
         spec.loader.exec_module(mod)
         _extractor = mod
     return _extractor
@@ -105,7 +106,7 @@ def _parse_float(raw: str) -> float | None:
         return None
 
 
-def parse_drawio(source, *, page=None) -> DrawioDiagram:
+def parse_drawio(source: str | Path, *, page: int | str | None = None) -> DrawioDiagram:
     """.drawio 文件 → DrawioDiagram（vendored parse_file + select_pages 选页）。
 
     page: int → 页码（0 起，对齐 draw.io 索引）；str → 数字串按 index、否则按页名
@@ -294,7 +295,7 @@ def _layout_edges(
     return out
 
 
-def drawio_to_pptx(source, out_path: str, *, page=None) -> str:
+def drawio_to_pptx(source: str | Path, out_path: str, *, page: int | str | None = None) -> str:
     """.drawio 文件 → 可编辑 PPTX（16:9 整页）。返回 out_path。
 
     python-pptx 惰性 import（deck extra），未安装时给可操作错误。
@@ -321,9 +322,9 @@ class _DrawioHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.slide_index = 0
-        self.decls: list[dict] = []
+        self.decls: list[dict[str, Any]] = []
 
-    def handle_starttag(self, tag: str, attrs) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         d = {k: (v or "") for k, v in attrs}
         if tag == "section" and "data-pptx-slide" in d:
             self.slide_index += 1
@@ -338,7 +339,7 @@ class _DrawioHTMLParser(HTMLParser):
             )
 
 
-def parse_drawio_declarations(html_text: str) -> list[dict]:
+def parse_drawio_declarations(html_text: str) -> list[dict[str, Any]]:
     """HTML → [{slide, path}]（slide 1-based）。div.drawio 在 data-pptx-slide
     <section> 之外 → ValueError；同页多个 drawio 声明 → ValueError（对齐 charts
     每页仅支持一个容器）。"""
@@ -358,14 +359,14 @@ def parse_drawio_declarations(html_text: str) -> list[dict]:
     return p.decls
 
 
-def load_drawio_boxes(measurements_path: str) -> dict[int, dict]:
+def load_drawio_boxes(measurements_path: str) -> dict[int, dict[str, Any]]:
     """measurements.json → {slide_index(1-based): {"x","y","w","h"}}（px）。
 
     匹配 record className 分词含 "drawio"（div.drawio 的 rect）。
     """
-    with open(measurements_path, encoding="utf-8") as f:
+    with Path(measurements_path).open(encoding="utf-8") as f:
         data = json.load(f)
-    boxes: dict[int, dict] = {}
+    boxes: dict[int, dict[str, Any]] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
         for rec in slide.get("records", []):
             cls = (rec.get("className") or "").split()
@@ -404,7 +405,12 @@ def _parse_page_arg(v: str) -> str:
     return v  # 页名，不区分大小写（vendored select_pages 处理）
 
 
-def _remove_bbox_shapes(slide, box_emu: dict) -> None:
+def _raise_multipage(path: str) -> None:
+    """多页 .drawio 未指定页 → 报错（抽成函数避免 try 块内裸 raise，TRY301）。"""
+    raise ValueError(f'{path} 含多页，deck 注入须用 data-drawio-page="N" 指定页')
+
+
+def _remove_bbox_shapes(slide: Any, box_emu: dict[str, Any]) -> None:
     """删除与注入矩形几何一致（同位置同尺寸）的占位形状（div.drawio 占位块等）。
 
     占位矩形是确定尺寸的（box_emu = px→EMU），用户任意形状几乎不可能精确重合；
@@ -422,7 +428,9 @@ def _remove_bbox_shapes(slide, box_emu: dict) -> None:
             slide.shapes._spTree.remove(shape._element)
 
 
-def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> None:
+def inject_drawio(
+    pptx_path: str, decls: list[dict[str, Any]], boxes: dict[int, dict[str, Any]]
+) -> None:
     """把每块 drawio 渲染成可编辑形状，替换 slide 内对应 bbox 占位。"""
     missing = [d["path"] for d in decls if not _resolve_source_path(d["path"]).is_file()]
     if missing:
@@ -448,9 +456,7 @@ def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> 
                 # 多页未指定 → 明确报错，不再静默取第一页（#99）。计数走 vendored
                 # parse_file，offipy 不自行解析 XML（安全边界）。
                 if len(_load_extractor().parse_file(src)) > 1:
-                    raise ValueError(
-                        f'{decl["path"]} 含多页，deck 注入须用 data-drawio-page="N" 指定页'
-                    )
+                    _raise_multipage(decl["path"])
                 diagram = parse_drawio(src)
             else:
                 diagram = parse_drawio(src, page=_parse_page_arg(page))
@@ -472,13 +478,13 @@ def postprocess_drawio(html_path: str, pptx_path: str) -> None:
     data-drawio="..."> → 读 measurements → 注入可编辑形状。无声明 → 原样返回。
     声明/数据非法 → ValueError（由 deck._postprocess 归一化）。
     """
-    with open(html_path, encoding="utf-8") as f:
+    with Path(html_path).open(encoding="utf-8") as f:
         html_text = f.read()
     decls = parse_drawio_declarations(html_text)
     if not decls:
         return
     meas_path = _measurements_path(pptx_path)
-    if not os.path.exists(meas_path):
+    if not Path(meas_path).exists():
         raise RuntimeError(
             f"找不到 convert 审计产物 {meas_path}——drawio 注入需要 measurements.json，"
             "请勿用 --no-visual-audit"

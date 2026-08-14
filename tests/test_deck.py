@@ -64,7 +64,7 @@ def test_render_theme_injects_css_then_cleans_up(tmp_path, monkeypatch):
     # 注入副本以 .audited.html 结尾（convert 跳过 work-copy），且已清理
     injected = created["cmd"][2]
     assert injected.endswith(".audited.html")
-    assert not os.path.exists(injected), "注入副本应已清理"
+    assert not Path(injected).exists(), "注入副本应已清理"
     # 注入内容含主题 token（拦截时读取；render 返回后 tmp 已删）
     assert ":root {" in created["injected_content"]
     assert "--accent: #2251FF;" in created["injected_content"]
@@ -110,7 +110,7 @@ def test_render_apply_layouts_injects_layout_css(tmp_path, monkeypatch):
     pptx = deck.render(str(html), apply_layouts=True)
     injected = created["cmd"][2]
     assert injected.endswith(".audited.html")
-    assert not os.path.exists(injected), "注入副本应已清理"
+    assert not Path(injected).exists(), "注入副本应已清理"
     assert ".cards-3 .cards" in created["injected_content"]
     assert pptx.endswith("deck.pptx")
 
@@ -372,9 +372,9 @@ def test_render_theme_tmp_not_in_source_dir(tmp_path, monkeypatch):
     deck.render(str(html), theme="mckinsey")
     injected = created["cmd"][2]
     assert injected.endswith(".audited.html")
-    assert not os.path.exists(injected), "注入副本应已清理"
+    assert not Path(injected).exists(), "注入副本应已清理"
     # 注入副本不再落在源目录（TemporaryDirectory），源目录只剩原 html + 产物
-    assert set(p.name for p in tmp_path.iterdir()) == {"deck.html", "deck.pptx"}
+    assert {p.name for p in tmp_path.iterdir()} == {"deck.html", "deck.pptx"}
 
 
 def test_render_postprocess_valueerror_maps_to_invalid_argument(tmp_path, monkeypatch):
@@ -518,26 +518,27 @@ def test_render_concurrent_same_output_no_clash(tmp_path, monkeypatch):
 
 def test_render_concurrent_same_final_path_one_conflicts(tmp_path, monkeypatch):
     # review L605：并发渲染同一最终输出 → 先到者成功落盘，后到者的 fail-fast
-    # preflight（overwrite=False 时 os.path.exists(final_out)）看到已存在输出 →
+    # preflight（overwrite=False 时 Path(final_out).exists()）看到已存在输出 →
     # FileConflictError，绝不同时双写同一目标。
-    # 线程命名 + Event 门控让交错确定性：B 的 preflight 阻塞到 A 完成 os.replace
-    # 之后才判定，必然复现「一成功一冲突」；若 A 先于 B 到达 preflight（门未设），
-    # B 直接看到已存在输出同样走冲突分支——两种时序都收敛到同一断言。
+    # 线程命名 + Event 门控让交错确定性：B 的 preflight 阻塞到 A 完成
+    # Path.replace 之后才判定，必然复现「一成功一冲突」；若 A 先于 B 到达
+    # preflight（门未设），B 直接看到已存在输出同样走冲突分支——两种时序都
+    # 收敛到同一断言。
     html = tmp_path / "deck.html"
     html.write_text("<html><body>deck</body></html>", encoding="utf-8")
     out = tmp_path / "deck.pptx"
 
     a_done = threading.Event()
-    real_exists = os.path.exists
+    real_exists = Path.exists
 
-    def exists_gated(path):
-        if os.path.abspath(path) == os.path.abspath(str(out)):
+    def exists_gated(self):
+        if self.resolve() == Path(str(out)).resolve():
             if threading.current_thread().name == "render-B" and not a_done.is_set():
                 a_done.wait(timeout=30)
-            return real_exists(path)
-        return real_exists(path)
+            return real_exists(self)
+        return real_exists(self)
 
-    monkeypatch.setattr(os.path, "exists", exists_gated)
+    monkeypatch.setattr(Path, "exists", exists_gated)
 
     def fake_run(cmd, **kw):
         out_arg = cmd[cmd.index("--out") + 1]
@@ -560,7 +561,7 @@ def test_render_concurrent_same_final_path_one_conflicts(tmp_path, monkeypatch):
     a_done.set()
     t2.join(timeout=30)
 
-    assert pptx == os.path.abspath(str(out))
+    assert pptx == str(Path(out).resolve())
     assert Path(out).read_bytes() == b"fake pptx"
     assert "conflict" in results  # B 的 preflight 拒绝已存在输出
     assert _hidden_pptx(tmp_path) == []  # 双方临时文件都清理干净
@@ -957,7 +958,7 @@ def test_rewrite_srcset_preserves_data_uri_with_comma(tmp_path):
 
 def _owned_marker(pptx: Path) -> str:
     return json.dumps(
-        {"schema": 1, "pptx": os.path.abspath(str(pptx)), "pptx_sha256": "x", "run_id": None}
+        {"schema": 1, "pptx": str(Path(str(pptx)).resolve()), "pptx_sha256": "x", "run_id": None}
     )
 
 
@@ -978,7 +979,7 @@ def test_move_slides_to_final_foreign_dir_keeps_other_slides(tmp_path):
     assert (final_slides / "slide_2.png").read_bytes() == b"ours"
     # 归属标记已落盘（本 deck 下次 re-render 可清旧页）
     info = json.loads((final_slides / "_deck_info.json").read_text(encoding="utf-8"))
-    assert info["pptx"] == os.path.abspath(str(out_pptx))
+    assert info["pptx"] == str(Path(str(out_pptx)).resolve())
 
 
 def test_move_slides_to_final_owned_dir_cleans_stale_slides(tmp_path):
