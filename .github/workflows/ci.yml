@@ -10,7 +10,7 @@ on:
 
 jobs:
   # Linux 纯模块：无 Office / 无 chromium 也能全量收集并跑核心逻辑，
-  # 挂覆盖率门槛（阈值按纯模块子集实测校准，本机 81%）。
+  # 挂覆盖率门槛（阈值按纯模块子集实测校准，本机 ~91%，88 留 3pt 余量）。
   pure-module:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/offipy
       - name: Test pure-module subset + coverage gate
-        run: uv run pytest tests -m "not com and not deck_render" --cov=offipy --cov-fail-under=70 -q
+        run: uv run pytest tests -m "not com and not deck_render" --cov=offipy --cov-fail-under=88 -q
       - name: Art layer pure import gate（无 c-ext / 无 python-pptx）
         run: uv run python -c "import offipy; offipy.build_scene; offipy.analyze_scene; print('art pure ok')"
 
@@ -70,8 +70,16 @@ jobs:
         run: uv run ruff format --check .
       - name: Type check (mypy)
         run: uv run mypy src/offipy
-      - name: Test (pytest)
-        run: uv run pytest tests -q
+      - name: Test (pytest + coverage)
+        # COM 测试在无 Office 的 runner 上自动跳过，覆盖率用宽容门槛；
+        # 阈值按真机矩阵实测校准（#104）。xml 报告上传为 artifact。
+        run: uv run pytest tests -q --cov=offipy --cov-report=term --cov-report=xml:coverage.xml --cov-fail-under=50
+      - name: Upload coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-windows-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: error
 
   # 打包 smoke：构建 wheel + 干净 venv 安装 + import/check（release 门禁）
   wheel-smoke:
