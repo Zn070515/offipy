@@ -143,3 +143,19 @@ def test_postprocess_drawio_missing_source(tmp_path):
     prs.save(pptx_path)
     with pytest.raises(RuntimeError, match="arch.drawio"):
         postprocess_drawio(html, pptx_path)
+
+
+def test_no_visual_audit_rejects_drawio_before_browser(tmp_path, monkeypatch):
+    html = tmp_path / "deck.html"
+    html.write_text(HTML, encoding="utf-8")
+    from offipy import deck
+
+    browser_calls: list = []
+    monkeypatch.setattr(deck, "_preflight_browser", lambda *a, **k: browser_calls.append(a))
+    monkeypatch.setattr(deck, "_run_convert", lambda *a, **k: None)
+
+    with pytest.raises(deck.InvalidArgumentError, match="drawio"):
+        deck.render(
+            str(html), out=str(tmp_path / "deck.pptx"), overwrite=True, no_visual_audit=True
+        )
+    assert browser_calls == []  # chromium 从未启动
