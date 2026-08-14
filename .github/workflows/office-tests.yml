@@ -93,6 +93,20 @@ jobs:
             uv run playwright install chromium
           fi
 
+      # pywin32 类型库缓存自愈（#107 真机踩坑）：%TEMP%\gen_py 损坏（Office 升级 /
+      # 生成中断 / pywin32 重装常见）会让 EnsureDispatch 报
+      # "module ... has no attribute 'CLSIDToClassMap'"，Word 等 op 全挂。
+      # 用与后续测试相同的解释器清空缓存，下次启动自动重建类型库。
+      # 与 COM 测试用同一解释器，避免 bash $TEMP 与 Windows Python 临时目录映射错位。
+      - name: Clear pywin32 gen_py cache (runner 自愈)
+        shell: bash
+        run: |
+          if [ "${{ inputs.install_from_wheel }}" = "true" ]; then
+            .venv-wheel/Scripts/python.exe -c "import shutil, win32com; shutil.rmtree(win32com.__gen_path__, ignore_errors=True)"
+          else
+            uv run python -c "import shutil, win32com; shutil.rmtree(win32com.__gen_path__, ignore_errors=True)"
+          fi
+
       - name: Test COM + deck_render (真机)
         shell: bash
         run: |
