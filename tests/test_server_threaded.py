@@ -272,6 +272,27 @@ def test_redact_message_covers_file_url_forms():
     assert server._redact_message("详见 https://host/path/page") == ("详见 https://host/path/page")
 
 
+def test_redact_message_covers_tight_windows_paths():
+    # #80：Windows 分支 \b[A-Za-z]: 词边界在盘符前紧贴 \w（中文/英文/数字/下划线）
+    # 时失效——\w 与 \w 之间无边界，整条路径原样泄漏。去掉 \b + 盘符后 [\\/] 处
+    # (?!\/) 排除 :// scheme：无分隔拼接形态全脱，http(s) URL 不误伤。
+    cases = [
+        ("找不到C:\\Users\\secret\\x.pptx", "找不到[REDACTED]"),
+        ("打开C:/Users/secret/x.pptx", "打开[REDACTED]"),
+        ("pathC:\\Users\\secret\\x.pptx", "path[REDACTED]"),
+        ("v2C:\\Users\\secret\\x.pptx", "v2[REDACTED]"),
+        ("root_C:\\Users\\secret\\x.pptx", "root_[REDACTED]"),
+        ("err: C:\\Users\\secret\\x.pptx", "err: [REDACTED]"),  # 空格分隔对照仍脱
+    ]
+    for raw, expected in cases:
+        out = server._redact_message(raw)
+        assert out == expected, (raw, out)
+        assert "secret" not in out and "Users" not in out
+    # 对照：URL scheme 双斜杠不误伤（http:// 的 p:/、https:// 的 s:/ 均被 (?!\/) 挡下）
+    assert server._redact_message("see http://example.com/a") == "see http://example.com/a"
+    assert server._redact_message("详见 https://host/path/page") == "详见 https://host/path/page"
+
+
 def test_redact_message_does_not_swallow_trailing_text():
     # #79：Windows 分支 [^\"']* 贪婪吞掉路径后尾随业务文本（已保存 C:\...pptx 到桌面 →
     # 已保存 [REDACTED]，尾随「到桌面」丢失）；POSIX 分支把 ../ 相对段误当绝对路径
