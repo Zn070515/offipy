@@ -8,15 +8,22 @@ on:
     # 工作日凌晨跑自托管 Office 真机回归（COM + deck_render）
     - cron: "23 2 * * 1-5"
 
+# 同 ref 新提交取消旧 run（#106）：连续推送不叠跑多套矩阵，省 Actions 分钟。
+# office-real 是 reusable 调用，顶层 concurrency 覆盖整个 workflow run。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Linux 纯模块：无 Office / 无 chromium 也能全量收集并跑核心逻辑，
   # 挂覆盖率门槛（阈值按纯模块子集实测校准，本机 ~91%，88 留 3pt 余量）。
   pure-module:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Sync dependencies
@@ -37,10 +44,11 @@ jobs:
   # 上游破坏性变更；配合 dependabot 每周批量升级 PR，跨上限大版本需人工审。
   latest-deps:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Sync dependencies (latest allowed)
@@ -51,13 +59,14 @@ jobs:
   # Windows 全量：含 deck_render（安装 chromium），COM 测试无 Office 自动跳过
   windows:
     runs-on: windows-latest
+    timeout-minutes: 40
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Sync dependencies
@@ -84,10 +93,11 @@ jobs:
   # 打包 smoke：构建 wheel + 干净 venv 安装 + import/check（release 门禁）
   wheel-smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v9.0.0
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Build wheel
@@ -96,7 +106,7 @@ jobs:
         run: uvx twine check dist/*
       - name: Install smoke (干净 venv 装 wheel，含 art acceptance 真实 analyze_scene)
         run: python scripts/install_smoke.py --acceptance-dir tests/fixtures/art/scenes
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: offipy-wheel
           path: dist/*.whl
@@ -108,6 +118,7 @@ jobs:
   # 会因 runner 不可用而跳过，需要在分支保护里豁免（如 paths-ignore 或 allow skip）。
   office-real:
     if: (github.event_name == 'push' || github.event_name == 'schedule') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    timeout-minutes: 30
     uses: ./.github/workflows/office-tests.yml
     with:
       install_from_wheel: false
