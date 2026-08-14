@@ -13,17 +13,11 @@ vendored 提取器用 importlib 加载，保持上游文件原样；仅支持 fl
 from __future__ import annotations
 
 import importlib.util
-import os
 import re
 import sys
-from collections import deque
-from dataclasses import dataclass
-from html.parser import HTMLParser
 from pathlib import Path
 
-_EXTRACT_REL = Path(
-    "_vendor/diagram-design/skills/diagram-design/scripts/mermaid_extract.py"
-)
+_EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/mermaid_extract.py")
 SUPPORTED_DIRECTIONS = {"TD", "TB", "LR", "RL", "BT"}
 # vendored extractor 契约：graph/flowchart 必须带显式方向（否则 _kind_and_direction
 # 直接 _fail("not a Mermaid file")）。裸 graph 是常见用户输入，parse_mermaid 用它做
