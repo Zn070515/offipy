@@ -6,8 +6,10 @@ import subprocess
 import sys
 
 import pytest
+from pptx import Presentation
+from pptx.util import Emu
 
-from offipy.drawio import layout_drawio, parse_drawio
+from offipy.drawio import drawio_to_pptx, layout_drawio, parse_drawio
 
 SINGLE_PAGE = """\
 <mxfile>
@@ -288,3 +290,25 @@ def test_layout_drawio_uniform_scale(tmp_path):
     # x/y 各自独立缩放会被此断言抓出。
     lay = layout_drawio(parse_drawio(_write(tmp_path)))
     assert lay.canvas_w / lay.canvas_h == pytest.approx(340 / 300)
+
+
+def test_drawio_to_pptx_smoke(tmp_path):
+    out = str(tmp_path / "out.pptx")
+    result = drawio_to_pptx(_write(tmp_path), out)
+    assert result == out
+    prs = Presentation(out)
+    assert prs.slide_width == Emu(12192000)  # 16:9
+    texts = {sh.text_frame.text for sl in prs.slides for sh in sl.shapes if sh.has_text_frame}
+    assert texts >= {"节点A", "节点B", "节点C", "容器", "连接"}
+
+
+def test_drawio_to_pptx_bad_source(tmp_path):
+    p = tmp_path / "bad.drawio"
+    p.write_text("not draw.io at all", encoding="utf-8")
+    with pytest.raises(ValueError, match="无法解析"):
+        drawio_to_pptx(str(p), str(tmp_path / "x.pptx"))
+
+
+def test_drawio_to_pptx_missing_file_raises(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        drawio_to_pptx(tmp_path / "nope.drawio", str(tmp_path / "out.pptx"))

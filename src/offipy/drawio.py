@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from offipy.diagrams import DiagramLayout, PlacedEdge, PlacedNode
+from offipy.diagrams import DiagramLayout, PlacedEdge, PlacedNode, render_to_slide
 
 _EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/drawio_extract.py")
 
@@ -234,3 +234,24 @@ def _layout_edges(diagram: DrawioDiagram, placed: list[PlacedNode]) -> list[Plac
             )
         )
     return out
+
+
+def drawio_to_pptx(source, out_path: str, *, page=None) -> str:
+    """.drawio 文件 → 可编辑 PPTX（16:9 整页）。返回 out_path。
+
+    python-pptx 惰性 import（deck extra），未安装时给可操作错误。
+    """
+    diagram = parse_drawio(source, page=page)
+    lay = layout_drawio(diagram)
+    try:
+        from pptx import Presentation
+        from pptx.util import Emu
+    except ImportError as e:  # pragma: no cover
+        raise RuntimeError("drawio_to_pptx 需要 python-pptx，请安装 offipy[deck]") from e
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    prs.save(out_path)
+    return str(out_path)
