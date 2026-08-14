@@ -24,7 +24,7 @@ Open an existing .pptx file, set it active, return doc_id.
 
 ### `close_pres`
 
-Close the presentation (doc_id defaults to the active one) without quitting PowerPoint. save=True saves first (a never-saved document auto-saves to the user data directory without the Save As dialog) and returns the saved path; save=False closes without saving or prompting and returns null.
+Close the presentation (doc_id must be given explicitly or follow_active=True) without quitting PowerPoint. save=True saves first (a never-saved document auto-saves to the user data directory without the Save As dialog) and returns the saved path; save=False closes without saving or prompting and returns null.
 
 - **Parameters**: `save: bool`, `doc_id: str`
 - **Returns**: `str|null`
@@ -34,7 +34,7 @@ Close the presentation (doc_id defaults to the active one) without quitting Powe
 
 ### `save`
 
-Save the presentation (doc_id defaults to the active one) and return the absolute path. If path is given, save-as to that path (.pptx); otherwise save back to the original path (a never-saved document auto-saves to the user data directory without the Save As dialog); overwrite=True allows overwriting an existing file.
+Save the presentation (doc_id must be given explicitly or follow_active=True) and return the absolute path. If path is given, save-as to that path (.pptx); otherwise save back to the original path (a never-saved document auto-saves to the user data directory without the Save As dialog); overwrite=True allows overwriting an existing file.
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `str`
@@ -44,7 +44,7 @@ Save the presentation (doc_id defaults to the active one) and return the absolut
 
 ### `save_pdf`
 
-Export the presentation (doc_id defaults to the active one) to PDF at the given path; overwrite=True allows overwriting an existing file.
+Export the presentation (doc_id must be given explicitly or follow_active=True) to PDF at the given path; overwrite=True allows overwriting an existing file.
 
 - **Parameters**: `path: str`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `void`
@@ -54,7 +54,7 @@ Export the presentation (doc_id defaults to the active one) to PDF at the given 
 
 ### `export_slides`
 
-Export each slide of the presentation (doc_id defaults to the active one) as PNG into out_dir (slide_01.png…), for visual inspection/iteration. Default 1920x1080. Returns the list of file paths.
+Export each slide of the presentation (doc_id must be given explicitly or follow_active=True) as PNG into out_dir (slide_01.png…), for visual inspection/iteration. Default 1920x1080. Returns the list of file paths.
 
 - **Parameters**: `out_dir: str`, `width: int`, `height: int`, `overwrite: bool`, `doc_id: str`
 - **Returns**: `list`

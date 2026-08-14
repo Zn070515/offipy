@@ -376,7 +376,7 @@ class ExcelApp:
 
     @destructive
     def close_book(self, save: bool = True, doc_id: str | None = None):
-        """关闭工作簿（doc_id 缺省为活动）。
+        """关闭工作簿（doc_id 必须显式传入或 follow_active=True）。
 
         save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
         保存路径；save=False → 直接关闭不保存、不弹对话框，返回 None。

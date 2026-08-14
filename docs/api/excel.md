@@ -24,7 +24,7 @@
 
 ### `close_book`
 
-关闭工作簿（doc_id 缺省为活动）。save=True 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，返回 null。
+关闭工作簿（doc_id 必须显式传入或 follow_active=True）。save=True 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，返回 null。
 
 - **参数**: `save: bool`、`doc_id: str`
 - **返回**: `str|null`
@@ -34,7 +34,7 @@
 
 ### `save`
 
-保存工作簿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
+保存工作簿（doc_id 必须显式传入或 follow_active=True）并返回绝对路径。给 path 则另存到该路径；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
 - **返回**: `str`
@@ -44,7 +44,7 @@
 
 ### `save_pdf`
 
-把工作簿（doc_id 缺省为活动）导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。
+把工作簿（doc_id 必须显式传入或 follow_active=True）导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
 - **返回**: `void`
@@ -54,7 +54,7 @@
 
 ### `add_sheet`
 
-在工作簿（doc_id 缺省为活动）中新建工作表并命名。
+在工作簿（doc_id 必须显式传入或 follow_active=True）中新建工作表并命名。
 
 - **参数**: `name: str`、`doc_id: str`
 - **返回**: `void`

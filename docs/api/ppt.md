@@ -24,7 +24,7 @@
 
 ### `close_pres`
 
-关闭演示文稿（doc_id 缺省为活动），不退出 PowerPoint。save=True 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，返回 null。
+关闭演示文稿（doc_id 必须显式传入或 follow_active=True），不退出 PowerPoint。save=True 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回保存路径；save=False 不保存不弹窗，返回 null。
 
 - **参数**: `save: bool`、`doc_id: str`
 - **返回**: `str|null`
@@ -34,7 +34,7 @@
 
 ### `save`
 
-保存演示文稿（doc_id 缺省为活动）并返回绝对路径。给 path 则另存到该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
+保存演示文稿（doc_id 必须显式传入或 follow_active=True）并返回绝对路径。给 path 则另存到该路径（.pptx）；未给 path 则存回原路径（从未保存过自动落盘用户数据目录，不弹另存为）；overwrite=True 允许覆盖已存在文件。
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
 - **返回**: `str`
@@ -44,7 +44,7 @@
 
 ### `save_pdf`
 
-把演示文稿（doc_id 缺省为活动）导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。
+把演示文稿（doc_id 必须显式传入或 follow_active=True）导出为 PDF 到指定路径；overwrite=True 允许覆盖已存在文件。
 
 - **参数**: `path: str`、`overwrite: bool`、`doc_id: str`
 - **返回**: `void`
@@ -54,7 +54,7 @@
 
 ### `export_slides`
 
-把演示文稿（doc_id 缺省为活动）每一页导出为 PNG 到 out_dir（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。
+把演示文稿（doc_id 必须显式传入或 follow_active=True）每一页导出为 PNG 到 out_dir（slide_01.png…），供视觉检查/迭代。默认 1920x1080。返回文件路径列表。
 
 - **参数**: `out_dir: str`、`width: int`、`height: int`、`overwrite: bool`、`doc_id: str`
 - **返回**: `list`
