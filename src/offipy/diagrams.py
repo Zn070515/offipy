@@ -13,6 +13,7 @@ vendored 提取器用 importlib 加载，保持上游文件原样；仅支持 fl
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 import sys
 from collections import deque
@@ -451,3 +452,34 @@ def render_to_slide(
         shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)
         shape.line.width = Pt(1.0)
         _add_text(shape, n.label, size_pt=node_font_pt)
+
+
+def _read_source(source) -> str:
+    """source 是文件路径（存在）→ 读文件；否则当作 Mermaid 文本。"""
+    if isinstance(source, (str, os.PathLike)):
+        p = Path(source)
+        if p.exists() and p.is_file():
+            return p.read_text(encoding="utf-8")
+    return str(source)
+
+
+def mermaid_to_pptx(source, out_path: str, *, direction: str | None = None) -> str:
+    """Mermaid 文本或 .mmd 文件路径 → 可编辑 PPTX（16:9 整页）。返回 out_path。
+
+    python-pptx 惰性 import（deck extra），未安装时给可操作错误。
+    """
+    text = _read_source(source)
+    diagram = parse_mermaid(text)
+    lay = layout_diagram(diagram, direction=direction)
+    try:
+        from pptx import Presentation
+        from pptx.util import Emu
+    except ImportError as e:  # pragma: no cover
+        raise RuntimeError("mermaid_to_pptx 需要 python-pptx，请安装 offipy[deck]") from e
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    prs.save(out_path)
+    return str(out_path)

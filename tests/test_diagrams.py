@@ -7,8 +7,9 @@ from pptx import Presentation
 from pptx.enum.dml import MSO_LINE_DASH_STYLE
 from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
+from pptx.util import Emu
 
-from offipy.diagrams import layout_diagram, parse_mermaid, render_to_slide
+from offipy.diagrams import layout_diagram, mermaid_to_pptx, parse_mermaid, render_to_slide
 
 
 def test_parse_flowchart_basic():
@@ -280,3 +281,32 @@ def test_render_no_arrowhead_when_undirected():
     assert conns
     ln = conns[0].line._get_or_add_ln()
     assert ln.find(qn("a:tailEnd")) is None
+
+
+def _read_source(tmp_path, text):
+    p = tmp_path / "input.mmd"
+    p.write_text(text, encoding="utf-8")
+    return str(p)
+
+
+def test_mermaid_to_pptx_from_text(tmp_path):
+    out = str(tmp_path / "out.pptx")
+    result = mermaid_to_pptx("graph TD\n    A[开始] --> B[结束]", out)
+    assert result == out
+    prs = Presentation(out)
+    assert prs.slide_width == Emu(12192000)  # 16:9
+    texts = {sh.text_frame.text for sl in prs.slides for sh in sl.shapes if sh.has_text_frame}
+    assert texts >= {"开始", "结束"}
+
+
+def test_mermaid_to_pptx_from_path(tmp_path):
+    src = _read_source(tmp_path, "graph LR\n    A --> B")
+    out = str(tmp_path / "out.pptx")
+    mermaid_to_pptx(src, out)
+    prs = Presentation(out)
+    assert len(prs.slides[0].shapes) >= 2
+
+
+def test_mermaid_to_pptx_bad_source(tmp_path):
+    with pytest.raises(ValueError, match="无法解析"):
+        mermaid_to_pptx("not mermaid at all", str(tmp_path / "x.pptx"))
