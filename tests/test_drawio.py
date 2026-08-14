@@ -157,6 +157,22 @@ def test_parse_drawio_empty_diagram(tmp_path):
         parse_drawio(_write(tmp_path, xml, "empty.drawio"))
 
 
+def test_parse_drawio_dangling_edge_filtered(tmp_path):
+    xml = (
+        '<mxfile><diagram name="P"><mxGraphModel><root>'
+        '<mxCell id="0"/><mxCell id="1" parent="0"/>'
+        '<mxCell id="a" value="A" vertex="1" parent="1">'
+        '<mxGeometry x="0" y="0" width="50" height="30" as="geometry"/></mxCell>'
+        '<mxCell id="e1" value="dangle" style="edgeStyle=orthogonalEdgeStyle;" '
+        'edge="1" source="a" target="ghost" parent="1">'
+        '<mxGeometry relative="1" as="geometry"/></mxCell>'
+        "</root></mxGraphModel></diagram></mxfile>"
+    )
+    d = parse_drawio(_write(tmp_path, xml, "dangle.drawio"))
+    assert [n.id for n in d.nodes] == ["a"]
+    assert d.edges == []  # 悬空边（target 指向不存在的节点）被过滤
+
+
 def test_drawio_lazy_import_no_pptx():
     """drawio.py 顶层不得 import pptx（惰性 import 红线）。"""
     code = (
