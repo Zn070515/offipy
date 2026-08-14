@@ -82,6 +82,7 @@ offipy diagram build --source design.drawio --out design.pptx
 
 - `source` 必须是已存在的 `.mmd` / `.drawio` 文件（不接受内联文本）
 - `direction`（Mermaid 流向，LR/TB…）与 `page`（draw.io 页名/序号）按格式各自透传
+- `out` 已存在时默认拒绝覆盖（`FileConflictError`，CLI 退出码 1），重新生成加 `--overwrite true`
 - 输出是 16:9 整页**可编辑形状** PPTX；布局由 Mermaid/drawio 引擎重排
 
 ### 可转换子集（契约边界）

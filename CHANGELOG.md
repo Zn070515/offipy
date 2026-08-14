@@ -16,6 +16,8 @@
   `diagram_build` / `diagram_install_skill`，三入口经 schema 一处登记自动接线。
 - `offipy-diagram` wrapper skill 钉死产物契约：Mermaid 仅支持 flowchart/graph、
   sequenceDiagram、stateDiagram-v2、erDiagram 四种 kind；其余类型改用 draw.io 表达。
+- `diagram build` 输出覆盖保护对齐 Office 惯例：`out` 已存在时默认拒绝覆盖
+  （`FileConflictError`），重新生成需 `--overwrite true`。
 
 ## [0.15.1] - 2026-08-14
 
