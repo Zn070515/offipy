@@ -111,7 +111,7 @@ def main() -> None:
             "ppt",
             "read_slide_texts",
             "ppt.read_slide_texts",
-            lambda: client.call("ppt", "read_slide_texts", doc_id=ppt_doc),
+            lambda: client.call("ppt", "read_slide_texts", doc_id=ppt_doc, slide_idx=1),
         )
     )
 
