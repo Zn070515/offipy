@@ -36,6 +36,14 @@ def test_bad_syntax_raises_value_error():
         parse_mermaid("graph TD\n    this is not mermaid !!!")
 
 
+def test_extractor_systemexit_normalized_to_value_error():
+    # gantt 不是 extractor 支持的 kind，_kind_and_direction 直接 _fail → SystemExit(2)。
+    # 消息判别器「无法解析 Mermaid 源码」证明走的是 SystemExit 归一化分支
+    # （区别于空图守卫的「未提取到任何节点或边」与 kind 检查的「仅支持 flowchart」）。
+    with pytest.raises(ValueError, match="无法解析 Mermaid 源码"):
+        parse_mermaid("gantt\ntitle x")
+
+
 def test_mermaid_missing_direction_clear_error():
     # extractor 契约：graph/flowchart 必须带显式方向，裸 graph 会报 "not a Mermaid file"；
     # offipy 包装预检后给清晰 ValueError（含"方向"），不透传误导性消息。
