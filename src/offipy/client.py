@@ -11,7 +11,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from typing import NoReturn
+from typing import Any, NoReturn, cast
 
 from .exceptions import (
     ComOperationError,
@@ -91,13 +91,13 @@ def _port_from_url(base_url: str | None) -> int:
     return port()
 
 
-def _token_path(p: int):
+def _token_path(p: int) -> pathlib.Path:
     # 默认端口沿用旧文件名（token），非默认端口按端口隔离（token-{port}）
     name = _TOKEN_FILENAME if p == PORT else f"{_TOKEN_FILENAME}-{p}"
     return user_data_dir() / name
 
 
-def _pid_path(p: int):
+def _pid_path(p: int) -> pathlib.Path:
     # 默认端口沿用旧文件名（server.pid），非默认端口按端口隔离（server-{port}.pid）
     name = "server.pid" if p == PORT else f"server-{p}.pid"
     return user_data_dir() / name
@@ -111,7 +111,7 @@ def _ping() -> bool:
         return False
 
 
-def _auth_headers(p: int) -> dict:
+def _auth_headers(p: int) -> dict[str, str]:
     headers = {"Content-Type": "application/json", "X-Offipy-Protocol": PROTOCOL}
     token = _token(p)
     if token:
@@ -206,7 +206,7 @@ def server_ready() -> bool:
     return _probe() == "ok"
 
 
-def server_status() -> dict | None:
+def server_status() -> dict[str, Any] | None:
     """GET /status 返回字段 dict；server 未运行返回 None。
 
     只读探测：不调用 ensure_server()，绝不隐式拉起（P0-3）。版本偏斜但协议匹配
@@ -225,7 +225,7 @@ def server_status() -> dict | None:
             result = data["result"]
             if result.get("protocol") != PROTOCOL:
                 return None  # 协议失配：非 offipy 进程，不可读
-            return result
+            return cast("dict[str, Any]", result)
     except urllib.error.HTTPError as e:
         if state == "mismatch":
             return None  # 非 offipy 进程：请求失败属预期，保持旧行为
@@ -366,7 +366,7 @@ def _token(p: int) -> str | None:
     return token or None
 
 
-def ensure_server():
+def ensure_server() -> None:
     """确保 8890 上跑着可用的 offipy server。
 
     用 /status 握手（非裸 ping）确认协议与鉴权都对。进程所有权纪律：
@@ -399,15 +399,14 @@ def ensure_server():
     logpath.parent.mkdir(parents=True, exist_ok=True)
     pid_file = _pid_path(port())
     pid_file.parent.mkdir(parents=True, exist_ok=True)
-    popen_kwargs = {}
-    if hasattr(subprocess, "CREATE_NO_WINDOW"):
-        popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    # Windows 上抑制控制台窗口；其它平台 attr 不存在 → 0（无 flag）
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with pathlib.Path(logpath).open("a", encoding="utf-8") as logfile:
         subprocess.Popen(
             [sys.executable, "-m", SERVER_MOD, "--port", str(port())],
             stdout=logfile,
             stderr=logfile,
-            **popen_kwargs,
+            creationflags=creationflags,
         )
     # pid 文件由 server 绑定成功后自写权威记录（P1-3），client 不抢写；
     # 定位兜底 netstat 始终可用。
@@ -423,7 +422,14 @@ def ensure_server():
 _PATH_KEYS = ("path", "out", "out_dir", "html", "pptx")
 
 
-def _raise_error(app: str, op: str, code, detail, hresult=None, trace=None) -> NoReturn:
+def _raise_error(
+    app: str,
+    op: str,
+    code: str | None,
+    detail: str | None,
+    hresult: str | None = None,
+    trace: str | None = None,
+) -> NoReturn:
     """按 server 错误码映射回领域异常；ComOperationError 透传 hresult（契约5）。"""
     msg = f"[{app}::{op}] 失败: {detail}"
     if trace:
@@ -438,8 +444,8 @@ def _raise_error(app: str, op: str, code, detail, hresult=None, trace=None) -> N
 
 
 def request(
-    app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args
-) -> dict:
+    app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args: Any
+) -> dict[str, Any]:
     """发一次调用并返回响应 dict；应用层失败抛对应 OffipyError。
 
     成功（server 返回 200 + ok:true）→ dict；server 返回 ok:false 且带可识别
@@ -477,7 +483,7 @@ def request(
     )
     try:
         with _OPENER.open(req, timeout=_CALL_TIMEOUT) as r:
-            return json.loads(r.read().decode("utf-8"))
+            return cast("dict[str, Any]", json.loads(r.read().decode("utf-8")))
     except urllib.error.HTTPError as e:
         body = None
         try:
@@ -497,7 +503,9 @@ def request(
         raise RemoteCallError(f"[{app}::{op}] 响应非 JSON: {e}") from e
 
 
-def call(app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args):
+def call(
+    app: str, op: str, base_url: str | None = None, *, request_id: str | None = None, **args: Any
+) -> Any:
     resp = request(app, op, base_url=base_url, request_id=request_id, **args)
     if not resp.get("ok"):
         _raise_error(

@@ -9,6 +9,7 @@ import pathlib
 import secrets
 import shutil
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import Any, NamedTuple
@@ -55,7 +56,7 @@ _TITLE_BOX = (36, 18, 648, 72)
 _BODY_BOX = (36, 90, 648, 396)
 
 
-def _placeholder_by_type(shapes, *pp_types):
+def _placeholder_by_type(shapes: Any, *pp_types: int) -> Any:
     """按占位符类型找 shape（不硬编码 Placeholders(2) 序号）；找不到返回 None。"""
     placeholders = getattr(shapes, "Placeholders", None)
     if placeholders is None:
@@ -69,7 +70,7 @@ def _placeholder_by_type(shapes, *pp_types):
 # ------------------------------------------------------------------ 读全（P1-4）
 
 
-def _tri_state_to_bool(value) -> bool | None:
+def _tri_state_to_bool(value: Any) -> bool | None:
     """MsoTriState 正规化：-1/1→True、0→False、其余（-2/-3 混合态）→None。禁 bool() 偷译。"""
     if value in (-1, 1):
         return True
@@ -78,7 +79,7 @@ def _tri_state_to_bool(value) -> bool | None:
     return None
 
 
-def _shape_has_text_frame(shape) -> bool:
+def _shape_has_text_frame(shape: Any) -> bool:
     """shape 是否有文本能力：HasTextFrame 优先；None/读不到再兜底访问 TextFrame（P2-1）。"""
     try:
         state = _tri_state_to_bool(shape.HasTextFrame)
@@ -100,14 +101,14 @@ MSO_ZORDER_BRING_FORWARD = 2  # MsoZOrderCmd.msoBringForward（rank 增）
 MSO_ZORDER_SEND_BACKWARD = 3  # MsoZOrderCmd.msoSendBackward（rank 减）
 
 
-def _shape_is_group(shape) -> bool:
+def _shape_is_group(shape: Any) -> bool:
     try:
         return int(shape.Type) == MSO_GROUP
     except Exception:
         return False
 
 
-def _shape_is_rotated(shape) -> bool:
+def _shape_is_rotated(shape: Any) -> bool:
     """是否旋转（非 90° 整数倍）。旋转 group 内子元素读值不可信（探针 P0-2）。"""
     try:
         return float(shape.Rotation) % 90 != 0
@@ -116,13 +117,13 @@ def _shape_is_rotated(shape) -> bool:
 
 
 def _iter_shapes(
-    shapes,
+    shapes: Any,
     *,
     recursive: bool,
     parent_shape_id: int | None = None,
     group_path: tuple[int, ...] = (),
     rotated: bool = False,
-):
+) -> Iterator[tuple[Any, int | None, tuple[int, ...], bool]]:
     """统一遍历器：产出 (shape, parent_shape_id, group_path, rotated)（v0.12 read_shapes 共用）。
 
     - top-level：parent_shape_id=None、group_path=()；group 子元素 parent_shape_id=直接父
@@ -159,35 +160,35 @@ def _iter_shapes(
             )
 
 
-def _shape_id(shape) -> int:
+def _shape_id(shape: Any) -> int:
     try:
         return int(shape.Id)
     except Exception:
         return 0
 
 
-def _shape_name(shape) -> str:
+def _shape_name(shape: Any) -> str:
     try:
         return str(shape.Name)
     except Exception:
         return ""
 
 
-def _shape_text(shape) -> str:
+def _shape_text(shape: Any) -> str:
     try:
         return str(shape.TextFrame.TextRange.Text)
     except Exception:
         return ""
 
 
-def _shape_float(shape, attr: str) -> float:
+def _shape_float(shape: Any, attr: str) -> float:
     try:
         return float(getattr(shape, attr))
     except Exception:
         return 0.0
 
 
-def _shape_z_order(shape) -> int:
+def _shape_z_order(shape: Any) -> int:
     """ZOrderPosition 兜底大数：读不到排最后（稳定，不干扰阅读顺序）。"""
     try:
         return int(shape.ZOrderPosition)
@@ -195,7 +196,7 @@ def _shape_z_order(shape) -> int:
         return 1_000_000
 
 
-def _placeholder_info(shape) -> tuple[bool, int | None, str | None]:
+def _placeholder_info(shape: Any) -> tuple[bool, int | None, str | None]:
     """(is_placeholder, type, type_name)。shape.Type==14（msoPlaceholder）判定占位符。"""
     try:
         if int(shape.Type) != MSO_PLACEHOLDER:
@@ -209,7 +210,7 @@ def _placeholder_info(shape) -> tuple[bool, int | None, str | None]:
         return False, None, None
 
 
-def _require_shape_id(shape) -> int:
+def _require_shape_id(shape: Any) -> int:
     """严格 shape 身份：读不到 Id 抛 ComOperationError（read_shapes 无 0 兜底）。"""
     try:
         return int(shape.Id)
@@ -226,7 +227,7 @@ def _rgb_to_hex(rgb: int) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
-def _shape_type(shape) -> tuple[int, str]:
+def _shape_type(shape: Any) -> tuple[int, str]:
     """(MsoShapeType 数值, 名称)；读不到 Type → (0, "unknown_0")。"""
     try:
         t = int(shape.Type)
@@ -235,14 +236,14 @@ def _shape_type(shape) -> tuple[int, str]:
     return t, shape_type_name(t)
 
 
-def _shape_rotation(shape) -> float:
+def _shape_rotation(shape: Any) -> float:
     try:
         return float(shape.Rotation)
     except Exception:
         return 0.0
 
 
-def _shape_visible(shape) -> bool | None:
+def _shape_visible(shape: Any) -> bool | None:
     """MsoTriState 正规化：-1/1→True、0→False、混合态→None。"""
     try:
         return _tri_state_to_bool(shape.Visible)
@@ -250,7 +251,7 @@ def _shape_visible(shape) -> bool | None:
         return None
 
 
-def _shape_fill(shape) -> tuple[str | None, float | None]:
+def _shape_fill(shape: Any) -> tuple[str | None, float | None]:
     """(hex_color, transparency)。仅 solid fill 给色；gradient/pattern/picture → None。"""
     try:
         fill = shape.Fill
@@ -271,7 +272,7 @@ def _shape_fill(shape) -> tuple[str | None, float | None]:
     return color, transparency
 
 
-def _shape_line(shape) -> tuple[str | None, float | None]:
+def _shape_line(shape: Any) -> tuple[str | None, float | None]:
     """(hex_color, width)。仅可见 line 给色；隐藏 line → 均 None。"""
     try:
         line = shape.Line
@@ -293,7 +294,7 @@ def _shape_line(shape) -> tuple[str | None, float | None]:
     return color, width
 
 
-def _shape_font(shape) -> tuple[float | None, str | None, str | None]:
+def _shape_font(shape: Any) -> tuple[float | None, str | None, str | None]:
     """(size, name, color_hex) 首 run 语义；无文本/空文本 → 全 None。"""
     if not _shape_has_text_frame(shape):
         return None, None, None
@@ -326,7 +327,7 @@ def _shape_font(shape) -> tuple[float | None, str | None, str | None]:
     return size, name, color
 
 
-def _indexed_items(collection, count: int) -> list:
+def _indexed_items(collection: Any, count: int) -> list[Any]:
     """按 1..count 逐个取 COM 集合项，单项读失败跳过。
 
     COM 集合在形状删除/合并态下可能缺位（Index 空洞），一次取不到不该炸掉
@@ -341,7 +342,7 @@ def _indexed_items(collection, count: int) -> list:
     return items
 
 
-def _local_z_order_rank(shapes) -> list[int]:
+def _local_z_order_rank(shapes: Any) -> list[int]:
     """所在集合内每 shape 的 1-based z-order rank（与 shapes 元素顺序对齐）。
 
     顶层（slide.Shapes）ZOrderPosition 即 1..Count，rank 恒等于 ZOrderPosition；
@@ -353,13 +354,13 @@ def _local_z_order_rank(shapes) -> list[int]:
 
 
 def _iter_shape_records(
-    shapes,
+    shapes: Any,
     *,
     recursive: bool,
     parent_shape_id: int | None = None,
     group_path: tuple[int, ...] = (),
     rotated: bool = False,
-):
+) -> Iterator[tuple[Any, int | None, tuple[int, ...], bool, int]]:
     """read_shapes 专用遍历：产出 (shape, parent_shape_id, group_path, rotated, z_order)。
 
     - shape_id 严格：任何 shape Id 读不到 → _require_shape_id 抛 ComOperationError。
@@ -367,7 +368,7 @@ def _iter_shape_records(
     - rotated：是否处于旋转 group 内 → coordinate_space="unknown"。
     - 先判 Type==6 再访问 GroupItems（COM Group() 拍平嵌套 group 时直接访问抛错，探针实证）。
     """
-    items: list = []
+    items: list[Any] = []
     try:
         count = int(shapes.Count)
     except Exception:
@@ -394,7 +395,7 @@ def _iter_shape_records(
 
 
 def _record_shape_info(
-    shape,
+    shape: Any,
     *,
     parent_shape_id: int | None,
     group_path: tuple[int, ...],
@@ -441,7 +442,7 @@ def _record_shape_info(
 
 
 def _record_from_shape(
-    shape,
+    shape: Any,
     *,
     parent_shape_id: int | None,
     group_path: tuple[int, ...],
@@ -475,7 +476,7 @@ class _InternalTextShapeRecord(NamedTuple):
     z_order: int
 
 
-def _collect_text_records(slide, *, recursive: bool = True) -> list[_InternalTextShapeRecord]:
+def _collect_text_records(slide: Any, *, recursive: bool = True) -> list[_InternalTextShapeRecord]:
     """收集 slide 上全部**有文本能力**的 shape：[(record, z_order)]。"""
     out: list[_InternalTextShapeRecord] = []
     for shape, parent_id, group_path, rotated in _iter_shapes(slide.Shapes, recursive=recursive):
@@ -495,7 +496,7 @@ def _collect_text_records(slide, *, recursive: bool = True) -> list[_InternalTex
     return out
 
 
-def _reading_order_key(item: _InternalTextShapeRecord):
+def _reading_order_key(item: _InternalTextShapeRecord) -> tuple[int, float, int, int]:
     """稳定阅读顺序（P1-4）：top 按 5pt 一档取整（floor 防银行家舍入）→ left → z → id。"""
     return (
         math.floor((item.record["top"] + 2.5) / 5.0),
@@ -505,7 +506,7 @@ def _reading_order_key(item: _InternalTextShapeRecord):
     )
 
 
-def _page_size_pt(pres) -> tuple[float, float]:
+def _page_size_pt(pres: Any) -> tuple[float, float]:
     """演示文稿页面尺寸（磅）(width, height)；读不到回宽屏 16:9 默认 (960, 540)。"""
     try:
         ps = pres.PageSetup
@@ -514,7 +515,7 @@ def _page_size_pt(pres) -> tuple[float, float]:
         return 960.0, 540.0
 
 
-def _require_slide(pres, slide_idx: int):
+def _require_slide(pres: Any, slide_idx: int) -> Any:
     """slide 索引前置校验：1..演示文稿页数，越界抛 InvalidArgumentError。
 
     把 PowerPoint 原生枚举错误（"Slides.Item: Integer out of range"）前置成
@@ -553,7 +554,7 @@ def _is_exempt_text(rec: SlideTextRecord, pw: float, ph: float) -> bool:
     return _is_page_number_candidate(rec, pw, ph)
 
 
-def _read_notes(slide) -> str:
+def _read_notes(slide: Any) -> str:
     """读取演讲者备注文本；无正文占位符/读取失败回空串。"""
     try:
         ph = _placeholder_by_type(slide.NotesPage.Shapes, PP_PLACEHOLDER_BODY)
@@ -564,7 +565,7 @@ def _read_notes(slide) -> str:
         return ""
 
 
-def _summarize_slide(slide, index: int, pw: float, ph: float) -> dict:
+def _summarize_slide(slide: Any, index: int, pw: float, ph: float) -> dict[str, Any]:
     """单页摘要：title/body 启发式聚合 + notes（兼容 0.9 read_slide_texts 语义）。"""
     items = _collect_text_records(slide, recursive=True)
     title_ph = body_ph = None
@@ -635,7 +636,7 @@ class _LocatedShape:
 
 
 def _locate_in_shapes(
-    shapes,
+    shapes: Any,
     shape_id: int,
     *,
     parent_shape_id: int | None,
@@ -686,7 +687,7 @@ def _locate_in_shapes(
     return None
 
 
-def _find_shape_by_id(slide, shape_id: int) -> _LocatedShape:
+def _find_shape_by_id(slide: Any, shape_id: int) -> _LocatedShape:
     """递归定位 shape（顶层 + group 后代）；找不到 → TargetNotFoundError。"""
     hit = _locate_in_shapes(
         slide.Shapes, shape_id, parent_shape_id=None, group_path=(), rotated=False
@@ -699,13 +700,13 @@ def _find_shape_by_id(slide, shape_id: int) -> _LocatedShape:
     return hit
 
 
-def _local_rank_of(shape, collection) -> int:
+def _local_rank_of(shape: Any, collection: Any) -> int:
     """shape 在所在集合内的 1-based z-order rank。
 
     与 read_shapes 的 _local_z_order_rank 同语义（group 子元素 ZOrderPosition 带
     偏移，按兄弟排序还原本地 rank）。shape 已不在集合内 → TargetNotFoundError。
     """
-    items: list = []
+    items: list[Any] = []
     try:
         count = int(collection.Count)
     except Exception:
@@ -719,7 +720,7 @@ def _local_rank_of(shape, collection) -> int:
     raise TargetNotFoundError(f"shape {target_id} 已不在所在集合内")
 
 
-def _validate_hex_color(value, name: str = "color") -> str:
+def _validate_hex_color(value: str, name: str = "color") -> str:
     """严格 #RRGGBB（6 位十六进制）；非法抛 InvalidArgumentError。返回规范大写。"""
     if not isinstance(value, str):
         raise InvalidArgumentError(f"{name} 必须是 #RRGGBB 字符串，收到 {type(value).__name__}")
@@ -742,7 +743,7 @@ def _rgb_to_com(hex_color: str) -> int:
     return r | (g << 8) | (b << 16)
 
 
-def _validate_fraction_0_1(value, name: str = "transparency") -> float:
+def _validate_fraction_0_1(value: Any, name: str = "transparency") -> float:
     """透明度 [0,1]；非法抛 InvalidArgumentError。"""
     try:
         f = float(value)
@@ -753,7 +754,7 @@ def _validate_fraction_0_1(value, name: str = "transparency") -> float:
     return f
 
 
-def _validate_positive_float(value, name: str) -> float:
+def _validate_positive_float(value: Any, name: str) -> float:
     """> 0 的有限正数（width/height/font size）；非法抛 InvalidArgumentError。"""
     try:
         f = float(value)
@@ -764,7 +765,7 @@ def _validate_positive_float(value, name: str) -> float:
     return f
 
 
-def _validate_finite_float(value, name: str) -> float:
+def _validate_finite_float(value: Any, name: str) -> float:
     """有限数值（坐标/旋转）；NaN/Inf 抛 InvalidArgumentError。"""
     try:
         f = float(value)
@@ -775,13 +776,13 @@ def _validate_finite_float(value, name: str) -> float:
     return f
 
 
-def _require_text_frame(shape, op_desc: str) -> None:
+def _require_text_frame(shape: Any, op_desc: str) -> None:
     """shape 必须有文本能力；图片/线条/无文本图形 → InvalidArgumentError。"""
     if not _shape_has_text_frame(shape):
         raise InvalidArgumentError(f"{op_desc} 需要文本能力，但目标 shape 无 TextFrame")
 
 
-def _require_fill_capability(shape, op_desc: str) -> None:
+def _require_fill_capability(shape: Any, op_desc: str) -> None:
     """shape 必须支持 Fill；读不到 Fill 对象 → InvalidArgumentError。"""
     try:
         shape.Fill  # noqa: B018 — 访问成功即证明有 Fill，忽略返回值
@@ -789,7 +790,7 @@ def _require_fill_capability(shape, op_desc: str) -> None:
         raise InvalidArgumentError(f"{op_desc} 需要填充能力，但目标 shape 不支持 Fill") from None
 
 
-def _require_line_capability(shape, op_desc: str) -> None:
+def _require_line_capability(shape: Any, op_desc: str) -> None:
     """shape 必须支持 Line；读不到 Line 对象 → InvalidArgumentError。"""
     try:
         shape.Line  # noqa: B018 — 访问成功即证明有 Line，忽略返回值
@@ -813,7 +814,7 @@ class PptApp:
         self._active_id: str | None = None
 
     @contextmanager
-    def _alerts_scope(self, value: int = PP_ALERTS_NONE):
+    def _alerts_scope(self, value: int = PP_ALERTS_NONE) -> Iterator[None]:
         """临时抑制模态对话框；退出时（含异常路径）还原 DisplayAlerts 原值。"""
         prev = self.app.DisplayAlerts
         self.app.DisplayAlerts = value
@@ -822,7 +823,7 @@ class PptApp:
         finally:
             self.app.DisplayAlerts = prev
 
-    def _stable_identity(self, obj):
+    def _stable_identity(self, obj: Any) -> tuple[str | None, str | None]:
         """稳定身份键（P0-4）：已保存 → (FullName.lower(), None)；未保存 → (None, Name.lower())。"""
         try:
             fullname = obj.FullName
@@ -840,7 +841,7 @@ class PptApp:
             return (str(fullname).lower() if fullname else None, None)
         return (None, name.lower() if name else None)
 
-    def _register(self, obj) -> str:
+    def _register(self, obj: Any) -> str:
         """登记新文档句柄，分配 doc_id 并设为活动；同底层文档复用已有 doc_id。"""
         ident = self._stable_identity(obj)
         if ident != (None, None):
@@ -856,7 +857,7 @@ class PptApp:
         self._active_id = did
         return did
 
-    def _sync_registered(self, obj) -> str:
+    def _sync_registered(self, obj: Any) -> str:
         """把实时解析到的句柄并入文档表：已登记则复用并置活动，否则登记为新文档。"""
         for did, pres in self._docs.items():
             if pres is obj:
@@ -876,7 +877,7 @@ class PptApp:
         return self._register(self.app.Presentations.Open(pathlib.Path(path).resolve()))
 
     @destructive
-    def close_pres(self, save: bool = True, doc_id: str | None = None):
+    def close_pres(self, save: bool = True, doc_id: str | None = None) -> str | None:
         """关闭演示文稿（doc_id 必须显式传入或 follow_active=True），不退出 PowerPoint。
 
         save=True → 先保存（从未保存过则自动落盘用户数据目录，不弹另存为）并返回
@@ -886,7 +887,7 @@ class PptApp:
         pres = self._require_pres(doc_id)
         did = doc_id if doc_id is not None else self._active_id
         if save:
-            path = pres.FullName if pres.Path else self.save(doc_id=did)
+            path = str(pres.FullName) if pres.Path else self.save(doc_id=did)
             with self._alerts_scope():
                 pres.Close()
         else:
@@ -900,7 +901,7 @@ class PptApp:
                 self._active_id = None
         return path
 
-    def active_pres(self, doc_id: str | None = None):
+    def active_pres(self, doc_id: str | None = None) -> Any:
         # 显式 doc_id：绑定目标路由，只查文档表；未知/失效句柄抛 TargetNotFoundError。
         # 缺省 active：实时解析 ActivePresentation（doc_id 权威——绝不静默用陈旧的
         # _active_id 快路径，防「用户看到 B、Agent 以为 A」），解析到即并入文档表。
@@ -923,7 +924,7 @@ class PptApp:
         self._sync_registered(pres)
         return pres
 
-    def _require_pres(self, doc_id: str | None = None):
+    def _require_pres(self, doc_id: str | None = None) -> Any:
         """操作前置：目标演示文稿不存在则抛 TargetNotFoundError，不隐式创建。"""
         pres = self.active_pres(doc_id)
         if pres is None:
@@ -951,7 +952,7 @@ class PptApp:
             raise ComOperationError(f"激活演示文稿 {doc_id} 失败: {e}") from e
         return doc_id
 
-    def list_docs(self) -> dict:
+    def list_docs(self) -> dict[str, dict[str, Any]]:
         """当前打开的文档表：{doc_id: {"name", "path", "active"}}。只报已登记句柄，不隐式枚举。
 
         P1-5：先并入真实活动焦点（active_pres 解析 ActivePresentation 进文档表、
@@ -974,7 +975,7 @@ class PptApp:
             out[did] = {"name": name, "path": path, "active": did == self._active_id}
         return out
 
-    def get_target(self, doc_id: str | None = None):
+    def get_target(self, doc_id: str | None = None) -> dict[str, Any] | None:
         """目标身份 {app, doc_id, name, path}；无目标返回 None。只读探测。
 
         显式 doc_id：只查文档表，未注册/失效抛 TargetNotFoundError；
@@ -1001,7 +1002,9 @@ class PptApp:
         return {"app": "ppt", "doc_id": resolved, "name": name, "path": path}
 
     @destructive
-    def save(self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None):
+    def save(
+        self, path: str | None = None, overwrite: bool = False, doc_id: str | None = None
+    ) -> str:
         """保存演示文稿并返回绝对路径。
 
         给 path → 另存到该路径；未给 path → 已保存过的存回原路径，从未保存过的
@@ -1017,13 +1020,13 @@ class PptApp:
         with self._alerts_scope():
             if pres.Path:  # 已有保存路径 → 原位保存
                 pres.Save()
-                return pres.FullName
-            dest = default_save_path(pres.Name, ".pptx")
+                return str(pres.FullName)
+            dest = default_save_path(str(pres.Name), ".pptx")
             pres.SaveAs(dest)
             return dest
 
     @requires_target
-    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None):
+    def save_pdf(self, path: str, overwrite: bool = False, doc_id: str | None = None) -> None:
         dest = ensure_writable(path, overwrite)
         # ExportAsFixedFormat 第 2 参数是必填的 FixedFormatType（PDF=2）；Intent
         # 是打印品质（打印=2）；OutputType 默认 Slides=1（导出全部幻灯片）。
@@ -1045,7 +1048,7 @@ class PptApp:
         height: int = 1080,
         overwrite: bool = False,
         doc_id: str | None = None,
-    ):
+    ) -> list[str]:
         """把 doc_id 指定（必须显式传入或 follow_active=True）的演示文稿逐页导出
         PNG，供 Claude 视觉迭代。
 
@@ -1064,20 +1067,18 @@ class PptApp:
             or not 1 <= height <= _MAX_EXPORT_DIM
         ):
             raise InvalidArgumentError(f"height 必须是 1~{_MAX_EXPORT_DIM} 的整数，收到 {height!r}")
-        out_dir = pathlib.Path(out_dir).resolve()
+        out_dir_p = pathlib.Path(out_dir).resolve()
         pres = self._require_pres(doc_id)
         count = pres.Slides.Count
-        targets = [str(out_dir / f"slide_{i:02d}.png") for i in range(1, count + 1)]
+        targets = [str(out_dir_p / f"slide_{i:02d}.png") for i in range(1, count + 1)]
         if not overwrite:
             existing = [p for p in targets if pathlib.Path(p).exists()]
             if existing:
                 raise FileConflictError(f"导出目标已存在: {existing[0]}（overwrite=True 覆盖）")
-        if pathlib.Path(out_dir).exists() and not pathlib.Path(out_dir).is_dir():
-            raise FileConflictError(f"输出目录已存在且不是目录: {out_dir}")
-        pathlib.Path(out_dir).mkdir(exist_ok=True, parents=True)
-        staging = tempfile.mkdtemp(
-            prefix=".offipy-slides-", dir=pathlib.Path(out_dir).parent or "."
-        )
+        if out_dir_p.exists() and not out_dir_p.is_dir():
+            raise FileConflictError(f"输出目录已存在且不是目录: {out_dir_p}")
+        out_dir_p.mkdir(exist_ok=True, parents=True)
+        staging = tempfile.mkdtemp(prefix=".offipy-slides-", dir=out_dir_p.parent or ".")
         try:
             tmp_paths = []
             for i in range(1, count + 1):
@@ -1092,7 +1093,7 @@ class PptApp:
 
     # --- 幻灯片 ---
     @destructive
-    def add_slide(self, layout: int = PP_LAYOUT_TEXT, doc_id: str | None = None):
+    def add_slide(self, layout: int = PP_LAYOUT_TEXT, doc_id: str | None = None) -> int:
         if isinstance(layout, bool) or not isinstance(layout, int):
             raise InvalidArgumentError(f"非法 layout: {layout!r}（期望整数，如 1/2/5/12）")
         if layout < 1:
@@ -1104,10 +1105,10 @@ class PptApp:
             raise InvalidArgumentError(
                 f"非法 layout: {layout}（当前模板不提供该布局；本机实测 1/2/5/12 可用）"
             ) from None
-        return pres.Slides.Count
+        return int(pres.Slides.Count)
 
     @destructive
-    def set_title(self, slide_idx: int, text: str, doc_id: str | None = None):
+    def set_title(self, slide_idx: int, text: str, doc_id: str | None = None) -> int:
         if not text:
             raise InvalidArgumentError("set_title: text 不能为空")
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
@@ -1115,10 +1116,10 @@ class PptApp:
         if ph is None:
             ph = slide.Shapes.AddTextbox(1, *_TITLE_BOX)
         ph.TextFrame.TextRange.Text = text
-        return ph.Id
+        return int(ph.Id)
 
     @destructive
-    def set_body(self, slide_idx: int, lines, doc_id: str | None = None):
+    def set_body(self, slide_idx: int, lines: str | list[str], doc_id: str | None = None) -> int:
         if isinstance(lines, str):
             lines = [lines]
         if not lines:
@@ -1128,17 +1129,17 @@ class PptApp:
         if ph is None:
             ph = slide.Shapes.AddTextbox(1, *_BODY_BOX)
         ph.TextFrame.TextRange.Text = "\r".join(lines)
-        return ph.Id
+        return int(ph.Id)
 
     @destructive
-    def set_notes(self, slide_idx: int, text: str, doc_id: str | None = None):
+    def set_notes(self, slide_idx: int, text: str, doc_id: str | None = None) -> int:
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
         shapes = slide.NotesPage.Shapes
         ph = _placeholder_by_type(shapes, PP_PLACEHOLDER_BODY)
         if ph is None:
             ph = shapes.AddTextbox(1, *_BODY_BOX)
         ph.TextFrame.TextRange.Text = text
-        return ph.Id
+        return int(ph.Id)
 
     @destructive
     def add_textbox(
@@ -1150,7 +1151,7 @@ class PptApp:
         height: float,
         text: str,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
         tb = slide.Shapes.AddTextbox(1, left, top, width, height)
         tb.TextFrame.TextRange.Text = text
@@ -1165,7 +1166,7 @@ class PptApp:
         width: float,
         height: float,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         if not pathlib.Path(path).is_file():
             raise InvalidArgumentError(f"源文件不存在: {path}")
         slide = _require_slide(self._require_pres(doc_id), slide_idx)
@@ -1199,7 +1200,7 @@ class PptApp:
         ]
 
     @readonly_guard
-    def read_slide_summary(self, doc_id: str | None = None) -> list[dict]:
+    def read_slide_summary(self, doc_id: str | None = None) -> list[dict[str, Any]]:
         """逐页读标题/正文/备注摘要（0.9 read_slide_texts 的语义），返回 list[dict]。
 
         - title：标题/居中标题占位符（type 1/3）优先；否则按稳定阅读顺序回退第一个非豁免文本。
@@ -1250,7 +1251,7 @@ class PptApp:
         height: float | None = None,
         rotation: float | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """设置 shape 几何（磅）：left/top/width/height/rotation，只更新传入属性。
 
         - 至少传一个属性；width/height 必须 > 0；全部数值必须有限（NaN/Inf 拒绝）。
@@ -1301,7 +1302,7 @@ class PptApp:
         shape_id: int,
         text: str,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """整体替换 shape 文本（保留样式）。
 
         - 需要 TextFrame；图片/线条/无文本图形 → InvalidArgumentError。
@@ -1331,7 +1332,7 @@ class PptApp:
         italic: bool | None = None,
         color: str | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """设置 shape 字体：font_name/size/bold/italic/color，只更新传入属性。
 
         - 至少传一个属性；需要 TextFrame。
@@ -1385,7 +1386,7 @@ class PptApp:
         color: str | None = None,
         transparency: float | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """设置 shape 填充：color/transparency（0-1），只更新传入属性。
 
         - color 与 transparency 都未传 → 清除填充（Fill.Visible=0）。
@@ -1424,7 +1425,7 @@ class PptApp:
         width: float | None = None,
         visible: bool | None = None,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """设置 shape 轮廓：color/width/visible，只更新传入属性。
 
         - 至少传一个属性；width > 0；color 严格 #RRGGBB。
@@ -1464,7 +1465,7 @@ class PptApp:
         shape_id: int,
         visible: bool,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """显示/隐藏 shape。
 
         只收真 bool；映射到 Office 三态常量（-1 显示 / 0 隐藏），与
@@ -1485,7 +1486,7 @@ class PptApp:
         slide_idx: int,
         shape_id: int,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """删除 shape（顶层或 group 子元素，递归定位）。
 
         先完整解析出 shape 对象再 Delete，绝不在递归遍历生成器过程中改集合
@@ -1503,7 +1504,7 @@ class PptApp:
         shape_id: int,
         z: int,
         doc_id: str | None = None,
-    ):
+    ) -> None:
         """移动 shape 在所在集合内的 z-order 到 1-based 目标位 z。
 
         z=1 是最底层；顶层在 slide.Shapes 内移动，group 子元素在父 GroupItems
@@ -1535,7 +1536,7 @@ class PptApp:
                 located.shape.ZOrder(MSO_ZORDER_SEND_BACKWARD)
         raise ComOperationError(f"set_shape_z_order: shape {shape_id} 无法收敛到 z={z}")
 
-    def quit(self, force: bool = False):
+    def quit(self, force: bool = False) -> bool | None:
         """退出 PowerPoint 会话。
 
         own 句柄（本库启动的实例）直接退；连到既有 Office 实例默认拒绝

@@ -8,11 +8,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 from offipy.exceptions import InvalidArgumentError
 
 from .merge import merge_scenes
 from .models import ArtColor, ArtElement, ArtScene, ArtSlide, ArtTextRun, ArtWarning
+
+if TYPE_CHECKING:
+    from offipy.audit.models import PptxAuditReport
 
 # per-slide 元素上限：恶意/病态输入页元素数超限即截断，约束下游 O(n²)
 # （features._union_area、merge_scenes）的复杂度上限。
@@ -75,13 +79,13 @@ def _rgb_string_to_color(s: str | None) -> ArtColor | None:
     return ArtColor(r, g, b, a)
 
 
-def _measurement_color(raw: str | dict | None) -> ArtColor | None:
+def _measurement_color(raw: str | dict[str, Any] | None) -> ArtColor | None:
     if isinstance(raw, dict):
         return ArtColor.from_dict(raw)
     return _rgb_string_to_color(raw)
 
 
-def _num(value, default: float) -> float:
+def _num(value: Any, default: float) -> float:
     """测量数值字段：缺失/损坏回退默认，不抛 ValueError。"""
     if value is None:
         return default
@@ -91,7 +95,7 @@ def _num(value, default: float) -> float:
         return default
 
 
-def _opt_num(value, default: float | None = None) -> float | None:
+def _opt_num(value: Any, default: float | None = None) -> float | None:
     """测量可选数值字段：缺失 → None，损坏 → default（默认 None）。"""
     if value is None:
         return None
@@ -102,7 +106,7 @@ def _opt_num(value, default: float | None = None) -> float | None:
 
 
 def _to_measurement_element(
-    rec: dict, slide_index: int, slide_width: float, slide_height: float
+    rec: dict[str, Any], slide_index: int, slide_width: float, slide_height: float
 ) -> ArtElement:
     """真实 measurements record → ArtElement。rect 为像素，按页宽高归一化。"""
     rect = rec.get("rect") or {}
@@ -164,8 +168,8 @@ def _to_measurement_element(
 class MeasurementAdapter:
     """真实 0.11.6 measurements.json → ArtScene。输入 dict 或 JSON 字符串/路径。"""
 
-    def __init__(self, data: dict | str) -> None:
-        self._data = data if isinstance(data, dict) else json.loads(data)
+    def __init__(self, data: dict[str, Any] | str) -> None:
+        self._data: dict[str, Any] = data if isinstance(data, dict) else json.loads(data)
 
     def build(self) -> ArtScene:
         slides: list[ArtSlide] = []
@@ -203,7 +207,7 @@ class PptxAuditAdapter:
     SlideShapeSnapshot.slide_index 已 1-based，不做 +1。无字号/颜色证据。
     """
 
-    def __init__(self, report) -> None:
+    def __init__(self, report: PptxAuditReport) -> None:
         self._report = report
 
     def build(self) -> ArtScene:
@@ -252,10 +256,11 @@ class PptxAuditAdapter:
                 element_id=f"pptx-{index}-{snap.shape_id}",
                 kind=kind,
                 role=snap.role or "shape",
-                x=(snap.left * 72.0) / width,
-                y=(snap.top * 72.0) / height,
-                width=(snap.width * 72.0) / width,
-                height=(snap.height * 72.0) / height,
+                # 上面的守卫已排除 None（geometry_unknown / None in (...)），这里显式收窄
+                x=(cast("float", snap.left) * 72.0) / width,
+                y=(cast("float", snap.top) * 72.0) / height,
+                width=(cast("float", snap.width) * 72.0) / width,
+                height=(cast("float", snap.height) * 72.0) / height,
                 slide_index=index,
                 text=snap.text or "",
                 source="pptx",
@@ -271,7 +276,7 @@ class PptxAuditAdapter:
 
 def build_scene(
     *,
-    measurements: str | dict | None = None,
+    measurements: str | dict[str, Any] | None = None,
     pptx: str | None = None,
     pptx_report: object | None = None,
     slides_dir: str | None = None,
@@ -294,12 +299,14 @@ def build_scene(
             except OSError:
                 # 超长 JSON 字符串在 Linux 触发 ENAMETOOLONG，Windows 返回 False → 视为 JSON 字符串
                 is_file = False
-            raw: dict | str = p.read_text(encoding="utf-8") if is_file else str(measurements)
+            raw: dict[str, Any] | str = (
+                p.read_text(encoding="utf-8") if is_file else str(measurements)
+            )
         else:
             raw = measurements
         scenes.append(MeasurementAdapter(raw).build())
     if pptx_report is not None:
-        scenes.append(PptxAuditAdapter(pptx_report).build())
+        scenes.append(PptxAuditAdapter(cast("PptxAuditReport", pptx_report)).build())
     elif pptx is not None:
         from offipy.audit import audit_pptx  # 惰性：避免顶层依赖 python-pptx
 
@@ -336,7 +343,7 @@ def _expected_sha256(pptx: str | None, pptx_report: object | None) -> str | None
     return getattr(pptx_report, "source_sha256", None)
 
 
-def _measurements_run_id(measurements: str | dict | None) -> str | None:
+def _measurements_run_id(measurements: str | dict[str, Any] | None) -> str | None:
     if isinstance(measurements, dict):
         return measurements.get("run_id")
     if isinstance(measurements, (str, Path)):
@@ -347,12 +354,12 @@ def _measurements_run_id(measurements: str | dict | None) -> str | None:
             is_file = False
         if is_file:
             try:
-                return json.loads(p.read_text(encoding="utf-8")).get("run_id")
+                return cast("str | None", json.loads(p.read_text(encoding="utf-8")).get("run_id"))
             except (OSError, ValueError):
                 return None
         # 内联 JSON 字符串也尝试提取 run_id（路径字符串解析失败安全返回 None）
         try:
-            return json.loads(str(measurements)).get("run_id")
+            return cast("str | None", json.loads(str(measurements)).get("run_id"))
         except (OSError, ValueError):
             return None
     return None

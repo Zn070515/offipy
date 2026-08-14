@@ -10,7 +10,7 @@ rev2.1：
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from offipy.audit import Severity
 
@@ -50,7 +50,7 @@ class RuleContext:
     profile: ArtProfile
     slide: ArtSlide
     slide_index: int
-    features: dict
+    features: dict[str, Any]
     deck: ArtScene
     sources: frozenset[str] = frozenset({"measurement"})
     # 页面级规则可能在 slide 维度需要看整个 scene 的其它页；默认当前页
@@ -75,14 +75,14 @@ def make_finding(
     slide_index: int | None = None,
     primary: object | None = None,
     related: Iterable[object] | None = None,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
     evidence_sources: Iterable[str] | None = None,
     evidence_reliability: float | None = None,
     evidence_method: str | None = None,
 ) -> ArtFinding:
     from .models import ArtElementRef
 
-    def ref(e) -> ArtElementRef | None:
+    def ref(e: Any) -> ArtElementRef | None:
         if e is None:
             return None
         if isinstance(e, ArtElementRef):

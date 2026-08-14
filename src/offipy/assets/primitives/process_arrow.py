@@ -9,6 +9,8 @@ raises rather than producing unreadable output.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 
 from offipy.assets.primitives._common import (
@@ -19,6 +21,11 @@ from offipy.assets.primitives._common import (
     set_shape_text,
     shape_elements,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from offipy.assets.model import AssetRect, AssetRenderContext
 
 _MIN_PT = 10.0
 _PAD_FRACTION = 0.04
@@ -33,7 +40,9 @@ def _step_font(step: str, w_px: float, h_px: float, start_pt: float) -> float:
     )
 
 
-def _horizontal(slide, steps, colors, rect) -> list:
+def _horizontal(
+    slide: Any, steps: Sequence[str], colors: Mapping[str, str], rect: AssetRect
+) -> list[Any]:
     x, y, w, h = rect.x, rect.y, rect.width, rect.height
     n = len(steps)
     cw = w / n
@@ -55,7 +64,9 @@ def _horizontal(slide, steps, colors, rect) -> list:
     return shapes
 
 
-def _vertical(slide, steps, colors, rect) -> list:
+def _vertical(
+    slide: Any, steps: Sequence[str], colors: Mapping[str, str], rect: AssetRect
+) -> list[Any]:
     x, y, w, h = rect.x, rect.y, rect.width, rect.height
     n = len(steps)
     hh = h / n
@@ -92,7 +103,11 @@ def _vertical(slide, steps, colors, rect) -> list:
     return shapes
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the process arrow and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from offipy.assets.model import AssetProviderMeta
-    from offipy.assets.render import AssetUsageReport
+    from offipy.assets.render import AssetUsageRecord, AssetUsageReport
 
 _SCHEMA_VERSION = 1
 
@@ -33,7 +33,7 @@ def _provider_dict(provider: AssetProviderMeta) -> dict[str, object]:
     }
 
 
-def _record_dict(record) -> dict[str, object]:
+def _record_dict(record: AssetUsageRecord) -> dict[str, object]:
     return {
         "declaration_id": record.declaration_id,
         "slide_index": record.slide_index,

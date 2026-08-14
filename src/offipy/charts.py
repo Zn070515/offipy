@@ -17,7 +17,7 @@ import pathlib
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .design import THEMES, Theme
 from .layouts import chart_dominant_slide_indices
@@ -357,7 +357,7 @@ def parse_chart_declarations(html_text: str) -> list[ChartDecl]:
     return decls
 
 
-def load_chart_boxes(measurements_path: str) -> dict[int, dict]:
+def load_chart_boxes(measurements_path: str) -> dict[int, dict[str, Any]]:
     """读 measurements.json → {slide_index(1-based): {"x","y","w","h"}}（px，图表容器 bbox）。
 
     匹配规则：记录 className 分词后恰含 "chart"（chart-note 不算）。每页取第一个匹配
@@ -367,7 +367,7 @@ def load_chart_boxes(measurements_path: str) -> dict[int, dict]:
 
     with pathlib.Path(measurements_path).open(encoding="utf-8") as f:
         data = _json.load(f)
-    boxes: dict[int, dict] = {}
+    boxes: dict[int, dict[str, Any]] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
         for rec in slide.get("records", []):
             cls = (rec.get("className") or "").split()
@@ -387,7 +387,7 @@ def _measurements_path(pptx_path: str) -> str:
 def inject_native_charts(
     pptx_path: str,
     decls: list[ChartDecl],
-    boxes: dict[int, dict],
+    boxes: dict[int, dict[str, Any]],
     theme: Theme | None = None,
 ) -> None:
     """把图表区占位形状替换成原生图表。boxes 缺某页 → 该页跳过（调用方保证完整）。"""
@@ -409,29 +409,36 @@ def inject_native_charts(
     prs.save(pptx_path)
 
 
-def _palette() -> list:
-    """惰性构造配色（RGBColor 需 import python-pptx，顶层 import 会拖慢无图表路径）。"""
+def _make_rgb(r: int, g: int, b: int) -> Any:
+    """python-pptx RGBColor.__new__ 无类型注解（第三方 py.typed 缺口），包一层过 strict。"""
     from pptx.dml.color import RGBColor
 
+    return RGBColor(r, g, b)  # type: ignore[no-untyped-call]
+
+
+def _palette() -> list[Any]:
+    """惰性构造配色（RGBColor 需 import python-pptx，顶层 import 会拖慢无图表路径）。"""
     return [
-        RGBColor(0x22, 0x51, 0xFF),  # 主蓝（对齐 mckinsey --accent）
-        RGBColor(0x0E, 0x93, 0x87),  # 青
-        RGBColor(0xF5, 0x9E, 0x0B),  # 琥珀
-        RGBColor(0xE0, 0x5D, 0x5D),  # 珊瑚
-        RGBColor(0x7C, 0x3A, 0xED),  # 紫
-        RGBColor(0x66, 0x70, 0x85),  # 灰（对齐 --muted）
+        _make_rgb(0x22, 0x51, 0xFF),  # 主蓝（对齐 mckinsey --accent）
+        _make_rgb(0x0E, 0x93, 0x87),  # 青
+        _make_rgb(0xF5, 0x9E, 0x0B),  # 琥珀
+        _make_rgb(0xE0, 0x5D, 0x5D),  # 珊瑚
+        _make_rgb(0x7C, 0x3A, 0xED),  # 紫
+        _make_rgb(0x66, 0x70, 0x85),  # 灰（对齐 --muted）
     ]
 
 
-def _hex_to_rgb(colors: tuple[str, ...]) -> list:
+def _hex_to_rgb(colors: tuple[str, ...]) -> list[Any]:
     """大写 #RRGGBB 元组 → RGBColor 列表（惰性 import python-pptx，与 _palette 一致）。"""
-    from pptx.dml.color import RGBColor
-
-    return [RGBColor(int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)) for c in colors]
+    return [_make_rgb(int(c[1:3], 16), int(c[3:5], 16), int(c[5:7], 16)) for c in colors]
 
 
 def _replace_with_chart(
-    slide, decl: ChartDecl, box: dict, xl_type, theme: Theme | None = None
+    slide: Any,
+    decl: ChartDecl,
+    box: dict[str, Any],
+    xl_type: dict[str, Any],
+    theme: Theme | None = None,
 ) -> None:
     from pptx.chart.data import CategoryChartData
 
@@ -447,10 +454,10 @@ def _replace_with_chart(
             and shape.top <= cym <= shape.top + shape.height
         ):
             slide.shapes._spTree.remove(shape._element)
-    cd = CategoryChartData()
+    cd = CategoryChartData()  # type: ignore[no-untyped-call]
     cd.categories = decl.data.categories
     for s in decl.data.series:
-        cd.add_series(s.name, s.values)
+        cd.add_series(s.name, s.values)  # type: ignore[no-untyped-call]
     gframe = slide.shapes.add_chart(xl_type[decl.chart_type], x, y, cx, cy, cd)
     chart = gframe.chart
     chart.has_title = False

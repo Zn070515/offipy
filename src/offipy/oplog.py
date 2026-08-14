@@ -13,8 +13,10 @@ import contextlib
 import json
 import sys
 import threading
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .paths import user_data_dir
 
@@ -36,7 +38,7 @@ def log_path() -> Path:
 
 
 @contextlib.contextmanager
-def _file_lock(path: Path):
+def _file_lock(path: Path) -> Iterator[None]:
     """跨进程写锁：Windows msvcrt 字节锁 / POSIX fcntl。
 
     锁在旁路 `.lock` 文件上，不锁数据文件本身——Windows 下数据文件只要还有
@@ -93,7 +95,7 @@ def _append_locked(path: Path, line: str) -> None:
         _rotate(path)  # #48：在跨进程锁内轮转，改名无 fd 占用才不被打断
 
 
-def append(session_id: str, app: str, op: str, ok: bool, **kw) -> None:
+def append(session_id: str, app: str, op: str, ok: bool, **kw: Any) -> None:
     """写一条操作日志；失败静默（日志不得拖垮请求）。"""
     try:
         rec = {
@@ -111,7 +113,7 @@ def append(session_id: str, app: str, op: str, ok: bool, **kw) -> None:
         pass
 
 
-def read(tail: int | None = None) -> list[dict]:
+def read(tail: int | None = None) -> list[dict[str, Any]]:
     """读全部记录；tail 给正数则只取末尾 N 条。半行（写中读取）跳过。"""
     path = log_path()
     if not path.exists():
@@ -120,7 +122,7 @@ def read(tail: int | None = None) -> list[dict]:
     if tail is not None and tail > 0:
         lines = lines[-tail:]
 
-    def _parse(line: str):
+    def _parse(line: str) -> Any:
         try:
             return json.loads(line)
         except ValueError:

@@ -24,10 +24,10 @@ from .rules import (
 )
 
 if TYPE_CHECKING:
-    from .models import ArtSlide
+    from .models import ArtElement, ArtSlide
 
 
-def _rarest_family_el(slide: ArtSlide):
+def _rarest_family_el(slide: ArtSlide) -> ArtElement | None:
     counts: Counter[str] = Counter()
     for e in slide.elements:
         for r in e.runs:

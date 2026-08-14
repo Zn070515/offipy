@@ -10,6 +10,8 @@ enlarging the pill or truncating the text.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 
@@ -21,6 +23,11 @@ from offipy.assets.primitives._common import (
     resolve_native_colors,
     shape_elements,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetRenderContext
 
 _MIN_PT = 8.0
 _LUMINANCE_THRESHOLD = 140.0
@@ -34,7 +41,11 @@ def _contrast_text(hex_color: str) -> str:
     return "#FFFFFF" if lum < _LUMINANCE_THRESHOLD else "#222222"
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the label pill and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

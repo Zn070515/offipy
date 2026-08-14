@@ -80,7 +80,9 @@ class ComOperationError(OffipyError):
 
     code = "com_operation"
 
-    def __init__(self, message, *, hresult=None, cause=None):
+    def __init__(
+        self, message: str, *, hresult: int | None = None, cause: BaseException | None = None
+    ):
         super().__init__(message)
         self.hresult = hresult
         self.cause = cause

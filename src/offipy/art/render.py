@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html as html_lib
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import ArtFinding, ArtReport, DimensionAssessment
@@ -18,7 +18,7 @@ _STATUS_LABEL = {
 }
 
 
-def report_to_json(report: ArtReport) -> dict:
+def report_to_json(report: ArtReport) -> dict[str, Any]:
     return report.to_dict()
 
 

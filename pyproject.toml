@@ -191,3 +191,10 @@ files = ["src/offipy"]
 exclude = ["src/offipy/_vendor/"]
 ignore_missing_imports = true
 show_error_codes = true
+strict = true
+
+[[tool.mypy.overrides]]
+# api.pyi 是生成桩：统一省略泛型参数是生成器的约定输出，strict 的
+# disallow_any_generics 与生成器风格冲突——手改桩无效，漂移测试保证一致
+module = "offipy.api"
+disallow_any_generics = false

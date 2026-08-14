@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from offipy.audit import Severity
 
@@ -15,10 +15,10 @@ from .profiles import (
 from .rules import RuleContext, RuleEvaluation, RuleSpec, make_finding
 
 if TYPE_CHECKING:
-    from .models import ArtSlide
+    from .models import ArtElement, ArtSlide
 
 
-def _images(slide: ArtSlide):
+def _images(slide: ArtSlide) -> list[ArtElement]:
     return [e for e in slide.elements if e.kind == "image"]
 
 
@@ -32,7 +32,8 @@ def distorted_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     ]
     out = []
     for e in covered:
-        natural = e.natural_width / e.natural_height
+        # covered 过滤保证 natural_width/natural_height 非 None
+        natural = cast("float", e.natural_width) / cast("float", e.natural_height)
         physical = physical_aspect_ratio(e, slide.width, slide.height)
         if natural == 0:
             continue

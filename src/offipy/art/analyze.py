@@ -8,7 +8,7 @@ rev2.1：
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from offipy.audit import audit_pptx
 from offipy.exceptions import InvalidArgumentError
@@ -116,7 +116,7 @@ def analyze_scene(
 def analyze_deck(
     *,
     pptx: str | None = None,
-    measurements: str | dict | None = None,
+    measurements: str | dict[str, Any] | None = None,
     slides_dir: str | None = None,
     profile: str | ArtProfile | None = None,
     include_experimental_score: bool = False,

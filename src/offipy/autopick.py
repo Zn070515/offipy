@@ -17,6 +17,7 @@ from __future__ import annotations
 import pathlib
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from .design import THEMES
 from .layouts import LAYOUTS, referenced_layouts
@@ -87,7 +88,7 @@ def _explicit_layout(block: str) -> str | None:
 # ---------------------------------------------------------------- 单页布局
 
 
-def _inspect_signals(block: str) -> dict:
+def _inspect_signals(block: str) -> dict[str, Any]:
     text = _inner_text(block)
     return {
         "has_kicker": _has_class(block, "kicker"),
@@ -107,7 +108,7 @@ def _inspect_signals(block: str) -> dict:
     }
 
 
-def _pick_layout_for_slide(index: int, block: str) -> tuple[str, str, dict]:
+def _pick_layout_for_slide(index: int, block: str) -> tuple[str, str, dict[str, Any]]:
     """推断单页布局 → (layout, reason, signals)。"""
     signals = _inspect_signals(block)
     if index == 1:
@@ -170,10 +171,10 @@ class SlidePick:
     index: int
     layout: str
     reason: str
-    signals: dict = field(default_factory=dict)
+    signals: dict[str, Any] = field(default_factory=dict)
     explicit: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "index": self.index,
             "layout": self.layout,
@@ -189,7 +190,7 @@ class DeckPick:
     theme_reason: str
     slides: list[SlidePick] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "theme": self.theme,
             "theme_reason": self.theme_reason,

@@ -23,7 +23,7 @@ class OperationResult:
     message: str
     data: Any = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "ok": self.ok,
             "operation": self.operation,

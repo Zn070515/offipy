@@ -17,7 +17,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .geometry import Rect, overlap_area, rect_contains, rect_intersection
 from .models import (
@@ -123,7 +123,7 @@ def _finding(
     message: str,
     primary: AuditShapeRef,
     secondary: AuditShapeRef | None = None,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
     confidence: float = 1.0,
 ) -> AuditFinding:
     return AuditFinding(
@@ -701,14 +701,14 @@ def _font_candidates(name: str, bold: bool) -> list[Path]:
     return cands
 
 
-def _load_font(font_name: str | None, bold: bool, size_pt: float):
+def _load_font(font_name: str | None, bold: bool, size_pt: float) -> Any:
     """定位字体文件加载 PIL 字体；失败返回 None（走字符权重回退）。"""
     try:
         from PIL import ImageFont
     except Exception:
         return None
 
-    def _try_load(path: str):
+    def _try_load(path: str) -> Any:
         try:
             return ImageFont.truetype(path, int(size_pt))
         except Exception:
@@ -722,7 +722,7 @@ def _load_font(font_name: str | None, bold: bool, size_pt: float):
     return _try_load(name)  # 允许 font_name 本身是绝对路径
 
 
-def _pairpos_kerning(sub) -> dict[tuple[str, str], int]:
+def _pairpos_kerning(sub: Any) -> dict[tuple[str, str], int]:
     """GPOS PairPos subtable → {(first_glyph, second_glyph): xadvance}。"""
     kern: dict[tuple[str, str], int] = {}
     if getattr(sub, "Format", None) == 1:
@@ -751,7 +751,7 @@ def _pairpos_kerning(sub) -> dict[tuple[str, str], int]:
     return kern
 
 
-def _font_kerning_pairs(tt) -> dict[tuple[str, str], int]:
+def _font_kerning_pairs(tt: Any) -> dict[tuple[str, str], int]:
     """{(left_glyph, right_glyph): xadvance font-units}。优先旧式 kern，无则 GPOS。"""
     kern: dict[tuple[str, str], int] = {}
     if "kern" in tt:
@@ -797,7 +797,7 @@ def _font_metrics(
 
 
 @functools.lru_cache(maxsize=32)
-def _find_font_metrics(font_name: str, bold: bool):
+def _find_font_metrics(font_name: str, bold: bool) -> Any:
     """定位字体文件并读 fontTools 度量；找不到/解析失败 → None。"""
     for path in _font_candidates(font_name, bold):
         if path.exists():

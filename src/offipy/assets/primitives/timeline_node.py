@@ -9,6 +9,8 @@ editable label. Phase changes deterministic styling:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 
 from offipy.assets.primitives._common import (
@@ -20,12 +22,21 @@ from offipy.assets.primitives._common import (
     shape_elements,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetRenderContext
+
 _MARKER_D_FRACTION = 0.6
 _PAD_FRACTION = 0.05
 _MIN_PT = 8.0
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the timeline node and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

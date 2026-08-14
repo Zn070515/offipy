@@ -33,6 +33,7 @@ import traceback
 import types
 import typing
 from pathlib import Path
+from typing import Any, cast
 
 from . import diagram, excel, ppt, schema, word
 from .client import call, ensure_server, server_status, set_port, stop_server
@@ -71,14 +72,14 @@ def _clean_error_message(msg: str) -> str:
     return "\n".join([first, *lines[1:]])
 
 
-def _parse_kwargs(tokens):
+def _parse_kwargs(tokens: list[str]) -> dict[str, Any]:
     """--key value 解析：token 值保留原始字符串，重复 key 聚合为 list。
 
     类型转换不再在这里做（弃全局猜测）：值按 schema 声明类型由 _coerce_kwargs
     统一转换，避免 "00123" 丢前导零、"true" 被误当 bool。--payload/--json 仍
     JSON 透传（结构化值覆盖同名 kwargs）。
     """
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     i = 0
     while i < len(tokens):
         tok = tokens[i]
@@ -177,13 +178,19 @@ class _BoolAction(argparse.Action):
     根除 bool("false") is True 陷阱：显式传 false 必须是 False。
     """
 
-    def __init__(self, option_strings, dest, **kwargs):
+    def __init__(self, option_strings: list[str], dest: str, **kwargs: Any) -> None:
         kwargs.setdefault("nargs", "?")
         kwargs.setdefault("const", True)
         kwargs.setdefault("default", False)
         super().__init__(option_strings, dest, **kwargs)
 
-    def __call__(self, _parser, namespace, values, _option_string=None):
+    def __call__(
+        self,
+        _parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        _option_string: str | None = None,
+    ) -> None:
         if values is None:
             setattr(namespace, self.dest, True)
             return
@@ -195,7 +202,7 @@ class _BoolAction(argparse.Action):
         setattr(namespace, self.dest, _BOOL_TOKENS[token])
 
 
-def _unwrap_optional(ann):
+def _unwrap_optional(ann: Any) -> Any:
     """Optional[X] / X | None → X；其余注解原样返回。"""
     origin = typing.get_origin(ann)
     if origin is not typing.Union and origin is not getattr(types, "UnionType", None):
@@ -206,24 +213,24 @@ def _unwrap_optional(ann):
     return ann
 
 
-def _coerce_fail(key: str, expected: str, value) -> None:
+def _coerce_fail(key: str, expected: str, value: object) -> None:
     print(f"offipy: error: --{key} 需要{expected}，收到: {value!r}", file=sys.stderr)
     raise SystemExit(2)
 
 
-def _coerce_value(key: str, ann, value):
+def _coerce_value(key: str, ann: Any, value: object) -> object:
     """按单个参数注解转换；失败 stderr + exit 2（argparse 语义）。"""
     base = _unwrap_optional(ann)
     if base is str or base is inspect.Parameter.empty:
         return value
     if base is int:
         try:
-            return int(value)
+            return int(cast("str", value))
         except (TypeError, ValueError):
             _coerce_fail(key, "整数", value)
     if base is float:
         try:
-            return float(value)
+            return float(cast("str", value))
         except (TypeError, ValueError):
             _coerce_fail(key, "数字", value)
     if base is bool:
@@ -259,7 +266,7 @@ def _param_hints(app: str, op: str) -> dict[str, object]:
     return {name: param.annotation for name, param in sig.parameters.items() if name != "self"}
 
 
-def _coerce_kwargs(app: str, op: str, kwargs: dict) -> dict:
+def _coerce_kwargs(app: str, op: str, kwargs: dict[str, object]) -> dict[str, Any]:
     """按 schema 声明类型转换参数（P1-2，取代逐方法签名猜测）。
 
     无注解/Any/str 保持字符串；int/float/bool/list 按声明类型转换；未知
@@ -285,7 +292,7 @@ def _usage_exit(message: str) -> None:
     raise SystemExit(2)
 
 
-def _validate_kwargs(app: str, op: str, kwargs: dict) -> None:
+def _validate_kwargs(app: str, op: str, kwargs: dict[str, object]) -> None:
     """未知 --key（不在 schema/方法参数内）→ stderr 报错并 exit 2（argparse 语义）。"""
     sp = schema.spec(app, op)
     if sp is not None and sp.params:
@@ -352,7 +359,7 @@ def _required_params(app: str, op: str) -> frozenset[str]:
     )
 
 
-def _validate_required(app: str, op: str, kwargs: dict) -> None:
+def _validate_required(app: str, op: str, kwargs: dict[str, object]) -> None:
     """必填参数缺失 → 调用前预校验：stderr 报错 + 用法，exit 2。
 
     不再等拉起 server / 碰 COM 后才炸；--payload 注入的键也算已提供。
@@ -390,7 +397,7 @@ def _has_doc_id_param(app: str, op: str) -> bool:
     return "doc_id" in sig.parameters
 
 
-def _validate_destructive_target(app: str, op: str, kwargs: dict) -> None:
+def _validate_destructive_target(app: str, op: str, kwargs: dict[str, object]) -> None:
     """破坏性 op 缺目标（doc_id/expected_target/follow_active 均无）→ 提前友好报错。
 
     P0-3 doc_id 权威：与 server 的 InvalidArgumentError 同语义，但 CLI 先给
@@ -541,7 +548,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _main(argv=None):
+def _main(argv: list[str] | None = None) -> int | None:
     args = build_parser().parse_args(argv)
     if getattr(args, "port", None):
         set_port(args.port)  # P2-2 多实例：后续调用指向该端口
@@ -660,7 +667,7 @@ def _main(argv=None):
     return None
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int | None:
     """offipy CLI 入口：InvalidArgumentError→exit 2；其余 OffipyError→exit 1。
 
     SystemExit/argparse 原样放行（非 OffipyError 内建异常从 _main 逃逸时
@@ -679,7 +686,7 @@ def main(argv=None):
 # ---------------------------------------------------------------- audit 子命令
 
 
-def _build_audit_config(args):
+def _build_audit_config(args: argparse.Namespace) -> Any:
     from .audit import AuditConfig
 
     return AuditConfig(
@@ -692,14 +699,14 @@ def _build_audit_config(args):
     )
 
 
-def _audit_fail(args, exc) -> None:
+def _audit_fail(args: argparse.Namespace, exc: BaseException) -> None:
     if getattr(args, "debug", False):
         traceback.print_exc()
     else:
         print(f"offipy: error: {exc}", file=sys.stderr)
 
 
-def _audit_render(report, args) -> str:
+def _audit_render(report: Any, args: argparse.Namespace) -> str:
     from .audit import render_html, render_markdown, render_text
 
     fmt = args.format
@@ -708,11 +715,11 @@ def _audit_render(report, args) -> str:
     if fmt == "markdown":
         return render_markdown(report)
     if fmt == "json":
-        return report.to_json()
+        return str(report.to_json())
     return render_html(report, slides_dir=args.slides_dir)
 
 
-def _write_audit_report(path: str, report) -> None:
+def _write_audit_report(path: str, report: Any) -> None:
     """按扩展名定格式落盘审计报告（.md/.json/.html，否则 text）。"""
     from .audit import render_html, render_markdown, render_text
 
@@ -730,7 +737,7 @@ def _write_audit_report(path: str, report) -> None:
     print(f"offipy: 审计报告已写入 {path}")
 
 
-def _deck_make_with_audit(args) -> int | None:
+def _deck_make_with_audit(args: argparse.Namespace) -> int | None:
     """offipy deck make --audit-mode：渲染 + 静态审计门禁。
 
     report：审计后替换，报告（若有 --audit-report）落盘；
@@ -780,7 +787,7 @@ def _deck_make_with_audit(args) -> int | None:
     return None
 
 
-def _deck_audit(args) -> int | None:
+def _deck_audit(args: argparse.Namespace) -> int | None:
     """offipy deck audit：一次性分析（HTML 临时渲染 / PPTX 直读）+ 建议投影。
 
     HTML 流：render_with_quality_report 已内含一次几何审计 + 一次艺术分析，
@@ -843,7 +850,7 @@ def _deck_audit(args) -> int | None:
     return _emit_deck_audit(report, args)
 
 
-def _emit_deck_audit(report, args) -> int:
+def _emit_deck_audit(report: Any, args: argparse.Namespace) -> int:
     """输出 deck audit 结果：--json 结构化；否则按维度分组文本。"""
     from .art.suggest import project_suggestions
 
@@ -863,7 +870,11 @@ def _emit_deck_audit(report, args) -> int:
     return 0
 
 
-def _print_deck_audit_text(args, warnings, suggestions) -> None:
+def _print_deck_audit_text(
+    args: argparse.Namespace,
+    warnings: list[dict[str, object]],
+    suggestions: list[dict[str, object]],
+) -> None:
     """按维度分组打印文本建议（确定性顺序：逐条记录，维度变化时出标题）。"""
     lines = [f"offipy deck audit（profile={args.profile}）"]
     if warnings:
@@ -887,7 +898,7 @@ def _print_deck_audit_text(args, warnings, suggestions) -> None:
     print("\n".join(lines))
 
 
-def _audit_main(args) -> int:
+def _audit_main(args: argparse.Namespace) -> int:
     """offipy audit 入口：自捕全部预期异常转 exit 码，绝不让 OffipyError 逃逸。
 
     退出码：0=未达门槛 / 1=成功但达 --fail-on 或 --fail-on-new / 2=参数或输入错 /

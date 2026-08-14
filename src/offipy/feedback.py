@@ -16,6 +16,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .aesthetic import ALL_DIMENSIONS, CONSISTENCY, CONTRAST, PALETTE, TYPE_SCALE, WHITESPACE
 
@@ -59,7 +60,7 @@ class FeedbackRecord:
     action: str
     source: str = ""
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ts": self.ts,
             "dimension": self.dimension,
@@ -71,7 +72,7 @@ class FeedbackRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> FeedbackRecord:
+    def from_dict(cls, data: dict[str, Any]) -> FeedbackRecord:
         return cls(
             ts=data["ts"],
             dimension=data["dimension"],

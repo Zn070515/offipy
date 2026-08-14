@@ -8,6 +8,8 @@ when ``fill`` is not transparent. Text always wraps inside the rect; at the
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import PP_ALIGN
 
@@ -21,6 +23,11 @@ from offipy.assets.primitives._common import (
     shape_elements,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetRenderContext
+
 _GLYPH = "“"  # left double quotation mark
 _PAD_FRACTION = 0.06
 _GLYPH_W_FRACTION = 0.22
@@ -29,7 +36,11 @@ _MIN_PT = 8.0
 _TEXT_START_PT = 28.0
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the quote decoration and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

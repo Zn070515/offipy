@@ -63,7 +63,7 @@ class DiagramApp:
         direction: str | None = None,
         page: int | str | None = None,
         overwrite: bool = False,
-    ) -> dict:
+    ) -> dict[str, str]:
         """Mermaid/drawio 源码文件 → 可编辑 PPTX（16:9 整页）。返回 {"pptx": out}。
 
         source 必须是已存在文件路径（不接受内联文本）。格式按扩展名+内容自动识别。
@@ -84,7 +84,9 @@ class DiagramApp:
 
         return {"pptx": drawio_to_pptx(str(path), out, page=page)}
 
-    def install_skill(self, target_dir: str | None = None, *, force: bool = False) -> dict:
+    def install_skill(
+        self, target_dir: str | None = None, *, force: bool = False
+    ) -> dict[str, list[str]]:
         """安装 diagram-design + offipy-diagram skill 到宿主 agent 技能目录。
 
         默认 ~/.claude/skills/，target_dir 可指向任意技能目录。幂等：目标已存在则

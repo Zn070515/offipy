@@ -382,7 +382,7 @@ def _read_text_frame(shape: object) -> _TextFrameData:
     )
 
 
-def _read_line_spacing(para) -> tuple[float | None, float | None]:
+def _read_line_spacing(para: Any) -> tuple[float | None, float | None]:
     """段落行距 a:lnSpc → (spcPts 点值, spcPct 百分比)。
 
     spcPts val 单位 1/100pt（绝对值）；spcPct val 单位 1/1000%（相对单行高）。

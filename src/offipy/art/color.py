@@ -34,7 +34,7 @@ def contrast_ratio(fg: ArtColor, bg: ArtColor) -> float:
     return (hi + 0.05) / (lo + 0.05)
 
 
-def _effective_fg(el) -> list[ArtColor]:
+def _effective_fg(el: ArtElement) -> list[ArtColor]:
     """文本前景：逐 run 取色，无 run 用元素 foreground。"""
     if el.runs:
         return [r.color for r in el.runs if r.color is not None]

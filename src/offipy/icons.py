@@ -22,6 +22,7 @@ import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 
 PX_TO_EMU = 6350
 ASSETS_DIR = Path(__file__).resolve().parent / "assets" / "icons"
@@ -56,7 +57,13 @@ def _tokenize(d: str) -> list[str]:
     return _TOKEN_RE.findall(d)
 
 
-def _cubic_points(p0, p1, p2, p3, n: int) -> list[tuple[float, float]]:
+def _cubic_points(
+    p0: tuple[float, float],
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    p3: tuple[float, float],
+    n: int,
+) -> list[tuple[float, float]]:
     pts = [p0]
     for i in range(1, n + 1):
         t = i / n
@@ -67,7 +74,12 @@ def _cubic_points(p0, p1, p2, p3, n: int) -> list[tuple[float, float]]:
     return pts
 
 
-def _quad_points(p0, p1, p2, n: int) -> list[tuple[float, float]]:
+def _quad_points(
+    p0: tuple[float, float],
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    n: int,
+) -> list[tuple[float, float]]:
     pts = [p0]
     for i in range(1, n + 1):
         t = i / n
@@ -78,7 +90,15 @@ def _quad_points(p0, p1, p2, n: int) -> list[tuple[float, float]]:
     return pts
 
 
-def _arc_points(p0, radii, rot, large, sweep, p1, n: int) -> list[tuple[float, float]]:
+def _arc_points(
+    p0: tuple[float, float],
+    radii: tuple[float, float],
+    rot: float,
+    large: float,
+    sweep: float,
+    p1: tuple[float, float],
+    n: int,
+) -> list[tuple[float, float]]:
     """SVG 椭圆弧 → 折线（endpoint→center 参数化，F.6.5）。"""
     rx, ry = abs(radii[0]), abs(radii[1])
     x0, y0 = p0
@@ -106,7 +126,7 @@ def _arc_points(p0, radii, rot, large, sweep, p1, n: int) -> list[tuple[float, f
     cx = cos_p * cxp - sin_p * cyp + (x0 + x1) / 2
     cy = sin_p * cxp + cos_p * cyp + (y0 + y1) / 2
 
-    def angle(ux, uy, vx, vy):
+    def angle(ux: float, uy: float, vx: float, vy: float) -> float:
         dot = ux * vx + uy * vy
         m = math.hypot(ux, uy) * math.hypot(vx, vy)
         a = math.acos(max(-1.0, min(1.0, dot / m)))
@@ -271,7 +291,7 @@ def _parse_points_list(s: str) -> list[tuple[float, float]]:
         raise ValueError(f"points 坐标数必须为偶数（got {len(nums)}）: {s!r}") from exc
 
 
-def _geom_points(tag: str, attrs: dict) -> tuple[list[tuple[float, float]], bool]:
+def _geom_points(tag: str, attrs: dict[str, str]) -> tuple[list[tuple[float, float]], bool]:
     """基本几何元素 → (顶点列表, 是否闭合)。"""
     if tag == "line":
         x1 = float(attrs.get("x1", 0))
@@ -441,13 +461,13 @@ def _measurements_path(pptx_path: str) -> str:
     return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
 
 
-def load_icon_boxes(measurements_path: str) -> dict[int, list[dict]]:
+def load_icon_boxes(measurements_path: str) -> dict[int, list[dict[str, Any]]]:
     """读 measurements.json → {slide_index: [svg record, ...]}（保序，仅 kind='svg'）。"""
     import json as _json
 
     with Path(measurements_path).open(encoding="utf-8") as f:
         data = _json.load(f)
-    boxes: dict[int, list[dict]] = {}
+    boxes: dict[int, list[dict[str, Any]]] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
         svgs = [
             {"rect": rec["rect"], "color": rec.get("color"), "outerHTML": rec.get("outerHTML", "")}
@@ -459,7 +479,7 @@ def load_icon_boxes(measurements_path: str) -> dict[int, list[dict]]:
     return boxes
 
 
-def _match_svg(decl: IconDecl, svgs: list[dict]) -> dict | None:
+def _match_svg(decl: IconDecl, svgs: list[dict[str, Any]]) -> dict[str, Any] | None:
     """在 svg records 里找 outerHTML 含对应 data-icon 的那条。"""
     pat = re.compile(r'data-icon=["\']' + re.escape(decl.data_icon) + r'["\']')
     for svg in svgs:
@@ -471,24 +491,29 @@ def _match_svg(decl: IconDecl, svgs: list[dict]) -> dict | None:
 # ---------- 注入 ----------
 
 
-def _parse_color(color: str | None):
+def _make_rgb(r: int, g: int, b: int) -> Any:
+    """python-pptx RGBColor.__new__ 无类型注解（第三方 py.typed 缺口），包一层过 strict。"""
+    from pptx.dml.color import RGBColor
+
+    return RGBColor(r, g, b)  # type: ignore[no-untyped-call]
+
+
+def _parse_color(color: str | None) -> Any:
     """measure 的 color（'rgb(r, g, b)' / '#rrggbb'）→ RGBColor；无法解析返回 None。"""
     if not color:
         return None
     m = re.search(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", color)
     if m:
-        from pptx.dml.color import RGBColor
-
-        return RGBColor(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        return _make_rgb(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     m = re.fullmatch(r"#([0-9a-fA-F]{6})", color.strip())
     if m:
         from pptx.dml.color import RGBColor
 
-        return RGBColor.from_string(m.group(1))
+        return RGBColor.from_string(m.group(1))  # type: ignore[no-untyped-call]
     return None
 
 
-def _set_round_stroke(shape) -> None:
+def _set_round_stroke(shape: Any) -> None:
     """Lucide 源 SVG 用 stroke-linecap/linejoin=round；freeform 折线默认 flat，显式设回。
 
     只对 stroke 模式生效（line 可见）。fill 模式的线已被 noFill 掉，无需设置。
@@ -501,7 +526,7 @@ def _set_round_stroke(shape) -> None:
         ln.append(ln.makeelement(qn("a:round"), {}))
 
 
-def _theme_accent_fallback(html_text: str):
+def _theme_accent_fallback(html_text: str) -> Any:
     """HTML <style data-theme="..."> 声明的主题 → 该主题 --accent（RGBColor）。
 
     容器没测到 color 时兜底用主题强调色；未知/缺失主题返回 None（再落缺省主蓝）。
@@ -518,18 +543,16 @@ def _theme_accent_fallback(html_text: str):
 
 
 def _style_shape(
-    shape,
+    shape: Any,
     mode: str,
     color: str | None,
     line_width_emu: int,
     filled: bool = False,
-    fallback=None,
+    fallback: Any = None,
 ) -> None:
     rgb = _parse_color(color)
     if rgb is None:
-        from pptx.dml.color import RGBColor
-
-        rgb = fallback if fallback is not None else RGBColor(0x22, 0x51, 0xFF)  # 缺省主蓝
+        rgb = fallback if fallback is not None else _make_rgb(0x22, 0x51, 0xFF)  # 缺省主蓝
     fill_mode = (mode == "fill") or filled
     if fill_mode:
         shape.fill.solid()
@@ -545,15 +568,15 @@ def _style_shape(
 
 
 def _build_icon_shapes(
-    slide,
+    slide: Any,
     mode: str,
     subpaths: list[_SubPath],
     stroke_width: float,
     view_box: tuple[float, float, float, float],
-    rect: dict,
+    rect: dict[str, Any],
     color: str | None,
-    fallback=None,
-) -> list:
+    fallback: Any = None,
+) -> list[Any]:
     """在 rect（px）位置画图标：每个子路径一个 freeform shape。返回创建的 shape 列表。"""
     vbx, vby, vbw, _ = view_box
     scale = rect["w"] / vbw if vbw else 1.0
@@ -564,7 +587,7 @@ def _build_icon_shapes(
     def to_emu(p: tuple[float, float]) -> tuple[int, int]:
         return int((p[0] * scale + ox) * PX_TO_EMU), int((p[1] * scale + oy) * PX_TO_EMU)
 
-    created: list = []
+    created: list[Any] = []
     for sp in subpaths:
         if len(sp.points) < 2:
             continue
@@ -580,15 +603,15 @@ def _build_icon_shapes(
 
 
 def render_icon_payload(
-    slide,
+    slide: Any,
     svg_text: str,
     *,
     mode: str,
     view_box: tuple[float, float, float, float],
-    rect: dict,
+    rect: dict[str, Any],
     color: str | None = None,
-    fallback=None,
-) -> list:
+    fallback: Any = None,
+) -> list[Any]:
     """把 asset 图标的 SVG payload 渲染成 freeform 形状，返回创建的 shape 列表。
 
     mode（fill/stroke）由 provider 决定（ph → fill，lu → stroke），是 freeform
@@ -598,7 +621,7 @@ def render_icon_payload(
     return _build_icon_shapes(slide, mode, subpaths, stroke_width, view_box, rect, color, fallback)
 
 
-def _remove_placeholder(slide, rect: dict) -> None:
+def _remove_placeholder(slide: Any, rect: dict[str, Any]) -> None:
     """删除中心落在图标 bbox 内的 PNG picture 占位（convert 的 SVG 光栅图）。"""
     from pptx.enum.shapes import MSO_SHAPE_TYPE
 
@@ -613,7 +636,9 @@ def _remove_placeholder(slide, rect: dict) -> None:
 
 
 def inject_icons(
-    pptx_path: str, matched: dict[int, list[tuple[IconDecl, dict]]], fallback=None
+    pptx_path: str,
+    matched: dict[int, list[tuple[IconDecl, dict[str, Any]]]],
+    fallback: Any = None,
 ) -> None:
     """把图标占位替换成 freeform 矢量图标。matched: {slide_index: [(decl, svg_record), ...]}。
 
@@ -662,7 +687,7 @@ def postprocess_icons(html_path: str, pptx_path: str) -> None:
             "请勿用 --no-visual-audit"
         )
     boxes = load_icon_boxes(meas_path)
-    matched: dict[int, list[tuple[IconDecl, dict]]] = {}
+    matched: dict[int, list[tuple[IconDecl, dict[str, Any]]]] = {}
     for decl in decls:
         svgs = boxes.get(decl.slide_index, [])
         svg = _match_svg(decl, svgs)

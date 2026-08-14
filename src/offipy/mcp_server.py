@@ -30,7 +30,7 @@ from .ppt import PptApp
 from .word import WordApp
 
 
-def _call(app: str, op: str, request_id: str | None = None, **kwargs):
+def _call(app: str, op: str, request_id: str | None = None, **kwargs: Any) -> Any:
     """转成 8890 server 调用；失败抛 RuntimeError 让模型看到原因。"""
     try:
         resp = request(app, op, request_id=request_id, **kwargs)
@@ -42,7 +42,7 @@ def _call(app: str, op: str, request_id: str | None = None, **kwargs):
     return resp["data"] if "data" in resp else resp.get("result")
 
 
-def _invoke(app: str, op: str, request_id: str | None = None, **kwargs):
+def _invoke(app: str, op: str, request_id: str | None = None, **kwargs: Any) -> Any:
     """统一返回封装：void op 返回 "ok (op)"，有值 op 结构化透传（int/list/str 等）。
 
     COM 对象结果在 server 侧 _serialize 成 null，落到这里就是 None → 返回
@@ -175,7 +175,7 @@ def _register_tools() -> None:
 _register_tools()
 
 
-def main():
+def main() -> None:
     # stdio 传输：MCP 客户端（Claude Desktop 等）以子进程方式拉起并接管 stdin/stdout
     server.run()
 

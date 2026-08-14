@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import importlib.util
 import json
 import platform
 import shutil
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 from . import __version__
 from .exceptions import UnsupportedPlatformError
@@ -110,7 +112,7 @@ def _check_dependencies() -> list[Check]:
     return [_check_dependency(dist, mod) for dist, mod in _platform_deps()]
 
 
-def _progid_exists(root, base: str, progid: str) -> bool:
+def _progid_exists(root: Any, base: str, progid: str) -> bool:
     import winreg
 
     try:

@@ -7,6 +7,8 @@ a single line; the label wraps inside the rect.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 from pptx.enum.shapes import MSO_SHAPE
 
 from offipy.assets.primitives._common import (
@@ -19,6 +21,11 @@ from offipy.assets.primitives._common import (
     shape_elements,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from offipy.assets.model import AssetRenderContext
+
 _BAR_W_FRACTION = 0.05
 _PAD_FRACTION = 0.06
 _NUM_H_FRACTION = 0.55
@@ -26,7 +33,11 @@ _MIN_PT = 8.0
 _LABEL_START_PT = 18.0
 
 
-def render(slide, params, context) -> tuple[object, ...]:
+def render(
+    slide: Any,
+    params: Mapping[str, str],
+    context: AssetRenderContext,
+) -> tuple[object, ...]:
     """Draw the section number and return its XML elements bottom → top."""
     rect = require_rect(context)
     colors = resolve_native_colors(params, context)

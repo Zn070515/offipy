@@ -13,7 +13,7 @@ placeholder z-order themselves.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pptx.dml.color import RGBColor
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -84,10 +84,11 @@ def resolve_native_colors(params: Mapping[str, str], ctx: AssetRenderContext) ->
 
 
 def _rgb(hex_color: str) -> RGBColor:
-    return RGBColor.from_string(hex_color.lstrip("#"))
+    # python-pptx RGBColor.from_string is unannotated → returns Any
+    return cast("RGBColor", RGBColor.from_string(hex_color.lstrip("#")))  # type: ignore[no-untyped-call]
 
 
-def set_fill_line(shape, fill: str | None, line: str | None = None) -> None:
+def set_fill_line(shape: Any, fill: str | None, line: str | None = None) -> None:
     """Set solid/transparent fill and line on a python-pptx shape.
 
     ``None`` or ``"transparent"`` means no fill (shape.fill.background()) /
@@ -105,7 +106,7 @@ def set_fill_line(shape, fill: str | None, line: str | None = None) -> None:
 
 
 def add_shape(
-    slide,
+    slide: Any,
     shape_type: MSO_SHAPE,
     x: float,
     y: float,
@@ -122,7 +123,7 @@ def add_shape(
 
 
 def add_textbox(
-    slide,
+    slide: Any,
     x: float,
     y: float,
     w: float,
@@ -161,7 +162,7 @@ def add_textbox(
 
 
 def set_text_style(
-    run,
+    run: Any,
     *,
     text: str | None = None,
     font_size_pt: float | None = None,
@@ -181,7 +182,7 @@ def set_text_style(
 
 
 def set_shape_text(
-    sp,
+    sp: Any,
     text: str,
     *,
     font_size_pt: float,
@@ -210,7 +211,7 @@ def set_shape_text(
     run.font.color.rgb = _rgb(color)
 
 
-def shape_elements(shapes: Iterable) -> tuple[object, ...]:
+def shape_elements(shapes: Iterable[Any]) -> tuple[object, ...]:
     """Normalize python-pptx shapes / XML elements to their XML elements.
 
     Renderers return shapes; the generic placement code inserts their elements

@@ -25,6 +25,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from html import escape
+from typing import Any
 
 from .autopick import pick_layouts
 from .design import inject_theme
@@ -52,8 +53,8 @@ class SlideContent:
     chart_data: str = ""  # raw JSON 字符串（未转义原样存储）
     icons: list[tuple[str, str]] = field(default_factory=list)  # [(data_icon, label), ...]
 
-    def to_dict(self) -> dict:
-        d: dict = {"index": self.index, "title": self.title}
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"index": self.index, "title": self.title}
         if self.kicker:
             d["kicker"] = self.kicker
         if self.layout:
@@ -79,7 +80,7 @@ class DeckOutline:
     subtitle: str = ""
     slides: list[SlideContent] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             **({"subtitle": self.subtitle} if self.subtitle else {}),

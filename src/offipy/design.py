@@ -173,7 +173,7 @@ THEMES: dict[str, Theme] = {
 }
 
 
-def themes() -> list[dict]:
+def themes() -> list[dict[str, str]]:
     """所有内置主题的元数据清单（给自动选型 / 文档用）。"""
     return [
         {

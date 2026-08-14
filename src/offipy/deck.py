@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import unquote
 
 from .assets.declarations import preprocess_asset_declarations
@@ -38,7 +38,7 @@ from .paths import converter_data_dir
 if TYPE_CHECKING:
     # 注解用到的 art 类型（惰性：运行时已被 from __future__ import annotations
     # 字符串化，绝不触发包加载即拉 python-pptx 链）。
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from .art.models import ArtReport, DeckQualityReport
 
@@ -297,7 +297,7 @@ def _default_out(html: str) -> str:
     return str(p.with_suffix(".pptx"))
 
 
-def _postprocess(label: str, fn, html: str, pptx: str):
+def _postprocess(label: str, fn: Callable[[str, str], Any], html: str, pptx: str) -> Any:
     """统一包装图表/资源后处理：解析/数据错 → InvalidArgumentError，其余 → ConversionError。
 
     ValueError（HTML 图表/资源声明非法、数据缺失/损坏）属用户输入问题；
@@ -492,15 +492,15 @@ def _render_tmp(
 
 @contextmanager
 def _render_stage(
-    html,
-    out=None,
-    only_slides=None,
-    no_visual_audit=False,
-    timeout=600,
-    theme=None,
-    apply_layouts=False,
-    overwrite=False,
-):
+    html: str,
+    out: str | None = None,
+    only_slides: list[int] | None = None,
+    no_visual_audit: bool = False,
+    timeout: int = 600,
+    theme: str | None = None,
+    apply_layouts: bool = False,
+    overwrite: bool = False,
+) -> Iterator[RenderStage]:
     """渲染 + 双产物原子发布阶段（defer audit preserve）。
 
     审计目录在 with 块内保持 tmp 名（defer_audit_preserve=True），commit() 由
@@ -564,7 +564,7 @@ class RenderResult:
     output_path: str
     audit_report: PptxAuditReport
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {"output_path": self.output_path, "audit": self.audit_report.to_dict()}
 
 
@@ -683,7 +683,7 @@ def render_with_report(
 
 
 def _run_art_analysis(
-    measurements: dict | str,
+    measurements: dict[str, Any] | str,
     profile: str,
     pptx_report: object | None = None,
     slides_dir: str | None = None,
@@ -778,7 +778,7 @@ def render_with_quality_report(
             if m is not None:
                 # 双源融合：measurements 为主 + pptx_report secondary + slides_dir tertiary
                 art_report = _run_art_analysis(
-                    m,
+                    str(m),
                     profile,
                     pptx_report=audit_report,
                     slides_dir=staging_slides,
@@ -864,7 +864,7 @@ def _slides_dir_owned(final_slides: str, final_pptx: str) -> bool:
         info = json.loads(info_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return info.get("pptx") == str(Path(final_pptx).resolve())
+    return str(info.get("pptx")) == str(Path(final_pptx).resolve())
 
 
 def _move_slides_to_final(
@@ -943,7 +943,7 @@ def open_live(pptx: str) -> str:
             Path(live).unlink()  # 打开失败不留孤儿副本
         raise
     _LIVE_TMP_PATHS[doc_id] = live
-    return doc_id
+    return str(doc_id)
 
 
 def close_live(doc_id: str) -> None:
@@ -977,14 +977,17 @@ def export_slides(
     overwrite=False（默认）拒绝覆盖已有输出；True 时原子替换（不残留半成品）。
     """
     ensure_server()
-    return call(
-        "ppt",
-        "export_slides",
-        out_dir=str(Path(out_dir).resolve()),
-        width=width,
-        height=height,
-        doc_id=doc_id,
-        overwrite=overwrite,
+    return cast(
+        "list[str]",
+        call(
+            "ppt",
+            "export_slides",
+            out_dir=str(Path(out_dir).resolve()),
+            width=width,
+            height=height,
+            doc_id=doc_id,
+            overwrite=overwrite,
+        ),
     )
 
 

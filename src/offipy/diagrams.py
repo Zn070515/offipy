@@ -21,6 +21,7 @@ from collections import deque
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any
 
 _EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/mermaid_extract.py")
 SUPPORTED_DIRECTIONS = {"TD", "TB", "LR", "RL", "BT"}
@@ -29,10 +30,10 @@ SUPPORTED_DIRECTIONS = {"TD", "TB", "LR", "RL", "BT"}
 # 预检，把误导性的 "not a Mermaid file" 换成清晰错误。
 _FLOW_HEADER_WITHOUT_DIRECTION = re.compile(r"^\s*(graph|flowchart)\s*$", re.I)
 
-_extractor = None
+_extractor: Any = None
 
 
-def _load_extractor():
+def _load_extractor() -> Any:
     """惰性加载 vendored mermaid_extract（importlib，保持上游原样）。"""
     global _extractor
     if _extractor is None:
@@ -41,15 +42,16 @@ def _load_extractor():
             raise RuntimeError(f"vendored mermaid_extract 缺失: {script}")
         name = "offipy_vendored_mermaid_extract"
         spec = importlib.util.spec_from_file_location(name, script)
+        assert spec is not None
+        assert spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
         sys.modules[name] = mod
-        assert spec.loader is not None
         spec.loader.exec_module(mod)
         _extractor = mod
     return _extractor
 
 
-def parse_mermaid(text: str):
+def parse_mermaid(text: str) -> Any:
     """Mermaid 文本 → vendored Diagram IR。仅接受 flowchart。
 
     mermaid_extract 对坏输入/不支持语法用 SystemExit(2) 退出，这里捕获并
@@ -132,7 +134,7 @@ class DiagramLayout:
     canvas_h: float
 
 
-def _kahn_layers(ids: list[str], edges) -> tuple[dict[str, int], dict[int, list[str]]]:
+def _kahn_layers(ids: list[str], edges: Any) -> tuple[dict[str, int], dict[int, list[str]]]:
     """Kahn 拓扑分层。返回 (node→layer, layer→node_id 列表)。环残留统一追加尾层。
 
     环残留（Kahn 消不掉的节点：成环节点及其下游）不参与逐层传播，全部落在
@@ -172,7 +174,7 @@ def _kahn_layers(ids: list[str], edges) -> tuple[dict[str, int], dict[int, list[
 
 
 def layout_diagram(
-    diagram, *, direction: str | None = None, max_w: float = 12.0, max_h: float = 6.75
+    diagram: Any, *, direction: str | None = None, max_w: float = 12.0, max_h: float = 6.75
 ) -> DiagramLayout:
     """把 flowchart IR 布局成坐标（inches）。方向 TD/TB/LR/RL/BT；整体 fit 到 max_w/max_h。
 
@@ -229,7 +231,7 @@ def layout_diagram(
 
 
 def _layout_edges(
-    diagram, placed: list[PlacedNode], vertical: bool, direction: str
+    diagram: Any, placed: list[PlacedNode], vertical: bool, direction: str
 ) -> list[PlacedEdge]:
     by_id = {n.id: n for n in placed}
     out: list[PlacedEdge] = []
@@ -287,7 +289,7 @@ def _descendants(children: dict[str, list[str]], root: str) -> set[str]:
     return seen
 
 
-def _layout_containers(diagram, placed: list[PlacedNode], scale: float) -> list[PlacedNode]:
+def _layout_containers(diagram: Any, placed: list[PlacedNode], scale: float) -> list[PlacedNode]:
     """container 节点 → 背景框 PlacedNode（覆盖其子孙叶子 bbox + padding + 标题区）。
 
     嵌套容器：从最深层往上算（子先于父），外层框用已算好的子框扩展。
@@ -327,7 +329,7 @@ def _layout_containers(diagram, placed: list[PlacedNode], scale: float) -> list[
 _NODE_FONT = "Microsoft YaHei"
 
 
-def _set_ea_font(run, name: str) -> None:
+def _set_ea_font(run: Any, name: str) -> None:
     """同时设置 latin/ea/cs typeface，保证中文在 PowerPoint 正常渲染。"""
     from pptx.oxml.ns import qn
 
@@ -340,7 +342,7 @@ def _set_ea_font(run, name: str) -> None:
         el.set("typeface", name)
 
 
-def _set_tail_end(conn, kind: str) -> None:
+def _set_tail_end(conn: Any, kind: str) -> None:
     from pptx.oxml.ns import qn
 
     ln = conn.line._get_or_add_ln()
@@ -353,8 +355,16 @@ def _set_tail_end(conn, kind: str) -> None:
     tail.set("len", "med")
 
 
-def _add_text(shape, text: str, *, size_pt: float, bold: bool = False, color=None) -> None:
+def _make_rgb(r: int, g: int, b: int) -> Any:
+    """python-pptx RGBColor.__new__ 无类型注解（第三方 py.typed 缺口），包一层过 strict。"""
     from pptx.dml.color import RGBColor
+
+    return RGBColor(r, g, b)  # type: ignore[no-untyped-call]
+
+
+def _add_text(
+    shape: Any, text: str, *, size_pt: float, bold: bool = False, color: Any = None
+) -> None:
     from pptx.enum.text import PP_ALIGN
     from pptx.util import Emu, Pt
 
@@ -368,18 +378,16 @@ def _add_text(shape, text: str, *, size_pt: float, bold: bool = False, color=Non
         for run in para.runs:
             run.font.size = Pt(size_pt)
             run.font.bold = bold
-            run.font.color.rgb = color if color is not None else RGBColor(0x2D, 0x31, 0x42)
+            run.font.color.rgb = color if color is not None else _make_rgb(0x2D, 0x31, 0x42)
             _set_ea_font(run, _NODE_FONT)
 
 
-def _hex_rgb(s: str):
+def _hex_rgb(s: str) -> Any:
     """三态颜色解析：#RRGGBB/#RGB → RGBColor；空 / "none" / 非法 hex → None。
 
     draw.io 的 fillColor=none / strokeColor=none 表示透明；空串表示「未指定」。
     返回 None 时由调用方落到各自默认（白底 / 深线 / 深字）。
     """
-    from pptx.dml.color import RGBColor
-
     text = (s or "").strip()
     if not text or text.lower() == "none":
         return None
@@ -389,12 +397,12 @@ def _hex_rgb(s: str):
     if len(text) < 6:
         return None
     try:
-        return RGBColor(int(text[:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+        return _make_rgb(int(text[:2], 16), int(text[2:4], 16), int(text[4:6], 16))
     except ValueError:
         return None
 
 
-def _apply_line_dash(line, pattern: str) -> None:
+def _apply_line_dash(line: Any, pattern: str) -> None:
     """draw.io dashPattern（空格分隔的数对，如 "3 2" / "1 1" / "8 3 2 2"）→ 自定义虚线。
 
     常见 pattern 映射到 MSO_LINE_DASH_STYLE 预设；其余成对拆解写 a:custDash。
@@ -435,7 +443,12 @@ def _apply_line_dash(line, pattern: str) -> None:
 
 
 def render_to_slide(
-    slide, layout: DiagramLayout, *, offset_x: int = 0, offset_y: int = 0, node_font_pt: float = 14
+    slide: Any,
+    layout: DiagramLayout,
+    *,
+    offset_x: int = 0,
+    offset_y: int = 0,
+    node_font_pt: float = 14,
 ) -> None:
     """把布局画到 slide。offset 为 EMU 偏移（deck 注入时 = bbox 左上角）。
 
@@ -443,7 +456,6 @@ def render_to_slide(
     全部是原生可编辑形状。所有 python-pptx import 惰性化，避免顶层 import 拖慢
     纯 deck 路径。
     """
-    from pptx.dml.color import RGBColor
     from pptx.enum.dml import MSO_LINE_DASH_STYLE
     from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
     from pptx.enum.text import PP_ALIGN
@@ -472,7 +484,7 @@ def render_to_slide(
         "dashed": MSO_LINE_DASH_STYLE.DASH,
         "thick": MSO_LINE_DASH_STYLE.SOLID,
     }
-    edge_color = RGBColor(0x66, 0x70, 0x85)
+    edge_color = _make_rgb(0x66, 0x70, 0x85)
 
     for e in layout.edges:
         x1, y1, x2, y2 = e.ax1, e.ay1, e.ax2, e.ay2
@@ -539,7 +551,7 @@ def render_to_slide(
                 box.fill.fore_color.rgb = fill_rgb
             else:
                 box.fill.solid()
-                box.fill.fore_color.rgb = RGBColor(0xF2, 0xF4, 0xF8)  # 空 → 浅灰兜底
+                box.fill.fore_color.rgb = _make_rgb(0xF2, 0xF4, 0xF8)  # 空 → 浅灰兜底
         if c.stroke == "none":
             box.line.fill.background()
         else:
@@ -547,7 +559,7 @@ def render_to_slide(
             if stroke_rgb is not None:
                 box.line.color.rgb = stroke_rgb
             else:
-                box.line.color.rgb = RGBColor(0x9A, 0xA3, 0xB2)
+                box.line.color.rgb = _make_rgb(0x9A, 0xA3, 0xB2)
         box.line.width = Pt(1.0)
         tf = box.text_frame
         tf.margin_left = tf.margin_right = Emu(91440)
@@ -557,7 +569,7 @@ def render_to_slide(
             for run in para.runs:
                 run.font.size = Pt(12)
                 run.font.bold = True
-                run.font.color.rgb = RGBColor(0x2D, 0x31, 0x42)
+                run.font.color.rgb = _make_rgb(0x2D, 0x31, 0x42)
                 _set_ea_font(run, _NODE_FONT)
 
     for n in layout.nodes:
@@ -579,7 +591,7 @@ def render_to_slide(
                 shape.fill.fore_color.rgb = fill_rgb
             else:
                 shape.fill.solid()
-                shape.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)  # 空 → 默认白
+                shape.fill.fore_color.rgb = _make_rgb(0xFF, 0xFF, 0xFF)  # 空 → 默认白
         if n.stroke == "none":
             shape.line.fill.background()  # strokeColor=none → 无线框
         else:
@@ -587,7 +599,7 @@ def render_to_slide(
             if stroke_rgb is not None:
                 shape.line.color.rgb = stroke_rgb
             else:
-                shape.line.color.rgb = RGBColor(0x2D, 0x31, 0x42)  # 空 → 默认深线
+                shape.line.color.rgb = _make_rgb(0x2D, 0x31, 0x42)  # 空 → 默认深线
         shape.line.width = Pt(n.stroke_width or 1.0)
         if n.rotation:
             shape.rotation = n.rotation
@@ -631,7 +643,7 @@ def _looks_like_path(s: str) -> bool:
     return False
 
 
-def _read_source(source) -> str:
+def _read_source(source: str | os.PathLike[str]) -> str:
     """source 是文件路径 → 读文件；否则当作 Mermaid 文本。"""
     if isinstance(source, os.PathLike):
         p = Path(source)
@@ -655,7 +667,9 @@ def _read_source(source) -> str:
     return str(source)
 
 
-def mermaid_to_pptx(source, out_path: str, *, direction: str | None = None) -> str:
+def mermaid_to_pptx(
+    source: str | os.PathLike[str], out_path: str, *, direction: str | None = None
+) -> str:
     """Mermaid 文本或 .mmd 文件路径 → 可编辑 PPTX（16:9 整页）。返回 out_path。
 
     python-pptx 惰性 import（deck extra），未安装时给可操作错误。
@@ -686,10 +700,10 @@ class _MermaidHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
         self.slide_index = 0
-        self.decls: list[dict] = []
-        self._cur: dict | None = None
+        self.decls: list[dict[str, Any]] = []
+        self._cur: dict[str, Any] | None = None
 
-    def handle_starttag(self, tag: str, attrs) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         d = {k: (v or "") for k, v in attrs}
         if tag == "section" and "data-pptx-slide" in d:
             self.slide_index += 1
@@ -710,7 +724,7 @@ class _MermaidHTMLParser(HTMLParser):
             self._cur = None
 
 
-def parse_mermaid_declarations(html_text: str) -> list[dict]:
+def parse_mermaid_declarations(html_text: str) -> list[dict[str, Any]]:
     """HTML → [{slide, source}]（slide 1-based）。pre.mermaid 在 data-pptx-slide
     <section> 之外 → ValueError（对齐 charts：声明必须落在 section 内）。"""
     p = _MermaidHTMLParser()
@@ -725,14 +739,14 @@ def parse_mermaid_declarations(html_text: str) -> list[dict]:
     return p.decls
 
 
-def load_mermaid_boxes(measurements_path: str) -> dict[int, dict]:
+def load_mermaid_boxes(measurements_path: str) -> dict[int, dict[str, Any]]:
     """measurements.json → {slide_index(1-based): {"x","y","w","h"}}（px）。
 
     匹配 record className 分词含 "mermaid"（pre.mermaid 的 rect）。
     """
     with Path(measurements_path).open(encoding="utf-8") as f:
         data = json.load(f)
-    boxes: dict[int, dict] = {}
+    boxes: dict[int, dict[str, Any]] = {}
     for i, slide in enumerate(data.get("slides", []), start=1):
         for rec in slide.get("records", []):
             cls = (rec.get("className") or "").split()
@@ -747,7 +761,7 @@ def _measurements_path(pptx_path: str) -> str:
     return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
 
 
-def _remove_bbox_shapes(slide, box_emu: dict) -> None:
+def _remove_bbox_shapes(slide: Any, box_emu: dict[str, Any]) -> None:
     """删除与注入矩形几何一致（同位置同尺寸）的占位形状（pre 文本块等）。
 
     占位矩形是确定尺寸的（box_emu = px→EMU），用户任意形状几乎不可能精确重合；
@@ -765,7 +779,9 @@ def _remove_bbox_shapes(slide, box_emu: dict) -> None:
             slide.shapes._spTree.remove(shape._element)
 
 
-def inject_mermaid(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> None:
+def inject_mermaid(
+    pptx_path: str, decls: list[dict[str, Any]], boxes: dict[int, dict[str, Any]]
+) -> None:
     """把每块 mermaid 渲染成可编辑形状，替换 slide 内对应 bbox 占位。"""
     from pptx import Presentation
 
