@@ -56,3 +56,21 @@ def test_render_unzip_slide1_contains_title_text(tmp_path):
     with zipfile.ZipFile(out) as z:
         slide1 = z.read("ppt/slides/slide1.xml").decode("utf-8")
     assert "产品增长报告" in slide1
+
+
+def test_render_zero_discovered_slides_fails_fast(tmp_path):
+    # #86：slide 发现为 0 时 render 必须显式失败（不再静默产出 0 页 .pptx）。
+    # 纯文字页无 [data-pptx-slide]、无 ≥50% 视口元素 → DISCOVER_JS 返回 0 张。
+    from offipy.deck import render
+    from offipy.exceptions import ConversionError
+
+    html = tmp_path / "empty.html"
+    html.write_text(
+        "<html><head></head><body><p>只有一段文字，不是 deck</p></body></html>",
+        encoding="utf-8",
+    )
+    out = tmp_path / "empty.pptx"
+    with pytest.raises(ConversionError) as exc:
+        render(str(html), out=str(out), no_visual_audit=True)
+    assert "slide" in str(exc.value)
+    assert not out.exists()

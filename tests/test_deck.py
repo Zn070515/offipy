@@ -657,6 +657,61 @@ def test_atomic_replace_win32_locked_raises_actionable(tmp_path, monkeypatch):
             deck._atomic_replace("tmp.pptx", target)
 
 
+def test_render_out_parent_missing_raises_actionable(tmp_path, monkeypatch):
+    # #90：out 的父目录不存在 → 明确「输出目录不存在」领域错误，不泄漏 mkstemp 临时名
+    from offipy.exceptions import InvalidArgumentError
+
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    created = {}
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
+
+    out = str(tmp_path / "不存在的目录" / "子目录" / "deck.pptx")
+    with pytest.raises(InvalidArgumentError) as exc:
+        deck.render(str(html), out=out)
+    assert "输出目录不存在" in str(exc.value)
+    assert "cmd" not in created  # fail-fast：未跑转换
+    assert ".deck." not in str(exc.value)  # 不泄漏 mkstemp 临时名
+
+
+def test_render_out_is_directory_raises_actionable(tmp_path, monkeypatch):
+    # #90：out 是一个目录 → 「out 是目录」领域错误，不再误归因 PowerPoint 占用
+    from offipy.exceptions import InvalidArgumentError
+
+    html = tmp_path / "deck.html"
+    html.write_text("<html><body>deck</body></html>", encoding="utf-8")
+    out_dir = tmp_path / "outdir"
+    out_dir.mkdir()
+    created = {}
+    monkeypatch.setattr(deck, "_run_convert", _fake_run(created))
+
+    with pytest.raises(InvalidArgumentError) as exc:
+        deck.render(str(html), out=str(out_dir))
+    assert "目录" in str(exc.value)
+    assert "cmd" not in created
+
+
+def test_atomic_replace_directory_target_raises_invalid_argument(tmp_path, monkeypatch):
+    # #90：os.replace 目标为目录（TOCTOU 兜底）→ InvalidArgumentError「out 是目录」，
+    # 不再套用「PowerPoint 占用」误导文案
+    from offipy.exceptions import InvalidArgumentError
+
+    target = tmp_path / "somedir"
+    target.mkdir()
+
+    def fail_replace(src_, dst_):
+        raise PermissionError(13, "Permission denied", dst_)
+
+    monkeypatch.setattr(deck.os, "replace", fail_replace)
+    if os.name == "nt":
+        with pytest.raises(InvalidArgumentError) as exc:
+            deck._atomic_replace("tmp.pptx", str(target))
+        assert "目录" in str(exc.value)
+    else:
+        with pytest.raises(PermissionError):
+            deck._atomic_replace("tmp.pptx", str(target))
+
+
 # --- #57 相对资源 URL：注入副本重写为绝对 file:// ---
 
 

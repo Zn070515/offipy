@@ -215,6 +215,21 @@ def convert(html_path: Path, out_path: Path, keep_screenshots: bool, embed_fonts
                 html_path, anchor_json, only_indices,
                 measure_needs_screenshots, measure, page=deck_page)
 
+            # 0 slide fail-fast（#86）：slide 发现启发式（显式 [data-pptx-slide] 优先，
+            # 否则「同 tag 兄弟 + ≥50% 视口」）对内容自适应高度的 section 可能返回 0 张。
+            # 0 张是「没找到 deck」而不是合法空 deck——静默产出 0 页 .pptx 会让上游
+            # 视觉迭代闭环无声断裂，必须显式失败并给修复指引。
+            total_slides = meas.get("_total")
+            if total_slides is None:
+                total_slides = len(meas.get("slides") or [])
+            if total_slides <= 0:
+                print(
+                    "[error] 未发现任何 slide（slide 数为 0）：请给 <section> 显式加 "
+                    "data-pptx-slide 属性，或确保其可见区域 ≥50% 视口高度（内容自适应"
+                    "高度的 section 不会被自动发现）。"
+                )
+                sys.exit(1)
+
             # 破图 fail-fast：任何 <img> 加载失败（本地文件缺失/路径错误/远端 404）
             # 都立即报错退出，绝不「静默嵌入空白占位图」——占位图过几何审计/肉眼
             # 无差别，只能靠 ppt/media 文件大小事后暴露。
