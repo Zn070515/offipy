@@ -9,7 +9,7 @@ import pytest
 from pptx import Presentation
 from pptx.util import Emu
 
-from offipy.drawio import drawio_to_pptx, layout_drawio, parse_drawio
+from offipy.drawio import _remove_bbox_shapes, drawio_to_pptx, layout_drawio, parse_drawio
 
 SINGLE_PAGE = """\
 <mxfile>
@@ -371,6 +371,32 @@ def test_render_drawio_respects_font_size(tmp_path):
     small = by_text["小"].text_frame.paragraphs[0].runs[0].font.size
     assert big is not None and small is not None
     assert big > small
+
+
+def test_remove_bbox_shapes_only_matches_injected():
+    # #96：占位删除改几何一致匹配——中心点落入 bbox 但尺寸不同的用户形状保留，
+    # 与注入矩形同位置同尺寸的占位才删
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    user = slide.shapes.add_textbox(Inches(0.8), Inches(0.8), Inches(2.4), Inches(1.4))
+    user.text = "用户形状"  # 中心 (2.0, 1.5) 恰与 bbox 中心重合，但尺寸不同
+    placeholder = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(2), Inches(1))
+    placeholder.text = "占位"
+    box_emu = {
+        "x": int(Inches(1)),
+        "y": int(Inches(1)),
+        "w": int(Inches(2)),
+        "h": int(Inches(1)),
+    }
+    _remove_bbox_shapes(slide, box_emu)
+    remaining = list(slide.shapes)
+    assert len(remaining) == 1
+    assert remaining[0].text_frame.text == "用户形状"
 
 
 def test_parse_drawio_font_size(tmp_path):

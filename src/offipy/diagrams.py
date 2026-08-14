@@ -680,12 +680,19 @@ def _measurements_path(pptx_path: str) -> str:
 
 
 def _remove_bbox_shapes(slide, box_emu: dict) -> None:
-    """删除中心落在 bbox 内的占位形状（pre 文本块等）。"""
-    cx, cy = box_emu["x"] + box_emu["w"] // 2, box_emu["y"] + box_emu["h"] // 2
+    """删除与注入矩形几何一致（同位置同尺寸）的占位形状（pre 文本块等）。
+
+    占位矩形是确定尺寸的（box_emu = px→EMU），用户任意形状几乎不可能精确重合；
+    旧「中心点落在 bbox 内」判定会误删用户内容。容差 0.01in 吸收 px→EMU 舍入。
+    """
+    tol = int(0.01 * 914400)  # 0.01in，EMU
+    bx, by, bw, bh = box_emu["x"], box_emu["y"], box_emu["w"], box_emu["h"]
     for shape in list(slide.shapes):
         if (
-            shape.left <= cx <= shape.left + shape.width
-            and shape.top <= cy <= shape.top + shape.height
+            abs(shape.left - bx) <= tol
+            and abs(shape.top - by) <= tol
+            and abs(shape.width - bw) <= tol
+            and abs(shape.height - bh) <= tol
         ):
             slide.shapes._spTree.remove(shape._element)
 
