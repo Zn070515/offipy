@@ -162,7 +162,7 @@ def _render_class(cls: str, app: str, remote: bool) -> list[str]:
 def render() -> str:
     """拼装完整 stub 文本（不写盘，供 main 与测试复用）。"""
     lines = [_HEADER.rstrip(), ""]
-    for app in schema.apps():
+    for app in _DIRECT:  # api.pyi 只含 COM facade 三 app；diagram 不走 stub
         lines += _render_class(_DIRECT[app], app, remote=False)
         lines += _render_class(_REMOTE[app], app, remote=True)
     lines.append("def op(app: str, op_name: str, **kw: Any) -> Any: ...")
