@@ -49,6 +49,7 @@ offipy diagram install_skill --target_dir ~/.claude/skills
 ```python
 from offipy.diagrams import mermaid_to_pptx
 from offipy.drawio import drawio_to_pptx
+
 mermaid_to_pptx("design.mmd", "design.pptx")
 drawio_to_pptx("design.drawio", "design.pptx")
 ```
