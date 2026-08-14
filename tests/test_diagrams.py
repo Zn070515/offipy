@@ -191,15 +191,19 @@ def test_render_dashed_edge_when_dotted():
 def test_render_chinese_font_set():
     diagram = parse_mermaid("graph TD\n    A[数据] --> B[管道]")
     prs, slide = _render(diagram)
+    assert slide.shapes
     for sh in slide.shapes:
-        if sh.has_text_frame:
-            for para in sh.text_frame.paragraphs:
-                for run in para.runs:
-                    rPr = run._r.find(qn("a:rPr"))
-                    if rPr is not None:
-                        ea = rPr.find(qn("a:ea"))
-                        if ea is not None:
-                            assert ea.get("typeface") == "Microsoft YaHei"
+        if not sh.has_text_frame:
+            continue
+        for para in sh.text_frame.paragraphs:
+            assert para.runs
+            for run in para.runs:
+                rPr = run._r.find(qn("a:rPr"))
+                assert rPr is not None
+                for tag in ("a:latin", "a:ea", "a:cs"):
+                    el = rPr.find(qn(tag))
+                    assert el is not None, f"{tag} 未设置"
+                    assert el.get("typeface") == "Microsoft YaHei"
 
 
 def test_render_no_arrowhead_when_undirected():

@@ -278,6 +278,7 @@ def _set_tail_end(conn, kind: str) -> None:
 
 def _add_text(shape, text: str, *, size_pt: float, bold: bool = False) -> None:
     from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
     from pptx.util import Emu, Pt
 
     tf = shape.text_frame
@@ -286,7 +287,7 @@ def _add_text(shape, text: str, *, size_pt: float, bold: bool = False) -> None:
     tf.margin_top = tf.margin_bottom = Emu(45720)  # 0.05"
     tf.text = text
     for para in tf.paragraphs:
-        para.alignment = 1  # CENTER
+        para.alignment = PP_ALIGN.CENTER
         for run in para.runs:
             run.font.size = Pt(size_pt)
             run.font.bold = bold
@@ -306,6 +307,7 @@ def render_to_slide(
     from pptx.dml.color import RGBColor
     from pptx.enum.dml import MSO_LINE_DASH_STYLE
     from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
+    from pptx.enum.text import PP_ALIGN
     from pptx.util import Emu, Inches, Pt
 
     # map 引用 pptx 枚举，须在惰性 import 之后构造（模块级会 import 即 NameError）。
@@ -371,7 +373,7 @@ def render_to_slide(
         tf.margin_left = tf.margin_right = Emu(91440)
         tf.text = c.label
         for para in tf.paragraphs:
-            para.alignment = 1
+            para.alignment = PP_ALIGN.CENTER
             for run in para.runs:
                 run.font.size = Pt(12)
                 run.font.bold = True
