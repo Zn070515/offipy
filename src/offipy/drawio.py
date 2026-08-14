@@ -13,11 +13,20 @@ vendored 提取器用 importlib 加载，保持上游文件原样；安全边界
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import sys
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 
-from offipy.diagrams import DiagramLayout, PlacedEdge, PlacedNode, render_to_slide
+from offipy.diagrams import (
+    PX_TO_EMU,
+    DiagramLayout,
+    PlacedEdge,
+    PlacedNode,
+    render_to_slide,
+)
 
 _EXTRACT_REL = Path("_vendor/diagram-design/skills/diagram-design/scripts/drawio_extract.py")
 
@@ -255,3 +264,126 @@ def drawio_to_pptx(source, out_path: str, *, page=None) -> str:
     render_to_slide(slide, lay)
     prs.save(out_path)
     return str(out_path)
+
+
+class _DrawioHTMLParser(HTMLParser):
+    """扫 <div class="drawio" data-drawio="..."> → [{slide, path}]。slide 1-based。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.slide_index = 0
+        self.decls: list[dict] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        d = {k: (v or "") for k, v in attrs}
+        if tag == "section" and "data-pptx-slide" in d:
+            self.slide_index += 1
+            return
+        if tag == "div" and "drawio" in d.get("class", "").split() and d.get("data-drawio"):
+            self.decls.append({"slide": self.slide_index, "path": d["data-drawio"]})
+
+
+def parse_drawio_declarations(html_text: str) -> list[dict]:
+    """HTML → [{slide, path}]（slide 1-based）。div.drawio 在 data-pptx-slide
+    <section> 之外 → ValueError（对齐 mermaid：声明必须落在 section 内）。"""
+    p = _DrawioHTMLParser()
+    p.feed(html_text)
+    p.close()
+    for d in p.decls:
+        if d["slide"] <= 0:
+            raise ValueError(
+                'drawio 声明出现在 slide 之外——<div class="drawio"> 必须在 '
+                "data-pptx-slide 的 <section> 内"
+            )
+    return p.decls
+
+
+def load_drawio_boxes(measurements_path: str) -> dict[int, dict]:
+    """measurements.json → {slide_index(1-based): {"x","y","w","h"}}（px）。
+
+    匹配 record className 分词含 "drawio"（div.drawio 的 rect）。
+    """
+    with open(measurements_path, encoding="utf-8") as f:
+        data = json.load(f)
+    boxes: dict[int, dict] = {}
+    for i, slide in enumerate(data.get("slides", []), start=1):
+        for rec in slide.get("records", []):
+            cls = (rec.get("className") or "").split()
+            if "drawio" in cls:
+                boxes[i] = dict(rec["rect"])
+                break
+    return boxes
+
+
+def _measurements_path(pptx_path: str) -> str:
+    p = Path(pptx_path)
+    return str(p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json")
+
+
+def _remove_bbox_shapes(slide, box_emu: dict) -> None:
+    """删除中心落在 bbox 内的占位形状（div.drawio 占位块等）。"""
+    cx, cy = box_emu["x"] + box_emu["w"] // 2, box_emu["y"] + box_emu["h"] // 2
+    for shape in list(slide.shapes):
+        if (
+            shape.left <= cx <= shape.left + shape.width
+            and shape.top <= cy <= shape.top + shape.height
+        ):
+            slide.shapes._spTree.remove(shape._element)
+
+
+def inject_drawio(pptx_path: str, decls: list[dict], boxes: dict[int, dict]) -> None:
+    """把每块 drawio 渲染成可编辑形状，替换 slide 内对应 bbox 占位。"""
+    missing = [d["path"] for d in decls if not Path(d["path"]).is_file()]
+    if missing:
+        raise RuntimeError("drawio 源文件缺失: " + "、".join(missing))
+    from pptx import Presentation
+
+    prs = Presentation(pptx_path)
+    for decl in decls:
+        box = boxes.get(decl["slide"])
+        if box is None:
+            continue
+        box_emu = {k: int(v * PX_TO_EMU) for k, v in box.items()}
+        slide = prs.slides[decl["slide"] - 1]
+        try:
+            diagram = parse_drawio(decl["path"])
+        except ValueError as e:
+            raise ValueError(f"第 {decl['slide']} 页 drawio 源解析失败: {e}") from None
+        # bbox 是 px；转换器画布 1920px = 13.333in = 12192000 EMU → 1px = 1/144 in。
+        # layout 的 max_w/max_h 单位是 inches，px→inch 除以 144（不能除以 PX_TO_EMU）。
+        lay = layout_drawio(diagram, max_w=box["w"] / 144, max_h=box["h"] / 144)
+        _remove_bbox_shapes(slide, box_emu)
+        render_to_slide(slide, lay, offset_x=box_emu["x"], offset_y=box_emu["y"])
+    prs.save(pptx_path)
+
+
+def postprocess_drawio(html_path: str, pptx_path: str) -> None:
+    """转换后调用（对齐 charts.postprocess_charts 签名）：HTML 含 <div class="drawio"
+    data-drawio="..."> → 读 measurements → 注入可编辑形状。无声明 → 原样返回。
+    声明/数据非法 → ValueError（由 deck._postprocess 归一化）。
+    """
+    with open(html_path, encoding="utf-8") as f:
+        html_text = f.read()
+    decls = parse_drawio_declarations(html_text)
+    if not decls:
+        return
+    meas_path = _measurements_path(pptx_path)
+    if not os.path.exists(meas_path):
+        raise RuntimeError(
+            f"找不到 convert 审计产物 {meas_path}——drawio 注入需要 measurements.json，"
+            "请勿用 --no-visual-audit"
+        )
+    boxes = load_drawio_boxes(meas_path)
+    missing = [d["slide"] for d in decls if d["slide"] not in boxes]
+    if missing:
+        raise RuntimeError(
+            f'第 {missing} 页没测到 <div class="drawio"> 容器——请确认 div 有 '
+            'class="drawio" 且被渲染进 visual audit'
+        )
+    # data-drawio 相对路径基于 HTML 所在目录解析
+    base = Path(html_path).parent
+    for d in decls:
+        p = Path(d["path"])
+        if not p.is_absolute():
+            d["path"] = str((base / p).resolve())
+    inject_drawio(pptx_path, decls, boxes)
