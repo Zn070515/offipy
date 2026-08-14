@@ -176,6 +176,14 @@ audit measurements). Relative `data-drawio` paths are rewritten to `file://` abs
 URIs when the HTML is staged to a temp dir, so they keep resolving; node `fontSize`
 is scaled with the container (default 12pt), keeping the text hierarchy.
 
+Multipage `.drawio` files must name the page in the deck: use
+`data-drawio-page="N"` (1-based) or a page name (case-insensitive), e.g.
+`<div class="drawio" data-drawio="arch.drawio" data-drawio-page="2">`. Omitting it
+for a multipage source raises an error instead of silently taking the first page.
+Orthogonal/curved edges render as polylines along their waypoints (arrows kept),
+and `strokeWidth`, `rotation`, and `dashPattern` (space-separated pairs) propagate
+to the generated shapes.
+
 ## Python API
 
 ```python

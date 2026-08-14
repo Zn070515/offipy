@@ -192,10 +192,15 @@ PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。
 
 - 相对 `data-drawio` 路径在 deck 管线内可用：HTML 被拷到临时目录时自动改写为
   `file://` 绝对 URI，源文件仍能解析（也可直接写 `file://` URI）。
+- 多页 `.drawio` 在 deck 注入里**必须**用 `data-drawio-page="N"`（1 基）指定页，
+  否则报错而不是静默取第一页：
+  `<div class="drawio" data-drawio="arch.drawio" data-drawio-page="2"></div>`；
+  页名也可用（不区分大小写）。页号最小为 1，`all` 不支持。
 - 节点 `fontSize` 按容器缩放换算成 pt（缺省 12pt），字号层级随框缩放，不被拍平。
+- 正交/曲线边按折点（waypoints）渲染成折线，保留箭头；`strokeWidth`、`rotation`、
+  `dashPattern` 透传到 PPTX 形状（`dashPattern` 为空格分隔的数对）。
 
-已知限制：边只取首尾直线（折点忽略）、图标类节点（`icon:*`）兜底为矩形、draw.io
-自定义形状兜底为圆角矩形。
+已知限制：图标类节点（`icon:*`）兜底为矩形、draw.io 自定义形状兜底为圆角矩形。
 
 ## Python API
 

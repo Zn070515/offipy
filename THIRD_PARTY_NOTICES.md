@@ -36,6 +36,11 @@ offipy 内嵌或依赖以下第三方组件。许可证原文随产物分发，�
   drawio_extract.py` 的 `Node` 增加 `font_size` 字段、`parse_page` 提取 `fontSize`——
   drawio 节点字号随容器缩放（层级不被拍平）。offipy 不自行解析 draw.io XML，故补丁落在
   vendored 提取器内；安全边界（DTD/ENTITY 拒绝、压缩上限）保持不变。
+- **补丁（第 2 轮，#98/#100）**：同一 `drawio_extract.py` 的 `Edge` 增加 `waypoints`（由
+  int 计数改为 `list[(x, y)]` 坐标）、`edge_style`、`stroke_width`，`Node` 增加
+  `stroke_width`/`rotation`/`dash_pattern`——正交/曲线边按真实 waypoints 渲染、样式
+  （线宽/旋转/虚线）透传到 PPTX。改动保持最小（仅加字段与提取），vendored 提取器
+  内部消费逻辑不变；安全边界不变。
 
 ### 图标资产（Phosphor + Lucide 双集）
 

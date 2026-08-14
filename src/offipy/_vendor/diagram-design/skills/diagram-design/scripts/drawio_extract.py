@@ -301,6 +301,9 @@ class Node:
     h: float = 0.0
     fill: str = ""
     stroke: str = ""
+    stroke_width: str = ""
+    rotation: str = ""
+    dash_pattern: str = ""
     font_color: str = ""
     font_size: str = ""
     dashed: bool = False
@@ -323,8 +326,10 @@ class Edge:
     bidirectional: bool = False
     undirected: bool = False
     style_name: str = ""
-    waypoints: int = 0
+    edge_style: str = ""
+    waypoints: list = field(default_factory=list)
     stroke: str = ""
+    stroke_width: str = ""
 
 
 @dataclass
@@ -433,6 +438,10 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             h=_num(geom, "height"),
             fill=style.get("fillColor", ""),
             stroke=style.get("strokeColor", ""),
+            stroke_width=style.get("strokeWidth", ""),
+            rotation=style.get("rotation", "")
+            or (geom.get("rotation", "") if geom is not None else ""),
+            dash_pattern=style.get("dashPattern", ""),
             font_color=style.get("fontColor", ""),
             font_size=style.get("fontSize", ""),
             dashed=style.get("dashed") == "1",
@@ -476,11 +485,11 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
             continue
         style = parse_style(cell.get("style"))
         geom = cell.find("mxGeometry")
-        waypoints = 0
-        if geom is not None:
-            waypoints = len(
-                [p for p in geom.findall(".//mxPoint") if p.get("as") is None]
-            )
+        waypoints = [
+            (float(p.get("x")), float(p.get("y")))
+            for p in geom.findall(".//mxPoint")
+            if p.get("as") is None and p.get("x") is not None and p.get("y") is not None
+        ] if geom is not None else []
         label = clean_label(entry["value"])
         extra = edge_label_parts.get(cid, [])
         if extra:
@@ -501,8 +510,10 @@ def parse_page(diagram: ET.Element, index: int) -> Page:
                 and style.get("startArrow", "none") in ("none", "0", ""),
                 style_name=style.get("shape", "")
                 or ("orthogonal" if style.get("edgeStyle") else ""),
+                edge_style=style.get("edgeStyle", ""),
                 waypoints=waypoints,
                 stroke=style.get("strokeColor", ""),
+                stroke_width=style.get("strokeWidth", ""),
             )
         )
 
