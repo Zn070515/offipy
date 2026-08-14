@@ -147,3 +147,36 @@ def test_ensure_app_raises_office_unavailable_when_launch_fails(monkeypatch):
     monkeypatch.setattr(core, "launch", boom)
     with pytest.raises(OfficeUnavailableError):
         core.ensure_app("ppt")
+
+
+def test_ensure_app_gen_py_cache_hint_on_clsid_map_error(monkeypatch):
+    # #88：gen_py 类型库缓存损坏（%TEMP%\gen_py 缺 __init__.py / CLSIDToClassMap）
+    # 时，错误必须给「删除缓存」修复指引，而非只透出 typelib GUID 的裸 AttributeError。
+    monkeypatch.setattr(core, "connect", lambda app: None)
+
+    def boom(app, visible=True):
+        raise AttributeError(
+            "module 'win32com.gen_py.91493440-5A91-11CF-8700-00AA0060263Bx0x2x12' "
+            "has no attribute 'CLSIDToClassMap'"
+        )
+
+    monkeypatch.setattr(core, "launch", boom)
+    with pytest.raises(OfficeUnavailableError) as exc:
+        core.ensure_app("ppt")
+    msg = str(exc.value)
+    assert "%TEMP%\\gen_py" in msg
+    assert "CLSIDToClassMap" in msg
+    assert "缓存已损坏" in msg
+
+
+def test_ensure_app_non_genpy_attribute_error_still_wrapped(monkeypatch):
+    # #88：非 gen_py 特征的 AttributeError 仍走原有收拢（OfficeUnavailableError），
+    # 不改变 ensure_app 的「COM 异常统一收拢」契约。
+    monkeypatch.setattr(core, "connect", lambda app: None)
+
+    def boom(app, visible=True):
+        raise AttributeError("PowerPoint.Application 无此成员")
+
+    monkeypatch.setattr(core, "launch", boom)
+    with pytest.raises(OfficeUnavailableError):
+        core.ensure_app("ppt")
