@@ -210,3 +210,67 @@ def test_wrapper_skill_contract_keywords():
     text = skill.read_text(encoding="utf-8")
     for kw in ("Mermaid", "draw.io", "offipy diagram build", "mxGraphModel"):
         assert kw in text
+
+
+def test_mcp_diagram_tools_registered():
+    from offipy import mcp_server
+
+    names = {t.name for t in mcp_server.server._tool_manager.list_tools()}
+    assert "diagram_build" in names
+    assert "diagram_install_skill" in names
+    assert hasattr(mcp_server, "diagram_build")
+    assert hasattr(mcp_server, "diagram_install_skill")
+
+
+def test_server_alive_true_for_stateless_app():
+    from offipy import server
+
+    assert server._alive(DiagramApp()) is True
+
+
+def test_api_op_rejects_diagram():
+    # api.op() 白名单只放 COM facade；diagram 的 Python API 是 DiagramApp + 独立函数
+    from offipy import api
+    from offipy.exceptions import InvalidArgumentError
+
+    with pytest.raises(InvalidArgumentError):
+        api.op("diagram", "build", source="x.mmd", out="y.pptx")
+
+
+def test_cli_diagram_build_routes_to_call(tmp_path, monkeypatch):
+    from offipy import cli
+
+    src = _write(tmp_path, "flow.mmd", _MMD)
+    out = tmp_path / "out.pptx"
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["app"] = app
+        captured["op"] = op
+        captured["kw"] = kw
+        return {"pptx": str(out)}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["diagram", "build", "--source", str(src), "--out", str(out)])
+    assert captured["app"] == "diagram"
+    assert captured["op"] == "build"
+    assert captured["kw"] == {"source": str(src), "out": str(out)}
+
+
+def test_cli_diagram_install_skill_routes_to_call(tmp_path, monkeypatch):
+    from offipy import cli
+
+    target = tmp_path / "skills"
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["app"] = app
+        captured["op"] = op
+        captured["kw"] = kw
+        return {"installed": [], "skipped": []}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["diagram", "install_skill", "--target_dir", str(target), "--force"])
+    assert captured["app"] == "diagram"
+    assert captured["op"] == "install_skill"
+    assert captured["kw"] == {"target_dir": str(target), "force": True}

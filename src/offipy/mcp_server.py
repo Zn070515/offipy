@@ -23,6 +23,7 @@ from mcp_types import ToolAnnotations
 
 from . import __version__, schema
 from .client import request
+from .diagram import DiagramApp
 from .excel import ExcelApp
 from .exceptions import OffipyError
 from .ppt import PptApp
@@ -91,7 +92,7 @@ _RETURN_ANNOTATION = {
     "any": object,
 }
 
-_APP_CLASSES = {"excel": ExcelApp, "word": WordApp, "ppt": PptApp}
+_APP_CLASSES = {"diagram": DiagramApp, "excel": ExcelApp, "word": WordApp, "ppt": PptApp}
 
 
 def _tool_name(app: str, op: str) -> str:

@@ -97,10 +97,11 @@ def test_status_targets_null_when_uninitialized(srv):
     status, body = _get(srv, "/status", token=TOKEN)
     assert status == 200
     targets = body["result"]["targets"]
-    assert set(targets) == {"excel", "word", "ppt"}
+    assert set(targets) == {"excel", "word", "ppt", "diagram"}
     assert targets["excel"] is None
     assert targets["word"] is None
     assert targets["ppt"] is None
+    assert targets["diagram"] is None  # 纯函数 app（diagram）无 COM 根，同样报 null
 
 
 def test_call_requires_auth(srv):

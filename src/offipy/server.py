@@ -32,6 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from . import __version__, oplog, schema
+from .diagram import DiagramApp
 from .excel import ExcelApp
 from .exceptions import (
     ComOperationError,
@@ -68,6 +69,7 @@ _KINDS = {"excel": "book", "word": "doc", "ppt": "pres"}
 
 _APPS: dict[str, Any] = {}
 _APPS_CLASSES = {
+    "diagram": DiagramApp,
     "excel": ExcelApp,
     "word": WordApp,
     "ppt": PptApp,
@@ -234,6 +236,8 @@ def _com_error():
 
 def _alive(app) -> bool:
     """探测 app 持有的 COM 对象是否仍与 Office 进程保持连接。"""
+    if not hasattr(app, "app"):
+        return True  # 纯函数 app（diagram）无 COM 根 = 无状态 = 恒存活
     try:
         _ = app.app.Visible
         return True

@@ -35,11 +35,12 @@ import types
 import typing
 from pathlib import Path
 
-from . import excel, ppt, schema, word
+from . import diagram, excel, ppt, schema, word
 from .client import call, ensure_server, server_status, set_port, stop_server
 from .exceptions import InvalidArgumentError, OffipyError
 
 _APP_CLASSES = {
+    "diagram": diagram.DiagramApp,
     "excel": excel.ExcelApp,
     "word": word.WordApp,
     "ppt": ppt.PptApp,
@@ -421,7 +422,7 @@ def build_parser() -> argparse.ArgumentParser:
     # P2-2 多实例：--port 指向指定端口的 server（env OFFIPY_SERVER_PORT 亦可）
     p.add_argument("--port", type=int, help="连指定端口的 server 实例（默认 8890）")
     sub = p.add_subparsers(dest="app", required=True)
-    for app in ("excel", "word", "ppt"):
+    for app in schema.apps():
         sp = sub.add_parser(app)
         sp.add_argument("op")
         # REMAINDER：原样捕获 --key value 形式的任意 kwargs
