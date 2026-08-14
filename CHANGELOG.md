@@ -3,6 +3,25 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.16.2] - 2026-08-14
+
+### Fixed
+
+- **drawio 注入 3 个修复（#98-#100）**：
+  - 正交/曲线边按折点（waypoints）渲染成折线，不再坍缩成单直线，保留箭头（#98）。
+  - 多页 `.drawio` 在 deck 注入里**必须**用 `data-drawio-page="N"`（1 基）指定页，
+    否则报错而不是静默取第一页（#99）；页名也可用（不区分大小写），`all` 不支持。
+  - 节点/边的 `strokeWidth`、`rotation`、`dashPattern` 透传到 PPTX 形状
+    （`dashPattern` 为空格分隔的数对，如 `3 2`）（#100）。
+
+### Changed
+
+- **CI 门禁加固（#101-#109）**：新增安全扫描 workflow（CodeQL / 依赖审计 / secret 扫描）、
+  ruff 规则集扩展（补齐 A/C4/D/… 全量修复）、mypy 全量 `--strict`、coverage 门槛提升
+  （Linux 纯模块 70 → 88）+ Windows 真机 coverage artifact、pytest `--strict-markers` +
+  `filterwarnings=["error"]`、所有 CI action SHA-pin、job timeout + concurrency 防叠跑、
+  RPC op 基准轻档纳入真机 CI（bench 脚本走显式 doc_id 路由 + slide_idx）。
+
 ## [0.16.1] - 2026-08-14
 
 ### Fixed

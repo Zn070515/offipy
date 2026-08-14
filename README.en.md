@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.16.1 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.16.2 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -285,7 +285,10 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
   HTML (relative paths are rewritten to `file://` absolute URIs in the deck pipeline, so they
   resolve even when the HTML is staged to a temp dir); `deck render` turns it into editable
   shapes, keeping the author's layout and colors, with node `fontSize` scaled to the container.
-  Standalone
+  Orthogonal/curved edges render as polylines along their waypoints (arrows kept), and
+  `strokeWidth` / `rotation` / `dashPattern` propagate to the shapes. Multi-page `.drawio`
+  files require `data-drawio-page="N"` (1-based) in deck injection, otherwise it errors rather
+  than silently taking the first page. Standalone
   `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx", page="架构")` renders a full 16:9
   editable PPTX (`page` accepts an int index or str page name, default first page).
 - **Feedback learning**: post-audit dispositions (fixed / accepted / ignored) are recorded to `~/.offipy/feedback.jsonl`; `feedback.dimension_weights()` reweights the audit weights, getting stricter the more it fixes (P2 validation build)

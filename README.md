@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.16.1（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.16.2（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -303,8 +303,11 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   也支持 draw.io：HTML 里写 `<div class="drawio" data-drawio="arch.drawio"></div>`（相对路径在
   deck 管线内自动改写为 `file://` 绝对 URI，HTML 拷到临时目录也能解析），`deck render` 后由
   `offipy.drawio` 把 `.drawio` 转成可编辑形状、保留作者版式与配色，节点 `fontSize` 随容器缩放
-  （层级不被拍平）；独立 API `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx",
-  page="架构")` 直接出 16:9 整页可编辑 PPTX（page 接受 int 页码或 str 页名，默认第一页）。
+  （层级不被拍平）；正交/曲线边按折点渲染成折线（保留箭头），`strokeWidth` / `rotation` /
+  `dashPattern` 透传到形状。多页 `.drawio` 在 deck 注入里须 `data-drawio-page="N"`（1 基）
+  指定页，否则报错而非静默取第一页。独立 API
+  `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx", page="架构")` 直接出 16:9
+  整页可编辑 PPTX（page 接受 int 页码或 str 页名，默认第一页）。
 - **资源系统（Asset System v1）**：图标 / 纹理 / 图元统一走 `asset://` 资源管线
   （`data-asset` / `data-asset-param-*` / `data-asset-placement`），渲染成**可编辑的
   PowerPoint 原生对象**而非位图。内置 provider：`ph`（1512 Phosphor 图标）、`lu`
