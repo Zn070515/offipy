@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <style>
   * { margin: 0; box-sizing: border-box; }
-  .slide { width: 1920px; height: 1080px; position: relative; overflow: hidden; background: #ffffff; }
-  /* 贴底卡片 + 向下阴影：box-shadow 捕获框超出视口 1080 */
+  .slide { width: 1920px; height: 1080px; position: relative; overflow: visible; background: #ffffff; }
+  /* 贴底卡片 + 向下阴影：box-shadow 捕获框超出视口 1080（overflow:visible 让阴影真渲染到 slide 下方） */
   .card { position: absolute; left: 100px; top: 1000px; width: 400px; height: 80px;
           background: #fff; box-shadow: 0 60px 40px rgba(0,0,0,0.5); }
 </style>

@@ -13,6 +13,7 @@
   拉成超高、.col 仍填满整页
 - deck 缩短后参考截图目录清掉"幽灵页"
 """
+import struct
 from pathlib import Path
 
 import pytest
@@ -249,8 +250,16 @@ def test_deco_shadow_beyond_viewport_not_clamped(tmp_path):
     recs = [r for r in data["slides"][0]["records"] if r["kind"] == "deco_snapshot"]
     assert recs, "边缘阴影卡片没有产生 deco_snapshot"
     r = recs[0]
-    # 捕获框 top=1000 + h=80 + shadow 向下 60+40=100 → h≈180；修复前被 clamp 到 ~80
-    assert r["rect"]["h"] >= 175, f"阴影捕获框被视口裁剪: rect={r['rect']}"
+    # 捕获框 top=1000 + h=80 + shadow 向下 60+40=100 → h≈180；修复前被 clamp 到 ~80。
+    # 精确几何交给下方 PNG 断言；这里只验「明确大于被 clamp 的 80」。
+    assert r["rect"]["h"] > 100, f"阴影捕获框被视口裁剪: rect={r['rect']}"
+    # 截图必须真的截到完整捕获框（未 clamp 到 80）：从 PNG 头部 IHDR 读像素高验证。
+    png = Path(r["screenshot"])
+    assert png.exists(), f"deco_snapshot 截图未生成: {png}"
+    with png.open("rb") as f:
+        png_w, png_h = struct.unpack(">II", f.read(24)[16:24])
+    assert png_h > 100, f"截图被视口裁剪到 {png_h}px"
+    assert abs(png_h - r["rect"]["h"]) <= 1, f"截图高 {png_h} 与捕获框 {r['rect']['h']} 不符"
 
 
 def test_gradient_and_shadow_fill_kind_marked(gradient_shadow):
