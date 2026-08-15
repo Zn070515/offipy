@@ -102,3 +102,14 @@ def test_append_bad_features_json_raises(tmp_path):
             feedback_dir=str(tmp_path),
             features="not-json",
         )
+
+
+def test_append_bad_severity_raises(tmp_path):
+    with pytest.raises(InvalidArgumentError, match="severity"):
+        FeedbackApp().append(
+            "balanced",
+            RULE_TITLE_TOO_SMALL,
+            "fixed",
+            "bogus",
+            feedback_dir=str(tmp_path),
+        )

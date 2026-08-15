@@ -55,7 +55,12 @@ class FeedbackApp:
         from offipy.art.feedback import append as art_append
         from offipy.audit import Severity
 
-        sev = severity if isinstance(severity, Severity) else Severity[str(severity)]
+        try:
+            sev = severity if isinstance(severity, Severity) else Severity[str(severity)]
+        except KeyError:
+            raise InvalidArgumentError(
+                f"severity 必须是 LOW/MID/HIGH 之一，得到 {severity!r}"
+            ) from None
         feats = features
         if isinstance(feats, str):
             try:

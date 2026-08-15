@@ -762,7 +762,7 @@ def _deck_make_with_audit(args: argparse.Namespace) -> int | None:
             "用法: offipy deck make --html <deck.html> "
             "[--audit-mode report|strict] [--fail-on HIGH|MID|LOW] "
             "[--audit-report <path>] [--out <x.pptx>] [--no-open] "
-            "[--feedback <dir>] [--theme <name>] [--layouts] [--overwrite]"
+            "[--export-png <dir>] [--theme <name>] [--layouts] [--overwrite]"
         )
     fail_on = {"HIGH": Severity.HIGH, "MID": Severity.MID, "LOW": Severity.LOW}[args.fail_on]
     try:

@@ -894,9 +894,9 @@ OPS: dict[str, dict[str, OpSpec]] = {
         "append": OpSpec(
             description=(
                 "追加一条反馈标签：用户对某 rule 的 finding 处置（fixed=该修，"
-                "accepted=规则判断对，ignored=无关）。写入 feedback_dir 的 JSONL，"
-                "供 feedback train 学习。features 为扁平特征快照（encode_features "
-                "产出），CLI 传 JSON 字符串。"
+                "accepted=规则判断对，ignored=无关）。写入 feedback_dir 的 JSONL"
+                "（未给 feedback_dir 时写默认 ~/.offipy），供 feedback train 学习。"
+                "features 为扁平特征快照（encode_features 产出），CLI 传 JSON 字符串。"
             ),
             returns="dict",  # {"record": <jsonl 路径>}
             params={
