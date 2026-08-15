@@ -162,11 +162,13 @@ def _rewrite_srcset(base_dir: Path, value: str) -> str:
         return f"__OFFIPY_DATA_{len(stashed) - 1}__"
 
     def _restore(token: str) -> str:
-        return re.sub(
-            r"__OFFIPY_DATA_(\d+)__",
-            lambda m: stashed[int(m.group(1))],
-            token,
-        )
+        # #110：源 HTML 可能含字面 __OFFIPY_DATA_N__（N 越界），此时不能抛裸
+        # IndexError——未 stash 的占位符原样保留，交给 URL 重写按普通相对路径处理。
+        def _swap(m: re.Match[str]) -> str:
+            i = int(m.group(1))
+            return stashed[i] if 0 <= i < len(stashed) else m.group(0)
+
+        return re.sub(r"__OFFIPY_DATA_(\d+)__", _swap, token)
 
     out = []
     for candidate in _DATA_URI_RE.sub(_stash, value).split(","):
