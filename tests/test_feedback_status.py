@@ -1,10 +1,14 @@
 """status：样本数 / 配对潜力 / 模型状态（顶层 numpy-free）。"""
 
+import json
+
 from offipy.art import append as art_append
 from offipy.art.features_registry import feature_schema_version
 from offipy.art.profiles import RULE_TITLE_TOO_SMALL
 from offipy.audit import Severity
+from offipy.feedback.model import model_file
 from offipy.feedback.status import report_status
+from offipy.feedback.train import run_training
 
 
 def _add(tmp_path, action, n):
@@ -40,3 +44,21 @@ def test_status_counts_samples_and_pairs(tmp_path):
 def test_status_model_missing_no_file(tmp_path):
     s = report_status(tmp_path)
     assert s["model"] == "none"
+
+
+def test_status_model_valid(tmp_path):
+    _add(tmp_path, "fixed", 12)
+    _add(tmp_path, "accepted", 4)
+    run_training(tmp_path, min_pairs=0)
+    assert report_status(tmp_path)["model"] == "valid"
+
+
+def test_status_model_expired(tmp_path):
+    _add(tmp_path, "fixed", 12)
+    _add(tmp_path, "accepted", 4)
+    run_training(tmp_path, min_pairs=0)
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["input_schema_version"] = "999"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert report_status(tmp_path)["model"] == "expired"

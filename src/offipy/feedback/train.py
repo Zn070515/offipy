@@ -16,7 +16,7 @@ from offipy.art.feedback import load_records
 
 from .mlp import EPOCHS, HIDDEN_DIMS, LR, MARGIN, MLP, REG_WEIGHT, SEED
 from .model import model_file, save_model
-from .pairs import build_pairs
+from .pairs import build_pairs, valid_records
 from .registry import OUTPUT_SCHEMA_VERSION
 from .vector import encode_vector
 
@@ -32,13 +32,7 @@ def run_training(
     """训练并写 model.json；失败返回状态 JSON（不抛、不覆盖旧模型）。"""
     dir_path = Path(feedback_dir) if feedback_dir else None
     records = load_records(dir_path)
-    valid = [
-        r
-        for r in records
-        if r.action in ("fixed", "accepted")
-        and r.features is not None
-        and r.feature_schema_version == feature_schema_version()
-    ]
+    valid = valid_records(records)
     if not valid:
         return {"trained": False, "reason": "no_valid_samples", "samples": len(records)}
     pairs = build_pairs(valid)

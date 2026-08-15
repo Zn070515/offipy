@@ -8,10 +8,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from offipy.art.features_registry import feature_schema_version
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from offipy.art.feedback import ArtFeedbackRecord
+
+
+def valid_records(
+    records: Iterable[ArtFeedbackRecord],
+) -> list[ArtFeedbackRecord]:
+    """可训练样本：fixed/accepted、带 features、schema 与当前一致。"""
+    return [
+        r
+        for r in records
+        if r.action in ("fixed", "accepted")
+        and r.features is not None
+        and r.feature_schema_version == feature_schema_version()
+    ]
 
 
 def build_pairs(
