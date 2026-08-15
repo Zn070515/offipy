@@ -24,8 +24,6 @@ import zipfile
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lxml import etree
-
 from offipy.exceptions import ConversionError
 
 from .geometry import Affine2D, Rect
@@ -356,6 +354,7 @@ def _read_smartart(shape: object) -> tuple[int | None, str]:
     节点数 = 含 dsp:t 子元素（有文本）的 dsp:pt 数——排除无文本根节点；
     文本 = part 内全部 a:t（'\n' 连接）。解析失败 → (None, "")。
     """
+    from lxml import etree
     from pptx.oxml.ns import qn
 
     try:
