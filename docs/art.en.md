@@ -60,8 +60,10 @@ for s in report.art.slides:
             print(s.slide_index, d.dimension, f.rule_id, f.confidence)
 ```
 
-With only `pptx=` (no measurements), dimensions that rely on font-size / color evidence degrade
-automatically (`insufficient_evidence` + `art.evidence.limited` warning), while pure-geometry rules
+With only `pptx=` (no measurements), `_ShapeRecord` enrichment provides font-size / font-family /
+foreground / background / opacity / fill_kind evidence (#128); but when most runs inherit the theme
+font (no explicit size) coverage may stay low, so the hierarchy / typography / color dimensions can
+still be `insufficient_evidence` (+ `art.evidence.limited` warning), while pure-geometry rules
 still run:
 
 ```python
@@ -75,7 +77,7 @@ An ArtScene is built from two evidence sources, merged as "measurement-first, au
 | Source | Evidence | Unit | Notes |
 |--------|----------|------|-------|
 | `measurements` (MeasurementAdapter) | color, font size, natural size, text, font family | px (normalized to a [0,1] score) | real browser-pixel evidence from the HTML→PPTX pipeline; role vocabulary title/body/subtitle/image/shape |
-| `pptx` (PptxAuditAdapter) | geometry (position / size / role classification), text | pt (normalized to a [0,1] score) | `audit_pptx` geometry snapshot; no font-size / color evidence; role vocabulary background/header/footer/page_number/title/content/decoration/unknown |
+| `pptx` (PptxAuditAdapter) | geometry (position / size / role classification), text, font size / font family / foreground / background / opacity / fill_kind | pt (normalized to a [0,1] score) | `audit_pptx` geometry snapshot + `_ShapeRecord` enrichment (#128); when most runs inherit the theme font (no explicit size) font/color evidence is limited; role vocabulary background/header/footer/page_number/title/content/decoration/unknown |
 
 Merge (`merge_scenes`) pairs elements one-to-one by **text as strong corroboration + geometry as
 fallback**: same normalized role and same text → identity 0.8; cross-vocabulary same text → 0.7; both have
@@ -143,9 +145,11 @@ threshold is reached.
 
 ## Known boundaries
 
-- **PptxAuditAdapter has no font-size / color evidence**: with only `pptx=` given, the hierarchy /
-  typography / color dimensions lack evidence → `insufficient_evidence`, not a false finding; pass
-  `measurements=` for a full assessment.
+- **PptxAuditAdapter enrichment boundary**: with only `pptx=` given, `_ShapeRecord` enrichment provides
+  font-size / font-family / foreground / background / opacity / fill_kind evidence (#128); but when most
+  runs inherit the theme font (no explicit size) coverage may stay low, so the hierarchy / typography /
+  color dimensions can still be `insufficient_evidence`, not a false finding; pass `measurements=` for
+  full pixel evidence.
 - **RenderedSlide (PNG / slides_dir pixel-level) analysis deferred to v0.12.1**: `build_scene(slides_dir=...)`
   explicitly rejects it (`InvalidArgumentError`).
 - **Unmatched elements in the dual-source merge**: audit decoration elements not modeled by measurements
