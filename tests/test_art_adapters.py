@@ -904,3 +904,25 @@ def test_element_field_roundtrip_and_merge_preserves_all_fields():
     assert merged.opacity == 0.5
     assert merged.decoded_width == 800.0 and merged.decoded_height == 600.0
     assert merged.fill_kind == "gradient"
+
+
+def test_measurement_adapter_fill_kind():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 400, "h": 300},
+                        "fill_kind": "gradient",
+                    },
+                    {"id": 2, "kind": "shape", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                ],
+            }
+        ]
+    }
+    els = MeasurementAdapter(raw).build().slides[0].elements
+    assert els[0].fill_kind == "gradient"
+    assert els[1].fill_kind is None

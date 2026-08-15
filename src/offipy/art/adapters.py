@@ -275,6 +275,7 @@ def _to_measurement_element(
         decoded_height=_opt_num(decoded_h),
         source="measurement",
         opacity=opacity,
+        fill_kind=(rec.get("fill_kind") or None),
     )
 
 

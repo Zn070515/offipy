@@ -59,6 +59,13 @@ def img_sizes(tmp_path_factory):
     return _measure("img_sizes_deck.html", tmp_path_factory)
 
 
+@pytest.fixture(scope="module")
+def gradient_shadow(tmp_path_factory):
+    # #140：渐变/阴影是 OOXML 不可表达的 CSS 装饰，必走 complexDecoration →
+    # deco_snapshot 光栅化层。audit 要识别这些「光栅化装饰」→ fill_kind 必须标记。
+    return _measure("gradient_shadow_deck.html", tmp_path_factory)
+
+
 def _records(deck, page):
     return deck["slides"][page]["records"]
 
@@ -227,3 +234,15 @@ def test_stale_screenshot_pruned(tmp_path):
         pytest.skip(f"Playwright/Chromium 不可用: {e}")
     assert not stale.exists(), "deck 缩短后的幽灵参考截图没有被清理"
     assert (shots / "slide_01.png").exists()
+
+
+def test_gradient_and_shadow_fill_kind_marked(gradient_shadow):
+    # #140：渐变/阴影必走 complexDecoration → deco_snapshot（kind 非 "shape"），
+    # 断言必须覆盖 deco_snapshot 记录，否则「未写进记录」会误绿。
+    kinds = {
+        r.get("fill_kind")
+        for r in _records(gradient_shadow, 0)
+        if r["kind"] in ("shape", "deco_snapshot")
+    }
+    assert "gradient" in kinds, f"渐变卡片未标记 fill_kind=gradient: {kinds}"
+    assert "shadow" in kinds, f"阴影卡片未标记 fill_kind=shadow: {kinds}"

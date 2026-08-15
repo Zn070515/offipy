@@ -123,6 +123,13 @@ EXTRACT_JS = r"""
     borderRadius: s.borderTopLeftRadius,
     opacity: s.opacity,
   });
+  const fillKindFromStyle = (s) => {
+    const bgImg = s.backgroundImage || '';
+    if (bgImg !== 'none' && bgImg.indexOf('gradient') !== -1) return 'gradient';
+    if (bgImg !== 'none') return 'image';       // background url 图
+    if (s.boxShadow && s.boxShadow !== 'none') return 'shadow';
+    return 'solid';
+  };
   // svg / img 等元素即便不是 HTML 块级，也要阻断 text-leaf 判定，
   // 否则容器里同时存在 <svg> 与 <span> 文本时,会被错误地当作纯文本叶子整体吞掉。
   // flex/grid 容器 + spacing 类 justify-content + 2+ 子 = "布局拉开"模式：
@@ -577,6 +584,7 @@ EXTRACT_JS = r"""
           rect: rectRel(r),
           naturalSize: { w: el.offsetWidth, h: el.offsetHeight },
           rotation: cumulativeRotation(el),
+          fill_kind: fillKindFromStyle(s),
           marker,
           screenshotClip: {
             x: r.left,
@@ -689,6 +697,7 @@ EXTRACT_JS = r"""
         // 元素未旋转的尺寸（不含 transform 效果），用于旋转还原
         naturalSize: { w: el.offsetWidth, h: el.offsetHeight },
         rotation: rotDeg,
+        fill_kind: fillKindFromStyle(s),
         deco: decoFromStyle(s, hasBg, bg, borderTop, borderBottom, borderLeft, borderRight),
       });
     }
@@ -815,6 +824,7 @@ EXTRACT_JS = r"""
             rect: rectRel(aR),
             naturalSize: { w: atomicEl.offsetWidth, h: atomicEl.offsetHeight },
             rotation: cumulativeRotation(atomicEl),
+            fill_kind: fillKindFromStyle(aS),
             marker,
             screenshotClip: { x: aR.left, y: aR.top, w: aR.width, h: aR.height },
           });
