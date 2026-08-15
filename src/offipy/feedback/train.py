@@ -14,7 +14,7 @@ import numpy as np
 from offipy.art.features_registry import feature_schema_version
 from offipy.art.feedback import load_records
 
-from .mlp import SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
+from .mlp import MLP, SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
 from .pairs import build_pairs, per_rule_diagnosis, valid_records
 from .preprocess import fit_preprocessing, transform_features
@@ -23,6 +23,8 @@ from .validation import repeated_stratified_cv
 from .vector import encode_vector
 
 _MIN_PAIRS = 50
+# #122 A6：ensemble member 数——多 seed 训练取平均降方差，member 之间只 seed 不同。
+K = 5
 # #112：判别力门禁阈值——训练后模型对全量样本输出的 worth 标准差低于该值视为
 # 坍缩成常数（ReLU 全死 / 退化），是坏模型，拒绝写盘。
 MIN_OUTPUT_STD = 1e-6
@@ -65,8 +67,12 @@ def run_training(
     n = len(valid)
     hidden_dims = adaptive_hidden_dims(n)
     capacity = capacity_report(n, input_dim, hidden_dims)
+    # #122 A6：ensemble K 个 member（只 seed 不同）——多起点平均降方差。
+    # seed 用 run_training 的 seed 参数（不是硬编码 SEED），保持 seed 参数有意义。
+    seeds = [seed + i for i in range(K)]
+    members: list[tuple[int, MLP]] = []
     try:
-        mlp = train_mlp(X_fixed, X_accepted, hidden_dims, seed=seed)
+        members = [(s, train_mlp(X_fixed, X_accepted, hidden_dims, seed=s)) for s in seeds]
     except TrainingDiverged:
         # #112：数值爆炸（loss=inf/nan）→ 不写模型，返回状态
         return {
@@ -75,9 +81,13 @@ def run_training(
             "pairs": len(pairs),
             "samples": len(valid),
         }
-    # #112：判别力门禁——常数输出（ReLU 全死/退化）是坏模型，拒绝写
-    outputs = np.concatenate([mlp.predict_batch(X_fixed), mlp.predict_batch(X_accepted)])
-    output_std = float(outputs.std())
+    # #112 判别力门禁 + #122 A6 校准：全 member 对全量样本的 worth。
+    # member_means = 每样本的 ensemble 均值（axis=1 跨 K member 平均；不是 axis=0 跨
+    # fixed/accepted 条件平均——那样对称训练下固定+可接受相互抵消，std≈0 误报坍缩）。
+    all_wf = np.array([m.predict_batch(X_fixed) for _, m in members])  # (K, n_pairs, 1)
+    all_wa = np.array([m.predict_batch(X_accepted) for _, m in members])
+    member_means = np.concatenate([all_wf, all_wa], axis=1).mean(axis=0)  # (2*n_pairs, 1)
+    output_std = float(member_means.std())
     if output_std < MIN_OUTPUT_STD:
         return {
             "trained": False,
@@ -86,12 +96,24 @@ def run_training(
             "samples": len(valid),
             "output_std": round(output_std, 6),
         }
+    # #122 A6：校准 + abstain（#112 gate 之后、写盘之前）。
+    # worth_scale 用训练分布的 worth 幅值（std）——quality_score sigmoid 前的归一。
+    worth_scale = float(member_means.std()) or 1.0
+    # 跨 member 的 |worth| 离散度：member 间分歧大（std 高）→ 该样本不确定 → abstain。
+    abs_w = np.abs(np.concatenate([all_wf, all_wa], axis=1))  # (K, 2*n_pairs, 1)
+    stds = abs_w.std(axis=0)
+    abstain = {
+        "worth_margin_p25": float(np.percentile(np.abs(member_means), 25)),
+        "std_p80": float(np.percentile(stds, 80)),
+    }
     rules_with_pairs = len({f.rule_id for f, _ in pairs})
     stats = {
         "pairs": len(pairs),
         "samples": len(valid),
         "rules_with_pairs": rules_with_pairs,
         "capacity": capacity,
+        "ensemble_size": K,
+        "calibration": {"worth_scale": worth_scale},
     }
     if capacity["level"] != "ok":
         stats["capacity_warning"] = True  # soft：只记录，不拒绝写盘
@@ -103,14 +125,14 @@ def run_training(
     stats["poor_generalization"] = poor_generalization
     path = model_file(dir_path)
     save_model(
-        members=[(seed, mlp)],
+        members=members,
         input_schema_version=feature_schema_version(),
         output_schema_version=OUTPUT_SCHEMA_VERSION,
         seed=seed,
         stats=stats,
         preprocessing=pre,
-        calibration={"worth_scale": 1.0},  # A6: 填真值
-        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},  # A6: 填真值
+        calibration={"worth_scale": worth_scale},
+        abstain=abstain,
         path=path,
     )
     return {"trained": True, **stats, "model": str(path)}

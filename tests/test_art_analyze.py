@@ -7,6 +7,7 @@ import pytest
 from art_helpers import make_scene, make_slide, make_text_element
 from offipy.art.adapters import build_scene
 from offipy.art.analyze import analyze_deck, analyze_scene
+from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.feedback import ART_FEEDBACK_FILE, append, apply_feedback
 from offipy.art.profiles import (
     RULE_CORNER_CLUSTER,
@@ -16,8 +17,36 @@ from offipy.art.profiles import (
 )
 from offipy.audit import Severity
 from offipy.exceptions import InvalidArgumentError
+from offipy.feedback.mlp import MLP
+from offipy.feedback.model import model_file, save_model
 
 FIXTURES = Path(__file__).parent / "fixtures" / "art"
+
+
+def _write_learning_model(tmp_path, *, abstain=None):
+    """写 v2 学习模型：恒等预处理 + worth_scale=1.0 + abstain 关。
+
+    - worth_scale=1.0 是关键——experimental_score == 73.1 依赖它（fake worth=-0.5 →
+      quality_score = round(100/(1+exp(-1.0)),1) = 73.1）。
+    - 缺省 abstain={"worth_margin_p25": 0.0, "std_p80": 1e9}：margin=0 → 近零 abstain
+      恒不触发；std_p80=1e9 使「member 分歧」abstain 恒不触发（真实 std 远小于 1e9）——
+      测试隔离 shift pass。abstain 覆盖用于显式的 abstain 行为测试。
+    - 脆弱性：identity pre 使 should_abstain 的 std 分支基于真实 member 分歧、且
+      ood_flagged 的 ±3/±5 阈值作用于「原始特征值」而非 z 分——fixture 必须保持所有
+      特征 ≤5，否则 ood_flagged 会静默吞掉 shift 断言。
+    """
+    n = len(feature_keys())
+    return save_model(
+        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
+        input_schema_version=feature_schema_version(),
+        output_schema_version="1",
+        seed=0,
+        stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain=abstain if abstain is not None else {"worth_margin_p25": 0.0, "std_p80": 1e9},
+        path=model_file(tmp_path),
+    )
 
 
 def _build_scene():
@@ -450,8 +479,6 @@ def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
     """有有效模型 + 证据充分规则 → severity_shift 生效；override 的跳过。"""
     from offipy.art import features_registry
     from offipy.feedback import infer
-    from offipy.feedback.mlp import MLP
-    from offipy.feedback.model import model_file, save_model
 
     # #111：corner_cluster ≥ MIN_LABELS_PER_RULE(3) 标签 → 有证据才 shift
     for _ in range(3):
@@ -465,19 +492,7 @@ def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
             feedback_dir=tmp_path,
         )
 
-    n = len(features_registry.feature_keys())
-    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
-    save_model(
-        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
-        input_schema_version=features_registry.feature_schema_version(),
-        output_schema_version="1",
-        seed=0,
-        stats={},
-        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
-        calibration={"worth_scale": 1.0},
-        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
-        path=model_file(tmp_path),
-    )
+    _write_learning_model(tmp_path)
 
     # 确定性：monkeypatch model_worth 让 corner_cluster finding 命中 +0.8
     def fake_worth(features, mlp=None):
@@ -498,8 +513,6 @@ def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
     """#111：0 标签规则即使 worth 高也不 shift（跨规则泛化限于有证据的规则）。"""
     from offipy.art import features_registry
     from offipy.feedback import infer
-    from offipy.feedback.mlp import MLP
-    from offipy.feedback.model import model_file, save_model
 
     for _ in range(3):
         append(
@@ -511,19 +524,7 @@ def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
             feature_schema_version=features_registry.feature_schema_version(),
             feedback_dir=tmp_path,
         )
-    n = len(features_registry.feature_keys())
-    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
-    save_model(
-        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
-        input_schema_version=features_registry.feature_schema_version(),
-        output_schema_version="1",
-        seed=0,
-        stats={},
-        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
-        calibration={"worth_scale": 1.0},
-        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
-        path=model_file(tmp_path),
-    )
+    _write_learning_model(tmp_path)
     monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.8)
 
     raw = (FIXTURES / "real_measurements.json").read_text(encoding="utf-8")
@@ -548,8 +549,6 @@ def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
 def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
     from offipy.art import features_registry
     from offipy.feedback import infer
-    from offipy.feedback.mlp import MLP
-    from offipy.feedback.model import model_file, save_model
 
     # #111：≥ MIN_LABELS_PER_RULE(3) 标签，学习 pass 才有可 shift 的 finding → 分数可算
     for _ in range(3):
@@ -563,19 +562,7 @@ def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
             feedback_dir=tmp_path,
         )
 
-    n = len(features_registry.feature_keys())
-    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
-    save_model(
-        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
-        input_schema_version=features_registry.feature_schema_version(),
-        output_schema_version="1",
-        seed=0,
-        stats={},
-        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
-        calibration={"worth_scale": 1.0},
-        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
-        path=model_file(tmp_path),
-    )
+    _write_learning_model(tmp_path)
     monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)  # 可接受 → 高分
     report = analyze_scene(
         _build_scene(),
@@ -589,23 +576,7 @@ def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
 
 def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
     """损坏但 schema 匹配的 model.json → analyze_scene 不抛异常，回退 v2。"""
-    from offipy.art import features_registry
-    from offipy.feedback.mlp import MLP
-    from offipy.feedback.model import model_file, save_model
-
-    n = len(features_registry.feature_keys())
-    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
-    save_model(
-        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
-        input_schema_version=features_registry.feature_schema_version(),
-        output_schema_version="1",
-        seed=0,
-        stats={},
-        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
-        calibration={"worth_scale": 1.0},
-        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
-        path=model_file(tmp_path),
-    )
+    _write_learning_model(tmp_path)
     p = model_file(tmp_path)
     data = json.loads(p.read_text(encoding="utf-8"))
     data["members"][0]["hidden_dims"] = [8]  # 形状不一致 → weights_from_dict 抛 ValueError
@@ -618,6 +589,37 @@ def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
     assert f is not None
     assert f.severity == Severity.MID  # v2 回退：apply_feedback 后仍是 MID
     assert f.severity_override_source == "feedback"
+
+
+def test_analyze_abstain_skips_severity_shift(monkeypatch, tmp_path):
+    """#122：abstain 阈值真生效——模型不确定（|worth| 低于 margin）→ 不 shift。
+
+    fake_worth 返回 0.8（本应 LOW→MID），但 margin_p25=100.0 让 should_abstain 恒 True，
+    finding 在 model_worth 之前被拦下 → severity 不动。
+    """
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    # std_p80=1e9：隔离 std 分歧分支，只测 margin 路径（|worth| 恒 < 100 → abstain）
+    _write_learning_model(tmp_path, abstain={"worth_margin_p25": 100.0, "std_p80": 1e9})
+    # 隔离 severity_shift pass：rule.delta head（learned_adjustments）返回空 → 不预先升一级
+    monkeypatch.setattr(infer, "learned_adjustments", lambda *a, **k: {})
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.8)  # 高 worth 本应 shift
+    report = analyze_scene(_build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path)
+    f = _finding(report, RULE_CORNER_CLUSTER)
+    assert f is not None
+    assert f.severity == Severity.LOW  # abstain：未 shift
+    assert f.severity_override is False
 
 
 def test_analyze_scene_feedback_requires_dir():

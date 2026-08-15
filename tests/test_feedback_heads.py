@@ -44,6 +44,19 @@ def test_quality_score_range_and_direction():
     assert math.isclose(good, round(100.0 / (1.0 + math.exp(-2.0)), 1), rel_tol=1e-6)
 
 
+def test_quality_score_worth_scale_normalizes_saturation():
+    # scale=1 与 scale=2 在 worth=0 都是 50（中心不变）
+    assert quality_score_from_worth(0.0) == 50.0
+    assert quality_score_from_worth(0.0, worth_scale=2.0) == 50.0
+    # 拉伸 scale 缓解饱和：同一高 worth，scale 越大 → 归一越小 → 分数越高（单调）
+    assert quality_score_from_worth(2.0, worth_scale=10.0) > quality_score_from_worth(
+        2.0, worth_scale=1.0
+    )
+    # 非法 scale 防御性回退 1.0
+    assert quality_score_from_worth(1.0, worth_scale=0) == quality_score_from_worth(1.0)
+    assert quality_score_from_worth(1.0, worth_scale=-3.0) == quality_score_from_worth(1.0)
+
+
 def test_outputs_registry_has_all_rules_and_three_heads():
     assert OUTPUT_SCHEMA_VERSION == "1"
     for rule_id in ALL_RULES:
