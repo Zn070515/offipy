@@ -2,7 +2,6 @@
 
 from unittest import mock
 
-from offipy.art import append as art_append
 from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.profiles import (
     RULE_LOW_CONTRAST,
@@ -30,19 +29,6 @@ def _write_model(tmp_path):
         stats={},
         path=model_file(tmp_path),
     )
-
-
-def _add(tmp_path, rule_id, action, n, **feat):
-    for _ in range(n):
-        art_append(
-            "balanced",
-            rule_id,
-            action,
-            Severity.MID,
-            feedback_dir=tmp_path,
-            features=feat or {"finding.confidence": 0.5},
-            feature_schema_version=feature_schema_version(),
-        )
 
 
 def test_no_model_returns_none(tmp_path):

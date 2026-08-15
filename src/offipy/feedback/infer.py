@@ -50,7 +50,13 @@ def model_worth(features: dict[str, float], mlp: MLP | None = None) -> float:
 def learned_adjustments(
     profile: str, *, feedback_dir: str | Path | None = None
 ) -> dict[str, int] | None:
-    """rule.delta head：历史记录 → {rule_id: ±1}。无有效模型 → None（冷启动 v2）。"""
+    """rule.delta head：历史记录 → {rule_id: ±1}。
+
+    返回值契约（analyze.py 消费方必须区分）：
+    - None：无有效模型（缺失/过期/损坏）→ 冷启动回退 v2 的 recommend_adjustments。
+    - {}：有有效模型但该 profile 无量化 delta（无记录，或均值量化后全为 0）→
+      模型判断「无调整」，应视为权威空结果，不回退 v2。
+    """
     loaded = _load_valid_model(feedback_dir)
     if loaded is None:
         return None
