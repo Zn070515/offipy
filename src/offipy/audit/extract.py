@@ -448,7 +448,11 @@ def _read_chart_text(shape: object) -> str:
                 parts.append(name)
         with suppress(Exception):
             parts.extend(str(cat) for cat in list(plot.categories))
-    for axis in (chart.category_axis, chart.value_axis):
+    for attr in ("category_axis", "value_axis"):
+        try:
+            axis = getattr(chart, attr)
+        except Exception:
+            continue
         try:
             title = axis.axis_title.text_frame.text
         except Exception:

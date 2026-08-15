@@ -166,6 +166,20 @@ def test_chart_text_extracted(tmp_path):
     assert "系列" in rec.text and "甲" in rec.text and "乙" in rec.text
 
 
+def test_chart_text_extracted_pie_no_category_axis(tmp_path):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    cd = CategoryChartData()
+    cd.categories = ["甲", "乙"]
+    cd.add_series("饼图系列", (1, 2))
+    slide.shapes.add_chart(XL_CHART_TYPE.PIE, Inches(1), Inches(1), Inches(3), Inches(2), cd)
+    ext = _make_extract(tmp_path, prs)
+    recs = [s for s in ext.slides[0].shapes if s.shape_type == "CHART"]
+    assert len(recs) == 1  # 饼图（无类别轴）不被误删
+    assert "饼图系列" in recs[0].text
+    assert not ext.warnings
+
+
 # ---------------------------------------------------------------- 顶层 shape
 
 
