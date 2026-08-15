@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from .models import ArtFinding, ArtScene, ArtSlide
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
 
 # 已知 slide role 集合：直接共享 features.py 的单一事实来源（_KNOWN_SLIDE_ROLES），
 # 不手抄副本——features.py 增删 role 时此处自动跟随，避免未知 role 静默坍缩成错误桶。
@@ -128,6 +128,7 @@ _MEASUREMENT_SPECS: list[FeatureSpec] = [
     _measurement("art.composition.spacing_drift", "horizontal", nested="max_drift_ratio"),
     _measurement("art.composition.spacing_drift", "vertical", nested="max_drift_ratio"),
     _measurement("art.composition.background_like_area", "background_like_ratio"),
+    _measurement("art.media.tiny_image", "area_ratio"),
 ]
 
 

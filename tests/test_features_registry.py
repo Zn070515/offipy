@@ -11,7 +11,7 @@ from offipy.art.profiles import (
 )
 from offipy.audit import Severity
 
-INPUT_DIM = 59  # 锁定的输入维度：17 rule + 6 dim + 18 measure + 4 scalar + 8 slide + 2 deck
+INPUT_DIM = 60  # 锁定的输入维度：17 rule + 6 dim + 19 measure + 4 scalar + 8 slide + 6 deck
 
 
 def _finding(**kw):
@@ -71,10 +71,14 @@ def _real_slide():
     return ArtSlide(index=2, width=1920.0, height=1080.0, elements=[title, *bodies])
 
 
-def test_feature_keys_dimension_is_59():
+def test_feature_keys_dimension_is_60():
     keys = feature_keys()
-    assert len(keys) == INPUT_DIM == 59
+    assert len(keys) == INPUT_DIM == 60
     assert len(set(keys)) == len(keys)  # 无重复
+
+
+def test_feature_key_media_tiny_image_area_ratio():
+    assert "measure.art.media.tiny_image.area_ratio" in feature_keys()
 
 
 def test_encode_flat_scalar_dict_all_keys_present():
@@ -138,7 +142,7 @@ def test_page_ratio_positive_path():
 
 
 def test_schema_version_constant():
-    assert feature_schema_version() == "1"
+    assert feature_schema_version() == "2"
 
 
 def test_slide_feature_scalarizers():
@@ -224,7 +228,7 @@ def test_feature_keys_layout_tripwire():
     from offipy.art.features_registry import _SLIDE_ROLE_ORDER, _SLIDE_ROLE_OTHER
 
     # page_signature 的序号映射也一并钉死：features.py 的 _KNOWN_SLIDE_ROLES 增删
-    # role 时 59 键不变但数值含义漂移，这里必须显式换代（tests/** 的 SLF001 已放行）
+    # role 时键布局不变但数值含义漂移，这里必须显式换代（tests/** 的 SLF001 已放行）
     assert _SLIDE_ROLE_ORDER == ("closing", "content", "cover", "data", "gallery", "section")
     assert _SLIDE_ROLE_OTHER == 6.0
     # 布局黄金快照：任何 key 增删/重排/大小写变化都会触发失败，
@@ -279,6 +283,7 @@ def test_feature_keys_layout_tripwire():
         "measure.art.media.distorted_image.natural_ratio",
         "measure.art.media.distorted_image.physical_ratio",
         "measure.art.media.mixed_image_sizes.spread",
+        "measure.art.media.tiny_image.area_ratio",
         "measure.art.typography.flat_scale.ratio",
         "measure.art.typography.many_families.families",
         "slide.alignment",
@@ -290,4 +295,4 @@ def test_feature_keys_layout_tripwire():
         "slide.palette",
         "slide.spacing",
     )
-    assert feature_schema_version() == "1"
+    assert feature_schema_version() == "2"
