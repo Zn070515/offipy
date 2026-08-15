@@ -151,7 +151,12 @@ def append(
     features: dict[str, float] | None = None,
     feature_schema_version: str | None = None,
 ) -> Path:
-    """追加一条规则级反馈记录，返回记录文件路径。目录不存在则创建。"""
+    """追加一条规则级反馈记录，返回记录文件路径。目录不存在则创建。
+
+    features 须为扁平标量 dict（{feature_id: float}），需可 JSON 序列化——
+    仅由 encode_features 产出，不要传入 numpy 标量等非原生类型（会炸 json.dumps）。
+    feature_schema_version 记录该快照对应的 FEATURES schema 版本。
+    """
     _validate(profile, rule_id, action, severity, slide_index)
     rec = ArtFeedbackRecord(
         ts=ts or datetime.now(timezone.utc).isoformat(timespec="seconds"),

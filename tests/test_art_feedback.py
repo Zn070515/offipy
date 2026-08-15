@@ -377,7 +377,7 @@ def test_record_file_default_location():
 
 
 def test_record_features_roundtrip(tmp_path):
-    path = append(
+    _ = append(
         "balanced",
         RULE_TITLE_TOO_SMALL,
         "fixed",
@@ -420,6 +420,38 @@ def test_to_dict_includes_features_when_set():
     d = rec.to_dict()
     assert d["features"] == {"slide.mass": 2.0}
     assert d["feature_schema_version"] == "1"
+
+
+def test_to_dict_sparse_keys_independent():
+    # 有 features 但无 feature_schema_version：只序列化 features 键
+    rec = ArtFeedbackRecord(
+        ts="2026-01-01T00:00:00+00:00",
+        profile="balanced",
+        rule_id=RULE_TITLE_TOO_SMALL,
+        dimension="hierarchy",
+        severity=Severity.MID,
+        action="fixed",
+        features={"a": 1.0},
+        feature_schema_version=None,
+    )
+    d = rec.to_dict()
+    assert "features" in d
+    assert "feature_schema_version" not in d
+
+    # 反向：无 features 但有 feature_schema_version：只序列化后者
+    rec = ArtFeedbackRecord(
+        ts="2026-01-01T00:00:00+00:00",
+        profile="balanced",
+        rule_id=RULE_TITLE_TOO_SMALL,
+        dimension="hierarchy",
+        severity=Severity.MID,
+        action="fixed",
+        features=None,
+        feature_schema_version="1",
+    )
+    d = rec.to_dict()
+    assert "features" not in d
+    assert "feature_schema_version" in d
 
 
 def test_old_record_without_features_loads_as_none(tmp_path):
