@@ -320,7 +320,9 @@ class PptxAuditAdapter:
     """0.11 几何审计报告（PptxAuditReport）→ ArtScene。单位 pt（英寸×72）。
 
     rev2.1：只读 report.slide_size / slide_count / shapes（SlideShapeSnapshot）。
-    SlideShapeSnapshot.slide_index 已 1-based，不做 +1。无字号/颜色证据。
+    SlideShapeSnapshot.slide_index 已 1-based，不做 +1。
+    rev3（#128）：report.records 存在时经 _to_art_elements 富集字号/字体/前景/背景/
+    opacity/fill_kind；无 records 回退几何快照路径（无字号/颜色证据）。
     """
 
     def __init__(self, report: PptxAuditReport) -> None:
