@@ -16,7 +16,7 @@ from offipy.art.feedback import load_records
 
 from .mlp import SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
-from .pairs import build_pairs, valid_records
+from .pairs import build_pairs, per_rule_diagnosis, valid_records
 from .preprocess import fit_preprocessing, transform_features
 from .registry import OUTPUT_SCHEMA_VERSION
 from .validation import repeated_stratified_cv
@@ -53,6 +53,7 @@ def run_training(
             "reason": "insufficient_pairs",
             "pairs": len(pairs),
             "samples": len(valid),
+            "per_rule": per_rule_diagnosis(valid, min_pairs),
         }
     # 预处理在独立样本上拟合（零方差 drop + 高相关去重 + z-score），配对与推理共享
     pre = fit_preprocessing(X_raw)

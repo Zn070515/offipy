@@ -47,6 +47,24 @@ def test_empty_pairs_with_min_pairs_zero_reports_insufficient(tmp_path):
     assert not model_file(tmp_path).exists()
 
 
+def test_insufficient_pairs_includes_per_rule_diagnosis(tmp_path):
+    """insufficient_pairs 时带 per_rule 逐规则诊断（#117），key 完整、供用户行动。"""
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "fixed", 2)
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "accepted", 2)  # 4 pairs < _MIN_PAIRS
+    res = run_training(tmp_path)
+    assert res["trained"] is False
+    assert res["reason"] == "insufficient_pairs"
+    per_rule = res["per_rule"]
+    assert set(per_rule) == {RULE_TITLE_TOO_SMALL}
+    d = per_rule[RULE_TITLE_TOO_SMALL]
+    assert set(d) == {"fixed", "accepted", "pairs", "single_direction", "suggest"}
+    assert d["fixed"] == 2
+    assert d["accepted"] == 2
+    assert d["pairs"] == 4
+    assert d["single_direction"] is False
+    assert d["suggest"] > 0
+
+
 def test_no_valid_samples_reports_reason(tmp_path):
     art_append("balanced", RULE_TITLE_TOO_SMALL, "fixed", Severity.MID, feedback_dir=tmp_path)
     res = run_training(tmp_path)

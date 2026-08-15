@@ -8,6 +8,7 @@ feedback.infer 共用，避免消费方各自手抄过滤逻辑而漂移），�
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from offipy.art.features_registry import feature_schema_version
@@ -47,3 +48,49 @@ def build_pairs(
         accepted = [r for r in group if r.action == "accepted"]
         pairs.extend((f, a) for f in fixed for a in accepted)
     return pairs
+
+
+PER_RULE_MIN_BASE = 10
+
+
+def per_rule_diagnosis(
+    records: Iterable[ArtFeedbackRecord],
+    min_pairs: int,
+) -> dict[str, dict[str, int | bool]]:
+    """逐规则样本诊断：{fixed, accepted, pairs, single_direction, suggest}。
+
+    供 insufficient_pairs 分支给用户可行动建议。内部按 (rule_id, profile)
+    分组（与 build_pairs 一致），配对语义不虚报：跨 profile 的 fixed/accepted
+    不配对。每规则输出规则级总量 fixed/accepted、实际配对 pairs=Σ fixed_p×accepted_p
+    （== build_pairs 计数）、single_direction=(pairs==0)。per_rule_min =
+    max(ceil(min_pairs/n_rules), 10)；deficit 规则缺的样本数按
+    ceil(deficit/max(fixed,accepted)) 给 suggest（单方向时补另一侧）。"""
+    # (rule_id, profile) -> {fixed, accepted}；与 build_pairs 同键，配对语义一致
+    groups: dict[str, dict[str, dict[str, int]]] = {}
+    for rec in records:
+        if rec.action == "ignored":
+            continue
+        g = groups.setdefault(rec.rule_id, {}).setdefault(rec.profile, {"fixed": 0, "accepted": 0})
+        g[rec.action] += 1
+    if not groups:
+        return {}
+    per_rule_min = max(math.ceil(min_pairs / len(groups)), PER_RULE_MIN_BASE)
+    out: dict[str, dict[str, int | bool]] = {}
+    for rule_id, profiles in groups.items():
+        fixed = sum(g["fixed"] for g in profiles.values())
+        accepted = sum(g["accepted"] for g in profiles.values())
+        pairs = sum(g["fixed"] * g["accepted"] for g in profiles.values())
+        single_direction = pairs == 0
+        suggest = 0
+        if pairs < per_rule_min:
+            denom = max(fixed, accepted)
+            if denom:
+                suggest = math.ceil((per_rule_min - pairs) / denom)
+        out[rule_id] = {
+            "fixed": fixed,
+            "accepted": accepted,
+            "pairs": pairs,
+            "single_direction": single_direction,
+            "suggest": suggest,
+        }
+    return out
