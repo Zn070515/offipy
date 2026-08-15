@@ -121,6 +121,7 @@ EXTRACT_JS = r"""
     borderLeftWidth: parseFloat(s.borderLeftWidth) || 0,
     borderRightWidth: parseFloat(s.borderRightWidth) || 0,
     borderRadius: s.borderTopLeftRadius,
+    opacity: s.opacity,
   });
   // svg / img 等元素即便不是 HTML 块级，也要阻断 text-leaf 判定，
   // 否则容器里同时存在 <svg> 与 <span> 文本时,会被错误地当作纯文本叶子整体吞掉。

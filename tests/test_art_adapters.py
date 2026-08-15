@@ -11,8 +11,8 @@ from offipy.art.adapters import (
     _rgb_string_to_color,
     build_scene,
 )
-from offipy.art.merge import merge_scenes
-from offipy.art.models import ArtColor
+from offipy.art.merge import _merge_element, merge_scenes
+from offipy.art.models import ArtColor, _element_from_dict
 from offipy.exceptions import InvalidArgumentError
 
 FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures" / "art"
@@ -835,3 +835,72 @@ def test_measurement_adapter_decoded_missing_falls_back():
     el = MeasurementAdapter(raw).build().slides[0].elements[0]
     assert el.natural_width == 480.0
     assert el.decoded_width == 480.0  # 退回 naturalSize，不 None
+
+
+def test_measurement_adapter_opacity():
+    # #137：元素级 opacity 从 style / deco 携带到 ArtElement
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": 0, "y": 0, "w": 600, "h": 60},
+                        "style": {"fontSize": "52px", "color": "rgb(0,0,0)", "opacity": "0.5"},
+                        "runs": [],
+                    },
+                    {
+                        "id": 2,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                        "deco": {"hasBg": True, "bg": "rgb(255,0,0)", "opacity": "0.25"},
+                    },
+                ],
+            }
+        ]
+    }
+    els = MeasurementAdapter(raw).build().slides[0].elements
+    assert els[0].opacity == 0.5
+    assert els[1].opacity == 0.25  # deco 路径兜底
+
+
+def test_element_field_roundtrip_and_merge_preserves_all_fields():
+    # 维护面 4 处同步契约：to_dict/_element_from_dict round-trip 与 _merge_element 都不得丢字段
+    el = make_element(
+        "rt",
+        kind="image",
+        role="image",
+        x=0.1,
+        y=0.2,
+        w=0.3,
+        h=0.4,
+        slide_index=1,
+        opacity=0.5,
+        decoded_width=800.0,
+        decoded_height=600.0,
+        fill_kind="gradient",
+    )
+    rt = _element_from_dict(el.to_dict(), 1, 1080.0)
+    assert rt.opacity == 0.5
+    assert rt.decoded_width == 800.0 and rt.decoded_height == 600.0
+    assert rt.fill_kind == "gradient"
+
+    secondary = make_element(
+        "s",
+        kind="image",
+        role="image",
+        x=0.1,
+        y=0.2,
+        w=0.3,
+        h=0.4,
+        slide_index=1,
+    )
+    merged = _merge_element(el, secondary, 1.0)
+    assert merged.source == "merged"
+    assert merged.opacity == 0.5
+    assert merged.decoded_width == 800.0 and merged.decoded_height == 600.0
+    assert merged.fill_kind == "gradient"

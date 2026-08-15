@@ -249,6 +249,9 @@ def _to_measurement_element(
         font_size_unit = "unknown"
     has_bg = bool(deco.get("hasBg", False))
     background = _measurement_color(deco.get("bg"), warnings) if has_bg else None
+    opacity = _opt_num(style.get("opacity"))
+    if opacity is None:
+        opacity = _opt_num(deco.get("opacity"))
     return ArtElement(
         element_id=f"m{slide_index}-{rec.get('id')}",
         kind=kind,
@@ -271,6 +274,7 @@ def _to_measurement_element(
         decoded_width=_opt_num(decoded_w),
         decoded_height=_opt_num(decoded_h),
         source="measurement",
+        opacity=opacity,
     )
 
 

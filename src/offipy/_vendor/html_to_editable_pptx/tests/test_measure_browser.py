@@ -81,6 +81,16 @@ def test_fullpage_overlay_measured(deck):
     assert fullpage, "满页半透明遮罩没有产生 shape 记录"
 
 
+def test_fullpage_overlay_opacity_preserved(deck):
+    # #137：元素级 opacity 不再静默丢——满页半透明遮罩的 deco 必须带 opacity
+    overlay = [
+        r for r in _records(deck, 0)
+        if r["kind"] == "shape" and r["rect"]["w"] >= 1900 and r["rect"]["h"] >= 1060
+    ]
+    assert overlay, "满页半透明遮罩没有产生 shape 记录"
+    assert any("opacity" in r.get("deco", {}) for r in overlay), "遮罩透明度丢失"
+
+
 def test_empty_drawio_placeholder_measured(drawio_placeholder):
     # #94：空 div.drawio（无背景无边框）此前被装饰门跳过 → 「没测到容器」。
     # 修复后必须产生 shape 记录，几何与 fixture 显式尺寸一致，供注入定位。
