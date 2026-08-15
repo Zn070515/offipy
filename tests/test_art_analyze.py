@@ -428,3 +428,78 @@ def test_analyze_scene_corrupt_feedback_line_skipped(tmp_path):
     assert cc.severity == Severity.MID
     assert cc.severity_override is True
     assert cc.severity_override_source == "feedback"
+
+
+# ---------------------------------------------------------------------------
+# v0.17 学习路径集成
+# ---------------------------------------------------------------------------
+
+
+def test_analyze_feedback_no_model_falls_back_to_v2(tmp_path):
+    # 无 model.json → 冷启动 = v2（recommend_adjustments 照旧）
+    for _ in range(3):
+        append("balanced", RULE_CORNER_CLUSTER, "fixed", Severity.MID, feedback_dir=tmp_path)
+    report = analyze_scene(_build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path)
+    f = _finding(report, RULE_CORNER_CLUSTER)
+    assert f is not None
+    assert f.severity == Severity.MID
+    assert f.severity_override_source == "feedback"
+
+
+def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
+    """有有效模型 → rule-computed finding 被 severity_shift；override 的跳过。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+    from offipy.feedback.mlp import MLP
+    from offipy.feedback.model import model_file, save_model
+
+    save_model(
+        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        input_schema_version=features_registry.feature_schema_version(),
+        output_schema_version="1",
+        seed=0,
+        hidden_dims=(4,),
+        stats={},
+        path=model_file(tmp_path),
+    )
+
+    # 确定性：monkeypatch model_worth 让 corner_cluster finding 命中 +0.8
+    def fake_worth(features, mlp=None):
+        if features.get("finding.rule_id.art.composition.corner_cluster") == 1.0:
+            return 0.8
+        return 0.0
+
+    monkeypatch.setattr(infer, "model_worth", fake_worth)
+    report = analyze_scene(_build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path)
+    f = _finding(report, RULE_CORNER_CLUSTER)
+    assert f is not None
+    # 基线 corner_cluster = LOW；+0.8 → round(1+0.8)=2 → MID（未被 override，shift 生效）
+    assert f.severity == Severity.MID
+    assert f.severity_override is False  # severity_shift 不标 override
+
+
+def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+    from offipy.feedback.mlp import MLP
+    from offipy.feedback.model import model_file, save_model
+
+    save_model(
+        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        input_schema_version=features_registry.feature_schema_version(),
+        output_schema_version="1",
+        seed=0,
+        hidden_dims=(4,),
+        stats={},
+        path=model_file(tmp_path),
+    )
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)  # 可接受 → 高分
+    report = analyze_scene(
+        _build_scene(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    assert report.experimental_score is not None
+    assert 0.0 <= report.experimental_score <= 100.0
