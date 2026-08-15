@@ -38,6 +38,8 @@ jobs:
         run: uv run pytest tests -m "not com and not deck_render" --cov=offipy --cov-fail-under=88 -q
       - name: Art layer pure import gate（无 c-ext / 无 python-pptx）
         run: uv run python -c "import offipy; offipy.build_scene; offipy.analyze_scene; print('art pure ok')"
+      - name: Docs build (mkdocs --strict)
+        run: uv run mkdocs build --strict
 
   # 最新依赖门禁（P1-6）：锁文件测试一条（windows/pure-module）之外，另起一条
   # `uv sync --upgrade` 解析到依赖上限内的最新版本跑纯模块子集——范围锁死不掩盖
