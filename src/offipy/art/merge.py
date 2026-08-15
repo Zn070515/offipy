@@ -6,6 +6,9 @@ rev2.2：双源 role 词表不一致（measurement title/body/subtitle ↔ audit
 content/footer）导致 100% 未匹配。匹配改为文本强佐证 + 几何兜底，role 作
 软信号：归一 role 相同且文本相同 → 身份 0.8；文本相同（跨词表 role）→ 0.7；
 双方都有文本但不同 → 不合并；至少一边无文本 → 几何 + role 加分。
+rev2.3（#142）：measurement 为主、pptx 补缺——primary 缺字段（None / 空文本）
+时用 secondary 补齐，避免合并场景因缺测量证据丢视觉线索；font_size 三元组
+（size/unit/norm）必须同源补齐，防止 px/pt 混用。
 """
 
 from __future__ import annotations
@@ -66,13 +69,44 @@ def _match_confidence(primary_el: ArtElement, secondary_el: ArtElement) -> float
 def _merge_element(
     primary_el: ArtElement, secondary_el: ArtElement | None, confidence: float | None
 ) -> ArtElement:
-    """重建新元素（ArtElement frozen）：source/evidence 写入新实例。"""
+    """重建新元素（ArtElement frozen）：source/evidence 写入新实例。
+
+    rev2.3（#142）：measurement 为主、pptx 补缺——primary 缺字段（None / 空文本）
+    时用 secondary 补；font_size 三元组（size/unit/norm）必须同源补齐，防止
+    px/pt 混用；几何/kind/role/slide_index/runs/is_background/container/decoration
+    等结构字段一律保持 primary。
+    """
     evidence: dict[str, Any] = {"measurement": _snapshot(primary_el)}
     source = "measurement"
     if secondary_el is not None:
         evidence["pptx"] = _snapshot(secondary_el)
         evidence["match_confidence"] = confidence
         source = "merged"
+
+    def _pick(p_val: Any, s_val: Any) -> Any:
+        """primary 缺（None）→ secondary 补；否则保持 primary。"""
+        return p_val if p_val is not None else s_val
+
+    s = secondary_el
+    # mypy：if 分支把 font_size 收窄为 float，else 分支回 None，需显式标注联合类型
+    font_size: float | None
+    font_size_unit: str
+    font_size_norm: float | None
+    if primary_el.font_size is not None:
+        font_size = primary_el.font_size
+        font_size_unit = primary_el.font_size_unit
+        font_size_norm = primary_el.font_size_norm
+    else:
+        # unit 是 str 字段，无 secondary 时回退 "unknown"（ArtElement 默认值），
+        # 不能给 None（mypy strict + 输出契约都要求 str）。
+        font_size = s.font_size if s else None
+        font_size_unit = s.font_size_unit if s else "unknown"
+        font_size_norm = s.font_size_norm if s else None
+
+    p_text = primary_el.text or ""
+    s_text = (s.text if s else "") or ""
+    text = p_text if p_text.strip() else s_text
+
     return ArtElement(
         element_id=primary_el.element_id,
         kind=primary_el.kind,
@@ -82,25 +116,26 @@ def _merge_element(
         width=primary_el.width,
         height=primary_el.height,
         slide_index=primary_el.slide_index,
-        foreground=primary_el.foreground,
-        background=primary_el.background,
-        border=primary_el.border,
+        foreground=_pick(primary_el.foreground, s.foreground if s else None),
+        background=_pick(primary_el.background, s.background if s else None),
+        border=_pick(primary_el.border, s.border if s else None),
         is_background=primary_el.is_background,
-        text=primary_el.text,
-        font_size=primary_el.font_size,
-        font_size_unit=primary_el.font_size_unit,
-        font_size_norm=primary_el.font_size_norm,
+        text=text,
+        font_size=font_size,
+        font_size_unit=font_size_unit,
+        font_size_norm=font_size_norm,
         runs=primary_el.runs,
-        natural_width=primary_el.natural_width,
-        natural_height=primary_el.natural_height,
+        natural_width=_pick(primary_el.natural_width, s.natural_width if s else None),
+        natural_height=_pick(primary_el.natural_height, s.natural_height if s else None),
         source=source,
         evidence=evidence,
         container=primary_el.container,
         decoration=primary_el.decoration,
-        opacity=primary_el.opacity,
-        decoded_width=primary_el.decoded_width,
-        decoded_height=primary_el.decoded_height,
-        fill_kind=primary_el.fill_kind,
+        pixel_evidence=primary_el.pixel_evidence,  # 保持 primary（测量侧像素证据）
+        opacity=_pick(primary_el.opacity, s.opacity if s else None),
+        decoded_width=_pick(primary_el.decoded_width, s.decoded_width if s else None),
+        decoded_height=_pick(primary_el.decoded_height, s.decoded_height if s else None),
+        fill_kind=_pick(primary_el.fill_kind, s.fill_kind if s else None),
     )
 
 

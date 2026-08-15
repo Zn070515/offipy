@@ -254,6 +254,15 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
   决定可见性）。
 - **fill_kind 标记**（#140）：measurement 记录 `fill_kind`（`solid` / `gradient` / `shadow` /
   `image`），gradient / shadow 等光栅化装饰可被 audit 识别，不再误判为普通色块。
+- **SmartArt / 表格 / 图表文本（#124/#125）**：`audit_pptx` / `analyze_scene` 计入
+  SmartArt 内部节点、表格单元格、图表系列 / 类别 / 轴标题文本；图表系列显式色读入
+  `chart_series_colors`，chart graphicFrame 归入 `chart` kind
+- **图表框架透明度（#139）**：chart 框架填充读 `c:chartSpace/c:spPr`，noFill 透明
+  图表不再按整块不透明误报遮挡
+- **drawio 折线边（#123/#136）**：waypoint 折线边渲染为 freeform + noFill +
+  connector 标记，audit 识别为 `is_connector` 且透明不遮挡
+- **场景融合补缺（#142）**：合并时 primary 缺字段（None / 空文本）用 pptx 补齐，
+  字号三元组同源
 
 ## feedback 学习系统（v0.18）
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import zipfile
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _EMU_PER_INCH = 914400.0
+
+# SmartArt diagramData 相关命名空间（graphicData uri 判断 + part 内部节点/文本）
+_DIAGRAM_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+_DIAGRAM_DATA_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagramData"
+_DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+# drawio 折线边（waypoint polyline）渲染成 freeform 后打的 connector 标记。
+# 与 offipy/diagrams.py 的 _CONNECTOR_MARKER 保持一致（跨模块双常量，
+# 由 test_render_waypoint_edge_roundtrip_is_connector 回环测试强制同步——
+# 不跨模块 import，保证 audit 顶层零渲染层依赖）。
+_CONNECTOR_MARKER = "{http://offipy.dev/connector}connector"
 
 
 def _to_inches(value: Any) -> float | None:
@@ -148,6 +160,9 @@ class _ShapeRecord:
     # 继承 style，按不透明处理）。overlap 遮挡判定用——透明上层不遮挡下方内容。
     fill_kind: str = "unknown"
     fill_color: tuple[int, int, int, float] | None = None  # spPr solidFill 的 (r,g,b,a)
+    smartart_node_count: int | None = None  # SmartArt 含文本节点数；非 SmartArt = None
+    has_chart: bool = False  # graphicFrame 是否为图表（c:chart）
+    chart_series_colors: list[tuple[int, int, int]] | None = None  # c:ser 显式系列色
 
 
 @dataclass
@@ -268,7 +283,11 @@ def _build_record(
 
     shape_type = getattr(shape.shape_type, "name", None) or "UNKNOWN"  # type: ignore[attr-defined]
     is_group = shape.shape_type == MSO_SHAPE_TYPE.GROUP or shape._element.tag.endswith("}grpSp")  # type: ignore[attr-defined]
-    is_connector = shape.shape_type == MSO_SHAPE_TYPE.LINE or shape._element.tag.endswith("}cxnSp")  # type: ignore[attr-defined]
+    is_connector = (
+        shape.shape_type == MSO_SHAPE_TYPE.LINE  # type: ignore[attr-defined]
+        or shape._element.tag.endswith("}cxnSp")  # type: ignore[attr-defined]
+        or shape._element.get(_CONNECTOR_MARKER) == "1"  # type: ignore[attr-defined]  # 与 diagrams.py 标记同源
+    )
     is_hidden = bool(shape._element.xpath('.//p:cNvPr[@hidden="1" or @hidden="true"]'))  # type: ignore[attr-defined]
 
     image_sha256 = None
@@ -280,6 +299,20 @@ def _build_record(
 
     has_tf = bool(getattr(shape, "has_text_frame", False))
     tf = _read_text_frame(shape) if has_tf else None
+
+    has_table = bool(getattr(shape, "has_table", False))
+    has_chart = bool(getattr(shape, "has_chart", False))
+    smartart_node_count: int | None = None
+    text = tf.text if tf else ""
+    paragraphs = tf.paragraphs if tf else []
+    if has_table:
+        table_tf = _read_table_text(shape)
+        if table_tf is not None:
+            text, paragraphs = table_tf.text, table_tf.paragraphs
+    elif has_chart:
+        text = _read_chart_text(shape)
+    elif _is_smartart(shape):
+        smartart_node_count, text = _read_smartart(shape)
 
     placeholder_type = None
     if getattr(shape, "is_placeholder", False):
@@ -301,19 +334,21 @@ def _build_record(
         height=_to_inches(shape.height),  # type: ignore[attr-defined]
         rotation=float(shape.rotation or 0.0),  # type: ignore[attr-defined]
         z_order=z_order,
-        text=tf.text if tf else "",
+        text=text,
         has_text_frame=has_tf,
         word_wrap=tf.word_wrap if tf else None,
         autofit_mode=tf.autofit_mode if tf else "NONE",
         is_group=is_group,
         is_connector=is_connector,
         is_hidden=is_hidden,
-        has_table=bool(getattr(shape, "has_table", False)),
+        has_table=has_table,
+        has_chart=has_chart,
+        chart_series_colors=_read_chart_series_colors(shape) if has_chart else None,
         placeholder_type=placeholder_type,
         parent_shape_id=parent,
         group_path=group_path,
         transform=transform,
-        paragraphs=tf.paragraphs if tf else [],
+        paragraphs=paragraphs,
         tf_margin_left=tf.margin_left if tf else None,
         tf_margin_right=tf.margin_right if tf else None,
         tf_margin_top=tf.margin_top if tf else None,
@@ -322,7 +357,158 @@ def _build_record(
         autofit_norm_auto_fit=tf.autofit_norm_auto_fit if tf else False,
         autofit_sp_auto_fit=tf.autofit_sp_auto_fit if tf else False,
         image_sha256=image_sha256,
+        smartart_node_count=smartart_node_count,
     )
+
+
+def _is_smartart(shape: object) -> bool:
+    """是否 SmartArt graphicFrame：graphicData uri == diagram 命名空间。
+
+    `graphic`/`graphicData` 在 a:（drawingml）命名空间，不在 p:。
+    """
+    gd = shape._element.xpath("./a:graphic/a:graphicData")  # type: ignore[attr-defined]
+    return bool(gd) and gd[0].get("uri") == _DIAGRAM_NS
+
+
+def _read_smartart(shape: object) -> tuple[int | None, str]:
+    """SmartArt 节点数与文本：dgm:relIds@r:dm → diagramData part → dsp:pt / a:t。
+
+    节点数 = 含 dsp:t 子元素（有文本）的 dsp:pt 数——排除无文本根节点；
+    文本 = part 内全部 a:t（'\n' 连接）。解析失败 → (None, "")。
+    """
+    from lxml import etree
+    from pptx.oxml.ns import qn
+
+    try:
+        gd = shape._element.xpath("./a:graphic/a:graphicData")  # type: ignore[attr-defined]
+        if not gd:
+            return None, ""
+        relids = gd[0].find(f"{{{_DIAGRAM_NS}}}relIds")
+        if relids is None:
+            return None, ""
+        rid = relids.get(qn("r:dm"))
+        if not rid:
+            return None, ""
+        blob = shape.part.related_part(rid).blob  # type: ignore[attr-defined]
+        root = etree.fromstring(blob)
+    except Exception:
+        return None, ""
+    pts = root.findall(f".//{{{_DIAGRAM_DATA_NS}}}pt")
+    node_count = len([p for p in pts if p.find(f"{{{_DIAGRAM_DATA_NS}}}t") is not None])
+    texts = [t.text for t in root.findall(f".//{{{_DRAWINGML_NS}}}t") if t.text and t.text.strip()]
+    return node_count, "\n".join(texts)
+
+
+def _read_table_text(shape: object) -> _TextFrameData | None:
+    """表格文本：遍历单元格 text_frame 段落 → _Paragraph/_TextRun。
+
+    空表 / 解析失败 → None（text 保持默认 ""）。单元格文本可能带软换行，
+    按 '\n' 连接。
+    """
+    try:
+        table = shape.table  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    paragraphs: list[_Paragraph] = []
+    text_parts: list[str] = []
+    try:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.text_frame.paragraphs:
+                    runs = []
+                    for run in para.runs:
+                        font = run.font
+                        size = font.size.pt if font.size is not None else None
+                        runs.append(_TextRun(run.text, size, font.bold, font.name, _run_color(run)))
+                    paragraphs.append(_Paragraph(text=para.text, runs=runs))
+                    if para.text:
+                        text_parts.append(para.text)
+    except Exception:
+        return None
+    text = "\n".join(text_parts)
+    if not text:
+        return None
+    return _TextFrameData(
+        text=text,
+        paragraphs=paragraphs,
+        word_wrap=None,
+        autofit_mode="NONE",
+        margin_left=None,
+        margin_right=None,
+        margin_top=None,
+        margin_bottom=None,
+        autofit_font_scale=None,
+        autofit_norm_auto_fit=False,
+        autofit_sp_auto_fit=False,
+    )
+
+
+def _read_chart_text(shape: object) -> str:
+    """图表文本：系列名 + 类别 + 轴标题（'\n' 连接）。"""
+    try:
+        chart = shape.chart  # type: ignore[attr-defined]
+    except Exception:
+        return ""
+    parts: list[str] = []
+    for plot in chart.plots:
+        for series in plot.series:
+            try:
+                name = str(series.name)
+            except Exception:
+                name = ""
+            if name:
+                parts.append(name)
+        with suppress(Exception):
+            parts.extend(str(cat) for cat in list(plot.categories))
+    for attr in ("category_axis", "value_axis"):
+        try:
+            axis = getattr(chart, attr)
+        except Exception:
+            continue
+        try:
+            title = axis.axis_title.text_frame.text
+        except Exception:
+            title = ""
+        if title:
+            parts.append(title)
+    return "\n".join(p for p in parts if p and p.strip())
+
+
+def _read_chart_series_colors(
+    shape: object,
+) -> list[tuple[int, int, int]] | None:
+    """图表系列显式色：c:ser//a:srgbClr 的 (r,g,b)；无显式系列色 → None。"""
+    try:
+        chart = shape.chart  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    els = chart._chartSpace.xpath(".//c:ser//a:srgbClr")
+    if not els:
+        return None
+    out: list[tuple[int, int, int]] = []
+    for el in els:
+        v = el.get("val")
+        if v is None or len(v) != 6:
+            continue
+        try:
+            out.append((int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)))
+        except ValueError:
+            continue
+    return out or None
+
+
+def _chart_spPr(shape: object) -> list[Any]:
+    """chart graphicFrame 的 c:chartSpace/c:spPr（框架显式填充）。
+
+    graphicFrame 无 p:spPr；图表可见框架填充在 c:chartSpace/c:spPr。
+    """
+    if not getattr(shape, "has_chart", False):
+        return []
+    try:
+        els: list[Any] = shape.chart._chartSpace.xpath("./c:spPr")  # type: ignore[attr-defined]
+    except Exception:
+        return []
+    return els
 
 
 def _read_text_frame(shape: object) -> _TextFrameData:
@@ -423,6 +609,8 @@ def _read_fill(shape: object) -> str:
 
     spPr = shape._element.xpath("./p:spPr")  # type: ignore[attr-defined]
     if not spPr:
+        spPr = _chart_spPr(shape)  # chart graphicFrame：框架填充在 c:chartSpace/c:spPr
+    if not spPr:
         return "unknown"
     el = spPr[0]
     for tag, kind in (
@@ -476,6 +664,8 @@ def _read_fill_color(shape: object) -> tuple[int, int, int, float] | None:
     from pptx.oxml.ns import qn
 
     spPr = shape._element.xpath("./p:spPr")  # type: ignore[attr-defined]
+    if not spPr:
+        spPr = _chart_spPr(shape)  # chart graphicFrame：框架填充在 c:chartSpace/c:spPr
     if not spPr:
         return None
     solid = spPr[0].find(qn("a:solidFill"))

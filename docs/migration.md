@@ -1,3 +1,13 @@
+## [Unreleased]
+
+- **场景融合补缺（#142，行为变化）**：`merge_scenes` / `_merge_element` 现以
+  measurement 为主、pptx 补缺——primary 缺字段（None / 空文本）时用 secondary 补齐
+  （字号三元组同源，避免 px/pt 混用）。若测量源缺前景色 / 背景色 / 字号 / 透明度 /
+  fill_kind，合并结果现在会带上 pptx 审计提供的证据（`source="merged"` 语义不变）。
+  audit 侧图表框架透明度、drawio 折线边识别/透明为纯新增行为，无迁移动作。
+
+---
+
 ## v0.17.1 → v0.18.0
 
 0.18 是**纯新增 + 行为对齐**版本：不改任何既有 API / CLI 契约。唯一注意点是

@@ -38,6 +38,24 @@ def _add_picture(slide, x, y, w, h):
     return slide.shapes.add_picture(BytesIO(_PNG_1PX), Inches(x), Inches(y), Inches(w), Inches(h))
 
 
+def _add_chart(slide, x, y, cx, cy):
+    """添加一个框架 noFill 的透明图表（c:chartSpace/c:spPr/a:noFill）。"""
+    from lxml import etree
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.oxml.ns import qn
+
+    cd = CategoryChartData()
+    cd.categories = ["甲", "乙"]
+    cd.add_series("系列", (1, 2))
+    shape = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(x), Inches(y), Inches(cx), Inches(cy), cd
+    )
+    sp_pr = etree.SubElement(shape.chart._chartSpace, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    return shape
+
+
 def test_partial_overlap_mid(tmp_path):
     # A(2,2,4,2) 与 B(3,2,4,2)：交集 3×2，ratio=0.75 → MID partial
     prs = Presentation()
@@ -177,3 +195,16 @@ def test_empty_box_fully_covers_empty_box_no_covered(tmp_path):
     findings, suppressed, _ = _run(prs, tmp_path)
     assert findings == []
     assert suppressed == []
+
+
+def test_transparent_chart_frame_does_not_occlude(tmp_path):
+    # 透明图表框架（noFill）盖在有文字文本框上：透明不遮挡 → 无 covered_text，
+    # 进 transparent_overlay 抑制（#139 前 fill_kind=unknown 按不透明误报）。
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tb = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
+    tb.text = "下面有文字"
+    _add_chart(slide, 1.5, 1.2, 3.0, 1.6)  # 后加 → z_order 更高 → 上层
+    findings, suppressed, _ = _run(prs, tmp_path)
+    assert findings == []
+    assert any(s.reason == "transparent_overlay" for s in suppressed)
