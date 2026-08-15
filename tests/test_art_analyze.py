@@ -235,6 +235,20 @@ def test_analyze_deck_dual_source_no_double_audit(tmp_path, monkeypatch):
     assert calls["n"] == 1  # 只审计一次，build_scene 复用 report
 
 
+def test_analyze_deck_pptx_only_enriched_typography():
+    # #128：PPTX-only 路径经富集后，typography 维度带字号证据。
+    # synthetic.pptx 仅一个 run 有显式字号 → coverage≈0.083 < 0.5，status 仍
+    # insufficient_evidence，但 evidence_coverage 从旧快照路径的 0 变为 >0。
+    from offipy.art.analyze import analyze_deck
+
+    result = analyze_deck(pptx=str(FIXTURES.parent / "audit" / "synthetic.pptx"))
+    assert result.art is not None
+    assert result.art.slides
+    dim = result.art.slides[0].by_dimension("typography")
+    assert dim is not None, "typography 维度应存在"
+    assert dim.evidence_coverage > 0, "富集后 typography 应有字号证据（旧路径 coverage=0）"
+
+
 def test_analyze_deck_no_source_raises():
     with pytest.raises(InvalidArgumentError):
         analyze_deck()

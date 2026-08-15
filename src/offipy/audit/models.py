@@ -249,6 +249,9 @@ class PptxAuditReport:
     suppressed: list[SuppressedFinding] = field(default_factory=list)
     warnings: list[AuditWarning] = field(default_factory=list)
     shapes: list[SlideShapeSnapshot] = field(default_factory=list)
+    # #128 富集：extract_presentation 的 _ShapeRecord 原样携带（不进 to_dict 序列化，
+    # 仅供 PptxAuditAdapter 读取完整视觉证据；schemeClr 主题色不在此解析）
+    records: list[Any] | None = field(default=None, repr=False)
 
     @property
     def max_severity(self) -> Severity | None:

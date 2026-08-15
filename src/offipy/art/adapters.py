@@ -337,51 +337,76 @@ class PptxAuditAdapter:
         }
         warnings: list[ArtWarning] = []
         truncated: set[int] = set()
-        for snap in self._report.shapes:
-            index = snap.slide_index  # 已 1-based，不做 +1
-            if index < 1 or index > self._report.slide_count:
-                warnings.append(
-                    ArtWarning(
-                        code="art.adapter.index_out_of_range",
-                        message=f"shape slide_index {index} 超出 slide_count，跳过",
-                    )
-                )
-                continue
-            if snap.geometry_unknown or None in (snap.left, snap.top, snap.width, snap.height):
-                warnings.append(
-                    ArtWarning(
-                        code="art.adapter.geometry_unknown",
-                        message=f"shape {snap.shape_id} 无几何信息，跳过",
-                    )
-                )
-                continue
-            if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
-                if index not in truncated:
-                    truncated.add(index)
+        if self._report.records:
+            from offipy.audit.pptx import _to_art_elements
+
+            for el in _to_art_elements(self._report.records, self._report.slide_size):
+                index = el.slide_index
+                if index < 1 or index > self._report.slide_count:
                     warnings.append(
                         ArtWarning(
-                            code="art.adapter.elements_truncated",
-                            message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                            code="art.adapter.index_out_of_range",
+                            message=f"shape slide_index {index} 超出 slide_count，跳过",
                         )
                     )
-                continue
-            kind = _KIND_MAP.get(snap.shape_type.lower(), "shape")
-            if snap.shape_type.lower() in ("picture", "photo"):
-                kind = "image"
-            el = ArtElement(
-                element_id=f"pptx-{index}-{snap.shape_id}",
-                kind=kind,
-                role=snap.role or "shape",
-                # 上面的守卫已排除 None（geometry_unknown / None in (...)），这里显式收窄
-                x=(cast("float", snap.left) * 72.0) / width,
-                y=(cast("float", snap.top) * 72.0) / height,
-                width=(cast("float", snap.width) * 72.0) / width,
-                height=(cast("float", snap.height) * 72.0) / height,
-                slide_index=index,
-                text=snap.text or "",
-                source="pptx",
-            )
-            slides[index].elements.append(el)
+                    continue
+                if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
+                    if index not in truncated:
+                        truncated.add(index)
+                        warnings.append(
+                            ArtWarning(
+                                code="art.adapter.elements_truncated",
+                                message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                            )
+                        )
+                    continue
+                slides[index].elements.append(el)
+        else:
+            for snap in self._report.shapes:
+                index = snap.slide_index  # 已 1-based，不做 +1
+                if index < 1 or index > self._report.slide_count:
+                    warnings.append(
+                        ArtWarning(
+                            code="art.adapter.index_out_of_range",
+                            message=f"shape slide_index {index} 超出 slide_count，跳过",
+                        )
+                    )
+                    continue
+                if snap.geometry_unknown or None in (snap.left, snap.top, snap.width, snap.height):
+                    warnings.append(
+                        ArtWarning(
+                            code="art.adapter.geometry_unknown",
+                            message=f"shape {snap.shape_id} 无几何信息，跳过",
+                        )
+                    )
+                    continue
+                if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
+                    if index not in truncated:
+                        truncated.add(index)
+                        warnings.append(
+                            ArtWarning(
+                                code="art.adapter.elements_truncated",
+                                message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                            )
+                        )
+                    continue
+                kind = _KIND_MAP.get(snap.shape_type.lower(), "shape")
+                if snap.shape_type.lower() in ("picture", "photo"):
+                    kind = "image"
+                el = ArtElement(
+                    element_id=f"pptx-{index}-{snap.shape_id}",
+                    kind=kind,
+                    role=snap.role or "shape",
+                    # 上面的守卫已排除 None（geometry_unknown / None in (...)），这里显式收窄
+                    x=(cast("float", snap.left) * 72.0) / width,
+                    y=(cast("float", snap.top) * 72.0) / height,
+                    width=(cast("float", snap.width) * 72.0) / width,
+                    height=(cast("float", snap.height) * 72.0) / height,
+                    slide_index=index,
+                    text=snap.text or "",
+                    source="pptx",
+                )
+                slides[index].elements.append(el)
         return ArtScene(
             slides=[slides[k] for k in sorted(slides)],
             width_unit="pt",

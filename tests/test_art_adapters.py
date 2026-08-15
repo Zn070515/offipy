@@ -270,6 +270,28 @@ def test_pptx_adapter_keeps_blank_slides():
     assert scene.slides[1].elements == []  # slide 2 无 shape → 空页
 
 
+def test_pptx_enriched_elements_from_real_pptx():
+    # #128：PPTX-only 路径从 _ShapeRecord 富集，文字元素携带字号证据。
+    # synthetic.pptx 仅 TextBox 12 有显式 run 字号 18pt；其余文字继承主题 → 字号 None。
+    from offipy.audit import audit_pptx
+
+    report = audit_pptx(str(FIXTURES.parent / "audit" / "synthetic.pptx"))
+    assert report.records, "真实审计报告应携带 _ShapeRecord（富集分支入口）"
+    scene = PptxAuditAdapter(report).build()
+    els = scene.slides[0].elements
+    assert els, "synthetic.pptx 无元素"
+    text_el = next((e for e in els if e.has_text() and e.font_size is not None), None)
+    assert text_el is not None, "富集后应有文字元素带 font_size"
+    assert text_el.font_size == 18.0, "synthetic.pptx TextBox 12 显式字号 18pt"
+    assert text_el.font_size_unit == "pt"
+    assert text_el.font_size_norm is not None
+    assert text_el.runs and text_el.runs[0].font_size == 18.0, "run 应带字号证据"
+    # fixture 无任何颜色证据（无 srgbClr / solidFill）：不得虚构 foreground
+    assert all(e.foreground is None for e in els), "无颜色证据时 foreground 应为 None"
+    # 无显式字体的文字元素：字号保持 None（继承主题，不硬造证据），不崩
+    assert any(e.has_text() and e.font_size is None for e in els), "无显式字号的元素保持 None"
+
+
 def test_build_scene_no_source_raises():
     with pytest.raises(InvalidArgumentError):
         build_scene()
