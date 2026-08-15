@@ -24,6 +24,8 @@ import zipfile
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from lxml import etree
+
 from offipy.exceptions import ConversionError
 
 from .geometry import Affine2D, Rect
@@ -33,6 +35,11 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _EMU_PER_INCH = 914400.0
+
+# SmartArt diagramData 相关命名空间（graphicData uri 判断 + part 内部节点/文本）
+_DIAGRAM_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+_DIAGRAM_DATA_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagramData"
+_DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
 
 def _to_inches(value: Any) -> float | None:
@@ -148,6 +155,7 @@ class _ShapeRecord:
     # 继承 style，按不透明处理）。overlap 遮挡判定用——透明上层不遮挡下方内容。
     fill_kind: str = "unknown"
     fill_color: tuple[int, int, int, float] | None = None  # spPr solidFill 的 (r,g,b,a)
+    smartart_node_count: int | None = None  # SmartArt 含文本节点数；非 SmartArt = None
 
 
 @dataclass
@@ -281,6 +289,13 @@ def _build_record(
     has_tf = bool(getattr(shape, "has_text_frame", False))
     tf = _read_text_frame(shape) if has_tf else None
 
+    # SmartArt（graphicFrame，无 p:txBody）节点文本单独提取
+    smartart_node_count: int | None = None
+    text = tf.text if tf else ""
+    paragraphs = tf.paragraphs if tf else []
+    if _is_smartart(shape):
+        smartart_node_count, text = _read_smartart(shape)
+
     placeholder_type = None
     if getattr(shape, "is_placeholder", False):
         ph_type = getattr(shape.placeholder_format.type, "name", None)  # type: ignore[attr-defined]
@@ -301,7 +316,7 @@ def _build_record(
         height=_to_inches(shape.height),  # type: ignore[attr-defined]
         rotation=float(shape.rotation or 0.0),  # type: ignore[attr-defined]
         z_order=z_order,
-        text=tf.text if tf else "",
+        text=text,
         has_text_frame=has_tf,
         word_wrap=tf.word_wrap if tf else None,
         autofit_mode=tf.autofit_mode if tf else "NONE",
@@ -313,7 +328,7 @@ def _build_record(
         parent_shape_id=parent,
         group_path=group_path,
         transform=transform,
-        paragraphs=tf.paragraphs if tf else [],
+        paragraphs=paragraphs,
         tf_margin_left=tf.margin_left if tf else None,
         tf_margin_right=tf.margin_right if tf else None,
         tf_margin_top=tf.margin_top if tf else None,
@@ -322,7 +337,45 @@ def _build_record(
         autofit_norm_auto_fit=tf.autofit_norm_auto_fit if tf else False,
         autofit_sp_auto_fit=tf.autofit_sp_auto_fit if tf else False,
         image_sha256=image_sha256,
+        smartart_node_count=smartart_node_count,
     )
+
+
+def _is_smartart(shape: object) -> bool:
+    """是否 SmartArt graphicFrame：graphicData uri == diagram 命名空间。
+
+    `graphic`/`graphicData` 在 a:（drawingml）命名空间，不在 p:。
+    """
+    gd = shape._element.xpath("./a:graphic/a:graphicData")  # type: ignore[attr-defined]
+    return bool(gd) and gd[0].get("uri") == _DIAGRAM_NS
+
+
+def _read_smartart(shape: object) -> tuple[int | None, str]:
+    """SmartArt 节点数与文本：dgm:relIds@r:dm → diagramData part → dsp:pt / a:t。
+
+    节点数 = 含 dsp:t 子元素（有文本）的 dsp:pt 数——排除无文本根节点；
+    文本 = part 内全部 a:t（'\n' 连接）。解析失败 → (None, "")。
+    """
+    from pptx.oxml.ns import qn
+
+    try:
+        gd = shape._element.xpath("./a:graphic/a:graphicData")  # type: ignore[attr-defined]
+        if not gd:
+            return None, ""
+        relids = gd[0].find(f"{{{_DIAGRAM_NS}}}relIds")
+        if relids is None:
+            return None, ""
+        rid = relids.get(qn("r:dm"))
+        if not rid:
+            return None, ""
+        blob = shape.part.related_part(rid).blob  # type: ignore[attr-defined]
+        root = etree.fromstring(blob)
+    except Exception:
+        return None, ""
+    pts = root.findall(f".//{{{_DIAGRAM_DATA_NS}}}pt")
+    node_count = len([p for p in pts if p.find(f"{{{_DIAGRAM_DATA_NS}}}t") is not None])
+    texts = [t.text for t in root.findall(f".//{{{_DRAWINGML_NS}}}t") if t.text and t.text.strip()]
+    return node_count, "\n".join(texts)
 
 
 def _read_text_frame(shape: object) -> _TextFrameData:

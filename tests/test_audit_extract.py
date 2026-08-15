@@ -1,11 +1,14 @@
 """audit 提取：递归 shape 提取（group 嵌套）、隐藏、连接线、文本/autofit 读取。"""
 
 import builtins
+import zipfile
 
 import pytest
+from lxml import etree
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.enum.text import MSO_AUTO_SIZE
+from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
 from offipy.audit.extract import (
@@ -46,6 +49,93 @@ def _make_extract(tmp_path, prs) -> _PresentationExtract:
     path = tmp_path / "x.pptx"
     prs.save(path)
     return extract_presentation(path)
+
+
+_DGM_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+_DSP_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagramData"
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+_A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def _build_smartart_pptx(tmp_path):
+    """zip-inject 一个含 SmartArt 的 pptx，返回路径。
+
+    空白 pptx → 重写 slide1.xml 注入 diagram graphicFrame → 补 diagramData /
+    quickStyle part + slide rels + [Content_Types] override（python-pptx 无
+    diagram part 写入 API，故走 zip 重写）。
+    """
+    prs = Presentation()
+    prs.slides.add_slide(prs.slide_layouts[6])
+    out = tmp_path / "smartart.pptx"
+    prs.save(out)
+
+    gf_xml = (
+        f'<p:graphicFrame xmlns:p="{_P_NS}" xmlns:a="{_A_NS}" xmlns:r="{_R_NS}">'
+        '<p:nvGraphicFramePr><p:cNvPr id="100" name="SmartArt 图形"/>'
+        "<p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>"
+        '<p:xfrm><a:off x="914400" y="914400"/><a:ext cx="3657600" cy="1828800"/></p:xfrm>'
+        f'<a:graphic><a:graphicData uri="{_DGM_NS}">'
+        f'<dgm:relIds xmlns:dgm="{_DGM_NS}" r:dm="rId5" r:lo="rId5" r:qs="rId6" r:cs="rId5"/>'
+        "</a:graphicData></a:graphic></p:graphicFrame>"
+    )
+    data_xml = (
+        f'<dgm:dataModel xmlns:dgm="{_DSP_NS}" xmlns:a="{_A_NS}"><dgm:ptLst>'
+        '<dgm:pt modelId="0"><dgm:prSet/><dgm:spPr/></dgm:pt>'
+        '<dgm:pt modelId="1"><dgm:prSet/><dgm:spPr/><dgm:t><dgm:txBody>'
+        "<a:p><a:r><a:t>节点一</a:t></a:r></a:p></dgm:txBody></dgm:t></dgm:pt>"
+        '<dgm:pt modelId="2"><dgm:prSet/><dgm:spPr/><dgm:t><dgm:txBody>'
+        "<a:p><a:r><a:t>节点二</a:t></a:r></a:p></dgm:txBody></dgm:t></dgm:pt>"
+        "</dgm:ptLst><dgm:cxnLst/></dgm:dataModel>"
+    )
+    qs_xml = f'<dgm:quickStyle xmlns:dgm="{_DGM_NS}"/>'
+
+    with zipfile.ZipFile(out, "r") as zin:
+        src = {n: zin.read(n) for n in zin.namelist()}
+
+    slide_el = etree.fromstring(src["ppt/slides/slide1.xml"])
+    sp_tree = slide_el.find(f"{{{_P_NS}}}cSld/{{{_P_NS}}}spTree")
+    sp_tree.append(etree.fromstring(gf_xml.encode("utf-8")))
+    src["ppt/slides/slide1.xml"] = etree.tostring(
+        slide_el, xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+
+    rels = src["ppt/slides/_rels/slide1.xml.rels"].decode("utf-8")
+    rels = rels.replace(
+        "</Relationships>",
+        f'<Relationship Id="rId5" Type="{_R_NS}/diagramData" Target="../diagrams/data1.xml"/>'
+        f'<Relationship Id="rId6" Type="{_R_NS}/diagramQuickStyle" '
+        f'Target="../diagrams/quickStyle1.xml"/>'
+        "</Relationships>",
+    )
+    src["ppt/slides/_rels/slide1.xml.rels"] = rels.encode("utf-8")
+
+    src["ppt/diagrams/data1.xml"] = data_xml.encode("utf-8")
+    src["ppt/diagrams/quickStyle1.xml"] = qs_xml.encode("utf-8")
+
+    ct = src["[Content_Types].xml"].decode("utf-8")
+    ct = ct.replace(
+        "</Types>",
+        '<Override PartName="/ppt/diagrams/data1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.drawingml.diagramData+xml"/>'
+        '<Override PartName="/ppt/diagrams/quickStyle1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.drawingml.diagramStyle+xml"/>'
+        "</Types>",
+    )
+    src["[Content_Types].xml"] = ct.encode("utf-8")
+
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zout:
+        for name, blob in src.items():
+            zout.writestr(name, blob)
+    return str(out)
+
+
+def test_smartart_text_and_node_count(tmp_path):
+    ext = extract_presentation(_build_smartart_pptx(tmp_path))
+    rec = next(s for s in ext.slides[0].shapes if s.smartart_node_count is not None)
+    assert rec.smartart_node_count == 2  # 含文本节点（modelId 1/2），根节点 modelId 0 不计
+    assert "节点一" in rec.text and "节点二" in rec.text
+    assert rec.shape_type == "UNKNOWN"  # SmartArt graphicFrame → python-pptx 不识别类型
 
 
 # ---------------------------------------------------------------- 顶层 shape
@@ -202,8 +292,6 @@ def test_corrupt_group_transform_rot_graceful(tmp_path):
 def test_corrupt_slide_size_graceful(tmp_path):
     # #70：b47421e 只兜 per-shape 损坏；演示文稿级 sldSz@cx/@cy 非数字在顶层
     # _to_inches(prs.slide_width) 抛 ValueError 整文件 audit 崩。降级 0.0 + 告警。
-    from pptx.oxml.ns import qn
-
     prs = Presentation()
     prs.slides.add_slide(prs.slide_layouts[6])
     sld_sz = prs.part.presentation._element.find(qn("p:sldSz"))
