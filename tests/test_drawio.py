@@ -346,6 +346,30 @@ def test_render_waypoint_edge_roundtrip_is_connector(tmp_path):
     assert freeforms[0].is_connector is True  # #123：带 connector 标记 → 识别为连接线
 
 
+def test_render_waypoint_edge_roundtrip_transparent_fill(tmp_path):
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.oxml.ns import qn
+
+    from offipy.audit.extract import extract_presentation
+    from offipy.diagrams import render_to_slide
+
+    d = parse_drawio(_write(tmp_path, WAYPOINTS, "waypoints.drawio"))
+    lay = layout_drawio(d)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    ff = next(sh for sh in slide.shapes if sh.shape_type == MSO_SHAPE_TYPE.FREEFORM)
+    sp_pr = ff._element.xpath("./p:spPr")
+    assert len(sp_pr) == 1
+    assert sp_pr[0].find(qn("a:noFill")) is not None  # #136：默认透明填充
+    out = tmp_path / "out.pptx"
+    prs.save(out)
+    ext = extract_presentation(out)
+    rec = next(r for slide in ext.slides for r in slide.shapes if r.shape_type == "FREEFORM")
+    assert rec.fill_kind == "none"  # audit 侧透明 → 不参与遮挡
+
+
 def test_parse_drawio_stroke_rotation_dash(tmp_path):
     d = parse_drawio(_write(tmp_path, STYLED, "styled.drawio"))
     by_id = {n.id: n for n in d.nodes}

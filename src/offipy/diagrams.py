@@ -508,6 +508,7 @@ def render_to_slide(
                 close=False,
             )
             conn = fb.convert_to_shape()
+            conn.fill.background()  # #136：折线边默认透明（a:noFill），不遮挡下方
             conn._element.set(_CONNECTOR_MARKER, "1")  # #123：折线边标记为连接线
             lx, ly = (
                 sum(p[0] for p in pts) / len(pts),
