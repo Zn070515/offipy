@@ -26,6 +26,7 @@ from .client import request
 from .diagram import DiagramApp
 from .excel import ExcelApp
 from .exceptions import OffipyError
+from .feedback.app import FeedbackApp
 from .ppt import PptApp
 from .word import WordApp
 
@@ -92,7 +93,13 @@ _RETURN_ANNOTATION = {
     "any": object,
 }
 
-_APP_CLASSES = {"diagram": DiagramApp, "excel": ExcelApp, "word": WordApp, "ppt": PptApp}
+_APP_CLASSES = {
+    "diagram": DiagramApp,
+    "excel": ExcelApp,
+    "feedback": FeedbackApp,
+    "word": WordApp,
+    "ppt": PptApp,
+}
 
 
 def _tool_name(app: str, op: str) -> str:

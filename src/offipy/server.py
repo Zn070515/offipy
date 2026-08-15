@@ -41,6 +41,7 @@ from .exceptions import (
     ServerStartError,
     TargetNotFoundError,
 )
+from .feedback.app import FeedbackApp
 from .paths import user_data_dir
 from .ppt import PptApp
 from .result import OperationResult
@@ -72,6 +73,7 @@ _APPS: dict[str, Any] = {}
 _APPS_CLASSES = {
     "diagram": DiagramApp,
     "excel": ExcelApp,
+    "feedback": FeedbackApp,
     "word": WordApp,
     "ppt": PptApp,
 }

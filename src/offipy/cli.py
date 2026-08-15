@@ -38,10 +38,12 @@ from typing import Any, cast
 from . import diagram, excel, ppt, schema, word
 from .client import call, ensure_server, server_status, set_port, stop_server
 from .exceptions import InvalidArgumentError, OffipyError
+from .feedback.app import FeedbackApp
 
 _APP_CLASSES = {
     "diagram": diagram.DiagramApp,
     "excel": excel.ExcelApp,
+    "feedback": FeedbackApp,
     "word": word.WordApp,
     "ppt": ppt.PptApp,
 }
