@@ -3,6 +3,19 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.17.0] - 2026-08-15
+
+### Added
+
+- 可学习 feedback 系统：自定义 numpy MLP（配对 margin loss + centering 先验），
+  注册式输入输出（FEATURES 特征注册表 + OUTPUTS 输出注册表，均带 schema 版本）
+- `offipy[feedback]` extra（numpy 必选）；核心 `import offipy` 仍零依赖
+- CLI/MCP：`feedback_train` / `feedback_status`（schema app `feedback`）
+- `art analyze` 学习路径：`rule.delta`（历史聚合 → feedback_severity_adjustments）、
+  `finding.severity_shift`（后处理 pass，severity_override=False 才作用）、
+  `quality.score`（替换 experimental_score，opt-in）
+- 冷启动回退 v2（无模型/过期/无 numpy 时行为不变）；旧 v1/v2 API 完全向后兼容
+
 ## [0.16.2] - 2026-08-14
 
 ### Fixed

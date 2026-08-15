@@ -103,7 +103,9 @@ warning——绝不静默丢弃。
 读取的 0.1 报告该字段默认为 `None`。
 
 `experimental_score`（0-100）仅在 ≥3 个维度 assessed 时返回，只用于排序/对比，**不对外宣称
-客观美学分数**。
+客观美学分数**。当存在有效 feedback 模型时（见 [feedback 学习系统](usage.md)），分值来源从
+公式改为学习到的 `quality.score`——语义不变，仍只用于排序/对比、不对外宣称客观美学分数；
+`include_experimental_score` 依旧 opt-in。无模型时保持现有公式。
 
 ## 维度与规则
 

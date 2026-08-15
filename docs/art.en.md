@@ -99,7 +99,11 @@ impersonates another:
   findings are dropped**.
 
 `experimental_score` (0-100) is only returned when ≥ 3 dimensions are assessed; it exists purely for
-ranking / comparison and is **never claimed as an objective aesthetic score**.
+ranking / comparison and is **never claimed as an objective aesthetic score**. When a valid feedback
+model exists (see [Feedback learning system](usage.en.md)), the score source changes from the formula
+to the learned `quality.score` — the semantics are unchanged: still only for ranking / comparison and
+never claimed as an objective aesthetic score; `include_experimental_score` stays opt-in. Without a
+model, the current formula is kept.
 
 ## Dimensions & rules
 

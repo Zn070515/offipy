@@ -217,6 +217,32 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
     print("candidate adds/worsens MID+ issues vs baseline")
 ```
 
+## Feedback learning system (v0.17)
+
+Three layers of feedback semantics (pinned here to avoid confusion):
+- `offipy.feedback` (v1): dimension weights, `dimension_weights()`, `~/.offipy/feedback.jsonl`
+- `offipy.art.feedback` (v2): per-rule ±1, `recommend_adjustments` → `feedback_severity_adjustments`
+- `offipy feedback` (v3, this system): learnable numpy MLP, `feedback_train` / `feedback_status`
+
+Training: `offipy feedback train` (reads `~/.offipy/art_feedback.jsonl` → trains →
+writes `~/.offipy/art_feedback_model.json`). With insufficient / no valid samples it returns a
+status JSON instead of erroring and does not delete an existing model (F2-E). Requires numpy:
+`pip install "offipy[feedback]"`.
+
+Status: `offipy feedback status` (sample count / pairing potential / model none|valid|expired).
+
+Inference consumption points:
+- `rule.delta.<rule_id>`: mean worth of historical records → ±1 adjustment →
+  `feedback_severity_adjustments`
+- `finding.severity_shift`: a post-processing pass in analyze, applied only to rule-computed
+  (no-override) findings
+- `quality.score`: replaces `experimental_score` (only computed when
+  `include_experimental_score=True`)
+
+Cold start: no model / expired model (input_schema_version mismatch) / numpy not installed →
+full fallback to v2 behavior (`recommend_adjustments`). Deleting model.json returns to v2.
+The learning system is a detachable enhancement and never relaxes the audit hard gate.
+
 ## Capability boundary: create/append vs incremental edit
 
 offipy is strongest **from a blank slate**: creating documents, appending
