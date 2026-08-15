@@ -82,3 +82,8 @@ def test_learned_adjustments_quantizes_and_omits_zero(monkeypatch, tmp_path):
 def test_quality_score_from_worth_mean():
     assert quality_score_for_report(0.0) == 50.0
     assert 0.0 <= quality_score_for_report(1.0) <= quality_score_for_report(-1.0) <= 100.0
+
+
+def test_learned_adjustments_no_dir_returns_none():
+    """#113：无 feedback_dir 不碰全局 ~/.offipy，直接回退（None）。"""
+    assert learned_adjustments("balanced") is None

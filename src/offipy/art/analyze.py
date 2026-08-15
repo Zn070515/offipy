@@ -167,6 +167,11 @@ def analyze_scene(
     feedback: bool = False,
     feedback_dir: str | Path | None = None,
 ) -> ArtReport:
+    if feedback and not feedback_dir:
+        raise InvalidArgumentError(
+            "feedback=True 必须显式提供 feedback_dir（学习路径只读指定目录，"
+            "不静默加载全局 ~/.offipy 模型）"
+        )
     prof = _resolve_profile(profile, feedback=feedback, feedback_dir=feedback_dir)
     report = ArtReport(schema_version=ART_REPORT_SCHEMA_VERSION, profile=prof.name)
     for slide in scene.slides:

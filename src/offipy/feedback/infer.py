@@ -57,6 +57,8 @@ def learned_adjustments(
     - {}：有有效模型但该 profile 无量化 delta（无记录，或均值量化后全为 0）→
       模型判断「无调整」，应视为权威空结果，不回退 v2。
     """
+    if not feedback_dir:
+        return None  # #113：无 feedback_dir 不碰全局模型，回退 v2
     loaded = _load_valid_model(feedback_dir)
     if loaded is None:
         return None

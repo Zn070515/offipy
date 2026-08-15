@@ -531,3 +531,16 @@ def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
     assert f is not None
     assert f.severity == Severity.MID  # v2 回退：apply_feedback 后仍是 MID
     assert f.severity_override_source == "feedback"
+
+
+def test_analyze_scene_feedback_requires_dir():
+    """#113：feedback=True 无 feedback_dir → InvalidArgumentError（禁静默全局模型）。"""
+    with pytest.raises(InvalidArgumentError, match="feedback_dir"):
+        analyze_scene(_build_scene(), profile="balanced", feedback=True)
+
+
+def test_analyze_deck_feedback_requires_dir():
+    """#113：analyze_deck 同契约——feedback=True 必须显式 feedback_dir。"""
+    m = {"width": 1920.0, "height": 1080.0, "records": []}
+    with pytest.raises(InvalidArgumentError, match="feedback_dir"):
+        analyze_deck(measurements=m, profile="balanced", feedback=True)
