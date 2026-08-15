@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
-from .features import compute_features
+from .features import _KNOWN_SLIDE_ROLES, compute_features
 from .profiles import ALL_RULES, RULE_DIMENSIONS, profile_names
 
 if TYPE_CHECKING:
@@ -21,7 +21,11 @@ if TYPE_CHECKING:
 
 _SCHEMA_VERSION = "1"
 
-_SKIP_SLIDE_ROLES = {"cover", "section", "content", "data", "gallery", "closing"}
+# 已知 slide role 集合：直接共享 features.py 的单一事实来源（_KNOWN_SLIDE_ROLES），
+# 不手抄副本——features.py 增删 role 时此处自动跟随，避免未知 role 静默坍缩成错误桶。
+# 顺序按排序后的 index 编码；len(roles) 作为「其他」的显式 catch-all 桶。
+_SLIDE_ROLE_ORDER = tuple(sorted(_KNOWN_SLIDE_ROLES))
+_SLIDE_ROLE_OTHER = float(len(_SLIDE_ROLE_ORDER))
 
 
 def feature_schema_version() -> str:
@@ -152,9 +156,11 @@ def _slide_alignment_lines(ctx: dict[str, Any]) -> float | None:
 
 def _slide_page_signature(ctx: dict[str, Any]) -> float | None:
     role = ctx.get("slide_features", {}).get("page_signature", {}).get("role")
-    if role not in _SKIP_SLIDE_ROLES:
+    if role in _SLIDE_ROLE_ORDER:
+        return float(_SLIDE_ROLE_ORDER.index(role))
+    if role is None:
         return None
-    return float(sorted(_SKIP_SLIDE_ROLES).index(role))
+    return _SLIDE_ROLE_OTHER
 
 
 _RULE_ORDER = tuple(sorted(ALL_RULES))
@@ -289,7 +295,7 @@ FEATURES: dict[str, FeatureSpec] = {
             group="slide",
             kind="float",
             applies_to="all",
-            missing_default=2.0,
+            missing_default=_SLIDE_ROLE_OTHER,
             extract=_slide_page_signature,
         ),
         FeatureSpec(
