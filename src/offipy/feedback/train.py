@@ -6,7 +6,6 @@ F2-E：只有成功训练才原子写；样本不足 / 无有效样本时返回�
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +14,7 @@ import numpy as np
 from offipy.art.features_registry import feature_schema_version
 from offipy.art.feedback import load_records
 
-from .mlp import EPOCHS, HIDDEN_DIMS, LR, MARGIN, MLP, REG_WEIGHT, SEED
+from .mlp import SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
 from .pairs import build_pairs, valid_records
 from .preprocess import fit_preprocessing, transform_features
@@ -45,7 +44,9 @@ def run_training(
     if not np.isfinite(X_raw).all():
         return {"trained": False, "reason": "training_diverged", "samples": len(valid)}
     pairs = build_pairs(valid)
-    if len(pairs) < min_pairs:
+    # 空 pairs（全 fixed 无 accepted / 反之）即使 min_pairs=0 也属样本不足：
+    # 后续 train_mlp 依赖 X_fixed.shape[1]，空数组会 IndexError，违反不抛契约。
+    if not pairs or len(pairs) < min_pairs:
         return {
             "trained": False,
             "reason": "insufficient_pairs",
@@ -57,22 +58,20 @@ def run_training(
     X_fixed = np.array([transform_features(f.features or {}, pre) for f, _ in pairs])
     X_accepted = np.array([transform_features(a.features or {}, pre) for _, a in pairs])
     input_dim = len(pre["kept"])
-    mlp = MLP(input_dim=input_dim, hidden_dims=HIDDEN_DIMS, seed=seed)
-    loss = 0.0
-    diverged = False
-    for _ in range(EPOCHS):
-        loss = mlp.train_step(X_fixed, X_accepted, lr=LR, margin=MARGIN, reg_weight=REG_WEIGHT)
-        if not math.isfinite(loss):
-            diverged = True
-            break
-    if diverged:
+    # #121 A3：容量按样本数自适应（Lunt & Xu H≈√n，[4,32]，n≥120 双层）。
+    # 独立样本数 n（不是 pairs）驱动容量；capacity 是软告警，只记录不拒绝写盘。
+    n = len(valid)
+    hidden_dims = adaptive_hidden_dims(n)
+    capacity = capacity_report(n, input_dim, hidden_dims)
+    try:
+        mlp = train_mlp(X_fixed, X_accepted, hidden_dims, seed=seed)
+    except TrainingDiverged:
         # #112：数值爆炸（loss=inf/nan）→ 不写模型，返回状态
         return {
             "trained": False,
             "reason": "training_diverged",
             "pairs": len(pairs),
             "samples": len(valid),
-            "loss": str(loss),
         }
     # #112：判别力门禁——常数输出（ReLU 全死/退化）是坏模型，拒绝写
     outputs = np.concatenate([mlp.predict_batch(X_fixed), mlp.predict_batch(X_accepted)])
@@ -83,16 +82,17 @@ def run_training(
             "reason": "model_collapsed",
             "pairs": len(pairs),
             "samples": len(valid),
-            "loss": round(loss, 4),
             "output_std": round(output_std, 6),
         }
     rules_with_pairs = len({f.rule_id for f, _ in pairs})
     stats = {
         "pairs": len(pairs),
         "samples": len(valid),
-        "loss": round(loss, 4),
         "rules_with_pairs": rules_with_pairs,
+        "capacity": capacity,
     }
+    if capacity["level"] != "ok":
+        stats["capacity_warning"] = True  # soft：只记录，不拒绝写盘
     path = model_file(dir_path)
     save_model(
         members=[(seed, mlp)],

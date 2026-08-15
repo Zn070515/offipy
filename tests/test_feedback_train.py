@@ -36,6 +36,17 @@ def test_insufficient_pairs_reports_status(tmp_path):
     assert not model_file(tmp_path).exists()
 
 
+def test_empty_pairs_with_min_pairs_zero_reports_insufficient(tmp_path):
+    """min_pairs=0 + 空 pairs（全 fixed 无 accepted）→ insufficient_pairs，不抛 IndexError。"""
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "fixed", 4)
+    res = run_training(tmp_path, min_pairs=0)
+    assert res["trained"] is False
+    assert res["reason"] == "insufficient_pairs"
+    assert res["pairs"] == 0
+    assert res["samples"] == 4
+    assert not model_file(tmp_path).exists()
+
+
 def test_no_valid_samples_reports_reason(tmp_path):
     art_append("balanced", RULE_TITLE_TOO_SMALL, "fixed", Severity.MID, feedback_dir=tmp_path)
     res = run_training(tmp_path)
