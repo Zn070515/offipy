@@ -20,13 +20,17 @@ def _fake_mlp():
 
 
 def _write_model(tmp_path):
+    n = len(feature_keys())
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
     return save_model(
-        _fake_mlp(),
+        members=[(0, _fake_mlp())],
         input_schema_version=feature_schema_version(),
         output_schema_version="1",
         seed=0,
-        hidden_dims=(4,),
         stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
         path=model_file(tmp_path),
     )
 
@@ -36,13 +40,17 @@ def test_no_model_returns_none(tmp_path):
 
 
 def test_expired_model_returns_none(tmp_path):
+    n = len(feature_keys())
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
     save_model(
-        _fake_mlp(),
+        members=[(0, _fake_mlp())],
         input_schema_version="999",
         output_schema_version="1",
         seed=0,
-        hidden_dims=(4,),
         stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
         path=model_file(tmp_path),
     )
     assert learned_adjustments("balanced", feedback_dir=tmp_path) is None

@@ -58,6 +58,16 @@ def test_tiny_image_fires():
     assert ev.findings[0].rule_id == "art.media.tiny_image"
 
 
+def test_tiny_image_details_area_ratio():
+    # 面积 0.04×0.04=0.0016 < balanced min_image_area 0.0025 → 触发；
+    # details["area_ratio"] 必须是面积占比按 3 位小数取整（与 distorted_image 的 details 模式对齐）
+    el = make_image_element("i", w=0.04, h=0.04)
+    slide = make_slide(1, elements=[el])
+    ev = tiny_image_rule(slide, _ctx(slide))
+    assert len(ev.findings) == 1
+    assert ev.findings[0].details["area_ratio"] == 0.002  # round(0.0016, 3)：钉死 3 位小数约定
+
+
 def test_mixed_image_sizes_fires():
     slide = make_slide(
         1,

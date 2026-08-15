@@ -130,27 +130,16 @@ def _apply_learning_pass(
     experimental_score。全程惰性 import：无 feedback extra 时 ImportError → 跳过。
     """
     try:
-        from offipy.art.features_registry import (
-            encode_features,
-            feature_keys,
-            feature_schema_version,
-        )
+        from offipy.art.features_registry import encode_features
         from offipy.art.feedback import load_records
         from offipy.feedback import infer
         from offipy.feedback.heads import apply_severity_shift, severity_shift_from_worth
-        from offipy.feedback.model import load_model, model_file, model_valid, weights_from_dict
         from offipy.feedback.pairs import valid_records
     except ImportError:
         return
-    data = load_model(model_file(feedback_dir))
-    if data is None or not model_valid(data, feature_schema_version()):
-        return
-    try:
-        mlp = weights_from_dict(
-            data, input_dim=len(feature_keys()), hidden_dims=tuple(data["hidden_dims"])
-        )
-    except (ValueError, KeyError, TypeError):
-        return  # 损坏模型（schema 匹配但权重形状错）→ 视为无模型，回退 v2
+    bundle = infer.ModelBundle.load(feedback_dir)
+    if bundle is None:
+        return  # 无模型 / 过期 / 损坏（schema 匹配但权重形状错）→ 回退 v2
     # #111：按规则证据门禁——只有有效标签 ≥ _MIN_LABELS_PER_RULE 的规则才允许
     # severity_shift。模型仍全特征预测（跨规则泛化保留在 worth 计算里），
     # 但 shift 的「应用」被门禁挡住，0 标签规则不做跨规则泛化 shift。
@@ -165,13 +154,14 @@ def _apply_learning_pass(
             continue  # 证据不足的规则不 shift（Counter 对未出现 key 返回 0）
         slide = scene.by_slide(slide_index) if slide_index is not None else None
         feats = encode_features(finding, slide, scene, profile_name)
-        worth = infer.model_worth(feats, mlp)
-        shift = severity_shift_from_worth(worth)
-        finding.severity = apply_severity_shift(finding.severity, shift)
+        if bundle.should_abstain(feats) or bundle.ood_flagged(feats):
+            continue  # 保守：模型不确定 / 特征 OOD 的 finding 不 shift（回退 v2）
+        worth = infer.model_worth(feats, bundle)  # 模块级 seam，测试 monkeypatch 生效
+        finding.severity = apply_severity_shift(finding.severity, severity_shift_from_worth(worth))
         worths.append(worth)
     if want_score and worths:
         mean_worth = sum(worths) / len(worths)
-        report.experimental_score = infer.quality_score_for_report(mean_worth)
+        report.experimental_score = bundle.quality_score(mean_worth)
 
 
 def analyze_scene(

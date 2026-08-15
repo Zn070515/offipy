@@ -22,15 +22,26 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
     records = load_records(dir_path)
     valid = valid_records(records)
     pairs = build_pairs(valid)
-    model_state = "none"
     data = load_model(model_file(dir_path))
     if data is not None and model_valid(data, feature_schema_version()):
-        model_state = "valid"
-    elif data is not None:
-        model_state = "expired"
+        pre = data.get("preprocessing", {})
+        stats = data.get("stats", {})
+        kept = pre.get("kept")
+        capacity = stats.get("capacity")
+        return {
+            "samples": len(records),
+            "valid_samples": len(valid),
+            "pair_potential": len(pairs),
+            "model": "valid",
+            "effective_dims": len(kept) if isinstance(kept, list) else None,
+            "samples_per_param": (
+                capacity.get("samples_per_param") if isinstance(capacity, dict) else None
+            ),
+            "poor_generalization": stats.get("poor_generalization"),
+        }
     return {
         "samples": len(records),
         "valid_samples": len(valid),
         "pair_potential": len(pairs),
-        "model": model_state,
+        "model": "expired" if data is not None else "none",
     }

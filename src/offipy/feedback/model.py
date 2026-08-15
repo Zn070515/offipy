@@ -19,15 +19,17 @@ if TYPE_CHECKING:
     from .mlp import MLP
 
 MODEL_FILE = "art_feedback_model.json"
-MODEL_FORMAT_VERSION = 1
+MODEL_FORMAT_VERSION = 2
 
 REQUIRED_KEYS = (
     "schema_version",
     "input_schema_version",
     "output_schema_version",
-    "seed",
-    "hidden_dims",
-    "weights",
+    "members",
+    "preprocessing",
+    "calibration",
+    "abstain",
+    "stats",
 )
 
 
@@ -44,24 +46,31 @@ def _weights_to_dict(mlp: MLP) -> dict[str, list[Any]]:
 
 
 def save_model(
-    mlp: MLP,
+    members: list[tuple[int, MLP]],
     *,
     input_schema_version: str,
     output_schema_version: str,
     seed: int,
-    hidden_dims: tuple[int, ...],
     stats: dict[str, Any],
+    preprocessing: dict[str, Any],
+    calibration: dict[str, Any],
+    abstain: dict[str, Any],
     path: Path,
     _fail: bool = False,
 ) -> Path:
-    """把 MLP 权重 + schema 元数据原子写到 path。返回 path。"""
+    """把 ensemble members + 预处理/校准元数据原子写到 path。返回 path。"""
     data = {
         "schema_version": MODEL_FORMAT_VERSION,
         "input_schema_version": input_schema_version,
         "output_schema_version": output_schema_version,
         "seed": seed,
-        "hidden_dims": list(hidden_dims),
-        "weights": _weights_to_dict(mlp),
+        "members": [
+            {"seed": s, "hidden_dims": list(m.hidden_dims), "weights": _weights_to_dict(m)}
+            for s, m in members
+        ],
+        "preprocessing": preprocessing,
+        "calibration": calibration,
+        "abstain": abstain,
         "trained_at": _now_iso(),
         "stats": stats,
     }

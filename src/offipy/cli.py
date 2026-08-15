@@ -835,6 +835,7 @@ def _deck_audit(args: argparse.Namespace) -> int | None:
                     profile=args.profile,
                     pixel_analysis="off",
                     feedback_dir=args.feedback_dir,
+                    include_experimental_score=args.feedback_dir is not None,
                 )
                 report = result.deck_quality
         except KeyError as e:
@@ -851,6 +852,7 @@ def _deck_audit(args: argparse.Namespace) -> int | None:
             report = analyze_deck(
                 pptx=args.pptx,
                 profile=args.profile,
+                include_experimental_score=args.feedback_dir is not None,
                 feedback=args.feedback_dir is not None,
                 feedback_dir=args.feedback_dir,
             )
@@ -876,16 +878,18 @@ def _emit_deck_audit(report: Any, args: argparse.Namespace) -> int:
     source = args.source or args.pptx
     suggestions = project_suggestions(report, source=source)
     warnings = [{"code": w.code, "message": w.message} for w in report.warnings]
+    score = report.art.experimental_score if report.art else None
     if args.json:
         payload = {
             "source": source,
             "profile": args.profile,
+            "experimental_score": score,
             "warnings": warnings,
             "suggestions": suggestions,
         }
         print(json.dumps(payload, ensure_ascii=False))
     else:
-        _print_deck_audit_text(args, warnings, suggestions)
+        _print_deck_audit_text(args, warnings, suggestions, score=score)
     return 0
 
 
@@ -893,9 +897,12 @@ def _print_deck_audit_text(
     args: argparse.Namespace,
     warnings: list[dict[str, object]],
     suggestions: list[dict[str, object]],
+    score: float | None = None,
 ) -> None:
     """按维度分组打印文本建议（确定性顺序：逐条记录，维度变化时出标题）。"""
     lines = [f"offipy deck audit（profile={args.profile}）"]
+    if score is not None:
+        lines.append(f"综合指数 (experimental): {score}")
     if warnings:
         lines.append("警告:")
         lines.extend(f"- [{w['code']}] {w['message']}" for w in warnings)

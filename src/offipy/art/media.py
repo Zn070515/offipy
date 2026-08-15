@@ -68,6 +68,7 @@ def tiny_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
             0.5,
             slide.index,
             primary=e,
+            details={"area_ratio": round(e.area, 3)},
         )
         for e in imgs
         if e.area < ctx.profile.min_image_area

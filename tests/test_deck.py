@@ -998,3 +998,38 @@ def test_move_slides_to_final_owned_dir_cleans_stale_slides(tmp_path):
     deck._move_slides_to_final(str(staging), stage, str(final_slides))
     assert (final_slides / "slide_1.png").read_bytes() == b"ours"
     assert (final_slides / "slide_2.png").read_bytes() == b"new"
+
+
+def test_render_with_quality_report_passes_experimental_score(monkeypatch):
+    """include_experimental_score 透传到 analyze_scene（measurements 存在路径）。"""
+    from contextlib import contextmanager
+
+    from offipy import deck
+
+    seen = []
+
+    @contextmanager
+    def fake_stage(*a, **kw):
+        yield SimpleNamespace(
+            tmp_pptx="tmp.pptx",
+            final_pptx="final.pptx",
+            measurements_path="measurements.json",
+            commit=lambda: None,
+            rollback=lambda: None,
+        )
+
+    monkeypatch.setattr(deck, "_render_stage", fake_stage)
+    monkeypatch.setattr(
+        "offipy.audit.audit_pptx",
+        lambda pptx, cfg=None: SimpleNamespace(max_severity=None),
+    )
+    monkeypatch.setattr("offipy.art.analyze_scene", lambda scene, **kw: seen.append(kw) or None)
+    monkeypatch.setattr("offipy.art.build_scene", lambda **kw: SimpleNamespace())
+
+    deck.render_with_quality_report(
+        "<html><body>deck</body></html>", include_experimental_score=True
+    )
+    assert seen[-1]["include_experimental_score"] is True
+
+    deck.render_with_quality_report("<html><body>deck</body></html>")
+    assert seen[-1]["include_experimental_score"] is False

@@ -30,9 +30,16 @@ def severity_shift_from_worth(worth: float) -> float:
     return max(SEVERITY_SHIFT_LOW, min(SEVERITY_SHIFT_HIGH, worth))
 
 
-def quality_score_from_worth(worth: float) -> float:
-    """quality.score：worth 负（可接受）→ 高分；0-100，保留 1 位小数。"""
-    return round(100.0 / (1.0 + math.exp(2.0 * worth)), 1)
+def quality_score_from_worth(worth: float, worth_scale: float = 1.0) -> float:
+    """worth → plausibility score（0-100，保留 1 位小数）。
+
+    worth_scale 归一避免饱和：worth 幅值被训练分布的 scale 拉伸后再进 sigmoid，
+    高幅值/离群 worth 不再直接把分数压到 0 或 100。缺省 1.0 兼容旧测试。
+    必须保留 round(..., 1)——head 与 analyze 测试按 1 位小数断言。
+    """
+    if not worth_scale or worth_scale <= 0:
+        worth_scale = 1.0
+    return round(100.0 / (1.0 + math.exp(2.0 * (worth / worth_scale))), 1)
 
 
 def apply_severity_shift(sev: Severity, shift: float) -> Severity:

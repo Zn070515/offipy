@@ -30,6 +30,54 @@ GRAD_CLIP_NORM = 5.0
 # np.ndarray 触发 type-arg，与 vector.py 同一套泛型化约定）。
 _Arr = np.ndarray[Any, np.dtype[np.float64]]
 
+# #121 A3：容量自适应经验法则（Lunt & Xu 2016）的下限/上限与「加第二层」样本阈值。
+H_MIN, H_MAX = 4, 32
+SECOND_LAYER_N = 120
+# #121 A3：samples_per_param 告警阈值——spp≥5 ok、≥2 warn、<2 critical。
+_SPP_OK = 5.0
+_SPP_WARN = 2.0
+
+
+def adaptive_hidden_dims(n: int) -> tuple[int, ...]:
+    """Lunt & Xu 2016 经验法则：H=clamp(round(√n),4,32)；n≥120 加第二层。"""
+    H = int(max(H_MIN, min(H_MAX, round(math.sqrt(n)))))
+    return (H, max(1, H // 2)) if n >= SECOND_LAYER_N else (H,)
+
+
+def params_count(input_dim: int, hidden_dims: tuple[int, ...]) -> int:
+    """逐层累加权重+偏置：input_dim→隐层→1 输出。"""
+    dims = (input_dim, *hidden_dims, 1)
+    return sum(dims[i] * dims[i + 1] + dims[i + 1] for i in range(len(dims) - 1))
+
+
+def capacity_report(n: int, input_dim: int, hidden_dims: tuple[int, ...]) -> dict[str, Any]:
+    """容量报告：samples_per_param 分级（ok/warn/critical），只供记录不拒绝。"""
+    params = params_count(input_dim, hidden_dims)
+    spp = n / params if params else 0.0
+    level = "ok" if spp >= _SPP_OK else ("warn" if spp >= _SPP_WARN else "critical")
+    return {
+        "n": n,
+        "input_dim": input_dim,
+        "hidden_dims": list(hidden_dims),
+        "params": params,
+        "samples_per_param": round(spp, 2),
+        "level": level,
+    }
+
+
+class TrainingDiverged(RuntimeError):
+    """训练数值发散（loss=inf/nan）——调用方据此返回 training_diverged 状态。"""
+
+
+def train_mlp(X_fixed: _Arr, X_accepted: _Arr, hidden_dims: tuple[int, ...], *, seed: int) -> MLP:
+    """按模块常量训练一个 member，返回训练好的 MLP；发散抛 TrainingDiverged。"""
+    mlp = MLP(input_dim=X_fixed.shape[1], hidden_dims=hidden_dims, seed=seed)
+    for _ in range(EPOCHS):
+        loss = mlp.train_step(X_fixed, X_accepted, lr=LR, margin=MARGIN, reg_weight=REG_WEIGHT)
+        if not math.isfinite(loss):
+            raise TrainingDiverged()
+    return mlp
+
 
 def _clip_scale(dW: list[_Arr], db: list[_Arr]) -> float:
     """全局梯度范数裁剪系数：范数超 GRAD_CLIP_NORM 时缩放到上界，否则 1.0。"""
