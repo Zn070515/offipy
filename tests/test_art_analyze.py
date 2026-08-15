@@ -447,11 +447,23 @@ def test_analyze_feedback_no_model_falls_back_to_v2(tmp_path):
 
 
 def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
-    """有有效模型 → rule-computed finding 被 severity_shift；override 的跳过。"""
+    """有有效模型 + 证据充分规则 → severity_shift 生效；override 的跳过。"""
     from offipy.art import features_registry
     from offipy.feedback import infer
     from offipy.feedback.mlp import MLP
     from offipy.feedback.model import model_file, save_model
+
+    # #111：corner_cluster ≥ MIN_LABELS_PER_RULE(3) 标签 → 有证据才 shift
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
 
     save_model(
         MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
@@ -478,11 +490,70 @@ def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
     assert f.severity_override is False  # severity_shift 不标 override
 
 
+def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
+    """#111：0 标签规则即使 worth 高也不 shift（跨规则泛化限于有证据的规则）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+    from offipy.feedback.mlp import MLP
+    from offipy.feedback.model import model_file, save_model
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    save_model(
+        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        input_schema_version=features_registry.feature_schema_version(),
+        output_schema_version="1",
+        seed=0,
+        hidden_dims=(4,),
+        stats={},
+        path=model_file(tmp_path),
+    )
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.8)
+
+    raw = (FIXTURES / "real_measurements.json").read_text(encoding="utf-8")
+    scene = build_scene(measurements=raw)
+    baseline = analyze_scene(scene, profile="balanced")
+    base_map = _findings_map(baseline)
+
+    report = analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path)
+    # 有证据规则被 shift
+    cc = _finding(report, RULE_CORNER_CLUSTER)
+    assert cc is not None
+    assert base_map[(1, "composition", RULE_CORNER_CLUSTER)].severity == Severity.LOW
+    assert cc.severity == Severity.MID  # baseline LOW +0.8 → MID
+    # 无证据规则保持原 severity（跨规则泛化被门禁挡住）
+    for (slide_index, dim, rule_id), base_f in base_map.items():
+        if rule_id == RULE_CORNER_CLUSTER:
+            continue
+        cur = _findings_map(report)[(slide_index, dim, rule_id)]
+        assert cur.severity == base_f.severity, rule_id
+
+
 def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
     from offipy.art import features_registry
     from offipy.feedback import infer
     from offipy.feedback.mlp import MLP
     from offipy.feedback.model import model_file, save_model
+
+    # #111：≥ MIN_LABELS_PER_RULE(3) 标签，学习 pass 才有可 shift 的 finding → 分数可算
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
 
     save_model(
         MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),

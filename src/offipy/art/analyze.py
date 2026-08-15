@@ -9,6 +9,7 @@ rev2.1：
 from __future__ import annotations
 
 import dataclasses
+from collections import Counter
 from typing import TYPE_CHECKING, Any
 
 from offipy.audit import audit_pptx
@@ -51,6 +52,10 @@ _DIMENSION_RULES = {
 _DIM_ORDER = ("hierarchy", "composition", "typography", "color", "media")
 
 _GRADE_SCORE = {"excellent": 0.0, "good": 0.3, "attention": 0.6, "poor": 1.0}
+
+# #111：规则需 ≥3 条有效标签才允许被 severity_shift（模型仍全特征预测，
+# 但 shift 的「应用」按规则证据门禁——0 标签规则不做跨规则泛化 shift）
+_MIN_LABELS_PER_RULE = 3
 
 
 def _experimental_score(report: ArtReport) -> float | None:
@@ -130,9 +135,11 @@ def _apply_learning_pass(
             feature_keys,
             feature_schema_version,
         )
+        from offipy.art.feedback import load_records
         from offipy.feedback import infer
         from offipy.feedback.heads import apply_severity_shift, severity_shift_from_worth
         from offipy.feedback.model import load_model, model_file, model_valid, weights_from_dict
+        from offipy.feedback.pairs import valid_records
     except ImportError:
         return
     data = load_model(model_file(feedback_dir))
@@ -144,10 +151,18 @@ def _apply_learning_pass(
         )
     except (ValueError, KeyError, TypeError):
         return  # 损坏模型（schema 匹配但权重形状错）→ 视为无模型，回退 v2
+    # #111：按规则证据门禁——只有有效标签 ≥ _MIN_LABELS_PER_RULE 的规则才允许
+    # severity_shift。模型仍全特征预测（跨规则泛化保留在 worth 计算里），
+    # 但 shift 的「应用」被门禁挡住，0 标签规则不做跨规则泛化 shift。
+    labeled = Counter(
+        r.rule_id for r in valid_records(load_records(feedback_dir), profile=profile_name)
+    )
     worths: list[float] = []
     for finding, slide_index in _all_findings(report):
         if finding.severity_override:
             continue  # user / feedback override 的 finding 一律跳过
+        if labeled[finding.rule_id] < _MIN_LABELS_PER_RULE:
+            continue  # 证据不足的规则不 shift（Counter 对未出现 key 返回 0）
         slide = scene.by_slide(slide_index) if slide_index is not None else None
         feats = encode_features(finding, slide, scene, profile_name)
         worth = infer.model_worth(feats, mlp)
