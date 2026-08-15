@@ -82,7 +82,8 @@ def test_collapsed_constant_output_rejected(tmp_path):
     _add(tmp_path, RULE_TITLE_TOO_SMALL, "accepted", 12, features={"finding.confidence": 0.0})
     res = run_training(tmp_path, min_pairs=0)
     assert res["trained"] is False
-    assert res["reason"] in ("model_collapsed", "training_diverged")
+    assert res["reason"] == "model_collapsed"
+    assert res["output_std"] == 0.0  # 恒定输出 → 判别力门禁拒绝（#112）
     assert not model_file(tmp_path).exists()
 
 
