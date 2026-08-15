@@ -82,13 +82,25 @@ def test_fullpage_overlay_measured(deck):
 
 
 def test_fullpage_overlay_opacity_preserved(deck):
-    # #137：元素级 opacity 不再静默丢——满页半透明遮罩的 deco 必须带 opacity
+    # #137：元素级 opacity 不再静默丢——deco 必须保留数值，而非只带字段
+    # rgba 背景的满页遮罩 s.opacity 恒为 "1"（没有 CSS opacity 属性），
+    # 因此数值断言必须落在带真实 CSS opacity 的 .faded 元素上。
+    faded = [
+        r for r in _records(deck, 0)
+        if r["kind"] == "shape" and r["tag"] == "div"
+        and "faded" in (r.get("className") or "").split()
+    ]
+    assert faded, "带 CSS opacity 的 .faded 元素没有产生 shape 记录"
+    deco = faded[0].get("deco", {})
+    assert "opacity" in deco, "deco 缺 opacity 字段"
+    assert float(deco["opacity"]) == 0.5, f"opacity 数值丢失: {deco['opacity']!r}"
+
+    # 原 rgba 半透明遮罩仍在（s.opacity 恒 "1"，不作为数值断言点）
     overlay = [
         r for r in _records(deck, 0)
         if r["kind"] == "shape" and r["rect"]["w"] >= 1900 and r["rect"]["h"] >= 1060
     ]
     assert overlay, "满页半透明遮罩没有产生 shape 记录"
-    assert any("opacity" in r.get("deco", {}) for r in overlay), "遮罩透明度丢失"
 
 
 def test_empty_drawio_placeholder_measured(drawio_placeholder):
