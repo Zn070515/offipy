@@ -64,7 +64,12 @@ deck = [
 mcp = [
     "mcp>=2.0,<3.0",
 ]
-all = ["offipy[office,deck,mcp]"]
+all = ["offipy[office,deck,mcp,feedback]"]
+# 可学习 feedback 系统（numpy MLP）。核心 import offipy 仍零依赖——feedback
+# 学习核心只在 train()/推理函数内惰性 import，base install 不触发 numpy。
+feedback = [
+    "numpy>=1.26,<2.1",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
