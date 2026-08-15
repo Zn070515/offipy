@@ -95,7 +95,7 @@ def load_model(path: Path) -> dict[str, Any] | None:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, UnicodeError, OSError):
         return None
     if not isinstance(data, dict):
         return None
@@ -111,6 +111,8 @@ def model_valid(data: dict[str, Any], input_schema_version: str) -> bool:
 
 def weights_from_dict(data: dict[str, Any], *, input_dim: int, hidden_dims: tuple[int, ...]) -> MLP:
     """按 data['weights'] 还原 MLP（形状校验失败抛 ValueError → 调用方视为无模型）。"""
+    if data.get("hidden_dims") != list(hidden_dims):
+        raise ValueError(f"hidden_dims 不匹配: {data.get('hidden_dims')} vs {list(hidden_dims)}")
     mlp = MLP(input_dim=input_dim, hidden_dims=hidden_dims, seed=int(data["seed"]))
     weights = data["weights"]
     Ws = [np.asarray(w, dtype=np.float64) for w in weights["W"]]

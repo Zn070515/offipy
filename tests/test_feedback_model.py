@@ -71,6 +71,8 @@ def test_load_corrupt_returns_none(tmp_path):
     assert load_model(path) is None
     path.write_text('{"weights": [1]}', encoding="utf-8")  # 缺关键字段
     assert load_model(path) is None
+    path.write_bytes(b"\xff\xfe\x00\x80")  # 非法 UTF-8
+    assert load_model(path) is None
 
 
 def test_load_missing_returns_none(tmp_path):
@@ -91,6 +93,24 @@ def test_model_valid_gates_on_input_schema_version(tmp_path):
     assert data is not None
     assert model_valid(data, feature_schema_version()) is True
     assert model_valid(data, "999") is False  # 过期
+
+
+def test_weights_from_dict_rejects_layer_count_mismatch(tmp_path):
+    """hidden_dims 层数不匹配（即使权重宽度相同）也要抛 ValueError，防止尾部层残留随机初始化。"""
+    small = MLP(input_dim=4, hidden_dims=(3,), seed=42)
+    path = save_model(
+        small,
+        input_schema_version="1",
+        output_schema_version="1",
+        seed=42,
+        hidden_dims=(3,),
+        stats={},
+        path=model_file(tmp_path),
+    )
+    data = load_model(path)
+    assert data is not None
+    with pytest.raises(ValueError):
+        weights_from_dict(data, input_dim=4, hidden_dims=(3, 2))
 
 
 def test_save_failure_keeps_old_model(tmp_path):
