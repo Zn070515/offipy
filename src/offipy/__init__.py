@@ -70,7 +70,7 @@ from .models import (
     shape_type_name,
 )
 
-__version__ = "0.17.1"
+__version__ = "0.18.0"
 
 __all__ = [
     "ART_REPORT_SCHEMA_VERSION",
