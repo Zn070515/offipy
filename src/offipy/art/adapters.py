@@ -29,6 +29,9 @@ _KIND_MAP = {
     "img": "image",
     "image": "image",
     "picture": "image",
+    "asset": "image",  # 注入素材（图片类）
+    "svg": "image",  # 内联 SVG 整块
+    "deco_snapshot": "shape",  # 光栅化装饰层
     "shape": "shape",
     "rect": "shape",
     "line": "shape",
@@ -211,6 +214,10 @@ def _to_measurement_element(
     h = _num(rect.get("h"), 0.0) / slide_height
     raw_kind = rec.get("kind", "shape")
     kind = _KIND_MAP.get(raw_kind, "shape")
+    is_deco = raw_kind == "deco_snapshot"
+    role = (
+        "decoration" if is_deco else _infer_element_role(rec.get("className"), rec.get("tag"), kind)
+    )
     style = rec.get("style") or {}
     deco = rec.get("deco") or {}
     natural = rec.get("naturalSize") or {}
@@ -241,7 +248,8 @@ def _to_measurement_element(
     return ArtElement(
         element_id=f"m{slide_index}-{rec.get('id')}",
         kind=kind,
-        role=_infer_element_role(rec.get("className"), rec.get("tag"), kind),
+        role=role,
+        decoration=is_deco,
         x=x,
         y=y,
         width=w,

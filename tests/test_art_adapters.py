@@ -765,3 +765,26 @@ def test_measurement_adapter_warns_on_unparseable_color():
     }
     scene = MeasurementAdapter(raw).build()
     assert any(w.code == "art.adapter.color_unparsed" for w in scene.warnings)
+
+
+def test_kind_map_asset_svg_deco_snapshot():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {"id": 1, "kind": "asset", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                    {"id": 2, "kind": "svg", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                    {
+                        "id": 3,
+                        "kind": "deco_snapshot",
+                        "rect": {"x": 0, "y": 0, "w": 1920, "h": 1080},
+                    },
+                ],
+            }
+        ]
+    }
+    els = MeasurementAdapter(raw).build().slides[0].elements
+    assert [e.kind for e in els] == ["image", "image", "shape"]
+    assert els[2].role == "decoration"
+    assert els[2].decoration is True
