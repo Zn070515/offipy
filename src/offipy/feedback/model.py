@@ -13,11 +13,10 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
-from .mlp import MLP
+if TYPE_CHECKING:
+    from .mlp import MLP
 
 MODEL_FILE = "art_feedback_model.json"
 MODEL_FORMAT_VERSION = 1
@@ -111,6 +110,10 @@ def model_valid(data: dict[str, Any], input_schema_version: str) -> bool:
 
 def weights_from_dict(data: dict[str, Any], *, input_dim: int, hidden_dims: tuple[int, ...]) -> MLP:
     """按 data['weights'] 还原 MLP（形状校验失败抛 ValueError → 调用方视为无模型）。"""
+    import numpy as np
+
+    from .mlp import MLP
+
     if data.get("hidden_dims") != list(hidden_dims):
         raise ValueError(f"hidden_dims 不匹配: {data.get('hidden_dims')} vs {list(hidden_dims)}")
     mlp = MLP(input_dim=input_dim, hidden_dims=hidden_dims, seed=int(data["seed"]))
