@@ -43,10 +43,21 @@ _TOKENS = [
     "0",
     "-1",
     "9e99",
+    # URL / data 相关：让 _rewrite_relative_urls 的 attr/srcset/CSS url() 与
+    # data: URI stash-restore 路径有机会被走到（配合 base 前置的 <img src/srcset>，
+    # 否则 HTML fuzz 全是 ok、白名单 0 命中）。
+    "data:image/png;base64,AAA",
+    "src=",
+    "href=",
+    "url(",
+    "data-icon=",
+    "srcset=",
+    "data-src=",
 ]
 
 
 def _mutate(seed: int, base: str) -> str:
+    # 固定 seed 确定性冒烟（非探索式 fuzz）：每次运行产出完全相同，回归可复现。
     rng = random.Random(seed)
     out = base
     for _ in range(rng.randint(1, 40)):
@@ -73,9 +84,10 @@ def test_fuzz_drawio_parse(seed, tmp_path):
     )
     p = tmp_path / f"f{seed}.drawio"
     p.write_text(_mutate(SEED + seed, base), encoding="utf-8")
-    # 白名单：SystemExit 已被包成 ValueError（drawio.py:126），畸形输入友好拒绝；
-    # 白名单之外（IndexError/AttributeError 等裸 bug）→ 测试失败
-    with contextlib.suppress(OffipyError, ValueError, ET.ParseError, RecursionError):
+    # 白名单：SystemExit 已被包成 ValueError（drawio.py:126），畸形输入友好拒绝。
+    # 不含 RecursionError——真递归 bug 必须可见（25 seed 深度有界不会误触发）；
+    # 白名单之外（IndexError/AttributeError/递归爆栈等裸 bug）→ 测试失败
+    with contextlib.suppress(OffipyError, ValueError, ET.ParseError):
         parse_drawio(p)  # public 入口
 
 
@@ -83,7 +95,11 @@ def test_fuzz_drawio_parse(seed, tmp_path):
 def test_fuzz_html_deck(seed, tmp_path):
     """fuzz offipy 自身在 Chromium 之前的纯 Python HTML 预处理（DOM 由 Chromium
     产出，原始 HTML 解析不在此包内；vendored 无纯 Python 入口且非包导入，不 fuzz）。"""
+    # <img src/srcset/data: URI> 放 base 最前：_mutate 的截断 op 只切尾部，
+    # 前端资源引用得以存活 → _rewrite_relative_urls 的 attr/srcset/data: stash-restore
+    # 路径被真正走到（否则 25/25 全 ok、URL 重写从不执行）。
     base = (
+        '<img src="a.png" srcset="b.png 1x, data:image/png;base64,AAA 2x">'
         "<html><body><section data-pptx-slide><p>hi</p>"
         '<div class="mermaid">graph LR; a-->b</div></section></body></html>'
     )
