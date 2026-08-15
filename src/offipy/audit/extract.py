@@ -156,6 +156,7 @@ class _ShapeRecord:
     fill_color: tuple[int, int, int, float] | None = None  # spPr solidFill 的 (r,g,b,a)
     smartart_node_count: int | None = None  # SmartArt 含文本节点数；非 SmartArt = None
     has_chart: bool = False  # graphicFrame 是否为图表（c:chart）
+    chart_series_colors: list[tuple[int, int, int]] | None = None  # c:ser 显式系列色
 
 
 @dataclass
@@ -332,6 +333,7 @@ def _build_record(
         is_hidden=is_hidden,
         has_table=has_table,
         has_chart=has_chart,
+        chart_series_colors=_read_chart_series_colors(shape) if has_chart else None,
         placeholder_type=placeholder_type,
         parent_shape_id=parent,
         group_path=group_path,
@@ -462,6 +464,43 @@ def _read_chart_text(shape: object) -> str:
     return "\n".join(p for p in parts if p and p.strip())
 
 
+def _read_chart_series_colors(
+    shape: object,
+) -> list[tuple[int, int, int]] | None:
+    """图表系列显式色：c:ser//a:srgbClr 的 (r,g,b)；无显式系列色 → None。"""
+    try:
+        chart = shape.chart  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    els = chart._chartSpace.xpath(".//c:ser//a:srgbClr")
+    if not els:
+        return None
+    out: list[tuple[int, int, int]] = []
+    for el in els:
+        v = el.get("val")
+        if v is None or len(v) != 6:
+            continue
+        try:
+            out.append((int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16)))
+        except ValueError:
+            continue
+    return out or None
+
+
+def _chart_spPr(shape: object) -> list[Any]:
+    """chart graphicFrame 的 c:chartSpace/c:spPr（框架显式填充）。
+
+    graphicFrame 无 p:spPr；图表可见框架填充在 c:chartSpace/c:spPr。
+    """
+    if not getattr(shape, "has_chart", False):
+        return []
+    try:
+        els: list[Any] = shape.chart._chartSpace.xpath("./c:spPr")  # type: ignore[attr-defined]
+    except Exception:
+        return []
+    return els
+
+
 def _read_text_frame(shape: object) -> _TextFrameData:
     from pptx.oxml.ns import qn
 
@@ -560,6 +599,8 @@ def _read_fill(shape: object) -> str:
 
     spPr = shape._element.xpath("./p:spPr")  # type: ignore[attr-defined]
     if not spPr:
+        spPr = _chart_spPr(shape)  # chart graphicFrame：框架填充在 c:chartSpace/c:spPr
+    if not spPr:
         return "unknown"
     el = spPr[0]
     for tag, kind in (
@@ -613,6 +654,8 @@ def _read_fill_color(shape: object) -> tuple[int, int, int, float] | None:
     from pptx.oxml.ns import qn
 
     spPr = shape._element.xpath("./p:spPr")  # type: ignore[attr-defined]
+    if not spPr:
+        spPr = _chart_spPr(shape)  # chart graphicFrame：框架填充在 c:chartSpace/c:spPr
     if not spPr:
         return None
     solid = spPr[0].find(qn("a:solidFill"))

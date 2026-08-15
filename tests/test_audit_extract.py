@@ -7,6 +7,7 @@ import pytest
 from lxml import etree
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
+from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.enum.text import MSO_AUTO_SIZE
@@ -178,6 +179,51 @@ def test_chart_text_extracted_pie_no_category_axis(tmp_path):
     assert len(recs) == 1  # 饼图（无类别轴）不被误删
     assert "饼图系列" in recs[0].text
     assert not ext.warnings
+
+
+def test_chart_series_colors_and_fill_kind(tmp_path):
+    from lxml import etree
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    cd = CategoryChartData()
+    cd.categories = ["甲", "乙"]
+    cd.add_series("系列", (1, 2))
+    shape = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), cd
+    )
+    # 系列显式色（公开 API）
+    ser = shape.chart.plots[0].series[0]
+    ser.format.fill.solid()
+    ser.format.fill.fore_color.rgb = RGBColor(0xFF, 0x00, 0x00)
+    # 图表框架 noFill → 透明（无公开 API，直接注入 c:chartSpace/c:spPr/a:noFill）
+    sp_pr = etree.SubElement(shape.chart._chartSpace, qn("c:spPr"))
+    etree.SubElement(sp_pr, qn("a:noFill"))
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "CHART")
+    assert rec.fill_kind == "none"  # 透明框架不再按 unknown/不透明
+    assert rec.chart_series_colors == [(255, 0, 0)]
+
+
+def test_to_art_elements_chart_kind(tmp_path):
+    from offipy.audit.pptx import _to_art_elements
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    cd = CategoryChartData()
+    cd.categories = ["甲", "乙"]
+    cd.add_series("系列", (1, 2))
+    slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), cd
+    )
+    path = tmp_path / "chart.pptx"
+    prs.save(path)
+    ext = extract_presentation(path)
+    records = [r for slide in ext.slides for r in slide.shapes]
+    els = _to_art_elements(records, ext.slide_size)
+    chart_els = [el for el in els if el.kind == "chart"]
+    assert len(chart_els) == 1
+    assert "系列" in chart_els[0].text and "甲" in chart_els[0].text
 
 
 # ---------------------------------------------------------------- 顶层 shape

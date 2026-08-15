@@ -32,6 +32,7 @@ _KIND_MAP = {
     "asset": "image",  # 注入素材（图片类）
     "svg": "image",  # 内联 SVG 整块
     "deco_snapshot": "shape",  # 光栅化装饰层
+    "chart": "chart",  # 图表 graphicFrame（audit CHART → art chart kind）
     "shape": "shape",
     "rect": "shape",
     "line": "shape",
