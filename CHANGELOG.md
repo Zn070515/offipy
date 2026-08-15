@@ -19,6 +19,11 @@
   - **PPTX-only 审计富集（#128）**：只传 `pptx=` 时从 `_ShapeRecord` 解析字号 / 字体 /
     前景色 / 背景色 / 透明度 / fill_kind，hierarchy / typography / color 维度获得字号 /
     颜色证据（evidence_coverage 从 0 提升）；schemeClr / sysClr（主题色引用）仍不解析
+  - **SmartArt / 表格 / 图表文本（#124/#125）**：audit 计入 SmartArt 内部节点
+    （`smartart_node_count`）、表格单元格、图表系列 / 类别 / 轴标题文本——
+    文本统计不再漏 graphicFrame 内容
+  - **图表系列色（#139）**：audit 提取 `c:ser` 显式系列色 → `chart_series_colors`；
+    chart graphicFrame 在 `_KIND_MAP` 归入 `chart` kind
 
 ### Changed
 
@@ -27,6 +32,13 @@
   （CSS 布局宽高）之比，检出真实拉伸漂移（旧实现两值同源渲染尺寸、漂移恒≈0）；
   **`feature_schema_version()` 由 2→3**——历史 FEATURES 训练样本 / 模型因语义变化作废
   （冷启动回退 v2 语义不变）。
+- **图表框架透明度参与遮挡（#139）**：chart 框架填充改读 `c:chartSpace/c:spPr`——
+  noFill 透明图表不再按整块不透明误报遮挡（透明上层按 transparent_overlay 抑制）
+- **drawio 折线边识别与透明（#123/#136）**：waypoint 折线边渲染为 freeform +
+  noFill + connector 标记，audit 识别为 `is_connector` 且透明不遮挡
+- **场景融合 measurement 为主、pptx 补缺（#142）**：`merge_scenes` 合并时 primary
+  缺字段（None / 空文本）用 secondary 补齐（font_size 三元组同源），不再因测量缺
+  证据丢视觉线索
 
 ## [0.18.0] - 2026-08-15
 
