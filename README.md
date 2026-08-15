@@ -33,7 +33,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 三源（measurements + pptx 几何 +
   slides_dir 逐页 PNG 像素）一次评估，`deck.render_with_quality_report` 生成即质量参考
 - **可学习 feedback（v0.17）**：numpy MLP + 注册式输入输出（FEATURES/OUTPUTS），
-  `offipy feedback train` / `status`，冷启动回退 v2，核心零 numpy 依赖
+  `offipy feedback train` / `status` / `append`，冷启动回退 v2，核心零 numpy 依赖
 - **PPT 形状级读取与编辑**：`ppt read_shapes` 读取形状树（冻结 `ShapeInfo` / 形状类型契约），
   `set_shape_geometry/text/font/fill/outline/visible`、`delete_shape`、`set_shape_z_order`
   增量编辑真实 PowerPoint 对象

@@ -77,5 +77,5 @@ def learned_adjustments(
 
 
 def quality_score_for_report(mean_worth: float) -> float:
-    """deck 全部 finding 的 worth 均值 → quality.score。"""
+    """通过证据门禁（#111）的 finding 的 worth 均值 → quality.score。"""
     return quality_score_from_worth(mean_worth)
