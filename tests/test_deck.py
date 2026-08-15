@@ -956,6 +956,16 @@ def test_rewrite_srcset_preserves_data_uri_with_comma(tmp_path):
     assert f"{logo} 2x" in rewritten  # 其余候选照常重写
 
 
+def test_rewrite_srcset_ignores_out_of_range_marker(tmp_path):
+    # #110：源 HTML 含字面 __OFFIPY_DATA_N__（N 越界）不得抛裸 IndexError——
+    # 白名单内（命中 stash 占位符但超出已 stash 数量）原样保留，不崩。
+    base = tmp_path.resolve()
+    content = '<img srcset="__OFFIPY_DATA_999__ 1x">'
+    rewritten = deck._rewrite_relative_urls(content, base)
+    assert isinstance(rewritten, str)  # 不抛 IndexError，正常返回字符串
+    assert "__OFFIPY_DATA_999__" in rewritten  # 越界占位符原样保留（不误还原）
+
+
 def _owned_marker(pptx: Path) -> str:
     return json.dumps(
         {"schema": 1, "pptx": str(Path(str(pptx)).resolve()), "pptx_sha256": "x", "run_id": None}

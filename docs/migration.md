@@ -187,7 +187,7 @@ TypeError: read_slide_texts() missing 1 required positional argument: 'slide_idx
 
 `read_slide_texts(slide_idx, *, include_empty=False, recursive=True)` 返回
 第 `slide_idx` 页全部**具有文本能力**的 shape 的记录，元素类型是
-[`SlideTextRecord`](#slide-text-record-数据模型)（TypedDict）。
+[`SlideTextRecord`](#slidetextrecord)（TypedDict）。
 
 - 只返回有 TextFrame 的 shape；图片/线条/无文本图形不在此列。
 - `include_empty=True` 连文本为空的 TextFrame shape 也返回。
