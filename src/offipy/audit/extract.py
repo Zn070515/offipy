@@ -40,6 +40,12 @@ _DIAGRAM_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
 _DIAGRAM_DATA_NS = "http://schemas.openxmlformats.org/drawingml/2006/diagramData"
 _DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 
+# drawio 折线边（waypoint polyline）渲染成 freeform 后打的 connector 标记。
+# 与 offipy/diagrams.py 的 _CONNECTOR_MARKER 保持一致（跨模块双常量，
+# 由 test_render_waypoint_edge_roundtrip_is_connector 回环测试强制同步——
+# 不跨模块 import，保证 audit 顶层零渲染层依赖）。
+_CONNECTOR_MARKER = "{http://offipy.dev/connector}connector"
+
 
 def _to_inches(value: Any) -> float | None:
     """Length(EMU int) 或 None → 英寸；非 None 时必定返回 float。"""
@@ -277,7 +283,11 @@ def _build_record(
 
     shape_type = getattr(shape.shape_type, "name", None) or "UNKNOWN"  # type: ignore[attr-defined]
     is_group = shape.shape_type == MSO_SHAPE_TYPE.GROUP or shape._element.tag.endswith("}grpSp")  # type: ignore[attr-defined]
-    is_connector = shape.shape_type == MSO_SHAPE_TYPE.LINE or shape._element.tag.endswith("}cxnSp")  # type: ignore[attr-defined]
+    is_connector = (
+        shape.shape_type == MSO_SHAPE_TYPE.LINE  # type: ignore[attr-defined]
+        or shape._element.tag.endswith("}cxnSp")  # type: ignore[attr-defined]
+        or shape._element.get(_CONNECTOR_MARKER) == "1"  # type: ignore[attr-defined]  # 与 diagrams.py 标记同源
+    )
     is_hidden = bool(shape._element.xpath('.//p:cNvPr[@hidden="1" or @hidden="true"]'))  # type: ignore[attr-defined]
 
     image_sha256 = None

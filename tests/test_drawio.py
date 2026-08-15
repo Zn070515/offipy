@@ -326,6 +326,26 @@ def test_render_drawio_waypoint_polyline(tmp_path):
     assert ff.line._get_or_add_ln().find(qn("a:tailEnd")) is not None  # 箭头保留
 
 
+def test_render_waypoint_edge_roundtrip_is_connector(tmp_path):
+    from pptx import Presentation
+
+    from offipy.audit.extract import extract_presentation
+    from offipy.diagrams import render_to_slide
+
+    d = parse_drawio(_write(tmp_path, WAYPOINTS, "waypoints.drawio"))
+    lay = layout_drawio(d)
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    render_to_slide(slide, lay)
+    out = tmp_path / "out.pptx"
+    prs.save(out)
+    ext = extract_presentation(out)
+    records = [r for slide in ext.slides for r in slide.shapes]
+    freeforms = [r for r in records if r.shape_type == "FREEFORM"]
+    assert len(freeforms) == 1  # waypoint 边 → freeform polyline
+    assert freeforms[0].is_connector is True  # #123：带 connector 标记 → 识别为连接线
+
+
 def test_parse_drawio_stroke_rotation_dash(tmp_path):
     d = parse_drawio(_write(tmp_path, STYLED, "styled.drawio"))
     by_id = {n.id: n for n in d.nodes}

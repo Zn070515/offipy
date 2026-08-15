@@ -30,6 +30,11 @@ SUPPORTED_DIRECTIONS = {"TD", "TB", "LR", "RL", "BT"}
 # 预检，把误导性的 "not a Mermaid file" 换成清晰错误。
 _FLOW_HEADER_WITHOUT_DIRECTION = re.compile(r"^\s*(graph|flowchart)\s*$", re.I)
 
+# drawio 折线边（waypoint polyline）渲染成 freeform 后在此 p:sp 上打标记，
+# 使 audit 能把它识别为连接线（与 offipy/audit/extract.py 的 _CONNECTOR_MARKER
+# 保持一致，跨模块双常量由 e2e 回环测试强制同步）。
+_CONNECTOR_MARKER = "{http://offipy.dev/connector}connector"
+
 _extractor: Any = None
 
 
@@ -503,6 +508,7 @@ def render_to_slide(
                 close=False,
             )
             conn = fb.convert_to_shape()
+            conn._element.set(_CONNECTOR_MARKER, "1")  # #123：折线边标记为连接线
             lx, ly = (
                 sum(p[0] for p in pts) / len(pts),
                 sum(p[1] for p in pts) / len(pts),
