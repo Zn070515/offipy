@@ -786,5 +786,8 @@ def test_kind_map_asset_svg_deco_snapshot():
     }
     els = MeasurementAdapter(raw).build().slides[0].elements
     assert [e.kind for e in els] == ["image", "image", "shape"]
+    assert els[0].role == "image"  # asset → image role
+    assert els[1].role == "image"  # svg → image role
     assert els[2].role == "decoration"
     assert els[2].decoration is True
+    assert [e.decoration for e in els] == [False, False, True]  # 仅 deco_snapshot 是 decoration
