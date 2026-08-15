@@ -791,3 +791,47 @@ def test_kind_map_asset_svg_deco_snapshot():
     assert els[2].role == "decoration"
     assert els[2].decoration is True
     assert [e.decoration for e in els] == [False, False, True]  # 仅 deco_snapshot 是 decoration
+
+
+def test_measurement_adapter_decoded_rendered_size():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "img",
+                        "rect": {"x": 0, "y": 0, "w": 200, "h": 100},
+                        "decodedSize": {"w": 1, "h": 1},
+                        "renderedSize": {"w": 200, "h": 100},
+                    }
+                ],
+            }
+        ]
+    }
+    el = MeasurementAdapter(raw).build().slides[0].elements[0]
+    assert el.decoded_width == 1.0 and el.decoded_height == 1.0
+    assert el.natural_width == 200.0 and el.natural_height == 100.0  # rendered 语义保留
+
+
+def test_measurement_adapter_decoded_missing_falls_back():
+    # 旧数据只有 naturalSize（渲染尺寸）→ decoded 退回渲染，drift≈0 但字段不 None
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "canvas",
+                        "rect": {"x": 0, "y": 0, "w": 480, "h": 270},
+                        "naturalSize": {"w": 480, "h": 270},
+                    }
+                ],
+            }
+        ]
+    }
+    el = MeasurementAdapter(raw).build().slides[0].elements[0]
+    assert el.natural_width == 480.0
+    assert el.decoded_width == 480.0  # 退回 naturalSize，不 None

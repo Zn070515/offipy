@@ -467,6 +467,14 @@ EXTRACT_JS = r"""
       // 给元素打 marker，便于 Playwright 后续按 marker 截图
       const svgIndex = records.filter(x => x.kind === 'svg').length;
       el.setAttribute('data-pptx-svg-id', `slide${slideIndex+1}-svg${svgIndex+1}`);
+      const vb = el.viewBox && el.viewBox.baseVal ? el.viewBox.baseVal : null;
+      let svgW = el.width && el.width.baseVal ? el.width.baseVal.value : 0;
+      let svgH = el.height && el.height.baseVal ? el.height.baseVal.value : 0;
+      if ((!svgW || !svgH) && vb && vb.width && vb.height) {
+        // 无显式 width/height 的 svg：viewBox 定比例，解码尺寸按渲染宽缩放
+        svgW = el.offsetWidth;
+        svgH = (el.offsetWidth * vb.height) / vb.width;
+      }
       records.push({
         id: nodeId++,
         kind: 'svg',
@@ -475,6 +483,8 @@ EXTRACT_JS = r"""
         marker: `slide${slideIndex+1}-svg${svgIndex+1}`,
         outerHTML: el.outerHTML,
         color: css(el, 'color'),
+        decodedSize: { w: svgW, h: svgH },
+        renderedSize: { w: el.offsetWidth, h: el.offsetHeight },
       });
       return; // SVG 整体当一张图，不下钻子节点
     }
@@ -493,6 +503,10 @@ EXTRACT_JS = r"""
         // 破图检测：naturalWidth/Height 为 0 = 图片未加载成功（本地文件缺失/
         // 路径错误/远端 404）。convert.py 据此报错，杜绝「静默嵌入空白占位图」。
         imgBroken: (el.naturalWidth || 0) === 0 && (el.naturalHeight || 0) === 0,
+        // #126：解码尺寸（naturalWidth/Height）与渲染尺寸（offsetWidth/Height）分存，
+        // 供 audit 算拉伸漂移。旧 naturalSize 语义就是渲染尺寸，二义会致 drift≈0 死规则。
+        decodedSize: { w: el.naturalWidth || 0, h: el.naturalHeight || 0 },
+        renderedSize: { w: el.offsetWidth, h: el.offsetHeight },
       });
       return;
     }

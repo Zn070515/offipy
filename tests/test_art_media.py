@@ -22,11 +22,11 @@ def _ctx(slide, profile="balanced"):
 
 
 def test_distorted_image_fires():
-    # 物理比 4:1（960×240），自然比 4:3 → 漂移大
+    # 物理比 4:1（960×240），解码比 4:3 → 漂移大
     slide = make_slide(
         1,
         elements=[
-            make_image_element("i", w=0.5, h=0.125, natural_width=800.0, natural_height=600.0),
+            make_image_element("i", w=0.5, h=0.125, decoded_width=800.0, decoded_height=600.0),
         ],
     )
     ev = distorted_image_rule(slide, _ctx(slide))
@@ -36,11 +36,11 @@ def test_distorted_image_fires():
 
 
 def test_distorted_image_ok():
-    # 物理 (0.45×1920)/(0.6×1080) = 864/648 = 1.333 ≈ 自然 800/600=1.333 → 不触发
+    # 物理 (0.45×1920)/(0.6×1080) = 864/648 = 1.333 ≈ 解码 800/600=1.333 → 不触发
     slide = make_slide(
         1,
         elements=[
-            make_image_element("i", w=0.45, h=0.6, natural_width=800.0, natural_height=600.0),
+            make_image_element("i", w=0.45, h=0.6, decoded_width=800.0, decoded_height=600.0),
         ],
     )
     assert distorted_image_rule(slide, _ctx(slide)).findings == []

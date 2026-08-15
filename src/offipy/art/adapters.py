@@ -221,6 +221,12 @@ def _to_measurement_element(
     style = rec.get("style") or {}
     deco = rec.get("deco") or {}
     natural = rec.get("naturalSize") or {}
+    decoded = rec.get("decodedSize") or {}
+    rendered = rec.get("renderedSize") or natural  # 旧数据只有 naturalSize（渲染语义）
+    natural_w = rendered.get("w")
+    natural_h = rendered.get("h")
+    decoded_w = decoded.get("w") or natural_w
+    decoded_h = decoded.get("h") or natural_h
     runs = [
         ArtTextRun(
             text=rt.get("text", ""),
@@ -243,8 +249,6 @@ def _to_measurement_element(
         font_size_unit = "unknown"
     has_bg = bool(deco.get("hasBg", False))
     background = _measurement_color(deco.get("bg"), warnings) if has_bg else None
-    natural_w = natural.get("w")
-    natural_h = natural.get("h")
     return ArtElement(
         element_id=f"m{slide_index}-{rec.get('id')}",
         kind=kind,
@@ -264,6 +268,8 @@ def _to_measurement_element(
         runs=runs,
         natural_width=_opt_num(natural_w),
         natural_height=_opt_num(natural_h),
+        decoded_width=_opt_num(decoded_w),
+        decoded_height=_opt_num(decoded_h),
         source="measurement",
     )
 

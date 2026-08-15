@@ -53,6 +53,12 @@ def drawio_placeholder(tmp_path_factory):
     return _measure("drawio_placeholder.html", tmp_path_factory)
 
 
+@pytest.fixture(scope="module")
+def img_sizes(tmp_path_factory):
+    # #126：1×1 PNG data URI 被 CSS 拉成 200×100，验证解码/渲染尺寸分存
+    return _measure("img_sizes_deck.html", tmp_path_factory)
+
+
 def _records(deck, page):
     return deck["slides"][page]["records"]
 
@@ -84,6 +90,14 @@ def test_empty_drawio_placeholder_measured(drawio_placeholder):
     rect = recs[0]["rect"]
     assert rect["x"] == 200 and rect["y"] == 240, f"位置偏差: {rect}"
     assert rect["w"] == 900 and rect["h"] == 500, f"尺寸偏差: {rect}"
+
+
+def test_img_decoded_vs_rendered_size(img_sizes):
+    recs = [r for r in _records(img_sizes, 0) if r["kind"] == "img"]
+    assert recs, "fixture 未产出 img 记录"
+    r = recs[0]
+    assert r["decodedSize"] == {"w": 1, "h": 1}, f"解码尺寸错误: {r['decodedSize']}"
+    assert r["renderedSize"] == {"w": 200, "h": 100}, f"渲染尺寸错误: {r['renderedSize']}"
 
 
 def test_hidden_text_not_extracted(deck):

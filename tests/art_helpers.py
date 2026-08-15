@@ -46,6 +46,10 @@ def _prepare_element(el: ArtElement, *, slide_index: int, slide_height: float) -
         container=el.container,
         decoration=el.decoration,
         pixel_evidence=el.pixel_evidence,
+        opacity=el.opacity,
+        decoded_width=el.decoded_width,
+        decoded_height=el.decoded_height,
+        fill_kind=el.fill_kind,
     )
 
 
@@ -71,6 +75,10 @@ def make_element(
     container: bool = False,
     decoration: bool = False,
     pixel_evidence: ElementPixelEvidence | None = None,
+    opacity: float | None = None,
+    decoded_width: float | None = None,
+    decoded_height: float | None = None,
+    fill_kind: str | None = None,
 ) -> ArtElement:
     return ArtElement(
         element_id=element_id,
@@ -94,6 +102,10 @@ def make_element(
         container=container,
         decoration=decoration,
         pixel_evidence=pixel_evidence,
+        opacity=opacity,
+        decoded_width=decoded_width,
+        decoded_height=decoded_height,
+        fill_kind=fill_kind,
     )
 
 
@@ -148,6 +160,8 @@ def make_image_element(
     h: float = 0.3,
     natural_width: float = 800.0,
     natural_height: float = 600.0,
+    decoded_width: float | None = None,
+    decoded_height: float | None = None,
     slide_index: int = 1,
 ) -> ArtElement:
     return make_element(
@@ -161,6 +175,8 @@ def make_image_element(
         slide_index=slide_index,
         natural_width=natural_width,
         natural_height=natural_height,
+        decoded_width=decoded_width,
+        decoded_height=decoded_height,
     )
 
 
