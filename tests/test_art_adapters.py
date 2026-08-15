@@ -919,6 +919,12 @@ def test_measurement_adapter_fill_kind():
                         "fill_kind": "gradient",
                     },
                     {"id": 2, "kind": "shape", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                    {
+                        "id": 3,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 50, "h": 50},
+                        "fill_kind": "",
+                    },
                 ],
             }
         ]
@@ -926,3 +932,4 @@ def test_measurement_adapter_fill_kind():
     els = MeasurementAdapter(raw).build().slides[0].elements
     assert els[0].fill_kind == "gradient"
     assert els[1].fill_kind is None
+    assert els[2].fill_kind is None  # 空串 → None（(rec.get("fill_kind") or None) 语义）

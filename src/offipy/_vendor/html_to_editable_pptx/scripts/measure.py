@@ -123,6 +123,9 @@ EXTRACT_JS = r"""
     borderRadius: s.borderTopLeftRadius,
     opacity: s.opacity,
   });
+  // fill_kind 只描述「填充 / box-shadow 阴影」，不是「光栅化原因」。
+  // filter:drop-shadow / backdrop-filter / mix-blend-mode 等触发的光栅化元素
+  // fill 仍可能为 solid——识别「光栅化装饰」用 kind=='deco_snapshot'（→ decoration=True）。
   const fillKindFromStyle = (s) => {
     const bgImg = s.backgroundImage || '';
     if (bgImg !== 'none' && bgImg.indexOf('gradient') !== -1) return 'gradient';
