@@ -138,9 +138,12 @@ def _apply_learning_pass(
     data = load_model(model_file(feedback_dir))
     if data is None or not model_valid(data, feature_schema_version()):
         return
-    mlp = weights_from_dict(
-        data, input_dim=len(feature_keys()), hidden_dims=tuple(data["hidden_dims"])
-    )
+    try:
+        mlp = weights_from_dict(
+            data, input_dim=len(feature_keys()), hidden_dims=tuple(data["hidden_dims"])
+        )
+    except (ValueError, KeyError, TypeError):
+        return  # 损坏模型（schema 匹配但权重形状错）→ 视为无模型，回退 v2
     worths: list[float] = []
     for finding, slide_index in _all_findings(report):
         if finding.severity_override:

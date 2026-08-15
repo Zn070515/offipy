@@ -501,5 +501,30 @@ def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
         feedback_dir=tmp_path,
         include_experimental_score=True,
     )
-    assert report.experimental_score is not None
-    assert 0.0 <= report.experimental_score <= 100.0
+    assert report.experimental_score == 73.1
+
+
+def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
+    """损坏但 schema 匹配的 model.json → analyze_scene 不抛异常，回退 v2。"""
+    from offipy.art import features_registry
+    from offipy.feedback.mlp import MLP
+    from offipy.feedback.model import model_file, save_model
+
+    save_model(
+        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        input_schema_version=features_registry.feature_schema_version(),
+        output_schema_version="1", seed=0, hidden_dims=(4,), stats={},
+        path=model_file(tmp_path),
+    )
+    p = model_file(tmp_path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["hidden_dims"] = [8]  # 与真实权重形状不一致 → weights_from_dict 抛 ValueError
+    p.write_text(json.dumps(data), encoding="utf-8")
+
+    for _ in range(3):
+        append("balanced", RULE_CORNER_CLUSTER, "fixed", Severity.MID, feedback_dir=tmp_path)
+    report = analyze_scene(_build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path)
+    f = _finding(report, RULE_CORNER_CLUSTER)
+    assert f is not None
+    assert f.severity == Severity.MID  # v2 回退：apply_feedback 后仍是 MID
+    assert f.severity_override_source == "feedback"
