@@ -97,6 +97,10 @@ def _merge_element(
         evidence=evidence,
         container=primary_el.container,
         decoration=primary_el.decoration,
+        opacity=primary_el.opacity,
+        decoded_width=primary_el.decoded_width,
+        decoded_height=primary_el.decoded_height,
+        fill_kind=primary_el.fill_kind,
     )
 
 
@@ -205,4 +209,6 @@ def _snapshot(el: ArtElement) -> dict[str, Any]:
         "height": el.height,
         "foreground": el.foreground.to_dict() if el.foreground else None,
         "background": el.background.to_dict() if el.background else None,
+        "opacity": el.opacity,
+        "fill_kind": el.fill_kind,
     }

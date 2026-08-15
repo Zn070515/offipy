@@ -12,6 +12,7 @@ Usage:
 """
 import contextlib
 import json
+import math
 import re
 import sys
 import tempfile
@@ -121,7 +122,18 @@ EXTRACT_JS = r"""
     borderLeftWidth: parseFloat(s.borderLeftWidth) || 0,
     borderRightWidth: parseFloat(s.borderRightWidth) || 0,
     borderRadius: s.borderTopLeftRadius,
+    opacity: s.opacity,
   });
+  // fill_kind 只描述「填充 / box-shadow 阴影」，不是「光栅化原因」。
+  // filter:drop-shadow / backdrop-filter / mix-blend-mode 等触发的光栅化元素
+  // fill 仍可能为 solid——识别「光栅化装饰」用 kind=='deco_snapshot'（→ decoration=True）。
+  const fillKindFromStyle = (s) => {
+    const bgImg = s.backgroundImage || '';
+    if (bgImg !== 'none' && bgImg.indexOf('gradient') !== -1) return 'gradient';
+    if (bgImg !== 'none') return 'image';       // background url 图
+    if (s.boxShadow && s.boxShadow !== 'none') return 'shadow';
+    return 'solid';
+  };
   // svg / img 等元素即便不是 HTML 块级，也要阻断 text-leaf 判定，
   // 否则容器里同时存在 <svg> 与 <span> 文本时,会被错误地当作纯文本叶子整体吞掉。
   // flex/grid 容器 + spacing 类 justify-content + 2+ 子 = "布局拉开"模式：
@@ -467,6 +479,14 @@ EXTRACT_JS = r"""
       // 给元素打 marker，便于 Playwright 后续按 marker 截图
       const svgIndex = records.filter(x => x.kind === 'svg').length;
       el.setAttribute('data-pptx-svg-id', `slide${slideIndex+1}-svg${svgIndex+1}`);
+      const vb = el.viewBox && el.viewBox.baseVal ? el.viewBox.baseVal : null;
+      let svgW = el.width && el.width.baseVal ? el.width.baseVal.value : 0;
+      let svgH = el.height && el.height.baseVal ? el.height.baseVal.value : 0;
+      if ((!svgW || !svgH) && vb && vb.width && vb.height) {
+        // 无显式 width/height 的 svg：viewBox 定比例，解码尺寸按渲染宽缩放
+        svgW = el.offsetWidth;
+        svgH = (el.offsetWidth * vb.height) / vb.width;
+      }
       records.push({
         id: nodeId++,
         kind: 'svg',
@@ -475,6 +495,8 @@ EXTRACT_JS = r"""
         marker: `slide${slideIndex+1}-svg${svgIndex+1}`,
         outerHTML: el.outerHTML,
         color: css(el, 'color'),
+        decodedSize: { w: svgW, h: svgH },
+        renderedSize: { w: el.offsetWidth, h: el.offsetHeight },
       });
       return; // SVG 整体当一张图，不下钻子节点
     }
@@ -493,6 +515,10 @@ EXTRACT_JS = r"""
         // 破图检测：naturalWidth/Height 为 0 = 图片未加载成功（本地文件缺失/
         // 路径错误/远端 404）。convert.py 据此报错，杜绝「静默嵌入空白占位图」。
         imgBroken: (el.naturalWidth || 0) === 0 && (el.naturalHeight || 0) === 0,
+        // #126：解码尺寸（naturalWidth/Height）与渲染尺寸（offsetWidth/Height）分存，
+        // 供 audit 算拉伸漂移。旧 naturalSize 语义就是渲染尺寸，二义会致 drift≈0 死规则。
+        decodedSize: { w: el.naturalWidth || 0, h: el.naturalHeight || 0 },
+        renderedSize: { w: el.offsetWidth, h: el.offsetHeight },
       });
       return;
     }
@@ -562,6 +588,7 @@ EXTRACT_JS = r"""
           rect: rectRel(r),
           naturalSize: { w: el.offsetWidth, h: el.offsetHeight },
           rotation: cumulativeRotation(el),
+          fill_kind: fillKindFromStyle(s),
           marker,
           screenshotClip: {
             x: r.left,
@@ -674,6 +701,7 @@ EXTRACT_JS = r"""
         // 元素未旋转的尺寸（不含 transform 效果），用于旋转还原
         naturalSize: { w: el.offsetWidth, h: el.offsetHeight },
         rotation: rotDeg,
+        fill_kind: fillKindFromStyle(s),
         deco: decoFromStyle(s, hasBg, bg, borderTop, borderBottom, borderLeft, borderRight),
       });
     }
@@ -800,6 +828,7 @@ EXTRACT_JS = r"""
             rect: rectRel(aR),
             naturalSize: { w: atomicEl.offsetWidth, h: atomicEl.offsetHeight },
             rotation: cumulativeRotation(atomicEl),
+            fill_kind: fillKindFromStyle(aS),
             marker,
             screenshotClip: { x: aR.left, y: aR.top, w: aR.width, h: aR.height },
           });
@@ -1220,19 +1249,35 @@ def _shoot_marker_records(page, records, out_dir: Path):
             clip = rec.get("screenshotClip") if kind == "deco_snapshot" else None
             if clip:
                 viewport = page.viewport_size or VIEWPORT
-                x0, y0 = float(clip.get("x", 0)), float(clip.get("y", 0))
-                w0, h0 = float(clip.get("w", 1)), float(clip.get("h", 1))
-                x, y = max(0.0, x0), max(0.0, y0)
-                dx, dy = x - x0, y - y0  # 左/上超出视口被 clamp 掉的量
-                w = max(1, min(w0 - dx, max(1, viewport["width"] - x)))
-                h = max(1, min(h0 - dy, max(1, viewport["height"] - y)))
-                page.screenshot(path=str(out_png),
-                                clip={"x": x, "y": y, "width": w, "height": h},
-                                omit_background=omit_bg)
+                cx, cy = float(clip.get("x", 0)), float(clip.get("y", 0))
+                cw, ch = float(clip.get("w", 1)), float(clip.get("h", 1))
+                # 左/上越界（负坐标）Playwright clip 不接受：clamp 到 0 并记录偏移，
+                # 截图后把偏移回写 rect，保持贴图相对真实位置不漂移。
+                x, y = max(0.0, cx), max(0.0, cy)
+                dx, dy = x - cx, y - cy
+                w, h = max(1, cw - dx), max(1, ch - dy)
+                # 右/下越界（box-shadow/背景图外延）：临时扩视口截全捕获框，截完还原。
+                need_w = max(viewport["width"], math.ceil(x + w))
+                need_h = max(viewport["height"], math.ceil(y + h))
+                expanded = (need_w, need_h) != (viewport["width"], viewport["height"])
+                if expanded:
+                    # #138：clip 超出视口时临时扩视口再截图，截图后立即还原。
+                    # offipy deck 输出固定 px，扩视口不触发响应式 re-layout；
+                    # 若目标页用 vw/vh/% 单位则可能 reflow，此风险在 offipy 管线中不现实。
+                    page.set_viewport_size({"width": need_w, "height": need_h})
+                try:
+                    page.screenshot(
+                        path=str(out_png),
+                        clip={"x": x, "y": y, "width": w, "height": h},
+                        omit_background=omit_bg,
+                    )
+                finally:
+                    if expanded:
+                        page.set_viewport_size(viewport)
                 # rect 与 screenshotClip 是同一捕获框的两套坐标（slide 相对 / viewport 绝对）。
-                # clip 被视口 clamp 后同步写回 rect，让 assemble 按"实际截到的区域"摆放，
-                # 否则贴图相对真实位置偏移 |dx|/|dy| 像素（宽高同理被拉伸）
-                if dx or dy or w != w0 or h != h0:
+                # 右/下越界经扩视口已完整截到（w/h 不变）→ 不回写 rect，阴影/背景完整保留；
+                # 仅左/上越界被 clamp 掉的量（dx/dy）回写，避免贴图相对真实位置偏移。
+                if dx or dy:
                     rec["rect"]["x"] += dx
                     rec["rect"]["y"] += dy
                     rec["rect"]["w"] = w

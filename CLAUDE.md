@@ -2,6 +2,11 @@
 
 Windows-only 的 Office COM 自动化库（offipy）：会话式驱动 Word/Excel/PowerPoint，外加 HTML→可编辑 PPTX 管线。
 
+## spec与plan撰写与审核纪律
+
+- 要求无违背契约与开发纪律、无代码逻辑错误、无不良设计导致后续开发和维护困难。
+- spec与plan至少按上面的要求审核两轮后才可继续动作。
+
 ## 环境要点（务必遵守）
 
 - Windows + bash（Git Bash）。命令用 bash 语法。

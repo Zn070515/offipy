@@ -5,9 +5,14 @@ from pathlib import Path
 import pytest
 
 from art_helpers import make_element, make_scene, make_slide, make_text_element
-from offipy.art.adapters import MeasurementAdapter, PptxAuditAdapter, build_scene
-from offipy.art.merge import merge_scenes
-from offipy.art.models import ArtColor
+from offipy.art.adapters import (
+    MeasurementAdapter,
+    PptxAuditAdapter,
+    _rgb_string_to_color,
+    build_scene,
+)
+from offipy.art.merge import _merge_element, merge_scenes
+from offipy.art.models import ArtColor, _element_from_dict
 from offipy.exceptions import InvalidArgumentError
 
 FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures" / "art"
@@ -263,6 +268,87 @@ def test_pptx_adapter_keeps_blank_slides():
     assert len(scene.slides) == 3  # 空白页保留，索引连续
     assert [s.index for s in scene.slides] == [1, 2, 3]
     assert scene.slides[1].elements == []  # slide 2 无 shape → 空页
+
+
+def test_pptx_enriched_elements_from_real_pptx():
+    # #128：PPTX-only 路径从 _ShapeRecord 富集，文字元素携带字号证据。
+    # synthetic.pptx 仅 TextBox 12 有显式 run 字号 18pt；其余文字继承主题 → 字号 None。
+    from offipy.audit import audit_pptx
+
+    report = audit_pptx(str(FIXTURES.parent / "audit" / "synthetic.pptx"))
+    assert report.records, "真实审计报告应携带 _ShapeRecord（富集分支入口）"
+    scene = PptxAuditAdapter(report).build()
+    els = scene.slides[0].elements
+    assert els, "synthetic.pptx 无元素"
+    text_el = next((e for e in els if e.has_text() and e.font_size is not None), None)
+    assert text_el is not None, "富集后应有文字元素带 font_size"
+    assert text_el.font_size == 18.0, "synthetic.pptx TextBox 12 显式字号 18pt"
+    assert text_el.font_size_unit == "pt"
+    assert text_el.font_size_norm is not None
+    assert text_el.runs and text_el.runs[0].font_size == 18.0, "run 应带字号证据"
+    # fixture 无任何颜色证据（无 srgbClr / solidFill）：不得虚构 foreground
+    assert all(e.foreground is None for e in els), "无颜色证据时 foreground 应为 None"
+    # 无显式字体的文字元素：字号保持 None（继承主题，不硬造证据），不崩
+    assert any(e.has_text() and e.font_size is None for e in els), "无显式字号的元素保持 None"
+
+
+def test_pptx_enrich_opacity_min_fill_and_run_alpha():
+    # #128 代码审查加固：fill 与 run 都半透明时，元素 opacity 取最透明者（min）。
+    # 回归：fill_color 分支曾「覆盖」run 侧已累积的 min-alpha。真正暴露该 bug 的场景是
+    # run alpha < fill alpha（如 0.3 vs 0.5）——覆盖会把 opacity 从 0.3 抬到 0.5。
+    from offipy.audit.extract import _Paragraph, _ShapeRecord, _TextRun
+    from offipy.audit.pptx import _to_art_elements
+
+    def _rec(run_alpha, fill_alpha, sid):
+        return _ShapeRecord(
+            slide_index=1,
+            shape_id=sid,
+            name=f"card{sid}",
+            shape_type="AUTO_SHAPE",
+            left=1.0,
+            top=1.0,
+            width=2.0,
+            height=1.0,
+            rotation=0.0,
+            z_order=0,
+            text="半透明",
+            has_text_frame=True,
+            word_wrap=None,
+            autofit_mode="NONE",
+            is_group=False,
+            is_connector=False,
+            is_hidden=False,
+            has_table=False,
+            placeholder_type=None,
+            parent_shape_id=None,
+            group_path=(),
+            paragraphs=[
+                _Paragraph(
+                    text="半透明",
+                    runs=[
+                        _TextRun(
+                            text="半透明",
+                            font_size=18.0,
+                            bold=None,
+                            font_name=None,
+                            color=(0, 0, 0, run_alpha),
+                        )
+                    ],
+                )
+            ],
+            fill_kind="solid",
+            fill_color=(255, 255, 255, fill_alpha),
+        )
+
+    # run 更透明：min=run 0.3；fill 0.5（覆盖 bug 会把 opacity 抬到 0.5 → 应 0.3）
+    (el_a,) = _to_art_elements([_rec(0.3, 0.5, 1)], (10.0, 7.5))
+    assert el_a.opacity == 0.3, "run 更透明时 opacity 应取 run alpha=0.3（非 fill 0.5）"
+    # fill 更透明：min=fill 0.3；run 0.5 → 应 0.3
+    (el_b,) = _to_art_elements([_rec(0.5, 0.3, 2)], (10.0, 7.5))
+    assert el_b.opacity == 0.3, "fill 更透明时 opacity 应取 fill alpha=0.3"
+    # 全不透明：opacity 保持 None（无透明度证据，不硬造 1.0）
+    (el_c,) = _to_art_elements([_rec(1.0, 1.0, 3)], (10.0, 7.5))
+    assert el_c.opacity is None, "全不透明应保持 opacity=None"
 
 
 def test_build_scene_no_source_raises():
@@ -692,3 +778,239 @@ def test_build_scene_measurements_plus_slides_dir(tmp_path):
     assert "measurement" in scene.sources
     assert "pixel" in scene.sources
     assert scene.slides[0].elements[0].pixel_evidence is not None
+
+
+def test_color_parser_hex_named_percent():
+    assert _rgb_string_to_color("#1a2b3c") == ArtColor(26, 43, 60)
+    assert _rgb_string_to_color("#1A2B3C") == ArtColor(26, 43, 60)
+    assert _rgb_string_to_color("#f00") == ArtColor(255, 0, 0)
+    assert _rgb_string_to_color("#ff000080") == ArtColor(255, 0, 0, 128 / 255)
+    assert _rgb_string_to_color("white") == ArtColor(255, 255, 255)
+    assert _rgb_string_to_color("rgb(100%, 0%, 0%)") == ArtColor(255, 0, 0)
+    assert _rgb_string_to_color("rgba(255, 0, 0, 0.5)") == ArtColor(255, 0, 0, 0.5)
+    assert _rgb_string_to_color("#f008") == ArtColor(255, 0, 0, 0x88 / 255)  # 4-digit alpha
+    assert _rgb_string_to_color("rgba(255, 0, 0, 50%)") == ArtColor(255, 0, 0, 0.5)  # percent alpha
+    assert _rgb_string_to_color("rgba(255, 0, 0, 0)") is None  # 全透明 → None
+    assert _rgb_string_to_color("rgb(1, 2, 3, 4, 5)") is None  # 分量数错误 → None
+    assert _rgb_string_to_color("not-a-color") is None
+    assert _rgb_string_to_color("transparent") is None
+
+
+def test_measurement_adapter_no_warn_on_valid_or_silent_colors():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": 0, "y": 0, "w": 600, "h": 60},
+                        "style": {"fontSize": "52px", "color": "#1a2b3c"},
+                        "runs": [],
+                    },
+                    {
+                        "id": 2,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                        "deco": {"hasBg": True, "bg": "transparent"},
+                    },
+                ],
+            }
+        ]
+    }
+    scene = MeasurementAdapter(raw).build()
+    assert not any(w.code == "art.adapter.color_unparsed" for w in scene.warnings)
+
+
+def test_measurement_adapter_warns_on_unparseable_color():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": 0, "y": 0, "w": 600, "h": 60},
+                        "style": {"fontSize": "52px", "color": "obviously-broken("},
+                        "runs": [],
+                    }
+                ],
+            }
+        ]
+    }
+    scene = MeasurementAdapter(raw).build()
+    assert any(w.code == "art.adapter.color_unparsed" for w in scene.warnings)
+
+
+def test_kind_map_asset_svg_deco_snapshot():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {"id": 1, "kind": "asset", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                    {"id": 2, "kind": "svg", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                    {
+                        "id": 3,
+                        "kind": "deco_snapshot",
+                        "rect": {"x": 0, "y": 0, "w": 1920, "h": 1080},
+                    },
+                ],
+            }
+        ]
+    }
+    els = MeasurementAdapter(raw).build().slides[0].elements
+    assert [e.kind for e in els] == ["image", "image", "shape"]
+    assert els[0].role == "image"  # asset → image role
+    assert els[1].role == "image"  # svg → image role
+    assert els[2].role == "decoration"
+    assert els[2].decoration is True
+    assert [e.decoration for e in els] == [False, False, True]  # 仅 deco_snapshot 是 decoration
+
+
+def test_measurement_adapter_decoded_rendered_size():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "img",
+                        "rect": {"x": 0, "y": 0, "w": 200, "h": 100},
+                        "decodedSize": {"w": 1, "h": 1},
+                        "renderedSize": {"w": 200, "h": 100},
+                    }
+                ],
+            }
+        ]
+    }
+    el = MeasurementAdapter(raw).build().slides[0].elements[0]
+    assert el.decoded_width == 1.0 and el.decoded_height == 1.0
+    assert el.natural_width == 200.0 and el.natural_height == 100.0  # rendered 语义保留
+
+
+def test_measurement_adapter_decoded_missing_falls_back():
+    # 旧数据只有 naturalSize（渲染尺寸）→ decoded 退回渲染，drift≈0 但字段不 None
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "canvas",
+                        "rect": {"x": 0, "y": 0, "w": 480, "h": 270},
+                        "naturalSize": {"w": 480, "h": 270},
+                    }
+                ],
+            }
+        ]
+    }
+    el = MeasurementAdapter(raw).build().slides[0].elements[0]
+    assert el.natural_width == 480.0
+    assert el.decoded_width == 480.0  # 退回 naturalSize，不 None
+
+
+def test_measurement_adapter_opacity():
+    # #137：元素级 opacity 从 style / deco 携带到 ArtElement
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": 0, "y": 0, "w": 600, "h": 60},
+                        "style": {"fontSize": "52px", "color": "rgb(0,0,0)", "opacity": "0.5"},
+                        "runs": [],
+                    },
+                    {
+                        "id": 2,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 100, "h": 100},
+                        "deco": {"hasBg": True, "bg": "rgb(255,0,0)", "opacity": "0.25"},
+                    },
+                ],
+            }
+        ]
+    }
+    els = MeasurementAdapter(raw).build().slides[0].elements
+    assert els[0].opacity == 0.5
+    assert els[1].opacity == 0.25  # deco 路径兜底
+
+
+def test_element_field_roundtrip_and_merge_preserves_all_fields():
+    # 维护面 4 处同步契约：to_dict/_element_from_dict round-trip 与 _merge_element 都不得丢字段
+    el = make_element(
+        "rt",
+        kind="image",
+        role="image",
+        x=0.1,
+        y=0.2,
+        w=0.3,
+        h=0.4,
+        slide_index=1,
+        opacity=0.5,
+        decoded_width=800.0,
+        decoded_height=600.0,
+        fill_kind="gradient",
+    )
+    rt = _element_from_dict(el.to_dict(), 1, 1080.0)
+    assert rt.opacity == 0.5
+    assert rt.decoded_width == 800.0 and rt.decoded_height == 600.0
+    assert rt.fill_kind == "gradient"
+
+    secondary = make_element(
+        "s",
+        kind="image",
+        role="image",
+        x=0.1,
+        y=0.2,
+        w=0.3,
+        h=0.4,
+        slide_index=1,
+    )
+    merged = _merge_element(el, secondary, 1.0)
+    assert merged.source == "merged"
+    assert merged.opacity == 0.5
+    assert merged.decoded_width == 800.0 and merged.decoded_height == 600.0
+    assert merged.fill_kind == "gradient"
+
+
+def test_measurement_adapter_fill_kind():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 400, "h": 300},
+                        "fill_kind": "gradient",
+                    },
+                    {"id": 2, "kind": "shape", "rect": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                    {
+                        "id": 3,
+                        "kind": "shape",
+                        "rect": {"x": 0, "y": 0, "w": 50, "h": 50},
+                        "fill_kind": "",
+                    },
+                ],
+            }
+        ]
+    }
+    els = MeasurementAdapter(raw).build().slides[0].elements
+    assert els[0].fill_kind == "gradient"
+    assert els[1].fill_kind is None
+    assert els[2].fill_kind is None  # 空串 → None（(rec.get("fill_kind") or None) 语义）

@@ -348,9 +348,11 @@ print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insu
 - **Quality-on-generate**: `deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)`
   produces both the geometry audit and the art analysis after HTML→PPTX, returning a `QualityRenderResult`
   (`art_report` / `deck_quality`) — `audit_mode="strict"` only exits non-zero at the `fail_on` threshold
-- **Evidence honesty**: with only `pptx=` given, dimensions that depend on font-size / color evidence
-  degrade automatically (`insufficient_evidence` + `art.evidence.limited` warning), while pure-geometry
-  rules keep running
+- **Evidence honesty**: with only `pptx=` given, `_ShapeRecord` enrichment provides font-size / font-family /
+  foreground / background / opacity / fill_kind evidence (#128), so the hierarchy / typography / color
+  dimensions no longer degrade from zero evidence; when pure pixel evidence (PNG / measurements) is
+  missing, the dimensions that need it still degrade (`insufficient_evidence` + `art.evidence.limited`
+  warning), while pure-geometry rules keep running
 
 ## MCP server (Claude integration)
 

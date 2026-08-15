@@ -115,6 +115,10 @@ class ArtElement:
     container: bool = False
     decoration: bool = False
     pixel_evidence: ElementPixelEvidence | None = None
+    opacity: float | None = None  # 元素级透明度 0-1；None=无证据（Task 4 消费）
+    decoded_width: float | None = None  # 图片解码宽度（naturalWidth），漂移计算用
+    decoded_height: float | None = None
+    fill_kind: str | None = None  # "solid"|"gradient"|"shadow"|"image"|None（Task 5 消费）
 
     @property
     def area(self) -> float:
@@ -149,6 +153,10 @@ class ArtElement:
             "container": self.container,
             "decoration": self.decoration,
             "pixel_evidence": self.pixel_evidence.to_dict() if self.pixel_evidence else None,
+            "opacity": self.opacity,
+            "decoded_width": self.decoded_width,
+            "decoded_height": self.decoded_height,
+            "fill_kind": self.fill_kind,
         }
 
 
@@ -240,6 +248,10 @@ def _element_from_dict(data: dict[str, Any], slide_index: int, height: float) ->
             container=bool(data.get("container")),
             decoration=bool(data.get("decoration")),
             pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
+            opacity=_opt_float(data.get("opacity")),
+            decoded_width=_opt_float(data.get("decoded_width")),
+            decoded_height=_opt_float(data.get("decoded_height")),
+            fill_kind=data.get("fill_kind"),
         )
     return ArtElement(
         element_id=data["element_id"],
@@ -273,6 +285,10 @@ def _element_from_dict(data: dict[str, Any], slide_index: int, height: float) ->
         container=bool(data.get("container")),
         decoration=bool(data.get("decoration")),
         pixel_evidence=ElementPixelEvidence.from_dict(pe) if pe else None,
+        opacity=_opt_float(data.get("opacity")),
+        decoded_width=_opt_float(data.get("decoded_width")),
+        decoded_height=_opt_float(data.get("decoded_height")),
+        fill_kind=data.get("fill_kind"),
     )
 
 

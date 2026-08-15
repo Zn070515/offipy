@@ -217,6 +217,27 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
     print("candidate adds/worsens MID+ issues vs baseline")
 ```
 
+### Art / audit evidence layer
+
+- **distorted_image is now judged by decoded vs rendered size** (#126): the rule's
+  `natural_ratio` / `physical_ratio` are now based on the image **decoded size** (img uses
+  `naturalWidth/Height`; SVG scales from its viewBox) versus the **rendered size** (CSS layout
+  width/height), so real stretch drift is detected; the old implementation took both ratios
+  from the rendered size, so drift was always ≈0 and the rule was effectively dead. This
+  semantic change invalidates historical FEATURES samples and moves `feature_schema_version()`
+  from 2 to 3.
+- **PPTX-only enrichment** (#128): when only `pptx=` is passed, `audit_pptx` / `analyze_scene`
+  now parse font size / font family / foreground / background / opacity / fill_kind from
+  `_ShapeRecord`, so the hierarchy / typography / color dimensions gain font and color evidence
+  coverage instead of starting from 0; schemeClr / sysClr (theme-color references) are still
+  not resolved, and pure pixel evidence (PNG / measurements) still needs an additional source.
+- **Element opacity** (#137): the measurement's element-level opacity flows into
+  `ArtElement.opacity` (0-1, None = no evidence); the PPTX-only path merges run foreground
+  alpha and shape fill alpha with min (the most transparent part decides visibility).
+- **fill_kind marking** (#140): measurements record `fill_kind` (`solid` / `gradient` /
+  `shadow` / `image`), so rasterized decoration such as gradients / shadows is recognized by
+  the audit instead of being mistaken for a plain color block.
+
 ## Feedback learning system (v0.18)
 
 Three layers of feedback semantics (pinned here to avoid confusion):

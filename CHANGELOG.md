@@ -3,6 +3,31 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [Unreleased] - 2026-08-15
+
+### Added
+
+- **证据层（wave1）**：art / audit 视觉证据增强——
+  - **元素级 opacity（#137）**：measurement 透传元素透明度 → `ArtElement.opacity`
+    （0-1，None=无证据）；PPTX-only 路径按 run 前景 alpha 与形状填充 alpha 的 min 合并
+  - **fill_kind 标记（#140）**：measurement 记录 `fill_kind`（solid / gradient / shadow /
+    image），gradient / shadow 等光栅化装饰可被 audit 识别
+  - **元素类型补全（#127）**：asset / svg / deco_snapshot 映射到正确 kind 与 role
+  - **deco 截图扩视口（#138）**：deco_snapshot 右/下越界时临时扩视口截全捕获框后还原，
+    左/上负坐标 clamp 并回写偏移，不再双轴 clamp 截断
+  - **颜色解析扩展（#129）**：hex / 命名色 / 百分比 alpha 解析，无法解析的告警不崩
+  - **PPTX-only 审计富集（#128）**：只传 `pptx=` 时从 `_ShapeRecord` 解析字号 / 字体 /
+    前景色 / 背景色 / 透明度 / fill_kind，hierarchy / typography / color 维度获得字号 /
+    颜色证据（evidence_coverage 从 0 提升）；schemeClr / sysClr（主题色引用）仍不解析
+
+### Changed
+
+- **图片拉伸失真按解码 vs 渲染判定（#126）**：`distorted_image` 的 `natural_ratio` /
+  `physical_ratio` 现基于图片**解码尺寸**（naturalWidth / SVG viewBox 定比）与**渲染尺寸**
+  （CSS 布局宽高）之比，检出真实拉伸漂移（旧实现两值同源渲染尺寸、漂移恒≈0）；
+  **`feature_schema_version()` 由 2→3**——历史 FEATURES 训练样本 / 模型因语义变化作废
+  （冷启动回退 v2 语义不变）。
+
 ## [0.18.0] - 2026-08-15
 
 ### Added

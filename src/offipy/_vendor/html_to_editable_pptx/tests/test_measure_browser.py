@@ -13,6 +13,7 @@
   拉成超高、.col 仍填满整页
 - deck 缩短后参考截图目录清掉"幽灵页"
 """
+import struct
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,19 @@ def drawio_placeholder(tmp_path_factory):
     return _measure("drawio_placeholder.html", tmp_path_factory)
 
 
+@pytest.fixture(scope="module")
+def img_sizes(tmp_path_factory):
+    # #126：1×1 PNG data URI 被 CSS 拉成 200×100，验证解码/渲染尺寸分存
+    return _measure("img_sizes_deck.html", tmp_path_factory)
+
+
+@pytest.fixture(scope="module")
+def gradient_shadow(tmp_path_factory):
+    # #140：渐变/阴影是 OOXML 不可表达的 CSS 装饰，必走 complexDecoration →
+    # deco_snapshot 光栅化层。audit 要识别这些「光栅化装饰」→ fill_kind 必须标记。
+    return _measure("gradient_shadow_deck.html", tmp_path_factory)
+
+
 def _records(deck, page):
     return deck["slides"][page]["records"]
 
@@ -75,6 +89,28 @@ def test_fullpage_overlay_measured(deck):
     assert fullpage, "满页半透明遮罩没有产生 shape 记录"
 
 
+def test_fullpage_overlay_opacity_preserved(deck):
+    # #137：元素级 opacity 不再静默丢——deco 必须保留数值，而非只带字段
+    # rgba 背景的满页遮罩 s.opacity 恒为 "1"（没有 CSS opacity 属性），
+    # 因此数值断言必须落在带真实 CSS opacity 的 .faded 元素上。
+    faded = [
+        r for r in _records(deck, 0)
+        if r["kind"] == "shape" and r["tag"] == "div"
+        and "faded" in (r.get("className") or "").split()
+    ]
+    assert faded, "带 CSS opacity 的 .faded 元素没有产生 shape 记录"
+    deco = faded[0].get("deco", {})
+    assert "opacity" in deco, "deco 缺 opacity 字段"
+    assert float(deco["opacity"]) == 0.5, f"opacity 数值丢失: {deco['opacity']!r}"
+
+    # 原 rgba 半透明遮罩仍在（s.opacity 恒 "1"，不作为数值断言点）
+    overlay = [
+        r for r in _records(deck, 0)
+        if r["kind"] == "shape" and r["rect"]["w"] >= 1900 and r["rect"]["h"] >= 1060
+    ]
+    assert overlay, "满页半透明遮罩没有产生 shape 记录"
+
+
 def test_empty_drawio_placeholder_measured(drawio_placeholder):
     # #94：空 div.drawio（无背景无边框）此前被装饰门跳过 → 「没测到容器」。
     # 修复后必须产生 shape 记录，几何与 fixture 显式尺寸一致，供注入定位。
@@ -84,6 +120,14 @@ def test_empty_drawio_placeholder_measured(drawio_placeholder):
     rect = recs[0]["rect"]
     assert rect["x"] == 200 and rect["y"] == 240, f"位置偏差: {rect}"
     assert rect["w"] == 900 and rect["h"] == 500, f"尺寸偏差: {rect}"
+
+
+def test_img_decoded_vs_rendered_size(img_sizes):
+    recs = [r for r in _records(img_sizes, 0) if r["kind"] == "img"]
+    assert recs, "fixture 未产出 img 记录"
+    r = recs[0]
+    assert r["decodedSize"] == {"w": 1, "h": 1}, f"解码尺寸错误: {r['decodedSize']}"
+    assert r["renderedSize"] == {"w": 200, "h": 100}, f"渲染尺寸错误: {r['renderedSize']}"
 
 
 def test_hidden_text_not_extracted(deck):
@@ -191,3 +235,40 @@ def test_stale_screenshot_pruned(tmp_path):
         pytest.skip(f"Playwright/Chromium 不可用: {e}")
     assert not stale.exists(), "deck 缩短后的幽灵参考截图没有被清理"
     assert (shots / "slide_01.png").exists()
+
+
+def test_deco_shadow_beyond_viewport_not_clamped(tmp_path):
+    # #138：deco_snapshot 捕获框（含 box-shadow 外延）超出视口时，不得 clamp 到
+    # 1920×1080 丢阴影；扩视口截图并还原，rect 保持完整捕获框。
+    pytest.importorskip("playwright.sync_api")
+    from measure import measure
+    out = tmp_path / "m.json"
+    try:
+        data = measure(FIXTURES / "deco_shadow_edge.html", out, no_screenshots=False, verbose=False)
+    except Exception as e:
+        pytest.skip(f"Playwright/Chromium 不可用: {e}")
+    recs = [r for r in data["slides"][0]["records"] if r["kind"] == "deco_snapshot"]
+    assert recs, "边缘阴影卡片没有产生 deco_snapshot"
+    r = recs[0]
+    # 捕获框 top=1000 + h=80 + shadow 向下 60+40=100 → h≈180；修复前被 clamp 到 ~80。
+    # 精确几何交给下方 PNG 断言；这里只验「明确大于被 clamp 的 80」。
+    assert r["rect"]["h"] > 100, f"阴影捕获框被视口裁剪: rect={r['rect']}"
+    # 截图必须真的截到完整捕获框（未 clamp 到 80）：从 PNG 头部 IHDR 读像素高验证。
+    png = Path(r["screenshot"])
+    assert png.exists(), f"deco_snapshot 截图未生成: {png}"
+    with png.open("rb") as f:
+        png_w, png_h = struct.unpack(">II", f.read(24)[16:24])
+    assert png_h > 100, f"截图被视口裁剪到 {png_h}px"
+    assert abs(png_h - r["rect"]["h"]) <= 1, f"截图高 {png_h} 与捕获框 {r['rect']['h']} 不符"
+
+
+def test_gradient_and_shadow_fill_kind_marked(gradient_shadow):
+    # #140：渐变/阴影必走 complexDecoration → deco_snapshot（kind 非 "shape"），
+    # 断言必须覆盖 deco_snapshot 记录，否则「未写进记录」会误绿。
+    kinds = {
+        r.get("fill_kind")
+        for r in _records(gradient_shadow, 0)
+        if r["kind"] in ("shape", "deco_snapshot")
+    }
+    assert "gradient" in kinds, f"渐变卡片未标记 fill_kind=gradient: {kinds}"
+    assert "shadow" in kinds, f"阴影卡片未标记 fill_kind=shadow: {kinds}"

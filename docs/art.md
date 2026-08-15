@@ -62,8 +62,9 @@ for s in report.art.slides:
             print(s.slide_index, d.dimension, f.rule_id, f.confidence)
 ```
 
-只给 `pptx=`（无测量数据）时，依赖字号/颜色证据的维度自动降级
-（`insufficient_evidence` + `art.evidence.limited` warning），纯几何规则照常运行：
+只给 `pptx=`（无测量数据）时，`_ShapeRecord` 富集提供字号/字体/前景/背景/opacity/fill_kind
+证据（#128）；但多数 run 继承主题字体（无显式字号）时覆盖率不足，hierarchy / typography /
+color 维度仍可能 `insufficient_evidence`（+ `art.evidence.limited` warning），纯几何规则照常运行：
 
 ```python
 report = analyze_deck(pptx="external.pptx", profile="balanced")
@@ -76,7 +77,7 @@ ArtScene 由三类证据源构建，按「测量为主、审计为副、像素�
 | 源 | 证据 | 单位 | 说明 |
 |----|------|------|------|
 | `measurements`（MeasurementAdapter） | 颜色、字号、自然尺寸、文本、字体族 | px（归一化到 [0,1] 分数） | HTML→PPTX 管线浏览器渲染测量的真实像素证据；role 词表 title/body/subtitle/image/shape |
-| `pptx`（PptxAuditAdapter） | 几何（位置/尺寸/role 分类）、文本 | pt（归一化到 [0,1] 分数） | `audit_pptx` 的几何快照；无字号/颜色证据；role 词表 background/header/footer/page_number/title/content/decoration/unknown |
+| `pptx`（PptxAuditAdapter） | 几何（位置/尺寸/role 分类）、文本、字号/字体/前景/背景/opacity/fill_kind | pt（归一化到 [0,1] 分数） | `audit_pptx` 的几何快照 + `_ShapeRecord` 富集（#128）；多数 run 继承主题字体（无显式字号）时字号/颜色证据有限；role 词表 background/header/footer/page_number/title/content/decoration/unknown |
 | `slides_dir`（PixelEnricher） | 背景估计/调色板/声明色验证 | px（该 PNG 像素尺寸） | 组合 PNG 不归因到元素，只做页面级背景 + 声明色验证 |
 
 合并（`merge_scenes`）按**文本强佐证 + 几何兜底**做一对一匹配：归一 role 相同且文本相同
@@ -148,8 +149,10 @@ PNG 先落 staging，全链成功后才提交到 `slides_output_dir`（默认 `<
 
 ## 已知边界
 
-- **PptxAuditAdapter 无字号/颜色证据**：只传 `pptx=` 时，hierarchy / typography / color
-  维度证据不足 → `insufficient_evidence`，不是误报；要完整评估请给 `measurements=`。
+- **PptxAuditAdapter 富集边界**：只传 `pptx=` 时，`_ShapeRecord` 富集提供
+  字号/字体/前景/背景/opacity/fill_kind 证据（#128）；但多数 run 继承主题字体（无显式
+  字号）时覆盖率不足，hierarchy / typography / color 维度仍可能 `insufficient_evidence`，
+  不是误报；要完整像素证据请给 `measurements=`。
 - **组合 PNG 的证据边界**：`slides_dir` 的逐页 PNG 是**组合后**的画面，像素无法归因到单个元素——
   因此**不做溢出 / 真实遮挡判断**；只提供页面级背景证据（背景色 / 置信度 / 均匀度 / 调色板 /
   background_like_ratio）与元素级**声明颜色验证**（`declared_verified` / `declared_not_found` /

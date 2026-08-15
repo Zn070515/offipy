@@ -24,20 +24,20 @@ def _images(slide: ArtSlide) -> list[ArtElement]:
 
 def distorted_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
     imgs = _images(slide)
-    eligible = imgs  # 所有图片都在评估范围
+    eligible = imgs
     covered = [
         e
         for e in imgs
-        if e.natural_width is not None and e.natural_height is not None and e.natural_height > 0
+        if e.decoded_width is not None and e.decoded_height is not None and e.decoded_height > 0
     ]
     out = []
     for e in covered:
-        # covered 过滤保证 natural_width/natural_height 非 None
-        natural = cast("float", e.natural_width) / cast("float", e.natural_height)
-        physical = physical_aspect_ratio(e, slide.width, slide.height)
-        if natural == 0:
+        # 解码比（naturalWidth/Height）vs 渲染比（物理尺寸）→ 拉伸漂移
+        decoded = cast("float", e.decoded_width) / cast("float", e.decoded_height)
+        if decoded == 0:
             continue
-        drift = abs(physical - natural) / natural
+        physical = physical_aspect_ratio(e, slide.width, slide.height)
+        drift = abs(physical - decoded) / decoded
         if drift > ctx.profile.max_image_aspect_drift:
             out.append(
                 make_finding(
@@ -49,7 +49,7 @@ def distorted_image_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                     slide.index,
                     primary=e,
                     details={
-                        "natural_ratio": round(natural, 3),
+                        "natural_ratio": round(decoded, 3),
                         "physical_ratio": round(physical, 3),
                     },
                 )

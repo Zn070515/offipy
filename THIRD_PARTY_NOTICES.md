@@ -16,6 +16,13 @@ offipy 内嵌或依赖以下第三方组件。许可证原文随产物分发，�
 - **补丁（offipy 维护的第一处 vendored 补丁，#94）**：`scripts/measure.py` 装饰门新增
   `isDrawioPlaceholder` 判定——空 `<div class="drawio">` 占位（无背景无边框）也要测出
   bbox 供 deck 注入定位。改动保持最小，仅扩展一个判定条件。
+- **补丁（第 2 轮，wave1 证据层，#126/#137/#140/#138）**：`scripts/measure.py` 增补视觉证据——
+  `decodedSize` / `renderedSize` 分存（#126：img 取 naturalWidth/Height、svg 按 viewBox 定比例，
+  供 audit 算「解码 vs 渲染」拉伸漂移，替代旧 naturalSize 的渲染尺寸二义）；元素 `opacity`
+  透传（#137：style 层读 `s.opacity`）；`fill_kind` 标记（#140：gradient / image / shadow / solid
+  四类，让 audit 识别光栅化装饰）；deco_snapshot 截图扩视口（#138：右/下越界临时扩视口截全
+  捕获框后还原，左/上负坐标 clamp 并回写偏移，不再双轴 clamp）。改动保持最小——仅加字段与
+  截图策略，渲染与安全边界不变。
 
 ### 社论图表 skill（diagram-design）
 

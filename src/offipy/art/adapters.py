@@ -29,6 +29,9 @@ _KIND_MAP = {
     "img": "image",
     "image": "image",
     "picture": "image",
+    "asset": "image",  # 注入素材（图片类）
+    "svg": "image",  # 内联 SVG 整块
+    "deco_snapshot": "shape",  # 光栅化装饰层
     "shape": "shape",
     "rect": "shape",
     "line": "shape",
@@ -60,29 +63,120 @@ def _infer_element_role(className: str | None, tag: str | None, kind: str) -> st
     return "shape"
 
 
+_NAMED_COLORS: dict[str, tuple[int, int, int]] = {
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "red": (255, 0, 0),
+    "green": (0, 128, 0),
+    "blue": (0, 0, 255),
+    "yellow": (255, 255, 0),
+    "gray": (128, 128, 128),
+    "grey": (128, 128, 128),
+}
+
+# 合法但「无颜色证据」的 token：命中即静默返回 None，不算解析失败（不告警）
+_NON_COLOR_TOKENS = frozenset(
+    {"none", "transparent", "inherit", "initial", "unset", "currentcolor", "auto"}
+)
+
+
+def _component_255(p: str) -> float:
+    """CSS 通道分量 → 0-255：数字原样，百分比按 100%→255。"""
+    p = p.strip()
+    if p.endswith("%"):
+        return float(p[:-1]) / 100.0 * 255.0
+    return float(p)
+
+
+def _alpha_01(p: str) -> float:
+    """rgba 第四通道（alpha）→ 0-1：百分数 50%→0.5，数字 0.5→0.5（CSS 语义）。
+
+    注意：alpha 与 RGB 通道不同——数字直接是 0-1，只有百分数需要换算。
+    """
+    p = p.strip()
+    if p.endswith("%"):
+        return float(p[:-1]) / 100.0
+    return float(p)
+
+
+def _hex_to_color(s: str) -> ArtColor | None:
+    h = s.lstrip("#")
+    if len(h) not in (3, 4, 6, 8):
+        return None
+    try:
+        if len(h) == 3:
+            r, g, b = (int(c * 2, 16) for c in h)
+            a = 1.0
+        elif len(h) == 4:
+            r, g, b = (int(c * 2, 16) for c in h[:3])
+            a = int(h[3] * 2, 16) / 255.0
+        elif len(h) == 6:
+            r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+            a = 1.0
+        else:
+            r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+            a = int(h[6:8], 16) / 255.0
+    except ValueError:
+        return None
+    return None if a <= 0.0 else ArtColor(r, g, b, a)
+
+
 def _rgb_string_to_color(s: str | None) -> ArtColor | None:
-    """解析 'rgb(r,g,b)' / 'rgba(r,g,b,a)'。透明（a=0）→ None。"""
+    """解析 CSS 颜色串：rgb()/rgba()（含百分比）/ #hex（3/4/6/8）/ 常用命名色。
+
+    解析失败或全透明 → None（无颜色证据），不抛 ValueError；调用方负责告警。
+    """
     if not s:
         return None
     s = s.strip()
-    if not (s.startswith("rgb") and "(" in s and s.endswith(")")):
-        return None
-    inner = s[s.index("(") + 1 : s.rindex(")")]
-    parts = [p.strip() for p in inner.split(",")]
-    try:
-        r, g, b = (int(float(p)) for p in parts[:3])
-        a = float(parts[3]) if len(parts) > 3 else 1.0
-    except (ValueError, IndexError):
-        return None
-    if a <= 0.0:
-        return None  # 透明背景 → 无背景证据
-    return ArtColor(r, g, b, a)
+    if s.startswith("#"):
+        return _hex_to_color(s)
+    if s.startswith("rgb") and "(" in s and s.endswith(")"):
+        inner = s[s.index("(") + 1 : s.rindex(")")]
+        parts = [p.strip() for p in inner.split(",")]
+        if len(parts) not in (3, 4):
+            return None
+        try:
+            r, g, b = (
+                round(_component_255(parts[0])),
+                round(_component_255(parts[1])),
+                round(_component_255(parts[2])),
+            )
+            a = _alpha_01(parts[3]) if len(parts) == 4 else 1.0
+        except ValueError:
+            return None
+        return None if a <= 0.0 else ArtColor(r, g, b, a)
+    named = _NAMED_COLORS.get(s.lower())
+    if named is not None:
+        return ArtColor(*named)
+    return None
 
 
-def _measurement_color(raw: str | dict[str, Any] | None) -> ArtColor | None:
+def _warn_unparsed_color(raw: object, warnings: list[ArtWarning] | None) -> None:
+    if warnings is None:
+        return
+    token = raw.strip().lower() if isinstance(raw, str) else ""
+    if token and token not in _NON_COLOR_TOKENS:
+        warnings.append(
+            ArtWarning(code="art.adapter.color_unparsed", message=f"颜色串无法解析: {raw!r}")
+        )
+
+
+def _measurement_color(
+    raw: str | dict[str, Any] | None, warnings: list[ArtWarning] | None = None
+) -> ArtColor | None:
     if isinstance(raw, dict):
-        return ArtColor.from_dict(raw)
-    return _rgb_string_to_color(raw)
+        c = ArtColor.from_dict(raw)
+        if c is None and raw and warnings is not None:
+            warnings.append(
+                ArtWarning(code="art.adapter.color_unparsed", message=f"颜色 dict 损坏: {raw!r}")
+            )
+        return c
+    c = _rgb_string_to_color(raw)
+    if c is None:
+        # 仅在真正解析失败时告警：合法命名色 / hex 不会误报 color_unparsed
+        _warn_unparsed_color(raw, warnings)
+    return c
 
 
 def _num(value: Any, default: float) -> float:
@@ -106,7 +200,11 @@ def _opt_num(value: Any, default: float | None = None) -> float | None:
 
 
 def _to_measurement_element(
-    rec: dict[str, Any], slide_index: int, slide_width: float, slide_height: float
+    rec: dict[str, Any],
+    slide_index: int,
+    slide_width: float,
+    slide_height: float,
+    warnings: list[ArtWarning] | None = None,
 ) -> ArtElement:
     """真实 measurements record → ArtElement。rect 为像素，按页宽高归一化。"""
     rect = rec.get("rect") or {}
@@ -116,16 +214,26 @@ def _to_measurement_element(
     h = _num(rect.get("h"), 0.0) / slide_height
     raw_kind = rec.get("kind", "shape")
     kind = _KIND_MAP.get(raw_kind, "shape")
+    is_deco = raw_kind == "deco_snapshot"
+    role = (
+        "decoration" if is_deco else _infer_element_role(rec.get("className"), rec.get("tag"), kind)
+    )
     style = rec.get("style") or {}
     deco = rec.get("deco") or {}
     natural = rec.get("naturalSize") or {}
+    decoded = rec.get("decodedSize") or {}
+    rendered = rec.get("renderedSize") or natural  # 旧数据只有 naturalSize（渲染语义）
+    natural_w = rendered.get("w")
+    natural_h = rendered.get("h")
+    decoded_w = decoded.get("w") or natural_w
+    decoded_h = decoded.get("h") or natural_h
     runs = [
         ArtTextRun(
             text=rt.get("text", ""),
             font_size=_opt_num(rt.get("fontSize")),
             font_size_unit="px",
             font_family=rt.get("fontFamily"),
-            color=_measurement_color(rt.get("color")),
+            color=_measurement_color(rt.get("color"), warnings),
         )
         for rt in rec.get("runs", [])
     ]
@@ -140,19 +248,21 @@ def _to_measurement_element(
         font_size = None
         font_size_unit = "unknown"
     has_bg = bool(deco.get("hasBg", False))
-    background = _measurement_color(deco.get("bg")) if has_bg else None
-    natural_w = natural.get("w")
-    natural_h = natural.get("h")
+    background = _measurement_color(deco.get("bg"), warnings) if has_bg else None
+    opacity = _opt_num(style.get("opacity"))
+    if opacity is None:
+        opacity = _opt_num(deco.get("opacity"))
     return ArtElement(
         element_id=f"m{slide_index}-{rec.get('id')}",
         kind=kind,
-        role=_infer_element_role(rec.get("className"), rec.get("tag"), kind),
+        role=role,
+        decoration=is_deco,
         x=x,
         y=y,
         width=w,
         height=h,
         slide_index=slide_index,
-        foreground=_measurement_color(style.get("color")),
+        foreground=_measurement_color(style.get("color"), warnings),
         background=background,
         text=rec.get("text", ""),
         font_size=font_size,
@@ -161,7 +271,11 @@ def _to_measurement_element(
         runs=runs,
         natural_width=_opt_num(natural_w),
         natural_height=_opt_num(natural_h),
+        decoded_width=_opt_num(decoded_w),
+        decoded_height=_opt_num(decoded_h),
         source="measurement",
+        opacity=opacity,
+        fill_kind=(rec.get("fill_kind") or None),
     )
 
 
@@ -190,8 +304,10 @@ class MeasurementAdapter:
                     )
                 )
                 records = records[:_MAX_SLIDE_ELEMENTS]
-            elements = [_to_measurement_element(rec, index, width, height) for rec in records]
-            bg = _measurement_color(s.get("background"))
+            elements = [
+                _to_measurement_element(rec, index, width, height, warnings) for rec in records
+            ]
+            bg = _measurement_color(s.get("background"), warnings)
             slides.append(
                 ArtSlide(
                     index=index, width=width, height=height, elements=elements, background_color=bg
@@ -204,7 +320,9 @@ class PptxAuditAdapter:
     """0.11 几何审计报告（PptxAuditReport）→ ArtScene。单位 pt（英寸×72）。
 
     rev2.1：只读 report.slide_size / slide_count / shapes（SlideShapeSnapshot）。
-    SlideShapeSnapshot.slide_index 已 1-based，不做 +1。无字号/颜色证据。
+    SlideShapeSnapshot.slide_index 已 1-based，不做 +1。
+    rev3（#128）：report.records 存在时经 _to_art_elements 富集字号/字体/前景/背景/
+    opacity/fill_kind；无 records 回退几何快照路径（无字号/颜色证据）。
     """
 
     def __init__(self, report: PptxAuditReport) -> None:
@@ -221,51 +339,76 @@ class PptxAuditAdapter:
         }
         warnings: list[ArtWarning] = []
         truncated: set[int] = set()
-        for snap in self._report.shapes:
-            index = snap.slide_index  # 已 1-based，不做 +1
-            if index < 1 or index > self._report.slide_count:
-                warnings.append(
-                    ArtWarning(
-                        code="art.adapter.index_out_of_range",
-                        message=f"shape slide_index {index} 超出 slide_count，跳过",
-                    )
-                )
-                continue
-            if snap.geometry_unknown or None in (snap.left, snap.top, snap.width, snap.height):
-                warnings.append(
-                    ArtWarning(
-                        code="art.adapter.geometry_unknown",
-                        message=f"shape {snap.shape_id} 无几何信息，跳过",
-                    )
-                )
-                continue
-            if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
-                if index not in truncated:
-                    truncated.add(index)
+        if self._report.records:
+            from offipy.audit.pptx import _to_art_elements
+
+            for el in _to_art_elements(self._report.records, self._report.slide_size):
+                index = el.slide_index
+                if index < 1 or index > self._report.slide_count:
                     warnings.append(
                         ArtWarning(
-                            code="art.adapter.elements_truncated",
-                            message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                            code="art.adapter.index_out_of_range",
+                            message=f"shape slide_index {index} 超出 slide_count，跳过",
                         )
                     )
-                continue
-            kind = _KIND_MAP.get(snap.shape_type.lower(), "shape")
-            if snap.shape_type.lower() in ("picture", "photo"):
-                kind = "image"
-            el = ArtElement(
-                element_id=f"pptx-{index}-{snap.shape_id}",
-                kind=kind,
-                role=snap.role or "shape",
-                # 上面的守卫已排除 None（geometry_unknown / None in (...)），这里显式收窄
-                x=(cast("float", snap.left) * 72.0) / width,
-                y=(cast("float", snap.top) * 72.0) / height,
-                width=(cast("float", snap.width) * 72.0) / width,
-                height=(cast("float", snap.height) * 72.0) / height,
-                slide_index=index,
-                text=snap.text or "",
-                source="pptx",
-            )
-            slides[index].elements.append(el)
+                    continue
+                if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
+                    if index not in truncated:
+                        truncated.add(index)
+                        warnings.append(
+                            ArtWarning(
+                                code="art.adapter.elements_truncated",
+                                message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                            )
+                        )
+                    continue
+                slides[index].elements.append(el)
+        else:
+            for snap in self._report.shapes:
+                index = snap.slide_index  # 已 1-based，不做 +1
+                if index < 1 or index > self._report.slide_count:
+                    warnings.append(
+                        ArtWarning(
+                            code="art.adapter.index_out_of_range",
+                            message=f"shape slide_index {index} 超出 slide_count，跳过",
+                        )
+                    )
+                    continue
+                if snap.geometry_unknown or None in (snap.left, snap.top, snap.width, snap.height):
+                    warnings.append(
+                        ArtWarning(
+                            code="art.adapter.geometry_unknown",
+                            message=f"shape {snap.shape_id} 无几何信息，跳过",
+                        )
+                    )
+                    continue
+                if len(slides[index].elements) >= _MAX_SLIDE_ELEMENTS:
+                    if index not in truncated:
+                        truncated.add(index)
+                        warnings.append(
+                            ArtWarning(
+                                code="art.adapter.elements_truncated",
+                                message=f"页 {index} 元素数超过上限 {_MAX_SLIDE_ELEMENTS}，截断",
+                            )
+                        )
+                    continue
+                kind = _KIND_MAP.get(snap.shape_type.lower(), "shape")
+                if snap.shape_type.lower() in ("picture", "photo"):
+                    kind = "image"
+                el = ArtElement(
+                    element_id=f"pptx-{index}-{snap.shape_id}",
+                    kind=kind,
+                    role=snap.role or "shape",
+                    # 上面的守卫已排除 None（geometry_unknown / None in (...)），这里显式收窄
+                    x=(cast("float", snap.left) * 72.0) / width,
+                    y=(cast("float", snap.top) * 72.0) / height,
+                    width=(cast("float", snap.width) * 72.0) / width,
+                    height=(cast("float", snap.height) * 72.0) / height,
+                    slide_index=index,
+                    text=snap.text or "",
+                    source="pptx",
+                )
+                slides[index].elements.append(el)
         return ArtScene(
             slides=[slides[k] for k in sorted(slides)],
             width_unit="pt",

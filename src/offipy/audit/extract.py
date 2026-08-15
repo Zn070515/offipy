@@ -61,6 +61,7 @@ class _TextRun:
     font_size: float | None  # pt；None = 继承默认
     bold: bool | None
     font_name: str | None
+    color: tuple[int, int, int, float] | None = None  # (r,g,b,a)；a=0-1；None=无颜色证据
 
 
 @dataclass
@@ -146,6 +147,7 @@ class _ShapeRecord:
     # 显式填充类型：none(noFill 透明)/solid/gradient/blip/pattern/unknown（无显式填充，
     # 继承 style，按不透明处理）。overlap 遮挡判定用——透明上层不遮挡下方内容。
     fill_kind: str = "unknown"
+    fill_color: tuple[int, int, int, float] | None = None  # spPr solidFill 的 (r,g,b,a)
 
 
 @dataclass
@@ -292,6 +294,7 @@ def _build_record(
         name=str(shape.name),  # type: ignore[attr-defined]
         shape_type=shape_type,
         fill_kind=_read_fill(shape),
+        fill_color=_read_fill_color(shape),
         left=_to_inches(shape.left),  # type: ignore[attr-defined]
         top=_to_inches(shape.top),  # type: ignore[attr-defined]
         width=_to_inches(shape.width),  # type: ignore[attr-defined]
@@ -340,7 +343,7 @@ def _read_text_frame(shape: object) -> _TextFrameData:
                 ri += 1
                 font = run.font
                 size = font.size.pt if font.size is not None else None
-                tr = _TextRun(run.text, size, font.bold, font.name)
+                tr = _TextRun(run.text, size, font.bold, font.name, _run_color(run))
                 runs.append(tr)
                 segments[-1].append(tr)
             elif child.tag == qn("a:br"):
@@ -432,6 +435,53 @@ def _read_fill(shape: object) -> str:
         if el.find(qn(tag)) is not None:
             return kind
     return "unknown"
+
+
+def _srgb_color_alpha(el: object, default_alpha: float = 1.0) -> tuple[int, int, int, float] | None:
+    """解析 a:srgbClr + 嵌套 a:alpha → (r,g,b,a)；无 val / 非 6 位 hex → None。"""
+    from pptx.oxml.ns import qn
+
+    if el is None or el.get("val") is None or len(el.get("val")) != 6:  # type: ignore[attr-defined]
+        return None
+    v = el.get("val")  # type: ignore[attr-defined]
+    try:
+        r, g, b = (int(v[i : i + 2], 16) for i in (0, 2, 4))
+    except ValueError:
+        return None
+    a = default_alpha
+    alpha = el.find(qn("a:alpha"))  # type: ignore[attr-defined]
+    if alpha is not None and alpha.get("val") is not None:
+        try:
+            a = max(0.0, min(1.0, int(alpha.get("val")) / 100000.0))
+        except ValueError:
+            a = default_alpha
+    return (r, g, b, a)
+
+
+def _run_color(run: Any) -> tuple[int, int, int, float] | None:
+    """run 前景色：a:rPr/a:solidFill/a:srgbClr（含 alpha）。schemeClr/sysClr 不解析。"""
+    from pptx.oxml.ns import qn
+
+    rPr = run._r.find(qn("a:rPr"))
+    if rPr is None:
+        return None
+    solid = rPr.find(qn("a:solidFill"))
+    if solid is None:
+        return None
+    return _srgb_color_alpha(solid.find(qn("a:srgbClr")))
+
+
+def _read_fill_color(shape: object) -> tuple[int, int, int, float] | None:
+    """shape 填充色：p:spPr/a:solidFill/a:srgbClr（含 alpha）。"""
+    from pptx.oxml.ns import qn
+
+    spPr = shape._element.xpath("./p:spPr")  # type: ignore[attr-defined]
+    if not spPr:
+        return None
+    solid = spPr[0].find(qn("a:solidFill"))
+    if solid is None:
+        return None
+    return _srgb_color_alpha(solid.find(qn("a:srgbClr")))
 
 
 def _read_group_transform(shape: object) -> _GroupTransform | None:
