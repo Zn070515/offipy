@@ -86,6 +86,69 @@ def test_deck_make_passes_overwrite(monkeypatch, capsys):
     assert captured["kw"]["overwrite"] is False
 
 
+def test_deck_make_export_png_flag(monkeypatch, capsys):
+    """--export-png 填 args.feedback（make 导出 PNG 目录）；旧 --feedback 别名同。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_make(html, **kw):
+        captured["html"] = html
+        captured["kw"] = kw
+        return r"C:\out\deck.pptx"
+
+    monkeypatch.setattr("offipy.deck.make", fake_make)
+    cli.main(["deck", "make", "--html", "x.html", "--export-png", "pngdir", "--no-open"])
+    assert captured["html"] == "x.html"
+    assert captured["kw"]["feedback_dir"] == "pngdir"
+    # 旧别名 --feedback 同 dest：仍是「导出 PNG 目录」，语义不变
+    cli.main(["deck", "make", "--html", "x.html", "--feedback", "pngdir", "--no-open"])
+    assert captured["kw"]["feedback_dir"] == "pngdir"
+
+
+def test_feedback_append_cli_passes_kwargs(monkeypatch, tmp_path):
+    """feedback append：必填 profile/rule_id/action/severity 走 --key 形式；
+    features 注解 Any → 字符串原样透传（由 FeedbackApp.append 解析 JSON）。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["app"] = app
+        captured["op"] = op
+        captured["kw"] = kw
+        return {"record": "x.jsonl"}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(
+        [
+            "feedback",
+            "append",
+            "--profile",
+            "balanced",
+            "--rule_id",
+            "art.hierarchy.title_too_small",
+            "--action",
+            "fixed",
+            "--severity",
+            "MID",
+            "--feedback_dir",
+            str(tmp_path),
+            "--features",
+            '{"finding.confidence": 0.5}',
+        ]
+    )
+    assert captured["app"] == "feedback"
+    assert captured["op"] == "append"
+    assert captured["kw"]["profile"] == "balanced"
+    assert captured["kw"]["rule_id"] == "art.hierarchy.title_too_small"
+    assert captured["kw"]["action"] == "fixed"
+    assert captured["kw"]["severity"] == "MID"
+    assert captured["kw"]["feedback_dir"] == str(tmp_path)
+    # features 注解是 Any：字符串原样透传（由 FeedbackApp.append 解析 JSON）
+    assert captured["kw"]["features"] == '{"finding.confidence": 0.5}'
+
+
 def test_deck_make_overwrite_false_not_bool_true(monkeypatch, capsys):
     # P0-4 回归：--overwrite false 曾因 bool("false") is True 被翻成 True。
     from offipy import cli

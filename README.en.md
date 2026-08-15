@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.17.0 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.17.1 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -36,7 +36,7 @@ Built for Python developers and AI agents to independently produce **polished, a
   pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
 - **Learnable feedback (v0.17)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
-  `offipy feedback train` / `status`, cold-start falls back to v2, core stays numpy-free
+  `offipy feedback train` / `status` / `append`, cold-start falls back to v2, core stays numpy-free
 - **Shape-level PPT reading and editing**: `ppt read_shapes` reads the shape tree (frozen `ShapeInfo` /
   shape-type contract), with `set_shape_geometry/text/font/fill/outline/visible`, `delete_shape`, and
   `set_shape_z_order` to edit real PowerPoint objects incrementally

@@ -11,6 +11,7 @@ fixed 样本的 worth 应 > accepted 样本 + margin。centering 正则把固定
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -21,10 +22,22 @@ MARGIN = 0.5
 EPOCHS = 200
 LR = 0.05
 REG_WEIGHT = 0.2
+# #112：全局梯度范数裁剪阈值。pair loss 无上界、reg 项随 worth 幅值放大梯度，
+# 极端输入（NaN / 全零退化）会让梯度范数爆炸 → 裁剪到该上界防数值发散。
+GRAD_CLIP_NORM = 5.0
 
 # 形状各异的内部数组统一标注 float64；shape 维用 Any（mypy strict 下裸
 # np.ndarray 触发 type-arg，与 vector.py 同一套泛型化约定）。
 _Arr = np.ndarray[Any, np.dtype[np.float64]]
+
+
+def _clip_scale(dW: list[_Arr], db: list[_Arr]) -> float:
+    """全局梯度范数裁剪系数：范数超 GRAD_CLIP_NORM 时缩放到上界，否则 1.0。"""
+    grad_sq = sum(float((g**2).sum()) for g in dW) + sum(float((g**2).sum()) for g in db)
+    grad_norm = math.sqrt(grad_sq) if grad_sq > 0.0 else 0.0
+    if grad_norm > GRAD_CLIP_NORM:
+        return GRAD_CLIP_NORM / grad_norm
+    return 1.0
 
 
 class MLP:
@@ -70,6 +83,10 @@ class MLP:
                 a = np.maximum(a, 0.0)
         return a
 
+    def predict_batch(self, X: _Arr) -> _Arr:
+        """批量 forward 返回 worth (n,1)，不缓存 activations（推理/门禁用）。"""
+        return self._predict_batch(X)
+
     def _backward(self, seed: _Arr) -> tuple[list[_Arr], list[_Arr]]:
         """反向传播：seed = dL/dA（输出层梯度，(n,1)）。返回 (dW, db)。"""
         a = self.activations
@@ -107,7 +124,8 @@ class MLP:
         seed = np.vstack([seed_f, seed_a])
         self.forward(X)
         dW, db = self._backward(seed)
+        scale = _clip_scale(dW, db)
         for i in range(len(self.W)):
-            self.W[i] -= lr * dW[i]
-            self.b[i] -= lr * db[i]
+            self.W[i] -= lr * scale * dW[i]
+            self.b[i] -= lr * scale * db[i]
         return loss

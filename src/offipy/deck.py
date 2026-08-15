@@ -688,6 +688,7 @@ def _run_art_analysis(
     pptx_report: object | None = None,
     slides_dir: str | None = None,
     pixel_required: bool = False,
+    feedback_dir: str | None = None,
 ) -> ArtReport:
     """从保留的 measurements +（可选）几何审计 +（可选）像素 slides_dir 建场景并分析。"""
     from .art import analyze_scene, build_scene
@@ -695,7 +696,12 @@ def _run_art_analysis(
     scene = build_scene(measurements=measurements, pptx_report=pptx_report, slides_dir=slides_dir)
     if pixel_required and slides_dir is not None and "pixel" not in scene.sources:
         raise ConversionError("像素分析无有效页面（required）")
-    return analyze_scene(scene, profile=profile)
+    return analyze_scene(
+        scene,
+        profile=profile,
+        feedback=feedback_dir is not None,
+        feedback_dir=feedback_dir,
+    )
 
 
 def _check_art_gate() -> None:
@@ -716,6 +722,7 @@ def render_with_quality_report(
     fail_on: Severity = Severity.HIGH,
     audit_config: AuditConfig | None = None,
     profile: str = "balanced",
+    feedback_dir: str | None = None,
     pixel_analysis: Literal["off", "best_effort", "required"] = "off",
     preserve_pixel_slides: bool = False,
     slides_output_dir: str | None = None,
@@ -783,6 +790,7 @@ def render_with_quality_report(
                     pptx_report=audit_report,
                     slides_dir=staging_slides,
                     pixel_required=(pixel_analysis == "required"),
+                    feedback_dir=feedback_dir,
                 )
             else:
                 if pixel_analysis == "required":

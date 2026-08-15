@@ -11,7 +11,7 @@ from offipy.feedback.status import report_status
 from offipy.feedback.train import run_training
 
 
-def _add(tmp_path, action, n):
+def _add(tmp_path, action, n, *, features=None):
     for _ in range(n):
         art_append(
             "balanced",
@@ -19,9 +19,17 @@ def _add(tmp_path, action, n):
             action,
             Severity.MID,
             feedback_dir=tmp_path,
-            features={"finding.confidence": 0.5},
+            features=features or {"finding.confidence": 0.5},
             feature_schema_version=feature_schema_version(),
         )
+
+
+def _discriminative(action):
+    """可判别特征：#112 训练门禁下，特征全等会导致模型坍缩成常数被拒。"""
+    return {
+        "fixed": {"finding.severity_ordinal": 3.0, "finding.confidence": 1.0},
+        "accepted": {"finding.severity_ordinal": 1.0, "finding.confidence": 0.2},
+    }[action]
 
 
 def test_status_empty_dir(tmp_path):
@@ -47,15 +55,15 @@ def test_status_model_missing_no_file(tmp_path):
 
 
 def test_status_model_valid(tmp_path):
-    _add(tmp_path, "fixed", 12)
-    _add(tmp_path, "accepted", 4)
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
     run_training(tmp_path, min_pairs=0)
     assert report_status(tmp_path)["model"] == "valid"
 
 
 def test_status_model_expired(tmp_path):
-    _add(tmp_path, "fixed", 12)
-    _add(tmp_path, "accepted", 4)
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
     run_training(tmp_path, min_pairs=0)
     path = model_file(tmp_path)
     data = json.loads(path.read_text(encoding="utf-8"))

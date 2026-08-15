@@ -243,18 +243,35 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 三层 feedback 语义（文档钉死，避免混淆）：
 - `offipy.feedback`（v1）：维度权重，`dimension_weights()`，`~/.offipy/feedback.jsonl`
 - `offipy.art.feedback`（v2）：规则 ±1，`recommend_adjustments` → `feedback_severity_adjustments`
-- `offipy feedback`（v3，本系统）：可学习 numpy MLP，`feedback_train` / `feedback_status`
+- `offipy feedback`（v3，本系统）：可学习 numpy MLP，`feedback_train` / `feedback_status` / `feedback_append`
 
 训练：`offipy feedback train`（读 `~/.offipy/art_feedback.jsonl` → 训练 →
 写 `~/.offipy/art_feedback_model.json`）。样本不足/无有效样本时返回状态 JSON，
-不删除已有模型（F2-E）。需要 numpy：`pip install "offipy[feedback]"`。
+不删除已有模型（F2-E）。**数值门禁（#112）**：loss 非有限 → `training_diverged`、
+输出恒定（output_std < 1e-6）→ `model_collapsed`，坏模型一律不写、原子保留旧模型，
+训练做全局梯度裁剪。需要 numpy：`pip install "offipy[feedback]"`。
+
+追加标签：`offipy feedback append --profile <p> --rule_id <r> --action fixed
+--severity MID --features '<json>' --feedback_dir <dir>`（写入该目录 JSONL，
+供 train 学习；severity 限 LOW/MID/HIGH）。
 
 状态：`offipy feedback status`（样本数 / 配对潜力 / 模型 none|valid|expired）。
 
+消费侧要求（#113）：学习**消费**必须显式 `feedback_dir`——`analyze_scene(feedback=True)`
+不带目录 → `InvalidArgumentError`；`learned_adjustments` 不带目录 → 返回 None，
+不静默加载全局 `~/.offipy` 模型。写入侧（train/append）仍默认 `~/.offipy`。
+
+CLI 学习消费通道（#114）：
+- `offipy deck audit --feedback-dir <dir>`：审计时应用反馈学习（加载指定目录记录/模型）
+- `offipy deck make --export-png <dir>`：导出 PNG 反馈目录（旧名 `--feedback` 为弃用别名，
+  语义不变，仍只是导出目录，不触发学习消费）
+
 推理消费点：
 - `rule.delta.<rule_id>`：历史记录 worth 均值 → ±1 调整 → `feedback_severity_adjustments`
-- `finding.severity_shift`：analyze 后处理 pass，仅 rule-computed（无 override）finding 生效
-- `quality.score`：替换 `experimental_score`（仅 `include_experimental_score=True` 时算）
+- `finding.severity_shift`：analyze 后处理 pass，仅 rule-computed（无 override）finding 生效；
+  **按规则证据门禁（#111）**——仅该规则有效标签 ≥3 才被 shift，0 标签规则不做跨规则泛化
+- `quality.score`：替换 `experimental_score`（仅 `include_experimental_score=True` 时算）；
+  同证据门禁，只由通过门禁（可被 shift）的 finding 贡献
 
 冷启动：无模型 / 模型过期（input_schema_version 不符）/ 未装 numpy → 完全回退
 v2 行为（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是可拆卸增强，

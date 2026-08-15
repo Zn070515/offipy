@@ -222,22 +222,42 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 Three layers of feedback semantics (pinned here to avoid confusion):
 - `offipy.feedback` (v1): dimension weights, `dimension_weights()`, `~/.offipy/feedback.jsonl`
 - `offipy.art.feedback` (v2): per-rule ±1, `recommend_adjustments` → `feedback_severity_adjustments`
-- `offipy feedback` (v3, this system): learnable numpy MLP, `feedback_train` / `feedback_status`
+- `offipy feedback` (v3, this system): learnable numpy MLP, `feedback_train` / `feedback_status` / `feedback_append`
 
 Training: `offipy feedback train` (reads `~/.offipy/art_feedback.jsonl` → trains →
 writes `~/.offipy/art_feedback_model.json`). With insufficient / no valid samples it returns a
-status JSON instead of erroring and does not delete an existing model (F2-E). Requires numpy:
-`pip install "offipy[feedback]"`.
+status JSON instead of erroring and does not delete an existing model (F2-E). **Numerical gates
+(#112)**: non-finite loss → `training_diverged`; constant output (output_std < 1e-6) →
+`model_collapsed`; a bad model is never written and the old one is kept atomically; training
+uses global gradient clipping. Requires numpy: `pip install "offipy[feedback]"`.
+
+Append labels: `offipy feedback append --profile <p> --rule_id <r> --action fixed
+--severity MID --features '<json>' --feedback_dir <dir>` (writes to that directory's JSONL for
+`train` to learn; severity is limited to LOW/MID/HIGH).
 
 Status: `offipy feedback status` (sample count / pairing potential / model none|valid|expired).
+
+Consumption rule (#113): learning **consumption** requires an explicit `feedback_dir` —
+`analyze_scene(feedback=True)` without a dir → `InvalidArgumentError`; `learned_adjustments`
+without a dir → returns None, and never silently loads the global `~/.offipy` model. The write
+side (train/append) still defaults to `~/.offipy`.
+
+CLI consumption channel (#114):
+- `offipy deck audit --feedback-dir <dir>`: applies feedback learning during audit (loads
+  records/model from the given dir)
+- `offipy deck make --export-png <dir>`: export PNG feedback dir (the old name `--feedback` is
+  a deprecated alias, semantics unchanged — it still only exports the dir, it does not trigger
+  learning consumption)
 
 Inference consumption points:
 - `rule.delta.<rule_id>`: mean worth of historical records → ±1 adjustment →
   `feedback_severity_adjustments`
 - `finding.severity_shift`: a post-processing pass in analyze, applied only to rule-computed
-  (no-override) findings
+  (no-override) findings; **per-rule evidence gate (#111)** — only rules with ≥ 3 valid labels
+  get shifted; 0-label rules are not cross-rule-generalized
 - `quality.score`: replaces `experimental_score` (only computed when
-  `include_experimental_score=True`)
+  `include_experimental_score=True`); same evidence gate — contributed only by gated
+  (shiftable) findings
 
 Cold start: no model / expired model (input_schema_version mismatch) / numpy not installed →
 full fallback to v2 behavior (`recommend_adjustments`). Deleting model.json returns to v2.

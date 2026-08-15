@@ -74,3 +74,30 @@ def test_train_failure_keeps_old_model(tmp_path):
     res = run_training(tmp_path)
     assert res["trained"] is False
     assert model_file(tmp_path).read_bytes() == old_bytes
+
+
+def test_collapsed_constant_output_rejected(tmp_path):
+    """特征全零 → 模型对任何输入输出常数 → 判别力门禁拒绝写模型（#112）。"""
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "fixed", 12, features={"finding.confidence": 0.0})
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "accepted", 12, features={"finding.confidence": 0.0})
+    res = run_training(tmp_path, min_pairs=0)
+    assert res["trained"] is False
+    assert res["reason"] == "model_collapsed"
+    assert res["output_std"] == 0.0  # 恒定输出 → 判别力门禁拒绝（#112）
+    assert not model_file(tmp_path).exists()
+
+
+def test_diverged_loss_reports_status_no_model(tmp_path):
+    """loss 非有限（NaN 输入）→ 立即中止，返回状态且不写模型（#112）。"""
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "fixed", 12, features={"finding.confidence": float("nan")})
+    _add(
+        tmp_path,
+        RULE_TITLE_TOO_SMALL,
+        "accepted",
+        12,
+        features={"finding.confidence": float("nan")},
+    )
+    res = run_training(tmp_path, min_pairs=0)
+    assert res["trained"] is False
+    assert res["reason"] == "training_diverged"
+    assert not model_file(tmp_path).exists()

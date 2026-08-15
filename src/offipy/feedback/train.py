@@ -6,6 +6,7 @@ F2-E：只有成功训练才原子写；样本不足 / 无有效样本时返回�
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,9 @@ from .registry import OUTPUT_SCHEMA_VERSION
 from .vector import encode_vector
 
 _MIN_PAIRS = 50
+# #112：判别力门禁阈值——训练后模型对全量样本输出的 worth 标准差低于该值视为
+# 坍缩成常数（ReLU 全死 / 退化），是坏模型，拒绝写盘。
+MIN_OUTPUT_STD = 1e-6
 
 
 def run_training(
@@ -47,8 +51,33 @@ def run_training(
     X_accepted = np.array([encode_vector(a.features or {}) for _, a in pairs])
     mlp = MLP(input_dim=len(feature_keys()), hidden_dims=HIDDEN_DIMS, seed=seed)
     loss = 0.0
+    diverged = False
     for _ in range(EPOCHS):
         loss = mlp.train_step(X_fixed, X_accepted, lr=LR, margin=MARGIN, reg_weight=REG_WEIGHT)
+        if not math.isfinite(loss):
+            diverged = True
+            break
+    if diverged:
+        # #112：数值爆炸（loss=inf/nan）→ 不写模型，返回状态
+        return {
+            "trained": False,
+            "reason": "training_diverged",
+            "pairs": len(pairs),
+            "samples": len(valid),
+            "loss": str(loss),
+        }
+    # #112：判别力门禁——常数输出（ReLU 全死/退化）是坏模型，拒绝写
+    outputs = np.concatenate([mlp.predict_batch(X_fixed), mlp.predict_batch(X_accepted)])
+    output_std = float(outputs.std())
+    if output_std < MIN_OUTPUT_STD:
+        return {
+            "trained": False,
+            "reason": "model_collapsed",
+            "pairs": len(pairs),
+            "samples": len(valid),
+            "loss": round(loss, 4),
+            "output_std": round(output_std, 6),
+        }
     rules_with_pairs = len({f.rule_id for f, _ in pairs})
     stats = {
         "pairs": len(pairs),

@@ -181,6 +181,58 @@ def test_deck_audit_ppt_calls_analyze_deck_once(monkeypatch, capsys):
     assert "offipy deck audit" in out
 
 
+# ---------------------------------------------------------------- 反馈学习通道
+
+
+def test_deck_audit_ppt_feedback_dir_passes_through(monkeypatch):
+    """--feedback-dir → analyze_deck(feedback=True, feedback_dir=...)。"""
+    from offipy import cli
+
+    calls = []
+
+    def fake_analyze(**kw):
+        calls.append(kw)
+        return _report()
+
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", fake_analyze)
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
+    assert len(calls) == 1
+    assert calls[0]["feedback"] is True
+    assert calls[0]["feedback_dir"] == "d"
+
+
+def test_deck_audit_html_feedback_dir_passes_through(monkeypatch):
+    """--feedback-dir → render_with_quality_report(feedback_dir=...)。"""
+    from offipy import cli
+
+    calls = []
+
+    def fake_render(html, **kw):
+        calls.append(kw)
+        return _render_result()
+
+    monkeypatch.setattr("offipy.deck.render_with_quality_report", fake_render)
+    cli.main(["deck", "audit", "x.html", "--feedback-dir", "d"])
+    assert len(calls) == 1
+    assert calls[0]["feedback_dir"] == "d"
+
+
+def test_deck_audit_no_feedback_dir_passes_none(monkeypatch):
+    """不带 --feedback-dir → feedback=False / feedback_dir=None（默认不做学习）。"""
+    from offipy import cli
+
+    calls = []
+
+    def fake_analyze(**kw):
+        calls.append(kw)
+        return _report()
+
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", fake_analyze)
+    cli.main(["deck", "audit", "--pptx", "x.pptx"])
+    assert calls[0]["feedback"] is False
+    assert calls[0]["feedback_dir"] is None
+
+
 def test_deck_audit_ppt_missing_file_friendly(monkeypatch, capsys):
     from offipy import cli
 
