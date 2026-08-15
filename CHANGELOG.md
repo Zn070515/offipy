@@ -3,6 +3,16 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.17.1] - 2026-08-15
+
+### Fixed
+
+- **feedback 学习 4 个修复（#111-#114）**：
+  - 训练加数值门禁（#112）：loss 非有限 → `training_diverged`；输出恒定 → `model_collapsed`；全局梯度裁剪；坏模型不写，原子保留旧模型
+  - 学习消费必须显式 `feedback_dir`（#113）：`feedback=True` 无 dir → `InvalidArgumentError`；`learned_adjustments` 无 dir → 回退 v2，不静默加载全局 `~/.offipy`
+  - `severity_shift` 按规则证据门禁（#111）：仅 ≥3 有效标签的规则被 shift；`quality.score` 同语义（只由通过门禁的 finding 贡献）
+  - CLI 打开学习消费通道（#114）：`deck audit --feedback-dir` 应用反馈学习；`deck make --export-png`（`--feedback` 为弃用别名）；`feedback append` 追加标签
+
 ## [0.17.0] - 2026-08-15
 
 ### Added
