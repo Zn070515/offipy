@@ -295,6 +295,10 @@ FEATURES: dict[str, FeatureSpec] = {
             group="slide",
             kind="float",
             applies_to="all",
+            # 注意：missing_default=_SLIDE_ROLE_OTHER 会 conflate 两种状态——
+            # 「无 slide 数据」（slide=None）与「真实 slide 上的未知 role」都落到
+            # catch-all 桶 6.0。这是刻意的（比旧值 2.0 撞 cover 好），但 6.0 不恒等
+            # 于「真实未知 role」，Task 6/7 消费时勿按后者解读。已知 role 取 sorted 序号 0..5。
             missing_default=_SLIDE_ROLE_OTHER,
             extract=_slide_page_signature,
         ),

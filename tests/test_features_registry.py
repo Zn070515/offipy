@@ -1,7 +1,7 @@
 """FEATURES 注册表 + encode_features：扁平标量快照，schema 版本。"""
 
 from offipy.art import encode_features, feature_keys, feature_schema_version
-from offipy.art.models import ArtColor, ArtElement, ArtFinding, ArtSlide
+from offipy.art.models import ArtColor, ArtElement, ArtFinding, ArtScene, ArtSlide
 from offipy.art.profiles import (
     RULE_CORNER_CLUSTER,
     RULE_MANY_FAMILIES,
@@ -123,6 +123,20 @@ def test_missing_optional_fields_default():
     assert enc["finding.page_ratio"] == 0.0  # 无 deck → total_slides=0 → extract None → 0.0
 
 
+def test_page_ratio_positive_path():
+    # 5 页场景：idx/total 正分支（对照 test_missing_optional_fields_default 的缺失路径）
+    deck = ArtScene(slides=[_slide(index=i) for i in range(1, 6)])
+    enc = encode_features(_finding(slide_index=2), _slide(index=2), deck=deck)
+    assert enc["finding.page_ratio"] == 2.0 / 5.0
+    # 中间页：ratio 严格 < 1.0
+    enc_mid = encode_features(_finding(slide_index=4), _slide(index=4), deck=deck)
+    assert enc_mid["finding.page_ratio"] == 4.0 / 5.0 < 1.0
+    # 最后一页：ratio == total/total == 1.0，有界 ≤ 1.0，不会超界
+    enc_last = encode_features(_finding(slide_index=5), _slide(index=5), deck=deck)
+    assert enc_last["finding.page_ratio"] == 1.0
+    assert 0.0 < enc_last["finding.page_ratio"] <= 1.0
+
+
 def test_schema_version_constant():
     assert feature_schema_version() == "1"
 
@@ -207,6 +221,12 @@ def test_page_signature_missing_default_is_other_bucket():
 
 
 def test_feature_keys_layout_tripwire():
+    from offipy.art.features_registry import _SLIDE_ROLE_ORDER, _SLIDE_ROLE_OTHER
+
+    # page_signature 的序号映射也一并钉死：features.py 的 _KNOWN_SLIDE_ROLES 增删
+    # role 时 59 键不变但数值含义漂移，这里必须显式换代（tests/** 的 SLF001 已放行）
+    assert _SLIDE_ROLE_ORDER == ("closing", "content", "cover", "data", "gallery", "section")
+    assert _SLIDE_ROLE_OTHER == 6.0
     # 布局黄金快照：任何 key 增删/重排/大小写变化都会触发失败，
     # 强制开发者 conscious bump feature_schema_version()（Task 7 模型有效性门禁依赖它）
     assert feature_keys() == (
