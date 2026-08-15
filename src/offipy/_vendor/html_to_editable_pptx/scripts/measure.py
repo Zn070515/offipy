@@ -12,6 +12,7 @@ Usage:
 """
 import contextlib
 import json
+import math
 import re
 import sys
 import tempfile
@@ -1248,19 +1249,35 @@ def _shoot_marker_records(page, records, out_dir: Path):
             clip = rec.get("screenshotClip") if kind == "deco_snapshot" else None
             if clip:
                 viewport = page.viewport_size or VIEWPORT
-                x0, y0 = float(clip.get("x", 0)), float(clip.get("y", 0))
-                w0, h0 = float(clip.get("w", 1)), float(clip.get("h", 1))
-                x, y = max(0.0, x0), max(0.0, y0)
-                dx, dy = x - x0, y - y0  # 左/上超出视口被 clamp 掉的量
-                w = max(1, min(w0 - dx, max(1, viewport["width"] - x)))
-                h = max(1, min(h0 - dy, max(1, viewport["height"] - y)))
-                page.screenshot(path=str(out_png),
-                                clip={"x": x, "y": y, "width": w, "height": h},
-                                omit_background=omit_bg)
+                cx, cy = float(clip.get("x", 0)), float(clip.get("y", 0))
+                cw, ch = float(clip.get("w", 1)), float(clip.get("h", 1))
+                # 左/上越界（负坐标）Playwright clip 不接受：clamp 到 0 并记录偏移，
+                # 截图后把偏移回写 rect，保持贴图相对真实位置不漂移。
+                x, y = max(0.0, cx), max(0.0, cy)
+                dx, dy = x - cx, y - cy
+                w, h = max(1, cw - dx), max(1, ch - dy)
+                # 右/下越界（box-shadow/背景图外延）：临时扩视口截全捕获框，截完还原。
+                need_w = max(viewport["width"], math.ceil(x + w))
+                need_h = max(viewport["height"], math.ceil(y + h))
+                expanded = (need_w, need_h) != (viewport["width"], viewport["height"])
+                if expanded:
+                    # #138：clip 超出视口时临时扩视口再截图，截图后立即还原。
+                    # offipy deck 输出固定 px，扩视口不触发响应式 re-layout；
+                    # 若目标页用 vw/vh/% 单位则可能 reflow，此风险在 offipy 管线中不现实。
+                    page.set_viewport_size({"width": need_w, "height": need_h})
+                try:
+                    page.screenshot(
+                        path=str(out_png),
+                        clip={"x": x, "y": y, "width": w, "height": h},
+                        omit_background=omit_bg,
+                    )
+                finally:
+                    if expanded:
+                        page.set_viewport_size(viewport)
                 # rect 与 screenshotClip 是同一捕获框的两套坐标（slide 相对 / viewport 绝对）。
-                # clip 被视口 clamp 后同步写回 rect，让 assemble 按"实际截到的区域"摆放，
-                # 否则贴图相对真实位置偏移 |dx|/|dy| 像素（宽高同理被拉伸）
-                if dx or dy or w != w0 or h != h0:
+                # 右/下越界经扩视口已完整截到（w/h 不变）→ 不回写 rect，阴影/背景完整保留；
+                # 仅左/上越界被 clamp 掉的量（dx/dy）回写，避免贴图相对真实位置偏移。
+                if dx or dy:
                     rec["rect"]["x"] += dx
                     rec["rect"]["y"] += dy
                     rec["rect"]["w"] = w

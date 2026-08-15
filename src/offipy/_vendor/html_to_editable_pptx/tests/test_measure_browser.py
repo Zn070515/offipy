@@ -236,6 +236,23 @@ def test_stale_screenshot_pruned(tmp_path):
     assert (shots / "slide_01.png").exists()
 
 
+def test_deco_shadow_beyond_viewport_not_clamped(tmp_path):
+    # #138：deco_snapshot 捕获框（含 box-shadow 外延）超出视口时，不得 clamp 到
+    # 1920×1080 丢阴影；扩视口截图并还原，rect 保持完整捕获框。
+    pytest.importorskip("playwright.sync_api")
+    from measure import measure
+    out = tmp_path / "m.json"
+    try:
+        data = measure(FIXTURES / "deco_shadow_edge.html", out, no_screenshots=False, verbose=False)
+    except Exception as e:
+        pytest.skip(f"Playwright/Chromium 不可用: {e}")
+    recs = [r for r in data["slides"][0]["records"] if r["kind"] == "deco_snapshot"]
+    assert recs, "边缘阴影卡片没有产生 deco_snapshot"
+    r = recs[0]
+    # 捕获框 top=1000 + h=80 + shadow 向下 60+40=100 → h≈180；修复前被 clamp 到 ~80
+    assert r["rect"]["h"] >= 175, f"阴影捕获框被视口裁剪: rect={r['rect']}"
+
+
 def test_gradient_and_shadow_fill_kind_marked(gradient_shadow):
     # #140：渐变/阴影必走 complexDecoration → deco_snapshot（kind 非 "shape"），
     # 断言必须覆盖 deco_snapshot 记录，否则「未写进记录」会误绿。
