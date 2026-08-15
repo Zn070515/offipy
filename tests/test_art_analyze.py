@@ -513,7 +513,10 @@ def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
     save_model(
         MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
         input_schema_version=features_registry.feature_schema_version(),
-        output_schema_version="1", seed=0, hidden_dims=(4,), stats={},
+        output_schema_version="1",
+        seed=0,
+        hidden_dims=(4,),
+        stats={},
         path=model_file(tmp_path),
     )
     p = model_file(tmp_path)
