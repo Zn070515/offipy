@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.17.1 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.18.0 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -35,8 +35,13 @@ Built for Python developers and AI agents to independently produce **polished, a
   `analyze_deck` evaluates all three sources (measurements + pptx geometry + slides_dir per-page PNG
   pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
-- **Learnable feedback (v0.17)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
-  `offipy feedback train` / `status` / `append`, cold-start falls back to v2, core stays numpy-free
+- **Learnable feedback (v0.18)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
+  `offipy feedback train` / `status` / `append`, cold-start falls back to v2, core stays numpy-free.
+  Learning quality (#115-#122): standardized preprocessing (zero-variance drop + high-correlation
+  dedup + z-score), ensemble K=5 + calibration + abstain + OOD, sample-level repeated stratified CV,
+  capacity-adaptive warnings, per-rule sample diagnosis — `feedback status` surfaces effective_dims /
+  samples_per_param / poor_generalization, and `deck audit --feedback-dir` passes through
+  experimental score
 - **Shape-level PPT reading and editing**: `ppt read_shapes` reads the shape tree (frozen `ShapeInfo` /
   shape-type contract), with `set_shape_geometry/text/font/fill/outline/visible`, `delete_shape`, and
   `set_shape_z_order` to edit real PowerPoint objects incrementally
@@ -389,7 +394,12 @@ uv run ruff check .                   # lint
 uv run ruff format --check .          # format
 uv run mypy src/offipy                # types
 uv run pytest tests -q                # tests (COM integration tests skip automatically without Office)
+uv run mkdocs build --strict          # docs build gate (any warning fails, #108)
 ```
+
+The pure-module CI gate (Linux, no Office) additionally runs `mkdocs build --strict` and
+seeded-mutation fuzz of the drawio / HTML parsers (#110) — malformed input must not crash and
+URL / data paths must pass the whitelist.
 
 See [`CONTRIBUTING.en.md`](CONTRIBUTING.en.md) for contribution guidelines and gates.
 
@@ -422,7 +432,7 @@ src/offipy/
   assets/icons/ # vendored icon assets (Phosphor fill + Lucide) + manifest + LICENSE *
   aesthetic.py  # aesthetic audit: whitespace/font-size hierarchy/color count/contrast/consistency → scored report *
   autopick.py   # automatic pick: content structure → recommended theme + per-slide layout + reasoning *
-  feedback.py   # feedback learning: audit dispositions → dimension weights (P2 validation build) *
+  feedback/     # feedback learning (v3 numpy MLP): registry/vector/preprocess/train/validate/infer/status/app *
   outline.py    # content workflow: markdown outline → per-slide structured content → HTML skeleton *
   _vendor/html_to_editable_pptx/  # vendored HTML→PPTX converter (third-party code, MIT) *
 tests/        # pytest

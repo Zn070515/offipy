@@ -1,3 +1,22 @@
+## v0.17.1 → v0.18.0
+
+0.18 是**纯新增 + 行为对齐**版本：不改任何既有 API / CLI 契约。唯一注意点是
+**feedback 学习模型 / 记录的 schema 版本已升级**——旧模型与旧记录需重新标注 / 训练。
+
+- **FEATURES feature schema v1 → v2（#115）**：媒体特征新增
+  `art.media.tiny_image.area_ratio`。旧 JSONL 记录（`feature_schema_version="1"`）
+  不再是可训练样本（`valid_samples` 会把他们筛掉），需用当前 `feedback append`
+  重新标注后再训练。
+- **model schema v1 → v2（#118/#120）**：model.json 改为 `members` ensemble +
+  `preprocessing` / `calibration` / `abstain` 块。0.17.x 训练的**旧模型（schema v1）
+  不再加载**——`feedback status` 报 `model: none`（v1 文件无法按 v2 schema 解析，
+  视为无模型），推理侧自动回退 v2 行为（`recommend_adjustments`）。想恢复学习：
+  用新标注记录 `feedback train` 重建（旧 model.json 会被原子覆盖）。
+- **`feedback status` 输出新增键（#121/#119，非破坏）**：模型有效时额外返回
+  `effective_dims` / `samples_per_param` / `poor_generalization`，旧字段不变。
+
+---
+
 ## v0.13.2 → v0.14.0
 
 v0.14 引入**资源系统（Asset System v1）**：统一 `asset://` 资源管线（provider →

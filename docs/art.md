@@ -106,7 +106,9 @@ warning——绝不静默丢弃。
 客观美学分数**。当存在有效 feedback 模型时（见 [feedback 学习系统](usage.md)），分值来源从
 公式改为学习到的 `quality.score`——语义不变，仍只用于排序/对比、不对外宣称客观美学分数；
 `include_experimental_score` 依旧 opt-in。`quality.score` 只由**通过证据门禁**（该规则有效标签
-≥3，见 #111）的 finding 贡献。无模型时保持现有公式。
+≥3，见 #111）且**模型确定（非 abstain）/ 特征在分布内（非 OOD）**（#122）的 finding 贡献，
+值由 ensemble 均值 worth 经校准（worth_scale 归一）映射（#122）。无模型 / 全部 finding
+abstain / OOD 时保持现有公式。
 
 ## 维度与规则
 

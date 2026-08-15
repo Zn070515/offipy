@@ -3,6 +3,45 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [0.18.0] - 2026-08-15
+
+### Added
+
+- **feedback 学习质量 8 项（#115-#122）**：
+  - tiny_image 特征补全 + FEATURES schema v1→v2 bump（#115）：媒体特征新增
+    `art.media.tiny_image.area_ratio`；旧记录 feature_schema_version 不符 →
+    不可训练样本（冷启动回退 v2 语义不变）
+  - 预处理标准化（#118/#120）：训练集拟合**零方差特征 drop + 高相关（|r|≥0.99）
+    去重 + 全局 z-score**，mean/scale/kept 持久化到 model.json `preprocessing` 块
+    （model schema v2），推理端走同一 transform
+  - 容量自适应 soft warning（#121）：容量按独立样本数自适应（Lunt & Xu H≈√n），
+    `samples_per_param` 分级 ok/warn/critical，只记录不拒绝写盘
+  - 样本级 repeated stratified CV（#119）：按 rule 分层的重复 5 折、**绝不做
+    pair-level split**（Kajimura 2022）；95% 置信下界触 chance →
+    `poor_generalization` soft flag，不拒绝写盘
+  - insufficient_pairs 逐规则诊断（#117）：训练样本不足时返回 per-rule
+    `{fixed, accepted, pairs, single_direction, suggest}` 可行动建议
+  - ensemble K=5（#122）：多 seed member 取平均降方差 + worth 校准
+    （quality_score 归一）+ abstain（|worth| 近零 / member 分歧大的 finding 不
+    shift）+ OOD（特征 z 越界不 shift，保守回退 v2）
+  - CLI deck audit 透传 experimental score（#116）：`deck audit --feedback-dir`
+    时报告 / `--json` 输出带 `experimental_score`
+  - `feedback status` 表面 `effective_dims` / `samples_per_param` /
+    `poor_generalization`（#121/#119）
+
+### Fixed
+
+- **deck srcset 还原越界（#110）**：源 HTML 含字面 `__OFFIPY_DATA_N__` 占位符
+  （N 越界）时不再抛裸 IndexError——未 stash 的占位符原样保留，交给 URL 重写按
+  普通相对路径处理。
+
+### Changed
+
+- **mkdocs build --strict 纳入纯模块 CI 门禁（#108）**：任何文档构建告警即 CI 红
+  （dev extra 新增 mkdocs + mkdocs-material）。
+- **stdlib-random + 固定 seed 变异 fuzz（#110）**：drawio / HTML 解析器以固定 seed
+  变异输入做鲁棒性 fuzz（含 URL / data 路径白名单验证）。
+
 ## [0.17.1] - 2026-08-15
 
 ### Fixed

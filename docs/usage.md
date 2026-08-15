@@ -238,7 +238,7 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
     print("候选相对基线新增/恶化 MID+ 问题")
 ```
 
-## feedback 学习系统（v0.17）
+## feedback 学习系统（v0.18）
 
 三层 feedback 语义（文档钉死，避免混淆）：
 - `offipy.feedback`（v1）：维度权重，`dimension_weights()`，`~/.offipy/feedback.jsonl`
@@ -251,30 +251,49 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 输出恒定（output_std < 1e-6）→ `model_collapsed`，坏模型一律不写、原子保留旧模型，
 训练做全局梯度裁剪。需要 numpy：`pip install "offipy[feedback]"`。
 
+**学习质量（#115-#122）**：
+- **预处理标准化（#118/#120）**：训练集拟合零方差特征 drop + 高相关（|r|≥0.99）去重 +
+  全局 z-score，mean/scale/kept 持久化到 model.json `preprocessing` 块（model schema v2），
+  推理端同一 transform
+- **ensemble K=5（#122）**：多 seed member 取平均降方差 + worth 校准（quality_score 归一）；
+  **abstain**（|worth| 近零 / member 分歧大的 finding 不 shift）+ **OOD**（特征 z 越界不 shift），
+  保守回退 v2
+- **样本级 repeated stratified CV（#119）**：按 rule 分层的重复 5 折、绝不做 pair-level split；
+  95% 置信下界触 chance → `poor_generalization` soft flag（只记录不拒绝写盘）
+- **容量自适应告警（#121）**：容量按独立样本数自适应（H≈√n），`samples_per_param`
+  分级 ok/warn/critical
+- **逐规则样本诊断（#117）**：样本不足（insufficient_pairs）时返回 per-rule
+  `{fixed, accepted, pairs, single_direction, suggest}` 可行动建议
+- tiny_image 特征补全 + FEATURES schema v1→v2 bump（#115）
+
 追加标签：`offipy feedback append --profile <p> --rule_id <r> --action fixed
 --severity MID --features '<json>' --feedback_dir <dir>`（写入该目录 JSONL，
 供 train 学习；severity 限 LOW/MID/HIGH）。
 
-状态：`offipy feedback status`（样本数 / 配对潜力 / 模型 none|valid|expired）。
+状态：`offipy feedback status`（样本数 / 有效样本 / 配对潜力 / 模型 none|valid|expired；
+模型有效时另表面 `effective_dims` / `samples_per_param` / `poor_generalization`）。
 
 消费侧要求（#113）：学习**消费**必须显式 `feedback_dir`——`analyze_scene(feedback=True)`
 不带目录 → `InvalidArgumentError`；`learned_adjustments` 不带目录 → 返回 None，
 不静默加载全局 `~/.offipy` 模型。写入侧（train/append）仍默认 `~/.offipy`。
 
-CLI 学习消费通道（#114）：
-- `offipy deck audit --feedback-dir <dir>`：审计时应用反馈学习（加载指定目录记录/模型）
+CLI 学习消费通道（#114/#116）：
+- `offipy deck audit --feedback-dir <dir>`：审计时应用反馈学习（加载指定目录记录/模型）；
+  **带 `--feedback-dir` 时报告 / `--json` 输出透传 `experimental_score`**（#116）
 - `offipy deck make --export-png <dir>`：导出 PNG 反馈目录（旧名 `--feedback` 为弃用别名，
   语义不变，仍只是导出目录，不触发学习消费）
 
 推理消费点：
 - `rule.delta.<rule_id>`：历史记录 worth 均值 → ±1 调整 → `feedback_severity_adjustments`
 - `finding.severity_shift`：analyze 后处理 pass，仅 rule-computed（无 override）finding 生效；
-  **按规则证据门禁（#111）**——仅该规则有效标签 ≥3 才被 shift，0 标签规则不做跨规则泛化
+  **按规则证据门禁（#111）**——仅该规则有效标签 ≥3 才被 shift，0 标签规则不做跨规则泛化；
+  模型不确定（abstain）/ 特征 OOD 的 finding 不 shift（保守回退 v2）
 - `quality.score`：替换 `experimental_score`（仅 `include_experimental_score=True` 时算）；
-  同证据门禁，只由通过门禁（可被 shift）的 finding 贡献
+  同证据门禁，只由通过门禁（可被 shift）的 finding 贡献；值由 ensemble 均值 worth 经校准
+  （worth_scale 归一）映射
 
-冷启动：无模型 / 模型过期（input_schema_version 不符）/ 未装 numpy → 完全回退
-v2 行为（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是可拆卸增强，
+冷启动：无模型 / 模型过期（feature_schema_version / model schema 不符）/ 未装 numpy →
+完全回退 v2 行为（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是可拆卸增强，
 绝不回退 audit 硬门禁。
 
 ## 能力边界：创建/追加 vs 增量修改

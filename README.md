@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.17.1（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.18.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -32,8 +32,13 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   抽象成 ArtScene，5 个维度规则（层级 / 构图 / 排版 / 颜色 / 媒体）评估，grade / confidence /
   evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 三源（measurements + pptx 几何 +
   slides_dir 逐页 PNG 像素）一次评估，`deck.render_with_quality_report` 生成即质量参考
-- **可学习 feedback（v0.17）**：numpy MLP + 注册式输入输出（FEATURES/OUTPUTS），
-  `offipy feedback train` / `status` / `append`，冷启动回退 v2，核心零 numpy 依赖
+- **可学习 feedback（v0.18）**：numpy MLP + 注册式输入输出（FEATURES/OUTPUTS），
+  `offipy feedback train` / `status` / `append`，冷启动回退 v2，核心零 numpy 依赖。
+  学习质量（#115-#122）：预处理标准化（零方差 drop + 高相关去重 + z-score）、
+  ensemble K=5 + 校准 + abstain + OOD、样本级 repeated stratified CV、
+  容量自适应告警、逐规则样本诊断——`feedback status` 表面 effective_dims /
+  samples_per_param / poor_generalization，`deck audit --feedback-dir` 透传
+  experimental score
 - **PPT 形状级读取与编辑**：`ppt read_shapes` 读取形状树（冻结 `ShapeInfo` / 形状类型契约），
   `set_shape_geometry/text/font/fill/outline/visible`、`delete_shape`、`set_shape_z_order`
   增量编辑真实 PowerPoint 对象
@@ -420,7 +425,11 @@ uv run ruff check .                   # lint
 uv run ruff format --check .          # 格式
 uv run mypy src/offipy                # 类型
 uv run pytest tests -q                # 测试（COM 集成测试无 Office 自动跳过）
+uv run mkdocs build --strict          # 文档构建门禁（任何告警即红，#108）
 ```
+
+CI 另有纯模块门禁（Linux，无 Office）：文档 `mkdocs build --strict`、drawio / HTML
+解析器固定 seed 变异 fuzz（#110）——畸形输入不崩、URL / data 路径过白名单。
 
 贡献规范与门禁见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
@@ -453,7 +462,7 @@ src/offipy/
   assets/icons/ # vendored 图标资产（Phosphor fill + Lucide）+ manifest + LICENSE *
   aesthetic.py  # 审美审计：留白/字号层级/色数/对比度/一致性 → 打分报告 *
   autopick.py   # 自动选型：内容结构 → 推荐主题 + 每页布局 + 理由 *
-  feedback.py   # 反馈学习：审计处置 → 维度权重（P2 验证版） *
+  feedback/     # 反馈学习（v3 numpy MLP）：registry/vector/preprocess/train/validate/infer/status/app *
   outline.py    # 内容工作流：markdown 大纲 → 逐页结构化内容 → HTML 骨架 *
   _vendor/html_to_editable_pptx/  # vendored HTML→PPTX 转换器（外协代码，MIT）*
 tests/        # pytest

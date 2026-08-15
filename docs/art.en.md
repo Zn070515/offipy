@@ -104,7 +104,9 @@ model exists (see [Feedback learning system](usage.en.md)), the score source cha
 to the learned `quality.score` — the semantics are unchanged: still only for ranking / comparison and
 never claimed as an objective aesthetic score; `include_experimental_score` stays opt-in.
 `quality.score` is contributed only by findings that pass the **evidence gate** (the rule has ≥ 3
-valid labels, see #111). Without a model, the current formula is kept.
+valid labels, see #111) and are **confident (not abstained) / in-distribution (not OOD)** (#122);
+the value is mapped from the ensemble-mean worth via calibration (worth_scale normalization) (#122).
+Without a model, or when every finding abstains / is OOD, the current formula is kept.
 
 ## Dimensions & rules
 

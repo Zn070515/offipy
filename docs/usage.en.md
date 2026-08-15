@@ -217,7 +217,7 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
     print("candidate adds/worsens MID+ issues vs baseline")
 ```
 
-## Feedback learning system (v0.17)
+## Feedback learning system (v0.18)
 
 Three layers of feedback semantics (pinned here to avoid confusion):
 - `offipy.feedback` (v1): dimension weights, `dimension_weights()`, `~/.offipy/feedback.jsonl`
@@ -231,20 +231,40 @@ status JSON instead of erroring and does not delete an existing model (F2-E). **
 `model_collapsed`; a bad model is never written and the old one is kept atomically; training
 uses global gradient clipping. Requires numpy: `pip install "offipy[feedback]"`.
 
+**Learning quality (#115-#122)**:
+- **Standardized preprocessing (#118/#120)**: zero-variance feature drop + high-correlation
+  (|r|≥0.99) dedup + global z-score fitted on the training set; mean/scale/kept persist to the
+  model.json `preprocessing` block (model schema v2), and inference uses the same transform
+- **Ensemble K=5 (#122)**: multi-seed members averaged to reduce variance + worth calibration
+  (quality_score normalization); **abstain** (findings with near-zero |worth| / high member
+  disagreement are not shifted) + **OOD** (features out-of-distribution are not shifted),
+  conservative fallback to v2
+- **Sample-level repeated stratified CV (#119)**: per-rule stratified repeated 5-fold, never a
+  pair-level split; a 95% confidence lower bound at chance → `poor_generalization` soft flag
+  (recorded only, never rejects)
+- **Capacity-adaptive warning (#121)**: capacity adapts to the independent sample count (H≈√n);
+  `samples_per_param` is graded ok/warn/critical
+- **Per-rule sample diagnosis (#117)**: on insufficient_pairs, returns per-rule
+  `{fixed, accepted, pairs, single_direction, suggest}` actionable suggestions
+- tiny_image feature completion + FEATURES schema v1→v2 bump (#115)
+
 Append labels: `offipy feedback append --profile <p> --rule_id <r> --action fixed
 --severity MID --features '<json>' --feedback_dir <dir>` (writes to that directory's JSONL for
 `train` to learn; severity is limited to LOW/MID/HIGH).
 
-Status: `offipy feedback status` (sample count / pairing potential / model none|valid|expired).
+Status: `offipy feedback status` (sample count / valid sample count / pairing potential /
+model none|valid|expired; when the model is valid it additionally surfaces `effective_dims` /
+`samples_per_param` / `poor_generalization`).
 
 Consumption rule (#113): learning **consumption** requires an explicit `feedback_dir` —
 `analyze_scene(feedback=True)` without a dir → `InvalidArgumentError`; `learned_adjustments`
 without a dir → returns None, and never silently loads the global `~/.offipy` model. The write
 side (train/append) still defaults to `~/.offipy`.
 
-CLI consumption channel (#114):
+CLI consumption channel (#114/#116):
 - `offipy deck audit --feedback-dir <dir>`: applies feedback learning during audit (loads
-  records/model from the given dir)
+  records/model from the given dir); **when `--feedback-dir` is given the report / `--json`
+  output passes through `experimental_score`** (#116)
 - `offipy deck make --export-png <dir>`: export PNG feedback dir (the old name `--feedback` is
   a deprecated alias, semantics unchanged — it still only exports the dir, it does not trigger
   learning consumption)
@@ -254,14 +274,18 @@ Inference consumption points:
   `feedback_severity_adjustments`
 - `finding.severity_shift`: a post-processing pass in analyze, applied only to rule-computed
   (no-override) findings; **per-rule evidence gate (#111)** — only rules with ≥ 3 valid labels
-  get shifted; 0-label rules are not cross-rule-generalized
+  get shifted; 0-label rules are not cross-rule-generalized; findings the model is uncertain
+  about (abstain) or that are out-of-distribution (OOD) are not shifted (conservative fallback
+  to v2)
 - `quality.score`: replaces `experimental_score` (only computed when
   `include_experimental_score=True`); same evidence gate — contributed only by gated
-  (shiftable) findings
+  (shiftable) findings; the value is mapped from the ensemble-mean worth via calibration
+  (worth_scale normalization)
 
-Cold start: no model / expired model (input_schema_version mismatch) / numpy not installed →
-full fallback to v2 behavior (`recommend_adjustments`). Deleting model.json returns to v2.
-The learning system is a detachable enhancement and never relaxes the audit hard gate.
+Cold start: no model / expired model (feature_schema_version / model schema mismatch) /
+numpy not installed → full fallback to v2 behavior (`recommend_adjustments`). Deleting
+model.json returns to v2. The learning system is a detachable enhancement and never relaxes
+the audit hard gate.
 
 ## Capability boundary: create/append vs incremental edit
 
