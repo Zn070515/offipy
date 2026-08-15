@@ -987,6 +987,35 @@ def test_element_field_roundtrip_and_merge_preserves_all_fields():
     assert merged.fill_kind == "gradient"
 
 
+def test_merge_element_fills_missing_evidence_from_secondary():
+    # primary 缺字号/前景色/文本 → 从 secondary 补；几何/kind 保持 primary
+    secondary = make_slide(
+        elements=[
+            make_text_element(
+                "e1",
+                "ppt 文本",
+                x=0.1,
+                y=0.1,
+                w=0.2,
+                h=0.08,
+                font_size=20.0,
+                font_size_unit="pt",
+                foreground=ArtColor(255, 0, 0),
+            )
+        ]
+    ).elements[0]
+    primary = make_element("e1", kind="text", role="body", text="")
+    merged = _merge_element(primary, secondary, 0.7)
+    assert merged.font_size == 20.0
+    assert merged.font_size_unit == "pt"
+    assert merged.font_size_norm == pytest.approx(20.0 / 1080.0)  # 三元组同源（secondary）
+    assert merged.foreground == ArtColor(255, 0, 0)
+    assert merged.text == "ppt 文本"  # primary 空文本 → secondary 补
+    assert merged.element_id == "e1"
+    assert merged.kind == "text"
+    assert merged.x == 0.1  # 几何保持 primary
+
+
 def test_measurement_adapter_fill_kind():
     raw = {
         "slides": [
