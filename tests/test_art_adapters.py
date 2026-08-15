@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 
 from art_helpers import make_element, make_scene, make_slide, make_text_element
-from offipy.art.adapters import MeasurementAdapter, PptxAuditAdapter, build_scene
+from offipy.art.adapters import (
+    MeasurementAdapter,
+    PptxAuditAdapter,
+    _rgb_string_to_color,
+    build_scene,
+)
 from offipy.art.merge import merge_scenes
 from offipy.art.models import ArtColor
 from offipy.exceptions import InvalidArgumentError
@@ -692,3 +697,38 @@ def test_build_scene_measurements_plus_slides_dir(tmp_path):
     assert "measurement" in scene.sources
     assert "pixel" in scene.sources
     assert scene.slides[0].elements[0].pixel_evidence is not None
+
+
+def test_color_parser_hex_named_percent():
+    assert _rgb_string_to_color("#1a2b3c") == ArtColor(26, 43, 60)
+    assert _rgb_string_to_color("#1A2B3C") == ArtColor(26, 43, 60)
+    assert _rgb_string_to_color("#f00") == ArtColor(255, 0, 0)
+    assert _rgb_string_to_color("#ff000080") == ArtColor(255, 0, 0, 128 / 255)
+    assert _rgb_string_to_color("white") == ArtColor(255, 255, 255)
+    assert _rgb_string_to_color("rgb(100%, 0%, 0%)") == ArtColor(255, 0, 0)
+    assert _rgb_string_to_color("rgba(255, 0, 0, 0.5)") == ArtColor(255, 0, 0, 0.5)
+    assert _rgb_string_to_color("not-a-color") is None
+    assert _rgb_string_to_color("transparent") is None
+
+
+def test_measurement_adapter_warns_on_unparseable_color():
+    raw = {
+        "slides": [
+            {
+                "slide": {"width": 1920, "height": 1080},
+                "records": [
+                    {
+                        "id": 1,
+                        "kind": "text",
+                        "className": "title",
+                        "tag": "h1",
+                        "rect": {"x": 0, "y": 0, "w": 600, "h": 60},
+                        "style": {"fontSize": "52px", "color": "obviously-broken("},
+                        "runs": [],
+                    }
+                ],
+            }
+        ]
+    }
+    scene = MeasurementAdapter(raw).build()
+    assert any(w.code == "art.adapter.color_unparsed" for w in scene.warnings)

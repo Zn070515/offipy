@@ -60,29 +60,120 @@ def _infer_element_role(className: str | None, tag: str | None, kind: str) -> st
     return "shape"
 
 
+_NAMED_COLORS: dict[str, tuple[int, int, int]] = {
+    "black": (0, 0, 0),
+    "white": (255, 255, 255),
+    "red": (255, 0, 0),
+    "green": (0, 128, 0),
+    "blue": (0, 0, 255),
+    "yellow": (255, 255, 0),
+    "gray": (128, 128, 128),
+    "grey": (128, 128, 128),
+}
+
+# 合法但「无颜色证据」的 token：命中即静默返回 None，不算解析失败（不告警）
+_NON_COLOR_TOKENS = frozenset(
+    {"none", "transparent", "inherit", "initial", "unset", "currentcolor", "auto"}
+)
+
+
+def _component_255(p: str) -> float:
+    """CSS 通道分量 → 0-255：数字原样，百分比按 100%→255。"""
+    p = p.strip()
+    if p.endswith("%"):
+        return float(p[:-1]) / 100.0 * 255.0
+    return float(p)
+
+
+def _alpha_01(p: str) -> float:
+    """rgba 第四通道（alpha）→ 0-1：百分数 50%→0.5，数字 0.5→0.5（CSS 语义）。
+
+    注意：alpha 与 RGB 通道不同——数字直接是 0-1，只有百分数需要换算。
+    """
+    p = p.strip()
+    if p.endswith("%"):
+        return float(p[:-1]) / 100.0
+    return float(p)
+
+
+def _hex_to_color(s: str) -> ArtColor | None:
+    h = s.lstrip("#")
+    if len(h) not in (3, 4, 6, 8):
+        return None
+    try:
+        if len(h) == 3:
+            r, g, b = (int(c * 2, 16) for c in h)
+            a = 1.0
+        elif len(h) == 4:
+            r, g, b = (int(c * 2, 16) for c in h[:3])
+            a = int(h[3] * 2, 16) / 255.0
+        elif len(h) == 6:
+            r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+            a = 1.0
+        else:
+            r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+            a = int(h[6:8], 16) / 255.0
+    except ValueError:
+        return None
+    return None if a <= 0.0 else ArtColor(r, g, b, a)
+
+
 def _rgb_string_to_color(s: str | None) -> ArtColor | None:
-    """解析 'rgb(r,g,b)' / 'rgba(r,g,b,a)'。透明（a=0）→ None。"""
+    """解析 CSS 颜色串：rgb()/rgba()（含百分比）/ #hex（3/4/6/8）/ 常用命名色。
+
+    解析失败或全透明 → None（无颜色证据），不抛 ValueError；调用方负责告警。
+    """
     if not s:
         return None
     s = s.strip()
-    if not (s.startswith("rgb") and "(" in s and s.endswith(")")):
-        return None
-    inner = s[s.index("(") + 1 : s.rindex(")")]
-    parts = [p.strip() for p in inner.split(",")]
-    try:
-        r, g, b = (int(float(p)) for p in parts[:3])
-        a = float(parts[3]) if len(parts) > 3 else 1.0
-    except (ValueError, IndexError):
-        return None
-    if a <= 0.0:
-        return None  # 透明背景 → 无背景证据
-    return ArtColor(r, g, b, a)
+    if s.startswith("#"):
+        return _hex_to_color(s)
+    if s.startswith("rgb") and "(" in s and s.endswith(")"):
+        inner = s[s.index("(") + 1 : s.rindex(")")]
+        parts = [p.strip() for p in inner.split(",")]
+        if len(parts) not in (3, 4):
+            return None
+        try:
+            r, g, b = (
+                round(_component_255(parts[0])),
+                round(_component_255(parts[1])),
+                round(_component_255(parts[2])),
+            )
+            a = _alpha_01(parts[3]) if len(parts) == 4 else 1.0
+        except ValueError:
+            return None
+        return None if a <= 0.0 else ArtColor(r, g, b, a)
+    named = _NAMED_COLORS.get(s.lower())
+    if named is not None:
+        return ArtColor(*named)
+    return None
 
 
-def _measurement_color(raw: str | dict[str, Any] | None) -> ArtColor | None:
+def _warn_unparsed_color(raw: object, warnings: list[ArtWarning] | None) -> None:
+    if warnings is None:
+        return
+    token = raw.strip().lower() if isinstance(raw, str) else ""
+    if token and token not in _NON_COLOR_TOKENS:
+        warnings.append(
+            ArtWarning(code="art.adapter.color_unparsed", message=f"颜色串无法解析: {raw!r}")
+        )
+
+
+def _measurement_color(
+    raw: str | dict[str, Any] | None, warnings: list[ArtWarning] | None = None
+) -> ArtColor | None:
     if isinstance(raw, dict):
-        return ArtColor.from_dict(raw)
-    return _rgb_string_to_color(raw)
+        c = ArtColor.from_dict(raw)
+        if c is None and raw and warnings is not None:
+            warnings.append(
+                ArtWarning(code="art.adapter.color_unparsed", message=f"颜色 dict 损坏: {raw!r}")
+            )
+        return c
+    c = _rgb_string_to_color(raw)
+    if c is None:
+        # 仅在真正解析失败时告警：合法命名色 / hex 不会误报 color_unparsed
+        _warn_unparsed_color(raw, warnings)
+    return c
 
 
 def _num(value: Any, default: float) -> float:
@@ -106,7 +197,11 @@ def _opt_num(value: Any, default: float | None = None) -> float | None:
 
 
 def _to_measurement_element(
-    rec: dict[str, Any], slide_index: int, slide_width: float, slide_height: float
+    rec: dict[str, Any],
+    slide_index: int,
+    slide_width: float,
+    slide_height: float,
+    warnings: list[ArtWarning] | None = None,
 ) -> ArtElement:
     """真实 measurements record → ArtElement。rect 为像素，按页宽高归一化。"""
     rect = rec.get("rect") or {}
@@ -125,7 +220,7 @@ def _to_measurement_element(
             font_size=_opt_num(rt.get("fontSize")),
             font_size_unit="px",
             font_family=rt.get("fontFamily"),
-            color=_measurement_color(rt.get("color")),
+            color=_measurement_color(rt.get("color"), warnings),
         )
         for rt in rec.get("runs", [])
     ]
@@ -140,7 +235,7 @@ def _to_measurement_element(
         font_size = None
         font_size_unit = "unknown"
     has_bg = bool(deco.get("hasBg", False))
-    background = _measurement_color(deco.get("bg")) if has_bg else None
+    background = _measurement_color(deco.get("bg"), warnings) if has_bg else None
     natural_w = natural.get("w")
     natural_h = natural.get("h")
     return ArtElement(
@@ -152,7 +247,7 @@ def _to_measurement_element(
         width=w,
         height=h,
         slide_index=slide_index,
-        foreground=_measurement_color(style.get("color")),
+        foreground=_measurement_color(style.get("color"), warnings),
         background=background,
         text=rec.get("text", ""),
         font_size=font_size,
@@ -190,8 +285,10 @@ class MeasurementAdapter:
                     )
                 )
                 records = records[:_MAX_SLIDE_ELEMENTS]
-            elements = [_to_measurement_element(rec, index, width, height) for rec in records]
-            bg = _measurement_color(s.get("background"))
+            elements = [
+                _to_measurement_element(rec, index, width, height, warnings) for rec in records
+            ]
+            bg = _measurement_color(s.get("background"), warnings)
             slides.append(
                 ArtSlide(
                     index=index, width=width, height=height, elements=elements, background_color=bg
