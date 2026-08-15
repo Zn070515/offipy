@@ -11,10 +11,12 @@
 import inspect
 
 from offipy import diagram, excel, mcp_server, ppt, schema, server, word
+from offipy.feedback.app import FeedbackApp
 
 _APP_CLASSES = {
     "diagram": diagram.DiagramApp,
     "excel": excel.ExcelApp,
+    "feedback": FeedbackApp,
     "word": word.WordApp,
     "ppt": ppt.PptApp,
 }
@@ -63,7 +65,7 @@ def test_server_ops_are_covered_by_schema():
 
 
 def test_schema_apps_stable_order():
-    assert schema.apps() == ("excel", "word", "ppt", "diagram")
+    assert schema.apps() == ("excel", "word", "ppt", "diagram", "feedback")
 
 
 # --- schema 参数名 ↔ App 方法签名 ---

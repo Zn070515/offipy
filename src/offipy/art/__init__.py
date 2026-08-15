@@ -7,6 +7,7 @@ strict 门禁仍归 0.11 几何审计层。
 from .adapters import MeasurementAdapter, PptxAuditAdapter, build_scene
 from .analyze import analyze_deck, analyze_scene
 from .compare import ArtReportDiff, compare_reports
+from .features_registry import FEATURES, encode_features, feature_keys, feature_schema_version
 from .feedback import (
     ART_FEEDBACK_FILE,
     DEFAULT_DIR,
@@ -45,6 +46,7 @@ __all__ = [
     "ART_REPORT_SCHEMA_VERSION",
     "ART_SCHEMA_VERSION",
     "DEFAULT_DIR",
+    "FEATURES",
     "ArtColor",
     "ArtElement",
     "ArtElementRef",
@@ -72,6 +74,9 @@ __all__ = [
     "apply_feedback",
     "build_scene",
     "compare_reports",
+    "encode_features",
+    "feature_keys",
+    "feature_schema_version",
     "get_profile",
     "load_records",
     "merge_scenes",

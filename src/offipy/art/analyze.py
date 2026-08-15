@@ -8,6 +8,7 @@ rev2.1：
 
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any
 
 from offipy.audit import audit_pptx
@@ -23,6 +24,7 @@ from .hierarchy import RULES as HIERARCHY_RULES
 from .media import RULES as MEDIA_RULES
 from .models import (
     ART_REPORT_SCHEMA_VERSION,
+    ArtFinding,
     ArtReport,
     ArtScene,
     ArtSlideReport,
@@ -35,6 +37,7 @@ from .rules import RuleContext, apply_profile_to_finding, assess_dimension
 from .typography import RULES as TYPOGRAPHY_RULES
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 _DIMENSION_RULES = {
@@ -66,6 +69,20 @@ def _experimental_score(report: ArtReport) -> float | None:
     return round(score, 1)
 
 
+def _learned_adjustments_safe(
+    profile_name: str, feedback_dir: str | Path | None
+) -> dict[str, int] | None:
+    """有效模型 → learned rule.delta；无模型/无 numpy/任何异常 → None（回退 v2）。"""
+    try:
+        from offipy.feedback.infer import learned_adjustments
+    except ImportError:
+        return None
+    try:
+        return learned_adjustments(profile_name, feedback_dir=feedback_dir)
+    except Exception:
+        return None
+
+
 def _resolve_profile(
     profile: str | ArtProfile | None,
     *,
@@ -73,7 +90,73 @@ def _resolve_profile(
     feedback_dir: str | Path | None,
 ) -> ArtProfile:
     prof = profile if isinstance(profile, ArtProfile) else get_profile(profile or "balanced")
-    return apply_feedback(prof, feedback_dir=feedback_dir) if feedback else prof
+    if not feedback:
+        return prof
+    adjustments = _learned_adjustments_safe(prof.name, feedback_dir)
+    if adjustments is not None:
+        # F2-B：有效模型下学习路径是 feedback_severity_adjustments 的唯一来源，
+        # 不再叠加 v2 手写调整
+        return dataclasses.replace(prof, feedback_severity_adjustments=adjustments)
+    return apply_feedback(prof, feedback_dir=feedback_dir)
+
+
+def _all_findings(report: ArtReport) -> Iterator[tuple[ArtFinding, int | None]]:
+    """展平 slide + deck 的全部 finding（带 slide 上下文）。"""
+    for slide_report in report.slides:
+        for dim in slide_report.dimensions:
+            for f in dim.findings:
+                yield f, slide_report.slide_index
+    for f in report.deck_findings:
+        yield f, None
+
+
+def _apply_learning_pass(
+    report: ArtReport,
+    scene: ArtScene,
+    profile_name: str,
+    feedback_dir: str | Path | None,
+    *,
+    want_score: bool,
+) -> None:
+    """学习后处理 pass：severity_shift（severity_override=False 才作用）+ quality.score。
+
+    severity_shift 是「推荐」语义：只改 finding.severity，不改 dimension grade
+    （grade 在 assess_dimension 时已定）。quality.score 有请求且模型有效时替换
+    experimental_score。全程惰性 import：无 feedback extra 时 ImportError → 跳过。
+    """
+    try:
+        from offipy.art.features_registry import (
+            encode_features,
+            feature_keys,
+            feature_schema_version,
+        )
+        from offipy.feedback import infer
+        from offipy.feedback.heads import apply_severity_shift, severity_shift_from_worth
+        from offipy.feedback.model import load_model, model_file, model_valid, weights_from_dict
+    except ImportError:
+        return
+    data = load_model(model_file(feedback_dir))
+    if data is None or not model_valid(data, feature_schema_version()):
+        return
+    try:
+        mlp = weights_from_dict(
+            data, input_dim=len(feature_keys()), hidden_dims=tuple(data["hidden_dims"])
+        )
+    except (ValueError, KeyError, TypeError):
+        return  # 损坏模型（schema 匹配但权重形状错）→ 视为无模型，回退 v2
+    worths: list[float] = []
+    for finding, slide_index in _all_findings(report):
+        if finding.severity_override:
+            continue  # user / feedback override 的 finding 一律跳过
+        slide = scene.by_slide(slide_index) if slide_index is not None else None
+        feats = encode_features(finding, slide, scene, profile_name)
+        worth = infer.model_worth(feats, mlp)
+        shift = severity_shift_from_worth(worth)
+        finding.severity = apply_severity_shift(finding.severity, shift)
+        worths.append(worth)
+    if want_score and worths:
+        mean_worth = sum(worths) / len(worths)
+        report.experimental_score = infer.quality_score_for_report(mean_worth)
 
 
 def analyze_scene(
@@ -110,6 +193,10 @@ def analyze_scene(
     report.deck_findings = [apply_profile_to_finding(f, prof) for f in assess_deck(scene, prof)]
     if include_experimental_score:
         report.experimental_score = _experimental_score(report)
+    if feedback:
+        _apply_learning_pass(
+            report, scene, prof.name, feedback_dir, want_score=include_experimental_score
+        )
     return report
 
 

@@ -34,7 +34,7 @@ class OpSpec:
 
 
 def apps() -> tuple[str, ...]:
-    """已注册的应用名（excel/word/ppt/diagram），按定义顺序。"""
+    """已注册的应用名（excel/word/ppt/diagram/feedback），按定义顺序。"""
     return tuple(OPS)
 
 
@@ -868,6 +868,28 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             returns="dict",  # {"installed": [...], "skipped": [...]}
             params={"target_dir": str, "force": bool},
+        ),
+    },
+    # ============================================================== Feedback
+    "feedback": {
+        "train": OpSpec(
+            description=(
+                "离线训练反馈学习系统：读 ~/.offipy/art_feedback.jsonl → 按当前 FEATURES "
+                "schema 编码 → 构配对（同 rule×profile：fixed>accepted）→ numpy MLP 训练 → "
+                "原子写 art_feedback_model.json。样本不足/无有效样本时返回状态而非报错"
+                '（不删除已有模型）。需要 numpy：pip install "offipy[feedback]"。'
+            ),
+            returns="dict",
+            params={"feedback_dir": str, "seed": int},
+        ),
+        "status": OpSpec(
+            description=(
+                "反馈学习状态：样本数、可配对潜力、当前模型状态（none/valid/expired）。"
+                "只读本机数据，不训练不写文件。"
+            ),
+            readonly=True,
+            returns="dict",
+            params={"feedback_dir": str},
         ),
     },
 }

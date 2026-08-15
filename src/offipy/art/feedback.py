@@ -55,6 +55,8 @@ class ArtFeedbackRecord:
     slide_index: int | None = None
     message: str = ""
     source: str = ""
+    features: dict[str, float] | None = None  # {feature_id: 标量} 扁平快照（encode_features 产出）
+    feature_schema_version: str | None = None  # 训练样本的 FEATURES schema 版本
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,6 +69,12 @@ class ArtFeedbackRecord:
             "slide_index": self.slide_index,
             "message": self.message,
             "source": self.source,
+            **({"features": self.features} if self.features is not None else {}),
+            **(
+                {"feature_schema_version": self.feature_schema_version}
+                if self.feature_schema_version is not None
+                else {}
+            ),
         }
 
     @classmethod
@@ -92,6 +100,8 @@ class ArtFeedbackRecord:
             slide_index=slide_index,
             message=data.get("message", ""),
             source=data.get("source", ""),
+            features=data.get("features"),
+            feature_schema_version=data.get("feature_schema_version"),
         )
 
 
@@ -138,8 +148,15 @@ def append(
     source: str = "",
     feedback_dir: str | Path | None = None,
     ts: str | None = None,
+    features: dict[str, float] | None = None,
+    feature_schema_version: str | None = None,
 ) -> Path:
-    """追加一条规则级反馈记录，返回记录文件路径。目录不存在则创建。"""
+    """追加一条规则级反馈记录，返回记录文件路径。目录不存在则创建。
+
+    features 须为扁平标量 dict（{feature_id: float}），需可 JSON 序列化——
+    仅由 encode_features 产出，不要传入 numpy 标量等非原生类型（会炸 json.dumps）。
+    feature_schema_version 记录该快照对应的 FEATURES schema 版本。
+    """
     _validate(profile, rule_id, action, severity, slide_index)
     rec = ArtFeedbackRecord(
         ts=ts or datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -151,6 +168,8 @@ def append(
         slide_index=slide_index,
         message=message,
         source=source,
+        features=features,
+        feature_schema_version=feature_schema_version,
     )
     f = record_file(feedback_dir)
     f.parent.mkdir(parents=True, exist_ok=True)

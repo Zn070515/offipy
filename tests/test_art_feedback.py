@@ -369,3 +369,106 @@ def test_apply_feedback_does_not_mutate_builtin(tmp_path):
 
 def test_record_file_default_location():
     assert record_file() == feedback.DEFAULT_DIR / ART_FEEDBACK_FILE
+
+
+# ---------------------------------------------------------------------------
+# v0.17 学习快照字段
+# ---------------------------------------------------------------------------
+
+
+def test_record_features_roundtrip(tmp_path):
+    _ = append(
+        "balanced",
+        RULE_TITLE_TOO_SMALL,
+        "fixed",
+        Severity.HIGH,
+        slide_index=2,
+        features={"finding.confidence": 0.9, "slide.mass": 1.5},
+        feature_schema_version="1",
+        feedback_dir=tmp_path,
+    )
+    rec = load_records(tmp_path)[0]
+    assert rec.features == {"finding.confidence": 0.9, "slide.mass": 1.5}
+    assert rec.feature_schema_version == "1"
+
+
+def test_to_dict_omits_features_when_none():
+    rec = ArtFeedbackRecord(
+        ts="2026-01-01T00:00:00+00:00",
+        profile="balanced",
+        rule_id=RULE_TITLE_TOO_SMALL,
+        dimension="hierarchy",
+        severity=Severity.MID,
+        action="fixed",
+    )
+    d = rec.to_dict()
+    assert "features" not in d
+    assert "feature_schema_version" not in d
+
+
+def test_to_dict_includes_features_when_set():
+    rec = ArtFeedbackRecord(
+        ts="2026-01-01T00:00:00+00:00",
+        profile="balanced",
+        rule_id=RULE_TITLE_TOO_SMALL,
+        dimension="hierarchy",
+        severity=Severity.MID,
+        action="fixed",
+        features={"slide.mass": 2.0},
+        feature_schema_version="1",
+    )
+    d = rec.to_dict()
+    assert d["features"] == {"slide.mass": 2.0}
+    assert d["feature_schema_version"] == "1"
+
+
+def test_to_dict_sparse_keys_independent():
+    # 有 features 但无 feature_schema_version：只序列化 features 键
+    rec = ArtFeedbackRecord(
+        ts="2026-01-01T00:00:00+00:00",
+        profile="balanced",
+        rule_id=RULE_TITLE_TOO_SMALL,
+        dimension="hierarchy",
+        severity=Severity.MID,
+        action="fixed",
+        features={"a": 1.0},
+        feature_schema_version=None,
+    )
+    d = rec.to_dict()
+    assert "features" in d
+    assert "feature_schema_version" not in d
+
+    # 反向：无 features 但有 feature_schema_version：只序列化后者
+    rec = ArtFeedbackRecord(
+        ts="2026-01-01T00:00:00+00:00",
+        profile="balanced",
+        rule_id=RULE_TITLE_TOO_SMALL,
+        dimension="hierarchy",
+        severity=Severity.MID,
+        action="fixed",
+        features=None,
+        feature_schema_version="1",
+    )
+    d = rec.to_dict()
+    assert "features" not in d
+    assert "feature_schema_version" in d
+
+
+def test_old_record_without_features_loads_as_none(tmp_path):
+    _write_line(
+        tmp_path / ART_FEEDBACK_FILE,
+        {
+            "ts": "2026-01-01T00:00:00+00:00",
+            "profile": "balanced",
+            "rule_id": RULE_TITLE_TOO_SMALL,
+            "dimension": "hierarchy",
+            "severity": "HIGH",
+            "action": "fixed",
+            "slide_index": None,
+            "message": "",
+            "source": "",
+        },
+    )
+    rec = load_records(tmp_path)[0]
+    assert rec.features is None
+    assert rec.feature_schema_version is None
