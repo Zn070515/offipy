@@ -37,6 +37,9 @@ def test_status_empty_dir(tmp_path):
     assert s["samples"] == 0
     assert s["pair_potential"] == 0
     assert s["model"] == "none"
+    assert "effective_dims" not in s
+    assert "samples_per_param" not in s
+    assert "poor_generalization" not in s
 
 
 def test_status_counts_samples_and_pairs(tmp_path):
@@ -58,7 +61,14 @@ def test_status_model_valid(tmp_path):
     _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
     _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
     run_training(tmp_path, min_pairs=0)
-    assert report_status(tmp_path)["model"] == "valid"
+    s = report_status(tmp_path)
+    assert s["model"] == "valid"
+    model = json.loads(model_file(tmp_path).read_text(encoding="utf-8"))
+    assert s["effective_dims"] == len(model["preprocessing"]["kept"])
+    assert s["effective_dims"] > 0
+    assert s["samples_per_param"] == model["stats"]["capacity"]["samples_per_param"]
+    assert isinstance(s["samples_per_param"], float) and s["samples_per_param"] > 0
+    assert isinstance(s["poor_generalization"], bool)
 
 
 def test_status_model_expired(tmp_path):
@@ -69,4 +79,8 @@ def test_status_model_expired(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     data["input_schema_version"] = "999"
     path.write_text(json.dumps(data), encoding="utf-8")
-    assert report_status(tmp_path)["model"] == "expired"
+    s = report_status(tmp_path)
+    assert s["model"] == "expired"
+    assert "effective_dims" not in s
+    assert "samples_per_param" not in s
+    assert "poor_generalization" not in s
