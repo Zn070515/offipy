@@ -689,6 +689,7 @@ def _run_art_analysis(
     slides_dir: str | None = None,
     pixel_required: bool = False,
     feedback_dir: str | None = None,
+    include_experimental_score: bool = False,
 ) -> ArtReport:
     """从保留的 measurements +（可选）几何审计 +（可选）像素 slides_dir 建场景并分析。"""
     from .art import analyze_scene, build_scene
@@ -699,6 +700,7 @@ def _run_art_analysis(
     return analyze_scene(
         scene,
         profile=profile,
+        include_experimental_score=include_experimental_score,
         feedback=feedback_dir is not None,
         feedback_dir=feedback_dir,
     )
@@ -726,6 +728,7 @@ def render_with_quality_report(
     pixel_analysis: Literal["off", "best_effort", "required"] = "off",
     preserve_pixel_slides: bool = False,
     slides_output_dir: str | None = None,
+    include_experimental_score: bool = False,
 ) -> QualityRenderResult:
     """render + 几何审计 + 艺术分析（原子发布）。
 
@@ -791,6 +794,7 @@ def render_with_quality_report(
                     slides_dir=staging_slides,
                     pixel_required=(pixel_analysis == "required"),
                     feedback_dir=feedback_dir,
+                    include_experimental_score=include_experimental_score,
                 )
             else:
                 if pixel_analysis == "required":

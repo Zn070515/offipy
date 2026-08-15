@@ -129,6 +129,7 @@ def test_deck_audit_html_calls_render_with_quality_report_once(monkeypatch, caps
     assert kw["apply_layouts"] is True
     assert kw["profile"] == "balanced"
     assert kw["pixel_analysis"] == "off"
+    assert kw["include_experimental_score"] is False
     out = capsys.readouterr().out
     assert "offipy deck audit（profile=balanced）" in out
     assert "维度: hierarchy" in out
@@ -199,6 +200,7 @@ def test_deck_audit_ppt_feedback_dir_passes_through(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["feedback"] is True
     assert calls[0]["feedback_dir"] == "d"
+    assert calls[0]["include_experimental_score"] is True
 
 
 def test_deck_audit_html_feedback_dir_passes_through(monkeypatch):
@@ -215,6 +217,7 @@ def test_deck_audit_html_feedback_dir_passes_through(monkeypatch):
     cli.main(["deck", "audit", "x.html", "--feedback-dir", "d"])
     assert len(calls) == 1
     assert calls[0]["feedback_dir"] == "d"
+    assert calls[0]["include_experimental_score"] is True
 
 
 def test_deck_audit_no_feedback_dir_passes_none(monkeypatch):
@@ -231,6 +234,37 @@ def test_deck_audit_no_feedback_dir_passes_none(monkeypatch):
     cli.main(["deck", "audit", "--pptx", "x.pptx"])
     assert calls[0]["feedback"] is False
     assert calls[0]["feedback_dir"] is None
+    assert calls[0]["include_experimental_score"] is False
+
+
+def test_deck_audit_experimental_score_surfaces_json_and_text(monkeypatch, capsys):
+    """--feedback-dir + 有效 score → JSON 含 experimental_score；文本含综合指数。"""
+    from offipy import cli
+
+    rep = _report()
+    rep.art.experimental_score = 73.1
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: rep)
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["experimental_score"] == 73.1
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
+    assert "综合指数 (experimental): 73.1" in capsys.readouterr().out
+
+
+def test_deck_audit_experimental_score_absent_without_feedback(monkeypatch, capsys):
+    """不带 --feedback-dir → experimental_score=null；文本不含综合指数行。"""
+    from offipy import cli
+
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: _report())
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["experimental_score"] is None
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx"])
+    assert "综合指数 (experimental)" not in capsys.readouterr().out
 
 
 def test_deck_audit_ppt_missing_file_friendly(monkeypatch, capsys):
