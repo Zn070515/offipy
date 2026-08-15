@@ -12,12 +12,13 @@ from typing import Any
 
 import numpy as np
 
-from offipy.art.features_registry import feature_keys, feature_schema_version
+from offipy.art.features_registry import feature_schema_version
 from offipy.art.feedback import load_records
 
 from .mlp import EPOCHS, HIDDEN_DIMS, LR, MARGIN, MLP, REG_WEIGHT, SEED
 from .model import model_file, save_model
 from .pairs import build_pairs, valid_records
+from .preprocess import fit_preprocessing, transform_features
 from .registry import OUTPUT_SCHEMA_VERSION
 from .vector import encode_vector
 
@@ -39,6 +40,10 @@ def run_training(
     valid = valid_records(records)
     if not valid:
         return {"trained": False, "reason": "no_valid_samples", "samples": len(records)}
+    # #112：NaN 特征 → 不静默 drop 也不训练，保持契约（training_diverged 不写模型）
+    X_raw = np.array([encode_vector(r.features or {}) for r in valid])
+    if not np.isfinite(X_raw).all():
+        return {"trained": False, "reason": "training_diverged", "samples": len(valid)}
     pairs = build_pairs(valid)
     if len(pairs) < min_pairs:
         return {
@@ -47,9 +52,12 @@ def run_training(
             "pairs": len(pairs),
             "samples": len(valid),
         }
-    X_fixed = np.array([encode_vector(f.features or {}) for f, _ in pairs])
-    X_accepted = np.array([encode_vector(a.features or {}) for _, a in pairs])
-    mlp = MLP(input_dim=len(feature_keys()), hidden_dims=HIDDEN_DIMS, seed=seed)
+    # 预处理在独立样本上拟合（零方差 drop + 高相关去重 + z-score），配对与推理共享
+    pre = fit_preprocessing(X_raw)
+    X_fixed = np.array([transform_features(f.features or {}, pre) for f, _ in pairs])
+    X_accepted = np.array([transform_features(a.features or {}, pre) for _, a in pairs])
+    input_dim = len(pre["kept"])
+    mlp = MLP(input_dim=input_dim, hidden_dims=HIDDEN_DIMS, seed=seed)
     loss = 0.0
     diverged = False
     for _ in range(EPOCHS):
@@ -87,12 +95,14 @@ def run_training(
     }
     path = model_file(dir_path)
     save_model(
-        mlp,
+        members=[(seed, mlp)],
         input_schema_version=feature_schema_version(),
         output_schema_version=OUTPUT_SCHEMA_VERSION,
         seed=seed,
-        hidden_dims=HIDDEN_DIMS,
         stats=stats,
+        preprocessing=pre,
+        calibration={"worth_scale": 1.0},  # A6: 填真值
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},  # A6: 填真值
         path=path,
     )
     return {"trained": True, **stats, "model": str(path)}

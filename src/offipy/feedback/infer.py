@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from offipy.art.features_registry import feature_keys, feature_schema_version
+from offipy.art.features_registry import feature_schema_version
 from offipy.art.feedback import load_records
 
 from .heads import quality_score_from_worth, quantize_delta
@@ -33,10 +33,11 @@ def _load_valid_model(feedback_dir: str | Path | None) -> tuple[MLP, dict[str, A
     if data is None or not model_valid(data, feature_schema_version()):
         return None
     try:
+        m = data["members"][0]
         mlp = weights_from_dict(
-            data, input_dim=len(feature_keys()), hidden_dims=tuple(data["hidden_dims"])
+            m, input_dim=len(data["preprocessing"]["kept"]), hidden_dims=tuple(m["hidden_dims"])
         )
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, IndexError):
         return None
     return mlp, data
 

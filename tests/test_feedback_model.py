@@ -15,9 +15,24 @@ from offipy.feedback.model import (
     weights_from_dict,
 )
 
+N = len(feature_keys())
+
 
 def _mlp():
-    return MLP(input_dim=len(feature_keys()), hidden_dims=HIDDEN_DIMS, seed=42)
+    return MLP(input_dim=N, hidden_dims=HIDDEN_DIMS, seed=42)
+
+
+def _pre():
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
+    return {"kept": list(range(N)), "mean": [0.0] * N, "scale": [1.0] * N}
+
+
+def _calibration():
+    return {"worth_scale": 1.0}
+
+
+def _abstain():
+    return {"worth_margin_p25": 0.0, "std_p80": 0.0}
 
 
 def test_model_file_default_location(tmp_path):
@@ -27,12 +42,14 @@ def test_model_file_default_location(tmp_path):
 def test_save_load_roundtrip(tmp_path):
     mlp = _mlp()
     path = save_model(
-        mlp,
+        members=[(42, mlp)],
         input_schema_version=feature_schema_version(),
         output_schema_version="1",
         seed=42,
-        hidden_dims=HIDDEN_DIMS,
         stats={"pairs": 10, "samples": 20, "loss": 0.1, "rules_with_pairs": 2},
+        preprocessing=_pre(),
+        calibration=_calibration(),
+        abstain=_abstain(),
         path=model_file(tmp_path),
     )
     data = load_model(path)
@@ -41,9 +58,10 @@ def test_save_load_roundtrip(tmp_path):
     assert data["input_schema_version"] == feature_schema_version()
     assert data["output_schema_version"] == "1"
     assert data["seed"] == 42
-    assert data["hidden_dims"] == list(HIDDEN_DIMS)
+    assert data["members"][0]["hidden_dims"] == list(HIDDEN_DIMS)
+    assert data["preprocessing"]["kept"] == list(range(N))
     assert data["stats"]["pairs"] == 10
-    restored = weights_from_dict(data, input_dim=len(feature_keys()), hidden_dims=HIDDEN_DIMS)
+    restored = weights_from_dict(data["members"][0], input_dim=N, hidden_dims=HIDDEN_DIMS)
     for w0, w1 in zip(mlp.W, restored.W, strict=True):
         np.testing.assert_array_equal(w0, w1)
     for b0, b1 in zip(mlp.b, restored.b, strict=True):
@@ -53,12 +71,14 @@ def test_save_load_roundtrip(tmp_path):
 def test_save_is_atomic_no_partial_file(tmp_path):
     path = model_file(tmp_path)
     save_model(
-        _mlp(),
+        members=[(42, _mlp())],
         input_schema_version="1",
         output_schema_version="1",
         seed=1,
-        hidden_dims=HIDDEN_DIMS,
         stats={},
+        preprocessing=_pre(),
+        calibration=_calibration(),
+        abstain=_abstain(),
         path=path,
     )
     # 目录里只有最终文件（临时文件已 replace，无残留）
@@ -81,12 +101,14 @@ def test_load_missing_returns_none(tmp_path):
 
 def test_model_valid_gates_on_input_schema_version(tmp_path):
     path = save_model(
-        _mlp(),
+        members=[(42, _mlp())],
         input_schema_version=feature_schema_version(),
         output_schema_version="1",
         seed=42,
-        hidden_dims=HIDDEN_DIMS,
         stats={},
+        preprocessing=_pre(),
+        calibration=_calibration(),
+        abstain=_abstain(),
         path=model_file(tmp_path),
     )
     data = load_model(path)
@@ -99,29 +121,37 @@ def test_weights_from_dict_rejects_layer_count_mismatch(tmp_path):
     """hidden_dims 层数不匹配（即使权重宽度相同）也要抛 ValueError，防止尾部层残留随机初始化。"""
     small = MLP(input_dim=4, hidden_dims=(3,), seed=42)
     path = save_model(
-        small,
+        members=[(42, small)],
         input_schema_version="1",
         output_schema_version="1",
         seed=42,
-        hidden_dims=(3,),
         stats={},
+        preprocessing={
+            "kept": [0, 1, 2, 3],
+            "mean": [0.0, 0.0, 0.0, 0.0],
+            "scale": [1.0, 1.0, 1.0, 1.0],
+        },
+        calibration=_calibration(),
+        abstain=_abstain(),
         path=model_file(tmp_path),
     )
     data = load_model(path)
     assert data is not None
     with pytest.raises(ValueError):
-        weights_from_dict(data, input_dim=4, hidden_dims=(3, 2))
+        weights_from_dict(data["members"][0], input_dim=4, hidden_dims=(3, 2))
 
 
 def test_save_failure_keeps_old_model(tmp_path):
     """F2-E：失败路径不删除、不覆盖旧 model.json。"""
     old = save_model(
-        _mlp(),
+        members=[(42, _mlp())],
         input_schema_version=feature_schema_version(),
         output_schema_version="1",
         seed=42,
-        hidden_dims=HIDDEN_DIMS,
         stats={},
+        preprocessing=_pre(),
+        calibration=_calibration(),
+        abstain=_abstain(),
         path=model_file(tmp_path),
     )
     before = old.read_bytes()
@@ -130,12 +160,14 @@ def test_save_failure_keeps_old_model(tmp_path):
     # 模拟失败：_fail 注入的 OSError 在 mkstemp/replace 之前抛出，旧模型不被触碰
     with pytest.raises(OSError):
         save_model(
-            _mlp(),
+            members=[(42, _mlp())],
             input_schema_version=feature_schema_version(),
             output_schema_version="1",
             seed=1,
-            hidden_dims=HIDDEN_DIMS,
             stats={},
+            preprocessing=_pre(),
+            calibration=_calibration(),
+            abstain=_abstain(),
             path=old,
             _fail=True,
         )

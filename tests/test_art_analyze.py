@@ -465,13 +465,17 @@ def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
             feedback_dir=tmp_path,
         )
 
+    n = len(features_registry.feature_keys())
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
     save_model(
-        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
         input_schema_version=features_registry.feature_schema_version(),
         output_schema_version="1",
         seed=0,
-        hidden_dims=(4,),
         stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
         path=model_file(tmp_path),
     )
 
@@ -507,13 +511,17 @@ def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
             feature_schema_version=features_registry.feature_schema_version(),
             feedback_dir=tmp_path,
         )
+    n = len(features_registry.feature_keys())
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
     save_model(
-        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
         input_schema_version=features_registry.feature_schema_version(),
         output_schema_version="1",
         seed=0,
-        hidden_dims=(4,),
         stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
         path=model_file(tmp_path),
     )
     monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.8)
@@ -555,13 +563,17 @@ def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
             feedback_dir=tmp_path,
         )
 
+    n = len(features_registry.feature_keys())
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
     save_model(
-        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
         input_schema_version=features_registry.feature_schema_version(),
         output_schema_version="1",
         seed=0,
-        hidden_dims=(4,),
         stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
         path=model_file(tmp_path),
     )
     monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)  # 可接受 → 高分
@@ -581,18 +593,22 @@ def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
     from offipy.feedback.mlp import MLP
     from offipy.feedback.model import model_file, save_model
 
+    n = len(features_registry.feature_keys())
+    # 恒等预处理：not-yet-applied transform 为 no-op（A6 ModelBundle 接入真实 transform）
     save_model(
-        MLP(input_dim=len(features_registry.feature_keys()), hidden_dims=(4,), seed=0),
+        members=[(0, MLP(input_dim=n, hidden_dims=(4,), seed=0))],
         input_schema_version=features_registry.feature_schema_version(),
         output_schema_version="1",
         seed=0,
-        hidden_dims=(4,),
         stats={},
+        preprocessing={"kept": list(range(n)), "mean": [0.0] * n, "scale": [1.0] * n},
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 0.0},
         path=model_file(tmp_path),
     )
     p = model_file(tmp_path)
     data = json.loads(p.read_text(encoding="utf-8"))
-    data["hidden_dims"] = [8]  # 与真实权重形状不一致 → weights_from_dict 抛 ValueError
+    data["members"][0]["hidden_dims"] = [8]  # 形状不一致 → weights_from_dict 抛 ValueError
     p.write_text(json.dumps(data), encoding="utf-8")
 
     for _ in range(3):

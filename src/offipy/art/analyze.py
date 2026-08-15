@@ -132,7 +132,6 @@ def _apply_learning_pass(
     try:
         from offipy.art.features_registry import (
             encode_features,
-            feature_keys,
             feature_schema_version,
         )
         from offipy.art.feedback import load_records
@@ -146,10 +145,11 @@ def _apply_learning_pass(
     if data is None or not model_valid(data, feature_schema_version()):
         return
     try:
+        m = data["members"][0]
         mlp = weights_from_dict(
-            data, input_dim=len(feature_keys()), hidden_dims=tuple(data["hidden_dims"])
+            m, input_dim=len(data["preprocessing"]["kept"]), hidden_dims=tuple(m["hidden_dims"])
         )
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, IndexError):
         return  # 损坏模型（schema 匹配但权重形状错）→ 视为无模型，回退 v2
     # #111：按规则证据门禁——只有有效标签 ≥ _MIN_LABELS_PER_RULE 的规则才允许
     # severity_shift。模型仍全特征预测（跨规则泛化保留在 worth 计算里），
@@ -165,7 +165,10 @@ def _apply_learning_pass(
             continue  # 证据不足的规则不 shift（Counter 对未出现 key 返回 0）
         slide = scene.by_slide(slide_index) if slide_index is not None else None
         feats = encode_features(finding, slide, scene, profile_name)
-        worth = infer.model_worth(feats, mlp)
+        try:
+            worth = infer.model_worth(feats, mlp)
+        except (ValueError, IndexError):
+            continue  # 特征维度与模型 kept 不符 → 本次 finding 不 shift（回退 v2）
         shift = severity_shift_from_worth(worth)
         finding.severity = apply_severity_shift(finding.severity, shift)
         worths.append(worth)
