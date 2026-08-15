@@ -3,6 +3,9 @@
 import subprocess
 import sys
 
+import pytest
+
+from offipy.exceptions import InvalidArgumentError
 from offipy.feedback.app import FeedbackApp
 
 
@@ -38,3 +41,25 @@ def test_import_offipy_no_numpy():
         "assert 'numpy' not in sys.modules, 'import offipy 不得拖 numpy'\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_train_requires_numpy_in_subprocess():
+    code = (
+        "import sys\n"
+        "sys.modules['numpy'] = None\n"
+        "from offipy.feedback.app import FeedbackApp\n"
+        "try:\n"
+        "    FeedbackApp().train()\n"
+        "    raise SystemExit('should raise')\n"
+        "except RuntimeError as e:\n"
+        "    assert 'offipy[feedback]' in str(e)\n"
+        "    print('ok')\n"
+    )
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_train_rejects_non_dir(tmp_path):
+    f = tmp_path / "not_a_dir"
+    f.write_text("x")
+    with pytest.raises(InvalidArgumentError):
+        FeedbackApp().train(feedback_dir=str(f))
