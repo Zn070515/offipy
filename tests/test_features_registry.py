@@ -142,7 +142,7 @@ def test_page_ratio_positive_path():
 
 
 def test_schema_version_constant():
-    assert feature_schema_version() == "2"
+    assert feature_schema_version() == "3"
 
 
 def test_slide_feature_scalarizers():
@@ -295,4 +295,4 @@ def test_feature_keys_layout_tripwire():
         "slide.palette",
         "slide.spacing",
     )
-    assert feature_schema_version() == "2"
+    assert feature_schema_version() == "3"
