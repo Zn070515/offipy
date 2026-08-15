@@ -292,6 +292,65 @@ def test_pptx_enriched_elements_from_real_pptx():
     assert any(e.has_text() and e.font_size is None for e in els), "无显式字号的元素保持 None"
 
 
+def test_pptx_enrich_opacity_min_fill_and_run_alpha():
+    # #128 代码审查加固：fill 与 run 都半透明时，元素 opacity 取最透明者（min）。
+    # 回归：fill_color 分支曾「覆盖」run 侧已累积的 min-alpha。真正暴露该 bug 的场景是
+    # run alpha < fill alpha（如 0.3 vs 0.5）——覆盖会把 opacity 从 0.3 抬到 0.5。
+    from offipy.audit.extract import _Paragraph, _ShapeRecord, _TextRun
+    from offipy.audit.pptx import _to_art_elements
+
+    def _rec(run_alpha, fill_alpha, sid):
+        return _ShapeRecord(
+            slide_index=1,
+            shape_id=sid,
+            name=f"card{sid}",
+            shape_type="AUTO_SHAPE",
+            left=1.0,
+            top=1.0,
+            width=2.0,
+            height=1.0,
+            rotation=0.0,
+            z_order=0,
+            text="半透明",
+            has_text_frame=True,
+            word_wrap=None,
+            autofit_mode="NONE",
+            is_group=False,
+            is_connector=False,
+            is_hidden=False,
+            has_table=False,
+            placeholder_type=None,
+            parent_shape_id=None,
+            group_path=(),
+            paragraphs=[
+                _Paragraph(
+                    text="半透明",
+                    runs=[
+                        _TextRun(
+                            text="半透明",
+                            font_size=18.0,
+                            bold=None,
+                            font_name=None,
+                            color=(0, 0, 0, run_alpha),
+                        )
+                    ],
+                )
+            ],
+            fill_kind="solid",
+            fill_color=(255, 255, 255, fill_alpha),
+        )
+
+    # run 更透明：min=run 0.3；fill 0.5（覆盖 bug 会把 opacity 抬到 0.5 → 应 0.3）
+    (el_a,) = _to_art_elements([_rec(0.3, 0.5, 1)], (10.0, 7.5))
+    assert el_a.opacity == 0.3, "run 更透明时 opacity 应取 run alpha=0.3（非 fill 0.5）"
+    # fill 更透明：min=fill 0.3；run 0.5 → 应 0.3
+    (el_b,) = _to_art_elements([_rec(0.5, 0.3, 2)], (10.0, 7.5))
+    assert el_b.opacity == 0.3, "fill 更透明时 opacity 应取 fill alpha=0.3"
+    # 全不透明：opacity 保持 None（无透明度证据，不硬造 1.0）
+    (el_c,) = _to_art_elements([_rec(1.0, 1.0, 3)], (10.0, 7.5))
+    assert el_c.opacity is None, "全不透明应保持 opacity=None"
+
+
 def test_build_scene_no_source_raises():
     with pytest.raises(InvalidArgumentError):
         build_scene()

@@ -103,7 +103,7 @@ def _to_art_elements(
                 if color is not None and color.a < 1.0:
                     opacity = min(opacity, color.a) if opacity is not None else color.a
         if rec.fill_color is not None and rec.fill_color[3] < 1.0:
-            opacity = rec.fill_color[3]
+            opacity = min(opacity, rec.fill_color[3]) if opacity is not None else rec.fill_color[3]
         font_size = runs[0].font_size if runs else None
         background = ArtColor(*rec.fill_color) if rec.fill_color is not None else None
         role = (
