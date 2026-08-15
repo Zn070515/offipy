@@ -6,6 +6,8 @@ import zipfile
 import pytest
 from lxml import etree
 from pptx import Presentation
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.oxml.ns import qn
@@ -136,6 +138,32 @@ def test_smartart_text_and_node_count(tmp_path):
     assert rec.smartart_node_count == 2  # 含文本节点（modelId 1/2），根节点 modelId 0 不计
     assert "节点一" in rec.text and "节点二" in rec.text
     assert rec.shape_type == "UNKNOWN"  # SmartArt graphicFrame → python-pptx 不识别类型
+
+
+def test_table_cell_text_extracted(tmp_path):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    tbl = slide.shapes.add_table(2, 2, Inches(1), Inches(1), Inches(3), Inches(1))
+    tbl.table.cell(0, 0).text = "单元格A"
+    tbl.table.cell(1, 1).text = "单元格B"
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.has_table)
+    assert "单元格A" in rec.text and "单元格B" in rec.text
+
+
+def test_chart_text_extracted(tmp_path):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    cd = CategoryChartData()
+    cd.categories = ["甲", "乙"]
+    cd.add_series("系列", (1, 2))
+    slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(3), Inches(2), cd
+    )
+    ext = _make_extract(tmp_path, prs)
+    rec = next(s for s in ext.slides[0].shapes if s.shape_type == "CHART")
+    assert rec.has_chart is True
+    assert "系列" in rec.text and "甲" in rec.text and "乙" in rec.text
 
 
 # ---------------------------------------------------------------- 顶层 shape

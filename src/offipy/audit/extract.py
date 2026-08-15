@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import zipfile
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -154,6 +155,7 @@ class _ShapeRecord:
     fill_kind: str = "unknown"
     fill_color: tuple[int, int, int, float] | None = None  # spPr solidFill 的 (r,g,b,a)
     smartart_node_count: int | None = None  # SmartArt 含文本节点数；非 SmartArt = None
+    has_chart: bool = False  # graphicFrame 是否为图表（c:chart）
 
 
 @dataclass
@@ -287,11 +289,18 @@ def _build_record(
     has_tf = bool(getattr(shape, "has_text_frame", False))
     tf = _read_text_frame(shape) if has_tf else None
 
-    # SmartArt（graphicFrame，无 p:txBody）节点文本单独提取
+    has_table = bool(getattr(shape, "has_table", False))
+    has_chart = bool(getattr(shape, "has_chart", False))
     smartart_node_count: int | None = None
     text = tf.text if tf else ""
     paragraphs = tf.paragraphs if tf else []
-    if _is_smartart(shape):
+    if has_table:
+        table_tf = _read_table_text(shape)
+        if table_tf is not None:
+            text, paragraphs = table_tf.text, table_tf.paragraphs
+    elif has_chart:
+        text = _read_chart_text(shape)
+    elif _is_smartart(shape):
         smartart_node_count, text = _read_smartart(shape)
 
     placeholder_type = None
@@ -321,7 +330,8 @@ def _build_record(
         is_group=is_group,
         is_connector=is_connector,
         is_hidden=is_hidden,
-        has_table=bool(getattr(shape, "has_table", False)),
+        has_table=has_table,
+        has_chart=has_chart,
         placeholder_type=placeholder_type,
         parent_shape_id=parent,
         group_path=group_path,
@@ -375,6 +385,77 @@ def _read_smartart(shape: object) -> tuple[int | None, str]:
     node_count = len([p for p in pts if p.find(f"{{{_DIAGRAM_DATA_NS}}}t") is not None])
     texts = [t.text for t in root.findall(f".//{{{_DRAWINGML_NS}}}t") if t.text and t.text.strip()]
     return node_count, "\n".join(texts)
+
+
+def _read_table_text(shape: object) -> _TextFrameData | None:
+    """表格文本：遍历单元格 text_frame 段落 → _Paragraph/_TextRun。
+
+    空表 / 解析失败 → None（text 保持默认 ""）。单元格文本可能带软换行，
+    按 '\n' 连接。
+    """
+    try:
+        table = shape.table  # type: ignore[attr-defined]
+    except Exception:
+        return None
+    paragraphs: list[_Paragraph] = []
+    text_parts: list[str] = []
+    try:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.text_frame.paragraphs:
+                    runs = []
+                    for run in para.runs:
+                        font = run.font
+                        size = font.size.pt if font.size is not None else None
+                        runs.append(_TextRun(run.text, size, font.bold, font.name, _run_color(run)))
+                    paragraphs.append(_Paragraph(text=para.text, runs=runs))
+                    if para.text:
+                        text_parts.append(para.text)
+    except Exception:
+        return None
+    text = "\n".join(text_parts)
+    if not text:
+        return None
+    return _TextFrameData(
+        text=text,
+        paragraphs=paragraphs,
+        word_wrap=None,
+        autofit_mode="NONE",
+        margin_left=None,
+        margin_right=None,
+        margin_top=None,
+        margin_bottom=None,
+        autofit_font_scale=None,
+        autofit_norm_auto_fit=False,
+        autofit_sp_auto_fit=False,
+    )
+
+
+def _read_chart_text(shape: object) -> str:
+    """图表文本：系列名 + 类别 + 轴标题（'\n' 连接）。"""
+    try:
+        chart = shape.chart  # type: ignore[attr-defined]
+    except Exception:
+        return ""
+    parts: list[str] = []
+    for plot in chart.plots:
+        for series in plot.series:
+            try:
+                name = str(series.name)
+            except Exception:
+                name = ""
+            if name:
+                parts.append(name)
+        with suppress(Exception):
+            parts.extend(str(cat) for cat in list(plot.categories))
+    for axis in (chart.category_axis, chart.value_axis):
+        try:
+            title = axis.axis_title.text_frame.text
+        except Exception:
+            title = ""
+        if title:
+            parts.append(title)
+    return "\n".join(p for p in parts if p and p.strip())
 
 
 def _read_text_frame(shape: object) -> _TextFrameData:
