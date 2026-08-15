@@ -75,6 +75,7 @@ def test_capacity_critical_when_samples_very_scarce():
 
 # --- 集成：软告警只记录，不拒绝写盘 ---
 
+
 def _add(tmp_path, rule_id, action, n, *, features):
     for _ in range(n):
         art_append(
