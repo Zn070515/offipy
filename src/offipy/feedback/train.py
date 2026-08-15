@@ -19,6 +19,7 @@ from .model import model_file, save_model
 from .pairs import build_pairs, valid_records
 from .preprocess import fit_preprocessing, transform_features
 from .registry import OUTPUT_SCHEMA_VERSION
+from .validation import repeated_stratified_cv
 from .vector import encode_vector
 
 _MIN_PAIRS = 50
@@ -93,6 +94,12 @@ def run_training(
     }
     if capacity["level"] != "ok":
         stats["capacity_warning"] = True  # soft：只记录，不拒绝写盘
+    # #119 A4：样本级 repeated stratified CV（#112 gate 之后、写盘之前）。
+    # 全守卫不抛；poor_generalization 是 soft 记录，不拒绝写盘。
+    val = repeated_stratified_cv(valid, hidden_dims=hidden_dims, seed=seed)
+    poor_generalization = val["random_indistinguishable"]
+    stats["validation"] = val
+    stats["poor_generalization"] = poor_generalization
     path = model_file(dir_path)
     save_model(
         members=[(seed, mlp)],
