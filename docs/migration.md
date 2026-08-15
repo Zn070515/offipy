@@ -9,9 +9,10 @@
   重新标注后再训练。
 - **model schema v1 → v2（#118/#120）**：model.json 改为 `members` ensemble +
   `preprocessing` / `calibration` / `abstain` 块。0.17.x 训练的**旧模型（schema v1）
-  不再加载**——`feedback status` 报 `model: none`（v1 文件无法按 v2 schema 解析，
-  视为无模型），推理侧自动回退 v2 行为（`recommend_adjustments`）。想恢复学习：
-  用新标注记录 `feedback train` 重建（旧 model.json 会被原子覆盖）。
+  不再加载**——`feedback status` 报 `model: none`（v1 文件缺少 v2 必需字段
+  （members / preprocessing / calibration / abstain 等），过不了 `load_model`
+  完整性校验 → 视为无模型），推理侧自动回退 v2 行为（`recommend_adjustments`）。
+  想恢复学习：用新标注记录 `feedback train` 重建（旧 model.json 会被原子覆盖）。
 - **`feedback status` 输出新增键（#121/#119，非破坏）**：模型有效时额外返回
   `effective_dims` / `samples_per_param` / `poor_generalization`，旧字段不变。
 

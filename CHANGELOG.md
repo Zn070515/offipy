@@ -25,7 +25,8 @@
     （quality_score 归一）+ abstain（|worth| 近零 / member 分歧大的 finding 不
     shift）+ OOD（特征 z 越界不 shift，保守回退 v2）
   - CLI deck audit 透传 experimental score（#116）：`deck audit --feedback-dir`
-    时报告 / `--json` 输出带 `experimental_score`
+    时报告 / `--json` 输出带 `experimental_score`（无有效模型时保持公式值，
+    不足 3 个 assessed 维度才为 null）
   - `feedback status` 表面 `effective_dims` / `samples_per_param` /
     `poor_generalization`（#121/#119）
 
