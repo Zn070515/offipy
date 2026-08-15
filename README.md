@@ -380,7 +380,9 @@ print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insu
 - **生成即质量参考**：`deck.render_with_quality_report(html, audit_mode=..., fail_on=..., profile=...)`
   HTML→PPTX 生成后同时产出几何审计与艺术分析，返回 `QualityRenderResult`（含 `art_report` /
   `deck_quality`）——`audit_mode="strict"` 达 `fail_on` 门槛才退出非 0
-- **证据诚实**：只传 `pptx=` 时，依赖字号 / 颜色证据的维度自动降级（`insufficient_evidence` +
+- **证据诚实**：只传 `pptx=` 时，`_ShapeRecord` 富集提供字号 / 字体 / 前景色 / 背景色 /
+  透明度 / fill_kind 证据（#128），hierarchy / typography / color 维度不再从零证据开始降级；
+  纯像素类证据（PNG / measurements）缺失时相关维度仍降级（`insufficient_evidence` +
   `art.evidence.limited` warning），纯几何规则照常运行
 
 ## MCP server（Claude 接入）

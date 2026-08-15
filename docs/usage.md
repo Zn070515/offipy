@@ -238,6 +238,23 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
     print("候选相对基线新增/恶化 MID+ 问题")
 ```
 
+### 艺术/审计证据层
+
+- **图片拉伸失真按解码 vs 渲染判定**（#126）：`distorted_image` 的 `natural_ratio` /
+  `physical_ratio` 现基于图片**解码尺寸**（img 取 `naturalWidth/Height`，SVG 按 viewBox 定比）
+  与**渲染尺寸**（CSS 布局宽高）之比，能检出真实拉伸漂移；旧实现两个比值都取自渲染尺寸，
+  漂移恒≈0，规则形同虚设。该语义变化使历史 FEATURES 样本作废，
+  `feature_schema_version()` 由 2→3。
+- **PPTX-only 富集**（#128）：只传 `pptx=` 时，`audit_pptx` / `analyze_scene` 现在从
+  `_ShapeRecord` 解析字号 / 字体 / 前景色 / 背景色 / 透明度 / fill_kind，hierarchy /
+  typography / color 维度的证据覆盖率从 0 提升（不再完全没有字号 / 颜色证据）；
+  schemeClr / sysClr（主题色引用）仍不解析，纯像素类证据（PNG / measurements）仍需额外源。
+- **元素 opacity**（#137）：measurement 的元素级透明度透传到 `ArtElement.opacity`（0-1，
+  None=无证据）；PPTX-only 路径按 run 前景色 alpha 与形状填充 alpha 的 min 合并（最透明部分
+  决定可见性）。
+- **fill_kind 标记**（#140）：measurement 记录 `fill_kind`（`solid` / `gradient` / `shadow` /
+  `image`），gradient / shadow 等光栅化装饰可被 audit 识别，不再误判为普通色块。
+
 ## feedback 学习系统（v0.18）
 
 三层 feedback 语义（文档钉死，避免混淆）：
