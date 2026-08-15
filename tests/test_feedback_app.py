@@ -2,9 +2,12 @@
 
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
+from offipy.art.profiles import RULE_TITLE_TOO_SMALL
+from offipy.audit import Severity
 from offipy.exceptions import InvalidArgumentError
 from offipy.feedback.app import FeedbackApp
 
@@ -63,3 +66,39 @@ def test_train_rejects_non_dir(tmp_path):
     f.write_text("x")
     with pytest.raises(InvalidArgumentError):
         FeedbackApp().train(feedback_dir=str(f))
+
+
+# ---------------------------------------------------------------- append
+
+
+def test_append_writes_record(tmp_path):
+    """FeedbackApp.append：severity 字符串 + features JSON 字符串 → 落记录。"""
+    res = FeedbackApp().append(
+        "balanced",
+        RULE_TITLE_TOO_SMALL,
+        "fixed",
+        "MID",
+        feedback_dir=str(tmp_path),
+        features='{"finding.confidence": 0.5}',
+    )
+    assert Path(res["record"]).exists()
+    from offipy.art.feedback import load_records
+
+    recs = load_records(tmp_path)
+    assert len(recs) == 1
+    assert recs[0].rule_id == RULE_TITLE_TOO_SMALL
+    assert recs[0].action == "fixed"
+    assert recs[0].severity == Severity.MID
+    assert recs[0].features == {"finding.confidence": 0.5}
+
+
+def test_append_bad_features_json_raises(tmp_path):
+    with pytest.raises(InvalidArgumentError, match="features"):
+        FeedbackApp().append(
+            "balanced",
+            RULE_TITLE_TOO_SMALL,
+            "fixed",
+            "MID",
+            feedback_dir=str(tmp_path),
+            features="not-json",
+        )

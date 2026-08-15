@@ -22,9 +22,14 @@ def _fake_audit(p, config=None):
 
 
 def _fake_run_art_analysis(
-    measurements, profile="balanced", pptx_report=None, slides_dir=None, pixel_required=False
+    measurements,
+    profile="balanced",
+    pptx_report=None,
+    slides_dir=None,
+    pixel_required=False,
+    feedback_dir=None,
 ):
-    """_run_art_analysis 替身：接受 v0.12.1 新增的 pixel_required kwarg。"""
+    """_run_art_analysis 替身：接受 pixel_required / feedback_dir kwarg。"""
     return ArtReport(profile=profile)
 
 

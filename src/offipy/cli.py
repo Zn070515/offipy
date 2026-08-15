@@ -444,7 +444,12 @@ def build_parser() -> argparse.ArgumentParser:
     deck.add_argument("--html", help="HTML 幻灯片源文件（make 必填）")
     deck.add_argument("--out", help="输出路径（make: .pptx；outline: .html）")
     deck.add_argument("--no-open", action="store_true", help="渲染后不打开实况演示（make）")
-    deck.add_argument("--feedback", help="导出 PNG 反馈目录（make）")
+    deck.add_argument(
+        "--export-png",
+        "--feedback",
+        dest="feedback",
+        help="导出 PNG 反馈目录（make）；--feedback 为旧别名（弃用）",
+    )
     deck.add_argument("--theme", help="注入内置主题名（make/outline）")
     deck.add_argument("--layouts", action=_BoolAction, help="注入 data-layout 布局 CSS（make）")
     deck.add_argument("--overwrite", action=_BoolAction, help="覆盖已存在的 .pptx（make）")
@@ -469,6 +474,10 @@ def build_parser() -> argparse.ArgumentParser:
     deck.add_argument("--json", action="store_true", help="audit：输出结构化 JSON 建议")
     deck.add_argument(
         "--profile", default="balanced", help="audit：艺术分析 profile（默认 balanced）"
+    )
+    deck.add_argument(
+        "--feedback-dir",
+        help="audit：应用反馈学习（加载指定目录的记录/模型；feedback=True 需显式目录）",
     )
     # 参数名避开顶层 subparsers 的 dest "app"，否则 argparse 会用子解析器的
     # 值覆盖 args.app（例如 quit ppt → app 被覆盖成 "ppt"）。
@@ -614,7 +623,7 @@ def _main(argv: list[str] | None = None) -> int | None:
             if not args.html:
                 _usage_exit(
                     "用法: offipy deck make --html <deck.html> "
-                    "[--out <x.pptx>] [--no-open] [--feedback <dir>] "
+                    "[--out <x.pptx>] [--no-open] [--export-png <dir>] "
                     "[--theme <name>] [--layouts] [--overwrite]"
                 )
             pptx = deck_make(
@@ -805,8 +814,10 @@ def _deck_audit(args: argparse.Namespace) -> int | None:
     if not args.source and not args.pptx:
         _usage_exit(
             "用法: offipy deck audit <deck.html> [--theme <name>] [--layouts] "
-            "[--profile <p>] [--json]\n"
-            "      或 offipy deck audit --pptx <file.pptx> [--profile <p>] [--json]"
+            "[--profile <p>] [--json] [--feedback-dir <dir>]\n"
+            "      或 offipy deck audit --pptx <file.pptx> [--profile <p>] "
+            "[--json] [--feedback-dir <dir>]\n"
+            "      --feedback-dir <dir> 应用反馈学习（加载指定目录的记录/模型）"
         )
 
     if args.source:
@@ -823,6 +834,7 @@ def _deck_audit(args: argparse.Namespace) -> int | None:
                     overwrite=True,
                     profile=args.profile,
                     pixel_analysis="off",
+                    feedback_dir=args.feedback_dir,
                 )
                 report = result.deck_quality
         except KeyError as e:
@@ -836,7 +848,12 @@ def _deck_audit(args: argparse.Namespace) -> int | None:
         from .art.analyze import analyze_deck
 
         try:
-            report = analyze_deck(pptx=args.pptx, profile=args.profile)
+            report = analyze_deck(
+                pptx=args.pptx,
+                profile=args.profile,
+                feedback=args.feedback_dir is not None,
+                feedback_dir=args.feedback_dir,
+            )
         except FileNotFoundError:
             print(f"offipy: error: 找不到文件: {args.pptx}", file=sys.stderr)
             return 2
