@@ -71,6 +71,33 @@ def test_status_model_valid(tmp_path):
     assert isinstance(s["poor_generalization"], bool)
 
 
+def test_status_model_valid_missing_stats_keys(tmp_path):
+    """valid 模型 stats/预处理缺键或异常类型 → 兜底 None，不抛。"""
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
+    run_training(tmp_path, min_pairs=0)
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    # capacity 缺 → samples_per_param None；kept 仍在 → effective_dims > 0
+    del data["stats"]["capacity"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    s = report_status(tmp_path)
+    assert s["model"] == "valid"
+    assert s["effective_dims"] > 0
+    assert s["samples_per_param"] is None
+
+    # kept 缺 → effective_dims None；capacity 非 dict（病理）→ samples_per_param None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["preprocessing"]["kept"]
+    data["stats"]["capacity"] = "not-a-dict"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    s = report_status(tmp_path)
+    assert s["model"] == "valid"
+    assert s["effective_dims"] is None
+    assert s["samples_per_param"] is None
+
+
 def test_status_model_expired(tmp_path):
     _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
     _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))

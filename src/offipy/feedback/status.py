@@ -27,13 +27,16 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
         pre = data.get("preprocessing", {})
         stats = data.get("stats", {})
         kept = pre.get("kept")
+        capacity = stats.get("capacity")
         return {
             "samples": len(records),
             "valid_samples": len(valid),
             "pair_potential": len(pairs),
             "model": "valid",
             "effective_dims": len(kept) if isinstance(kept, list) else None,
-            "samples_per_param": stats.get("capacity", {}).get("samples_per_param"),
+            "samples_per_param": (
+                capacity.get("samples_per_param") if isinstance(capacity, dict) else None
+            ),
             "poor_generalization": stats.get("poor_generalization"),
         }
     return {
