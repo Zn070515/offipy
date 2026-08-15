@@ -1,13 +1,10 @@
-"""反馈学习（P2 验证版）：记录审计后的人工修正，反哺审计权重。
+"""反馈学习（v1：维度级权重）。
 
-对标 AeSlides/EvoPresent 的「可验证奖励」思路（docs/ppt_design_research.md
-P2），轻量验证版：审计报告出来后，Claude/用户对每条 finding 处置
-（修正 fixed / 接受 accepted / 忽略 ignored），写入 `~/.offipy/feedback.jsonl`。
-
-dimension_weights() 把历史修正计数折算成审计权重——被修次数越多的维度，
-下次审计扣分越狠，促使 Claude 更早重视。weights 可直接传给
-aesthetic.audit_measurement(..., weights=weights)。这是纯本地的 RL 验证版：
-数据不外传，逐步逼近人眼的判断。
+v1 逻辑本体（FeedbackRecord / append / load_records / dimension_weights），
+从单模块 `offipy/feedback.py` 包化为 `offipy/feedback/` 包。本模块只透传 v1
+名字 + **numpy-free**，不 import 任何学习子模块——学习核心走深路径
+`offipy.feedback.app` / `offipy.feedback.infer` 等。三层层级：v1 维度权重 /
+v2 规则 ±1（offipy.art.feedback）/ v3 学习系统（offipy.feedback.app）。
 """
 
 from __future__ import annotations
@@ -18,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .aesthetic import ALL_DIMENSIONS, CONSISTENCY, CONTRAST, PALETTE, TYPE_SCALE, WHITESPACE
+from offipy.aesthetic import ALL_DIMENSIONS, CONSISTENCY, CONTRAST, PALETTE, TYPE_SCALE, WHITESPACE
 
 __all__ = [
     "ALL_DIMENSIONS",
