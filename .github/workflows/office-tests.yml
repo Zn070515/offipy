@@ -78,7 +78,7 @@ jobs:
           fi
           wheel="$("$_py" -c 'import glob; w=glob.glob("dist/offipy-*.whl"); assert len(w)==1, w; print(w[0])')"
           test -f "$wheel"
-          uv pip install --python .venv-wheel "${wheel}[office,deck,mcp]" pytest
+          uv pip install --python .venv-wheel "${wheel}[office,deck,mcp,feedback]" pytest
 
       - name: Sync dependencies (source mode)
         if: ${{ !inputs.install_from_wheel }}
