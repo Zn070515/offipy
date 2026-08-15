@@ -30,7 +30,7 @@ def _fake_run_art_analysis(
     feedback_dir=None,
     include_experimental_score=False,
 ):
-    """_run_art_analysis 替身：接受 pixel_required / feedback_dir / include_experimental_score kwarg。"""
+    """_run_art_analysis 替身：接受 pixel_required / feedback_dir / include_experimental_score。"""
     return ArtReport(profile=profile)
 
 
