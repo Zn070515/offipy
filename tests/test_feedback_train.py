@@ -171,7 +171,7 @@ def test_saturation_flag_detects_saturated():
     from offipy.feedback.train import _saturation_flag
 
     worth = np.linspace(-0.02, 0.02, 40).reshape(-1, 1)  # score≈51→49，跨度 2
-    assert _saturation_flag(worth, worth_scale=1.0) is True
+    assert _saturation_flag(worth) is True
 
 
 def test_saturation_flag_not_saturated():
@@ -180,7 +180,7 @@ def test_saturation_flag_not_saturated():
     from offipy.feedback.train import _saturation_flag
 
     worth = np.linspace(-2.0, 2.0, 40).reshape(-1, 1)  # score≈98→2，跨度大
-    assert _saturation_flag(worth, worth_scale=1.0) is False
+    assert _saturation_flag(worth) is False
 
 
 def test_saturation_flag_small_sample_false():
@@ -189,4 +189,4 @@ def test_saturation_flag_small_sample_false():
     from offipy.feedback.train import _saturation_flag
 
     worth = np.zeros((10, 1))  # 样本 < 20，不判定
-    assert _saturation_flag(worth, worth_scale=1.0) is False
+    assert _saturation_flag(worth) is False

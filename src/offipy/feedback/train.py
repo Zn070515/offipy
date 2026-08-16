@@ -42,21 +42,21 @@ SATURATION_MIN_SAMPLES = 20
 
 def _saturation_flag(
     member_means: np.ndarray[tuple[int, ...], np.dtype[np.float64]],
-    worth_scale: float,
     min_range: float = SATURATION_MIN_RANGE,
     min_samples: int = SATURATION_MIN_SAMPLES,
 ) -> bool:
-    """模型输出是否饱和：样本间 quality_score 的 P5-P95 跨度 < min_range。
+    """模型输出是否饱和：样本间 quality_score（固定参考 scale=1.0）的 P5-P95 跨度 < min_range。
 
     复用 heads.quality_score_from_worth 做分数映射（单一事实来源，不重抄公式）。
+    必须用固定参考 scale（1.0）而非训练期 worth_scale：后者由 member_means.std()
+    导出，会把样本间 worth 归一成 z-score → 分数跨度恒大，检测变成 no-op（#151）。
     样本 < min_samples 不判定（统计上无意义）。soft 告警：只记录，不拒绝写盘。
     """
     n = int(member_means.size)
     if n < min_samples:
         return False
-    scale = worth_scale if worth_scale and worth_scale > 0 else 1.0
     scores = np.array(
-        [quality_score_from_worth(float(w), scale) for w in member_means.ravel()],
+        [quality_score_from_worth(float(w)) for w in member_means.ravel()],
         dtype=np.float64,
     )
     pct = np.percentile(scores, [5.0, 95.0])  # mypy 安全：不拆包 ndarray，走索引
@@ -158,7 +158,7 @@ def run_training(
         "capacity": capacity,
         "ensemble_size": K,
         "calibration": {"worth_scale": worth_scale},
-        "saturation": _saturation_flag(member_means, worth_scale),
+        "saturation": _saturation_flag(member_means),
     }
     if capacity["level"] != "ok":
         stats["capacity_warning"] = True  # soft：只记录，不拒绝写盘
