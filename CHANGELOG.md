@@ -3,7 +3,7 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
-## [Unreleased] - 2026-08-15
+## [0.18.2] - 2026-08-16
 
 ### Added
 
@@ -24,6 +24,22 @@
     文本统计不再漏 graphicFrame 内容
   - **图表系列色（#139）**：audit 提取 `c:ser` 显式系列色 → `chart_series_colors`；
     chart graphicFrame 在 `_KIND_MAP` 归入 `chart` kind
+- **deck 媒体保真度（#141）**：转换时 `<audio>` 无法用 PPTX 表达 → 静默丢弃并告警；
+  `<video>` 链接 / `<a>` href 线程到真实 `a:hlinkClick` 超链接；虚线边框按 active 边写
+  `a:ln`；缺失 webfont 子集跳过并 surface substitution 警告；媒体保真度警告入质量报告
+- **CLI feedback 专属子解析器（#135 #146 #149）**：`offipy feedback` 专属 subparser，
+  5 op 帮助与必填参数引导（`feedback recommend` 缺 `--pptx` exit 2）；入口强制 UTF-8
+  输出（Windows 中文终端不再乱码）；`feedback_dir` 与其他路径参数一致绝对化
+- **feedback 消费端新增面（#130 #133 #157 #159 #160）**：
+  - `experimental_score_mode`：综合指数标注来源（`grade_mean` 规则评级 /
+    `worth_sigmoid` 模型置信度，#130）
+  - severity_shift 生效时标 override + `details.feedback` 溯源（before/after/worth/shift，#157）
+  - rule.delta 落到 `report.feedback_adjustments` + deck audit JSON/文本「模型调整」段（#159）
+  - `quality_score_coverage`：分数基于置信子集的覆盖率统计（covered/total/abstain/ood，#133）
+  - `offipy feedback recommend/apply`：只读建议 + rule.delta 持久化到
+    `~/.offipy/art_profiles.json`（#160），apply 后 `deck audit --profile` 不带
+    `--feedback-dir` 也吃到调整
+- **docs/api diagram/feedback 参考页（#161）**：双向 API 参考页生成（含 recommend/apply）
 
 ### Changed
 
@@ -57,6 +73,11 @@
   - `status` / `train` 成功返回体透出 `per_rule` 逐规则诊断（#152）
   - 模型输出饱和检测持久化，`status` / analyze warning 透出（#151）
   - 容量阈值重标定（spp≥1 ok / ≥0.25 warn / <0.25 critical）+ `suggest_n` 补样估算（#134）
+- **feedback 消费端诚实性（#132 #147 #158）**：
+  - `status` 权重形状损坏（schema 匹配但 weights 重建失败）→ 报 `corrupt`，不冒充 valid（#147）
+  - 无有效模型 → `feedback.model.unavailable` warning，不再静默回退 v2（#158）
+  - `quality_score` 需 ≥3 个 assessed 维度 worth 才写（不足不冒充分数，#158）
+  - severity_shift 后按 post-shift findings 重推维度 grade，grade 与 finding 一致（#132）
 
 ## [0.18.0] - 2026-08-15
 
