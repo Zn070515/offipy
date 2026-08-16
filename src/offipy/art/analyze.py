@@ -190,7 +190,20 @@ def _apply_learning_pass(
         if bundle.should_abstain(feats) or bundle.ood_flagged(feats):
             continue  # 保守：模型不确定 / 特征 OOD 的 finding 不 shift（回退 v2）
         worth = infer.model_worth(feats, bundle)  # 模块级 seam，测试 monkeypatch 生效
-        finding.severity = apply_severity_shift(finding.severity, severity_shift_from_worth(worth))
+        shift = severity_shift_from_worth(worth)
+        before = finding.severity
+        finding.severity = apply_severity_shift(before, shift)
+        if finding.severity != before:
+            # #157：severity_shift 必须有 provenance——标 override + 来源 + worth/delta/head
+            finding.severity_override = True
+            finding.severity_override_source = "feedback"
+            finding.details["feedback"] = {
+                "head": "severity_shift",
+                "worth": round(worth, 4),
+                "shift": round(shift, 4),
+                "before": before.name,
+                "after": finding.severity.name,
+            }
         # #158 assessed 门：维度状态在 report 侧（ArtSlideReport.by_dimension）——scene 的
         # ArtSlide 无 by_dimension；仅 assessed 维度的 slide finding 才计入 quality_score 人口。
         if slide_index is not None:

@@ -448,3 +448,37 @@ def test_deck_audit_chromium_error_concise(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "playwright install chromium" in err
     assert "几何" not in err  # 不提供假的 geometry-only 兜底
+
+
+def test_project_adjusted_findings_filters_shifted():
+    """#157：只投影 severity_shift head 且实际变化过 severity 的 finding。"""
+    from offipy.art.suggest import project_adjusted_findings
+
+    shifted = _finding(
+        rule_id="art.composition.corner_cluster", dimension="composition", severity=Severity.MID,
+        message="m", details={
+            "feedback": {"head": "severity_shift", "worth": 0.8, "shift": 0.8,
+                         "before": "LOW", "after": "MID"},
+        },
+    )
+    shifted.severity_override = True
+    shifted.severity_override_source = "feedback"
+    plain = _finding()  # rule.delta 路径：source=feedback 但无 details["feedback"]
+    plain.severity_override = True
+    plain.severity_override_source = "feedback"
+    art = ArtReport(
+        profile="balanced",
+        slides=[ArtSlideReport(slide_index=1, dimensions=[
+            DimensionAssessment(dimension="composition", status="assessed", grade="good",
+                                findings=[shifted, plain]),
+        ])],
+        deck_findings=[],
+    )
+    recs = project_adjusted_findings(DeckQualityReport(geometry=None, art=art, warnings=[]))
+    assert len(recs) == 1
+    assert recs[0]["rule_id"] == "art.composition.corner_cluster"
+    assert recs[0]["severity_before"] == "LOW"
+    assert recs[0]["severity_after"] == "MID"
+    assert recs[0]["worth"] == 0.8
+    assert recs[0]["shift"] == 0.8
+    assert recs[0]["slide_index"] == 1

@@ -533,7 +533,15 @@ def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
     assert f is not None
     # 基线 corner_cluster = LOW；+0.8 → round(1+0.8)=2 → MID（未被 override，shift 生效）
     assert f.severity == Severity.MID
-    assert f.severity_override is False  # severity_shift 不标 override
+    # #157：severity_shift 生效 → 标 override=feedback + details 溯源
+    assert f.severity_override is True
+    assert f.severity_override_source == "feedback"
+    fb = f.details["feedback"]
+    assert fb["head"] == "severity_shift"
+    assert fb["before"] == "LOW"
+    assert fb["after"] == "MID"
+    assert fb["worth"] == 0.8
+    assert fb["shift"] == 0.8
 
 
 def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
@@ -744,3 +752,28 @@ def test_reconcile_grades_after_severity_shift():
     _reconcile_grades(report)
     assert dim.grade == "poor"  # HIGH×0.9 = 2.7 > 2.5 → poor
     assert dim.grade == grade_from_findings(dim.findings)
+
+
+def test_analyze_learning_no_shift_no_provenance(monkeypatch, tmp_path):
+    """#157：worth 小到不改变 severity → 不标 override、不写 details（无虚假溯源）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.3)  # < 0.5 阈值 → 不 step
+    report = analyze_scene(_build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path)
+    f = _finding(report, RULE_CORNER_CLUSTER)
+    assert f is not None
+    assert f.severity == Severity.LOW
+    assert f.severity_override is False
+    assert "feedback" not in f.details

@@ -71,3 +71,43 @@ def project_suggestions(report: DeckQualityReport, *, source: str) -> list[dict[
             )
     records.extend(_record(finding, fallback_slide=None) for finding in art.deck_findings)
     return records
+
+
+def project_adjusted_findings(report: DeckQualityReport) -> list[dict[str, Any]]:
+    """学习 pass（severity_shift head）实际调整过的 finding 投影，供 CLI / feedback recommend 展示。
+
+    只含 details["feedback"]["head"]=="severity_shift" 且 severity 实际变化的 finding
+    （rule.delta 的 apply_profile_to_finding 设 source="feedback" 但不写 details——
+    天然区分）。记录键序固定：dimension/slide_index/rule_id/severity_before/
+    severity_after/worth/shift。
+    """
+    records: list[dict[str, Any]] = []
+    art = report.art
+    if art is None:
+        return records
+    for slide in art.slides:
+        for dim in slide.dimensions:
+            for finding in dim.findings:
+                rec = _adjusted_record(finding, fallback_slide=slide.slide_index)
+                if rec is not None:
+                    records.append(rec)
+    for finding in art.deck_findings:
+        rec = _adjusted_record(finding, fallback_slide=None)
+        if rec is not None:
+            records.append(rec)
+    return records
+
+
+def _adjusted_record(finding: ArtFinding, *, fallback_slide: int | None) -> dict[str, Any] | None:
+    fb = (finding.details or {}).get("feedback")
+    if not isinstance(fb, dict) or fb.get("head") != "severity_shift":
+        return None
+    return {
+        "dimension": finding.dimension,
+        "slide_index": finding.slide_index if finding.slide_index is not None else fallback_slide,
+        "rule_id": finding.rule_id,
+        "severity_before": fb.get("before"),
+        "severity_after": finding.severity.name,
+        "worth": fb.get("worth"),
+        "shift": fb.get("shift"),
+    }
