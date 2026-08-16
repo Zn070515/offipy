@@ -211,6 +211,14 @@ PPTX（TD/TB/LR/RL/BT 方向、subgraph 容器、中文 label）。
 
 已知限制：图标类节点（`icon:*`）兜底为矩形、draw.io 自定义形状兜底为圆角矩形。
 
+### 媒体保真度
+
+媒体保真度（#141）：`<audio>` 无法用 PPTX 表达，转换时静默丢弃并产生警告；`<video>`
+以首帧静态图嵌入（无原生播放），同样告警；未缓存的 webfont 跳过子集嵌入，由
+PowerPoint 打开时替换显示——以上警告随 deck 质量报告透出
+（`deck.media.audio_dropped` / `deck.media.video_static` / `deck.font.substituted`）。
+`<a href>` 链接写入真实超链接（可点击跳转）。
+
 ## Python API
 
 ```python
