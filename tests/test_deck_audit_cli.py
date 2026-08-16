@@ -455,10 +455,18 @@ def test_project_adjusted_findings_filters_shifted():
     from offipy.art.suggest import project_adjusted_findings
 
     shifted = _finding(
-        rule_id="art.composition.corner_cluster", dimension="composition", severity=Severity.MID,
-        message="m", details={
-            "feedback": {"head": "severity_shift", "worth": 0.8, "shift": 0.8,
-                         "before": "LOW", "after": "MID"},
+        rule_id="art.composition.corner_cluster",
+        dimension="composition",
+        severity=Severity.MID,
+        message="m",
+        details={
+            "feedback": {
+                "head": "severity_shift",
+                "worth": 0.8,
+                "shift": 0.8,
+                "before": "LOW",
+                "after": "MID",
+            },
         },
     )
     shifted.severity_override = True
@@ -468,10 +476,19 @@ def test_project_adjusted_findings_filters_shifted():
     plain.severity_override_source = "feedback"
     art = ArtReport(
         profile="balanced",
-        slides=[ArtSlideReport(slide_index=1, dimensions=[
-            DimensionAssessment(dimension="composition", status="assessed", grade="good",
-                                findings=[shifted, plain]),
-        ])],
+        slides=[
+            ArtSlideReport(
+                slide_index=1,
+                dimensions=[
+                    DimensionAssessment(
+                        dimension="composition",
+                        status="assessed",
+                        grade="good",
+                        findings=[shifted, plain],
+                    ),
+                ],
+            )
+        ],
         deck_findings=[],
     )
     recs = project_adjusted_findings(DeckQualityReport(geometry=None, art=art, warnings=[]))
