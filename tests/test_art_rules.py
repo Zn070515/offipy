@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from art_helpers import make_slide as _hs
 from art_helpers import make_text_element as _hte
 from offipy.art.color import RULES as COLOR_RULES
@@ -103,6 +105,43 @@ def test_assess_dimension_insufficient_evidence_low_coverage():
     assert abs(d.evidence_coverage - 0.2) < 1e-9
 
 
+def test_assess_dimension_keeps_well_covered_finding_when_aggregate_low():
+    # #155：高覆盖（含 finding）+ 低覆盖（也含 finding）→ 高覆盖保留、低覆盖丢弃
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.MID, "m", 0.6, slide_index=1)
+    f2 = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.LOW, "m", 0.4, slide_index=1)
+    specs = [
+        _rule("art.hierarchy.no_focus", covered=1, eligible=1, findings=[f]),
+        _rule("art.typography.many_families", covered=1, eligible=10, findings=[f2]),
+    ]
+    d = assess_dimension("hierarchy", specs, _ctx(slide))
+    assert d.status == "assessed"  # 有 ≥1 条 assessable 规则
+    assert d.findings == [f]  # f2 被门控丢弃
+    assert any(w.code == "art.rule.insufficient_coverage" for w in d.warnings)
+    assert d.evidence_coverage == pytest.approx(2 / 11, rel=1e-3)  # applicable 聚合
+
+
+def test_assess_dimension_gated_finding_dropped_when_rule_under_covered():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.MID, "m", 0.6, slide_index=1)
+    specs = [_rule(RULE_TITLE_TOO_SMALL, covered=1, eligible=10, findings=[f])]
+    d = assess_dimension("hierarchy", specs, _ctx(slide))
+    assert d.status == "insufficient_evidence"
+    assert d.findings == []
+
+
+def test_assess_dimension_gated_rule_no_findings_no_warning():
+    # #155：被门控但无 finding 的规则不产生 insufficient_coverage warning（避免噪音）
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [
+        _rule("art.hierarchy.no_focus", covered=1, eligible=1),
+        _rule("art.typography.many_families", covered=0, eligible=1),
+    ]
+    d = assess_dimension("hierarchy", specs, _ctx(slide))
+    assert d.status == "assessed"
+    assert not any(w.code == "art.rule.insufficient_coverage" for w in d.warnings)
+
+
 def test_assess_dimension_respects_disabled_rules():
     slide = ArtSlide(index=1, width=1920, height=1080)
     from offipy.art.profiles import RULE_OFF_BALANCE, ArtProfile
@@ -167,7 +206,8 @@ def test_assess_dimension_experimental_caps_confidence():
     ]
     d = assess_dimension("composition", specs, _ctx(slide))
     assert d.status == "assessed"
-    assert d.findings[0].confidence <= 0.3  # experimental cap
+    assert d.findings[0].confidence <= 0.4  # experimental cap
+    assert d.findings[0].experimental is True
 
 
 def test_dimension_confidence_reliability_pptx_only():
@@ -272,6 +312,55 @@ def test_dimension_reliability_excludes_profile_experimental():
     d = assess_dimension("typography", [spec], ctx)
     # profile-experimental 规则同样不参与聚合 → 无权重 → 回退场景可靠度
     assert abs(d.reliability - 1.0) < 1e-9  # sources 默认 measurement
+
+
+# ---------------------------------------------------------------------------
+# #153：规则无 ev.reliability 时，从 finding.evidence_reliability 取 min 派生
+# ---------------------------------------------------------------------------
+
+
+def test_dimension_reliability_derived_from_finding_evidence():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(
+        RULE_LOW_CONTRAST,
+        "color",
+        Severity.LOW,
+        "m",
+        0.25,
+        slide_index=1,
+        evidence_reliability=0.5,
+    )
+    specs = [_rule(RULE_LOW_CONTRAST, dimension="color", findings=[f], covered=3, eligible=3)]
+    d = assess_dimension("color", specs, _ctx(slide))
+    assert d.status == "assessed"
+    assert abs(d.reliability - 0.5) < 1e-9
+    assert abs(d.minimum_reliability - 0.5) < 1e-9
+
+
+def test_dimension_reliability_derived_min_of_findings():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f1 = make_finding(
+        RULE_LOW_CONTRAST,
+        "color",
+        Severity.LOW,
+        "m",
+        0.25,
+        slide_index=1,
+        evidence_reliability=0.5,
+    )
+    f2 = make_finding(
+        RULE_LOW_CONTRAST,
+        "color",
+        Severity.MID,
+        "m",
+        0.9,
+        slide_index=1,
+        evidence_reliability=0.8,
+    )
+    specs = [_rule(RULE_LOW_CONTRAST, dimension="color", findings=[f1, f2], covered=3, eligible=3)]
+    d = assess_dimension("color", specs, _ctx(slide))
+    assert abs(d.reliability - 0.5) < 1e-9  # min(0.5, 0.8)
+    assert abs(d.minimum_reliability - 0.5) < 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +536,7 @@ def test_experimental_confidence_cap_with_feedback_delta():
     assert found.severity_override is True
     assert found.severity_override_source == "feedback"
     # confidence still capped by experimental
-    assert found.confidence <= 0.3
+    assert found.confidence <= 0.4
 
 
 # ---------------------------------------------------------------------------
@@ -485,3 +574,26 @@ def test_apply_profile_to_finding_confidence_override():
     prof = ArtProfile(name="x", confidence_overrides={"art.color.low_contrast": 0.9})
     result = apply_profile_to_finding(f, prof)
     assert result.confidence == 0.9
+
+
+def test_experimental_finding_participates_in_grade():
+    # #154：experimental 规则 conf 封顶 0.4（过 0.35 地板）→ 低权重参与 grade
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(
+        "art.composition.off_balance", "composition", Severity.LOW, "m", 0.8, slide_index=1
+    )
+    specs = [
+        _rule(
+            "art.composition.off_balance",
+            dimension="composition",
+            experimental=True,
+            findings=[f],
+            covered=3,
+            eligible=3,
+        )
+    ]
+    d = assess_dimension("composition", specs, _ctx(slide))
+    assert d.status == "assessed"
+    assert d.findings[0].confidence == 0.4
+    assert d.findings[0].experimental is True
+    assert d.grade == "good"  # 0.5*0.4=0.2 → good；旧 cap 0.3 跳过 → excellent

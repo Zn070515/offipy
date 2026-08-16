@@ -95,10 +95,15 @@ impersonates another:
 - **grade**: `excellent / good / attention / poor` — quality only. Accumulated from the severity-weighted
   scores of the dimension's assessed rules (LOW=0.5 / MID=1.5 / HIGH=3.0), bucketed at `(0, 1.0, 2.5)`.
 - **confidence**: `(0, 1]` — credibility only. Findings with better evidence coverage and closer to a
-  threshold edge are more credible; experimental rules are forced to `conf ≤ 0.3`.
+  threshold edge are more credible; experimental rules are forced to `conf ≤ 0.4` (above the 0.35 grade floor, so they participate in grade at low weight).
 - **evidence_coverage**: `[0, 1]` — evidence coverage only. Reported by each rule itself as eligible/covered,
-  never a guessed constant; **coverage < 0.5 → the dimension degrades to `insufficient_evidence` and its
-  findings are dropped**.
+  never a guessed constant; **coverage gating is decided per rule**: only rules with eligible>0 and
+  covered/eligible ≥ 0.5 keep their findings; the dimension is `insufficient_evidence` only when no rule
+  qualifies; gated rules emit an `art.rule.insufficient_coverage` warning.
+
+Dimensions also carry an optional **`reliability`**. In addition to an explicit `ev.reliability`, a
+dimension's reliability is derived from the min of its rules' finding `evidence_reliability`
+(experimental still excluded).
 
 `experimental_score` (0-100) is only returned when ≥ 3 dimensions are assessed; it exists purely for
 ranking / comparison and is **never claimed as an objective aesthetic score**. When a valid feedback
@@ -121,7 +126,12 @@ Without a model, or when every finding abstains / is OOD, the current formula is
 | media | distorted_image / oversized_image / image_overlap | distorted, oversized, mutually overlapping images |
 
 All rules are **deterministic**: the same scene always yields the same result. All `rule_id`s are frozen
-(including 5 experimental ones, `conf ≤ 0.3`, driving no degradation decision).
+(including 6 experimental ones, `conf ≤ 0.4`, participating in grade at low weight).
+
+- The `tiny_text` / `title_too_small` / `no_focus` findings carry learnable details
+  (`font_size_norm` / `ratio_vs_min` / `focus_ratio`) (#145).
+- Accent-color assessment uses run-level colors (weighted by text length) with scope unified with the
+  palette (`_SKIP_ROLES` + zero-area exclusion) (#156).
 
 ## Built-in profiles
 

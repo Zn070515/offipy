@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from offipy.audit import Severity
 
 ART_SCHEMA_VERSION = "0.2"
-ART_REPORT_SCHEMA_VERSION = "0.3"
+ART_REPORT_SCHEMA_VERSION = "0.4"
 
 Grade = Literal["excellent", "good", "attention", "poor"]
 AssessmentStatus = Literal["assessed", "insufficient_evidence", "not_applicable"]
@@ -442,6 +442,7 @@ class ArtFinding:
     evidence_method: str | None = None
     severity_override: bool = False
     severity_override_source: Literal["user", "feedback"] | None = None
+    experimental: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -463,6 +464,7 @@ class ArtFinding:
                 if self.severity_override_source is not None
                 else {}
             ),
+            **({"experimental": True} if self.experimental else {}),
         }
 
 

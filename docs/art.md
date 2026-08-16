@@ -95,13 +95,16 @@ warning——绝不静默丢弃。
 - **grade**：`excellent / good / attention / poor`——只表**质量**。由该维度 assessed 规则的
   严重度加权分累计（LOW=0.5 / MID=1.5 / HIGH=3.0），阈值 `(0, 1.0, 2.5)` 分段。
 - **confidence**：`(0, 1]`——只表**可信度**。证据覆盖越高、越贴合阈值边缘的 finding 越可信；
-  实验性规则强制 `conf ≤ 0.3`。
+  实验性规则强制 `conf ≤ 0.4`（过 0.35 grade 地板后以低权重参与降级判定）。
 - **evidence_coverage**：`[0, 1]`——只表**证据覆盖**。由规则自己上报 eligible/covered，
-  不猜常数；**coverage < 0.5 → 维度降级 `insufficient_evidence`，该维度 findings 丢弃**。
+  不猜常数；**coverage 门控按规则独立判定**：只有 eligible>0 且 covered/eligible≥0.5 的规则保留其
+  finding；维度仅在无任何规则达标时为 `insufficient_evidence`；被门控规则附
+  `art.rule.insufficient_coverage` warning。
 
 维度上另带 **`reliability`**（可选）：applicable 确定性规则的 reliability 按 coverage
 加权均值（experimental 规则排除），`minimum_reliability` 是最低值，仅供调试；跨 schema
-读取的 0.1 报告该字段默认为 `None`。
+读取的 0.1 报告该字段默认为 `None`。维度 reliability 除显式 `ev.reliability` 外，会从各规则
+finding 的 `evidence_reliability` 取 min 派生（experimental 仍排除）。
 
 `experimental_score`（0-100）仅在 ≥3 个维度 assessed 时返回，只用于排序/对比，**不对外宣称
 客观美学分数**。当存在有效 feedback 模型时（见 [feedback 学习系统](usage.md)），分值来源从
@@ -122,7 +125,12 @@ abstain / OOD 时保持现有公式。
 | media | distorted_image / oversized_image / image_overlap | 图片失真、过大、互相重叠 |
 
 规则全部**确定性**：同一场景必得同一结果。全部 `rule_id` 冻结（含 6 条 experimental，
-`conf ≤ 0.3`、不驱动任何降级判定）。
+`conf ≤ 0.4`、低权重参与 grade）。
+
+- `tiny_text` / `title_too_small` / `no_focus` 的 finding 附可学习 details
+  （`font_size_norm` / `ratio_vs_min` / `focus_ratio`）（#145）。
+- 强调色评估基于 run 级颜色（文本长度加权）、评估范围与调色板统一
+  （`_SKIP_ROLES` + 零面积排除）（#156）。
 
 ## 内置 profile
 

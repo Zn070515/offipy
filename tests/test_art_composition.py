@@ -40,7 +40,7 @@ def test_off_balance_fires():
     ev = off_balance_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.composition.off_balance"
-    assert ev.findings[0].confidence <= 0.3  # experimental
+    assert ev.findings[0].confidence <= 0.4  # experimental
 
 
 def test_off_balance_balanced_no_fire():
@@ -68,7 +68,7 @@ def test_corner_cluster_fires():
     ev = corner_cluster_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.composition.corner_cluster"
-    assert ev.findings[0].confidence <= 0.3
+    assert ev.findings[0].confidence <= 0.4
 
 
 def test_spacing_drift_fires():
@@ -127,7 +127,7 @@ def test_background_like_area_fires():
     ev = background_like_area_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.composition.background_like_area"
-    assert ev.findings[0].confidence <= 0.3
+    assert ev.findings[0].confidence <= 0.4
     assert ev.findings[0].evidence_sources == frozenset({"pixel"})
 
 

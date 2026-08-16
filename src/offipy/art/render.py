@@ -50,6 +50,8 @@ def _finding_html(f: ArtFinding) -> str:
         f"[{f.severity.name}] {html_lib.escape(f.rule_id)}: "
         f"{html_lib.escape(f.message)}{html_lib.escape(_finding_evidence(f))}"
     )
+    if f.experimental:
+        text += " <span class='experimental-tag'>[experimental]</span>"
     prov = _severity_override_label(f)
     if prov:
         text += f"<br><span class='severity-adjust'>{prov}</span>"
@@ -74,7 +76,8 @@ def render_markdown(report: ArtReport) -> str:
             lines.append(f"- **{d.dimension}**: {d.grade} (confidence {d.confidence:.2f}{rel})")
             for f in d.findings:
                 lines.append(
-                    f"  - [{f.severity.name}] {f.rule_id}: {f.message}{_finding_evidence(f)}"
+                    f"  - [{f.severity.name}] {f.rule_id}: {f.message}"
+                    f"{' [experimental]' if f.experimental else ''}{_finding_evidence(f)}"
                 )
                 prov = _severity_override_label(f)
                 if prov:
@@ -83,7 +86,10 @@ def render_markdown(report: ArtReport) -> str:
     if report.deck_findings:
         lines.append("## Deck 级")
         for f in report.deck_findings:
-            lines.append(f"- [{f.severity.name}] {f.rule_id}: {f.message}{_finding_evidence(f)}")
+            lines.append(
+                f"- [{f.severity.name}] {f.rule_id}: {f.message}"
+                f"{' [experimental]' if f.experimental else ''}{_finding_evidence(f)}"
+            )
             prov = _severity_override_label(f)
             if prov:
                 lines.append(f"  - {prov}")
@@ -148,6 +154,7 @@ def render_html(report: ArtReport) -> str:
         ".excellent{background:#dcfce7}.good{background:#e0f2fe}"
         ".attention{background:#fef9c3}.poor{background:#fee2e2}"
         ".severity-adjust{display:block;font-size:11px;color:#b45309;margin-top:2px}"
+        ".experimental-tag{font-size:11px;color:#7c3aed}"
         "</style></head><body>"
     )
     lines = [head, f"<h1>艺术分析报告 (profile: {html_lib.escape(report.profile)})</h1>"]

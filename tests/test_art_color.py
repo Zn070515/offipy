@@ -117,7 +117,7 @@ def test_accent_flood_fires_over_ratio():
     )
     ev = accent_flood_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
-    assert ev.findings[0].confidence <= 0.3  # experimental
+    assert ev.findings[0].confidence <= 0.4  # experimental
     assert ev.findings[0].severity == Severity.LOW
 
 
@@ -132,7 +132,7 @@ def test_no_accent_fires_at_zero():
     ev = no_accent_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.color.no_accent"
-    assert ev.findings[0].confidence <= 0.3
+    assert ev.findings[0].confidence <= 0.4
 
 
 def test_color_rules_are_rule_specs():
@@ -258,3 +258,19 @@ def test_low_contrast_declared_not_found_no_match_ratio_falls_back():
     # 回退声明路径：灰字白底 → 低对比 finding（无 pixel 证据）
     assert len(ev.findings) == 1
     assert ev.findings[0].evidence_sources == frozenset()
+
+
+def test_accent_rule_eval_excludes_skip_roles():
+    # 口径统一：page_number/footer 不在强调色评估范围（与调色板 _SKIP_ROLES 一致）
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("b", "B", font_size=20.0, foreground=ArtColor(30, 30, 30)),
+            make_text_element(
+                "pn", "1", font_size=20.0, role="page_number", foreground=ArtColor(30, 30, 30)
+            ),
+        ],
+    )
+    ev = no_accent_rule(slide, _ctx(slide))
+    assert ev.eligible_count == 1
+    assert ev.covered_count == 1

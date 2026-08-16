@@ -37,6 +37,10 @@ def title_too_small_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                 0.55,
                 slide.index,
                 primary=t,
+                details={
+                    "font_size_norm": round(n, 4),
+                    "ratio_vs_min": round(n / ctx.profile.title_size_min_norm, 3),
+                },
             )
         ],
         covered_count=1,
@@ -62,9 +66,10 @@ def no_focus_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                 "hierarchy",
                 Severity.LOW,
                 "页面没有明确的视觉焦点（字号层级过平）。",
-                0.25,
+                0.4,
                 slide.index,
                 primary=dominant,
+                details={"focus_ratio": focus.get("ratio")},
             )
         ],
         covered_count=covered,

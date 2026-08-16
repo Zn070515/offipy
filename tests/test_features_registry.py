@@ -11,7 +11,7 @@ from offipy.art.profiles import (
 )
 from offipy.audit import Severity
 
-INPUT_DIM = 60  # 锁定的输入维度：17 rule + 6 dim + 19 measure + 4 scalar + 8 slide + 6 deck
+INPUT_DIM = 65  # 锁定的输入维度：17 rule + 6 dim + 24 measure + 4 scalar + 8 slide + 6 deck
 
 
 def _finding(**kw):
@@ -71,14 +71,26 @@ def _real_slide():
     return ArtSlide(index=2, width=1920.0, height=1080.0, elements=[title, *bodies])
 
 
-def test_feature_keys_dimension_is_60():
+def test_feature_keys_dimension_is_65():
     keys = feature_keys()
-    assert len(keys) == INPUT_DIM == 60
+    assert len(keys) == INPUT_DIM == 65
     assert len(set(keys)) == len(keys)  # 无重复
 
 
 def test_feature_key_media_tiny_image_area_ratio():
     assert "measure.art.media.tiny_image.area_ratio" in feature_keys()
+
+
+def test_feature_keys_new_measurements_present():
+    keys = set(feature_keys())
+    for key in (
+        "measure.art.typography.tiny_text.font_size_norm",
+        "measure.art.typography.tiny_text.ratio_vs_min",
+        "measure.art.hierarchy.title_too_small.font_size_norm",
+        "measure.art.hierarchy.title_too_small.ratio_vs_min",
+        "measure.art.hierarchy.no_focus.focus_ratio",
+    ):
+        assert key in keys, key
 
 
 def test_encode_flat_scalar_dict_all_keys_present():
@@ -142,7 +154,7 @@ def test_page_ratio_positive_path():
 
 
 def test_schema_version_constant():
-    assert feature_schema_version() == "3"
+    assert feature_schema_version() == "4"
 
 
 def test_slide_feature_scalarizers():
@@ -280,12 +292,17 @@ def test_feature_keys_layout_tripwire():
         "measure.art.consistency.margin_drift.median",
         "measure.art.consistency.title_drift.size_drift",
         "measure.art.consistency.title_drift.x_drift",
+        "measure.art.hierarchy.no_focus.focus_ratio",
+        "measure.art.hierarchy.title_too_small.font_size_norm",
+        "measure.art.hierarchy.title_too_small.ratio_vs_min",
         "measure.art.media.distorted_image.natural_ratio",
         "measure.art.media.distorted_image.physical_ratio",
         "measure.art.media.mixed_image_sizes.spread",
         "measure.art.media.tiny_image.area_ratio",
         "measure.art.typography.flat_scale.ratio",
         "measure.art.typography.many_families.families",
+        "measure.art.typography.tiny_text.font_size_norm",
+        "measure.art.typography.tiny_text.ratio_vs_min",
         "slide.alignment",
         "slide.density",
         "slide.focus",
@@ -295,4 +312,4 @@ def test_feature_keys_layout_tripwire():
         "slide.palette",
         "slide.spacing",
     )
-    assert feature_schema_version() == "3"
+    assert feature_schema_version() == "4"
