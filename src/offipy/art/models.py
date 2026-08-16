@@ -524,6 +524,7 @@ class ArtReport:
     slides: list[ArtSlideReport] = field(default_factory=list)
     deck_findings: list[ArtFinding] = field(default_factory=list)
     experimental_score: float | None = None
+    warnings: list[ArtWarning] = field(default_factory=list)  # #151：feedback 级模型告警
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -532,6 +533,7 @@ class ArtReport:
             "slides": [s.to_dict() for s in self.slides],
             "deck_findings": [f.to_dict() for f in self.deck_findings],
             "experimental_score": self.experimental_score,
+            "warnings": [w.to_dict() for w in self.warnings],
         }
 
 

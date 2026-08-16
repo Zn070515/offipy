@@ -59,6 +59,7 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
                 capacity.get("samples_per_param") if isinstance(capacity, dict) else None
             ),
             "poor_generalization": stats.get("poor_generalization"),
+            "saturation": stats.get("saturation"),
             "excluded": excluded,
             "per_rule": per_rule,
         }

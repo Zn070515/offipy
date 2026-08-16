@@ -162,3 +162,31 @@ def test_train_success_includes_per_rule(tmp_path):
     assert set(per) == {RULE_TITLE_TOO_SMALL}
     assert per[RULE_TITLE_TOO_SMALL]["pairs"] == 48
     assert per[RULE_TITLE_TOO_SMALL]["single_direction"] is False
+
+
+def test_saturation_flag_detects_saturated():
+    """#151：样本间 quality_score P5-P95 跨度 < 5 → 饱和。"""
+    import numpy as np
+
+    from offipy.feedback.train import _saturation_flag
+
+    worth = np.linspace(-0.02, 0.02, 40).reshape(-1, 1)  # score≈51→49，跨度 2
+    assert _saturation_flag(worth, worth_scale=1.0) is True
+
+
+def test_saturation_flag_not_saturated():
+    import numpy as np
+
+    from offipy.feedback.train import _saturation_flag
+
+    worth = np.linspace(-2.0, 2.0, 40).reshape(-1, 1)  # score≈98→2，跨度大
+    assert _saturation_flag(worth, worth_scale=1.0) is False
+
+
+def test_saturation_flag_small_sample_false():
+    import numpy as np
+
+    from offipy.feedback.train import _saturation_flag
+
+    worth = np.zeros((10, 1))  # 样本 < 20，不判定
+    assert _saturation_flag(worth, worth_scale=1.0) is False

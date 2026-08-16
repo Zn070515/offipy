@@ -140,6 +140,14 @@ def _apply_learning_pass(
     bundle = infer.ModelBundle.load(feedback_dir)
     if bundle is None:
         return  # 无模型 / 过期 / 损坏（schema 匹配但权重形状错）→ 回退 v2
+    if bundle.saturation:
+        report.warnings.append(
+            ArtWarning(
+                code="feedback.model.saturated",
+                message="反馈模型输出饱和（样本间 quality_score 跨度过小，判别力不足），"
+                "建议补充更多差异样本后重训",
+            )
+        )
     # #111：按规则证据门禁——只有有效标签 ≥ _MIN_LABELS_PER_RULE 的规则才允许
     # severity_shift。模型仍全特征预测（跨规则泛化保留在 worth 计算里），
     # 但 shift 的「应用」被门禁挡住，0 标签规则不做跨规则泛化 shift。
@@ -237,7 +245,7 @@ def analyze_deck(
             feedback=feedback,
             feedback_dir=feedback_dir,
         )
-        warnings = list(scene.warnings)
+        warnings = list(scene.warnings) + list(art.warnings if art else [])
         if pptx is not None and measurements is None and slides_dir is None:
             warnings.append(
                 ArtWarning(

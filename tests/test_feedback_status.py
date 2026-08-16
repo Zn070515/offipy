@@ -201,3 +201,16 @@ def test_status_per_rule_diagnosis(tmp_path):
     assert row["pairs"] == 48
     assert row["single_direction"] is False
     assert "suggest" in row
+
+
+def test_status_surfaces_saturation(tmp_path):
+    """#151：饱和检测结果经 stats 持久化，status 透出（valid 分支）。"""
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
+    run_training(tmp_path, min_pairs=0)
+    assert report_status(tmp_path)["saturation"] is False  # 判别性样本 → 未饱和
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["stats"]["saturation"] = True
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert report_status(tmp_path)["saturation"] is True

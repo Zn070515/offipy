@@ -14,6 +14,7 @@ import numpy as np
 from offipy.art.features_registry import feature_schema_version
 from offipy.art.feedback import load_records
 
+from .heads import quality_score_from_worth
 from .mlp import MLP, SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
 from .pairs import (
@@ -33,6 +34,33 @@ K = 5
 # #112：判别力门禁阈值——训练后模型对全量样本输出的 worth 标准差低于该值视为
 # 坍缩成常数（ReLU 全死 / 退化），是坏模型，拒绝写盘。
 MIN_OUTPUT_STD = 1e-6
+# #151：饱和判定参数——样本间 quality_score（P5-P95）跨度低于该值视为模型输出
+# 饱和（sigmoid 把所有样本压到几乎同一分数 → 无判别力）。只记录不拒绝写盘。
+SATURATION_MIN_RANGE = 5.0
+SATURATION_MIN_SAMPLES = 20
+
+
+def _saturation_flag(
+    member_means: np.ndarray[tuple[int, ...], np.dtype[np.float64]],
+    worth_scale: float,
+    min_range: float = SATURATION_MIN_RANGE,
+    min_samples: int = SATURATION_MIN_SAMPLES,
+) -> bool:
+    """模型输出是否饱和：样本间 quality_score 的 P5-P95 跨度 < min_range。
+
+    复用 heads.quality_score_from_worth 做分数映射（单一事实来源，不重抄公式）。
+    样本 < min_samples 不判定（统计上无意义）。soft 告警：只记录，不拒绝写盘。
+    """
+    n = int(member_means.size)
+    if n < min_samples:
+        return False
+    scale = worth_scale if worth_scale and worth_scale > 0 else 1.0
+    scores = np.array(
+        [quality_score_from_worth(float(w), scale) for w in member_means.ravel()],
+        dtype=np.float64,
+    )
+    pct = np.percentile(scores, [5.0, 95.0])  # mypy 安全：不拆包 ndarray，走索引
+    return bool(float(pct[1]) - float(pct[0]) < min_range)
 
 
 def run_training(
@@ -130,6 +158,7 @@ def run_training(
         "capacity": capacity,
         "ensemble_size": K,
         "calibration": {"worth_scale": worth_scale},
+        "saturation": _saturation_flag(member_means, worth_scale),
     }
     if capacity["level"] != "ok":
         stats["capacity_warning"] = True  # soft：只记录，不拒绝写盘

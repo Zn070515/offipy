@@ -647,3 +647,19 @@ def test_analyze_deck_feedback_requires_dir():
     m = {"width": 1920.0, "height": 1080.0, "records": []}
     with pytest.raises(InvalidArgumentError, match="feedback_dir"):
         analyze_deck(measurements=m, profile="balanced", feedback=True)
+
+
+def test_apply_learning_pass_appends_saturation_warning(monkeypatch, tmp_path):
+    """#151：模型饱和 → 学习 pass 给 ArtReport.warnings 追加 feedback.model.saturated。"""
+    from offipy.art.analyze import _apply_learning_pass
+    from offipy.art.models import ArtReport
+    from offipy.feedback import infer
+
+    class _Stub:
+        saturation = True
+
+    monkeypatch.setattr(infer.ModelBundle, "load", lambda _d: _Stub())
+    report = ArtReport()
+    _apply_learning_pass(report, None, "balanced", tmp_path, want_score=False)
+    codes = [w.code for w in report.warnings]
+    assert "feedback.model.saturated" in codes

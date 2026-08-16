@@ -42,11 +42,19 @@ class ModelBundle:
         pre: dict[str, Any],
         calibration: dict[str, Any],
         abstain: dict[str, Any],
+        stats: dict[str, Any] | None = None,
     ) -> None:
         self._members = members
         self._pre = pre
         self._cal = calibration
         self._abs = abstain
+        self._stats = stats or {}
+
+    @property
+    def saturation(self) -> bool | None:
+        """#151：训练期饱和检测结果（stats 持久化）；旧模型无该键 → None。"""
+        val = self._stats.get("saturation")
+        return val if isinstance(val, bool) else None
 
     def worth_mean(self, features: dict[str, float]) -> float:
         x = transform_features(features, self._pre)
@@ -110,6 +118,7 @@ class ModelBundle:
             data["preprocessing"],
             data.get("calibration", {}),
             data.get("abstain", {}),
+            data.get("stats", {}),
         )
 
 
