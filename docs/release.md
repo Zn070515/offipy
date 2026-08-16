@@ -17,6 +17,7 @@ offipy 的发布走 **CI 自动管线**（推荐）或**手动发布**（首次/
 | PyPI / TestPyPI 账号 | 需在 [pypi.org](https://pypi.org) 和 [test.pypi.org](https://test.pypi.org) 注册同名账号 |
 | 发布方式二选一 | **① Trusted Publishing（OIDC，推荐）**：在 PyPI/TestPyPI 的「Publishing」页把本 GitHub 仓库 `Zn070515/offipy` 配置为可信发布者（可限定 workflow `release.yml` 与环境 `testpypi`/`pypi`）；**② API token**：手动 `twine upload` 用，`~/.pypirc` 或环境变量 `TWINE_USERNAME=__token__` + `TWINE_PASSWORD` |
 | `twine` | 手动发布需要：`uv tool install twine` 或 `uvx twine`（CI 里用 `uvx twine` 免安装） |
+| GitHub Pages（文档站） | 仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**；`docs-deploy.yml` 在 push main 时自动构建 mkdocs 站并发布到 https://zn070515.github.io/offipy/ |
 
 > **仓库改名提示**：若仓库更名，PyPI 上保存的旧仓库名**不会自动跟随**——Trusted Publisher
 > 精确匹配仓库所有者 / 仓库名 / workflow 文件名 / environment，须用新名重配。

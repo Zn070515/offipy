@@ -7,6 +7,7 @@ Built for Python developers and AI agents to independently produce **polished, a
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
 - **Current version**: 0.20.0 (the current stable release; 1.0.0 will follow broader API validation)
+- **Online docs**: [https://zn070515.github.io/offipy/](https://zn070515.github.io/offipy/) (built with mkdocs, auto-deployed on main)
 
 ## Features
 

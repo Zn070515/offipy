@@ -3,6 +3,16 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [Unreleased]
+
+### Build
+
+- CI：ci.yml 全 job 接入 setup-uv 依赖缓存 + 新增 `workflow-lint` job（actionlint 校验全部
+  workflow 语法，防 YAML 结构错 0-jobs 秒挂无日志复发）
+- CI：release.yml 发布链接入 setup-uv 依赖缓存
+- Docs：新增 `docs-deploy.yml` 发布 mkdocs 站点到 GitHub Pages（官方
+  configure-pages / upload-pages-artifact / deploy-pages 三件套），mkdocs.yml 补 `site_url`
+
 ## [0.20.0] - 2026-08-16
 
 ### Added
