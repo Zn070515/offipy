@@ -525,6 +525,8 @@ class ArtReport:
     deck_findings: list[ArtFinding] = field(default_factory=list)
     experimental_score: float | None = None
     experimental_score_mode: Literal["grade_mean", "worth_sigmoid"] | None = None  # #130：分数来源
+    feedback_adjustments: dict[str, int] = field(default_factory=dict)  # #159：rule.delta 可见
+    quality_score_coverage: dict[str, Any] | None = None  # #133：quality_score 覆盖率（B7 填充）
     warnings: list[ArtWarning] = field(default_factory=list)  # #151：feedback 级模型告警
 
     def to_dict(self) -> dict[str, Any]:
@@ -535,6 +537,8 @@ class ArtReport:
             "deck_findings": [f.to_dict() for f in self.deck_findings],
             "experimental_score": self.experimental_score,
             "experimental_score_mode": self.experimental_score_mode,
+            "feedback_adjustments": self.feedback_adjustments,
+            "quality_score_coverage": self.quality_score_coverage,
             "warnings": [w.to_dict() for w in self.warnings],
         }
 

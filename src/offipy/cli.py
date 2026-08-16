@@ -873,23 +873,41 @@ def _deck_audit(args: argparse.Namespace) -> int | None:
 
 def _emit_deck_audit(report: Any, args: argparse.Namespace) -> int:
     """输出 deck audit 结果：--json 结构化；否则按维度分组文本。"""
-    from .art.suggest import project_suggestions
+    from .art.suggest import project_adjusted_findings, project_suggestions
 
     source = args.source or args.pptx
     suggestions = project_suggestions(report, source=source)
+    adjusted = project_adjusted_findings(report)
     warnings = [{"code": w.code, "message": w.message} for w in report.warnings]
-    score = report.art.experimental_score if report.art else None
+    art = report.art
+    score = art.experimental_score if art else None
+    score_mode = art.experimental_score_mode if art else None
+    feedback_adjustments = dict(art.feedback_adjustments) if art else {}
+    quality_score_coverage = art.quality_score_coverage if art else None
     if args.json:
         payload = {
             "source": source,
             "profile": args.profile,
             "experimental_score": score,
+            "experimental_score_mode": score_mode,
+            "quality_score_coverage": quality_score_coverage,
+            "feedback_adjustments": feedback_adjustments,
+            "adjusted_findings": adjusted,
             "warnings": warnings,
             "suggestions": suggestions,
         }
         print(json.dumps(payload, ensure_ascii=False))
     else:
-        _print_deck_audit_text(args, warnings, suggestions, score=score)
+        _print_deck_audit_text(
+            args,
+            warnings,
+            suggestions,
+            score=score,
+            score_mode=score_mode,
+            feedback_adjustments=feedback_adjustments,
+            quality_score_coverage=quality_score_coverage,
+            adjusted_findings=adjusted,
+        )
     return 0
 
 
@@ -897,12 +915,33 @@ def _print_deck_audit_text(
     args: argparse.Namespace,
     warnings: list[dict[str, object]],
     suggestions: list[dict[str, object]],
+    *,
     score: float | None = None,
+    score_mode: str | None = None,
+    feedback_adjustments: dict[str, int] | None = None,
+    quality_score_coverage: dict[str, object] | None = None,
+    adjusted_findings: list[dict[str, object]] | None = None,
 ) -> None:
     """按维度分组打印文本建议（确定性顺序：逐条记录，维度变化时出标题）。"""
+    from .art.render import score_label
+
     lines = [f"offipy deck audit（profile={args.profile}）"]
     if score is not None:
-        lines.append(f"综合指数 (experimental): {score}")
+        lines.append(f"{score_label(score_mode)}: {score}")
+    if quality_score_coverage:
+        cov = quality_score_coverage
+        lines.append(
+            "分数覆盖: "
+            f"covered={cov['covered_findings']}/{cov['total_findings']} "
+            f"(abstain {cov['abstained_count']}, ood {cov['ood_count']})"
+        )
+    for rule_id, delta in sorted((feedback_adjustments or {}).items()):
+        lines.append(f"模型调整 (rule.delta) {rule_id}: {delta:+d}")
+    lines.extend(
+        f"  调整 {rec['rule_id']}: {rec['severity_before']}→{rec['severity_after']} "
+        f"(worth={rec['worth']}, shift={rec['shift']})"
+        for rec in adjusted_findings or []
+    )
     if warnings:
         lines.append("警告:")
         lines.extend(f"- [{w['code']}] {w['message']}" for w in warnings)

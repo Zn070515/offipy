@@ -499,3 +499,21 @@ def test_project_adjusted_findings_filters_shifted():
     assert recs[0]["worth"] == 0.8
     assert recs[0]["shift"] == 0.8
     assert recs[0]["slide_index"] == 1
+
+
+def test_deck_audit_surfaces_rule_delta(monkeypatch, capsys):
+    """#159：rule.delta 在 JSON feedback_adjustments 与文本模型调整段可见。"""
+    from offipy import cli
+
+    rep = _report()
+    rep.art.feedback_adjustments = {"art.composition.corner_cluster": 1}
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: rep)
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["feedback_adjustments"] == {"art.composition.corner_cluster": 1}
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
+    out = capsys.readouterr().out
+    assert "模型调整 (rule.delta)" in out
+    assert "art.composition.corner_cluster: +1" in out

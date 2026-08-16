@@ -257,6 +257,8 @@ def analyze_scene(
             )
         )
     report.deck_findings = [apply_profile_to_finding(f, prof) for f in assess_deck(scene, prof)]
+    # #159：rule.delta 落到报告（profile 已被 _resolve_profile 替换为学习调整后的副本）
+    report.feedback_adjustments = dict(prof.feedback_severity_adjustments)
     if include_experimental_score:
         report.experimental_score = _experimental_score(report)
         if report.experimental_score is not None:
