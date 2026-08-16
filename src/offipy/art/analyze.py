@@ -57,6 +57,9 @@ _GRADE_SCORE = {"excellent": 0.0, "good": 0.3, "attention": 0.6, "poor": 1.0}
 # 但 shift 的「应用」按规则证据门禁——0 标签规则不做跨规则泛化 shift）
 _MIN_LABELS_PER_RULE = 3
 
+# #158：quality_score 需要 ≥3 个 assessed 维度 worth——单点/证据不足不冒充分数
+_MIN_QUALITY_SCORE_SAMPLES = 3
+
 
 def _experimental_score(report: ArtReport) -> float | None:
     """规则评级均值（0-100），仅当 ≥3 个 assessed 维度才返回。"""
@@ -139,7 +142,14 @@ def _apply_learning_pass(
         return
     bundle = infer.ModelBundle.load(feedback_dir)
     if bundle is None:
-        return  # 无模型 / 过期 / 损坏（schema 匹配但权重形状错）→ 回退 v2
+        # #158：显式反馈路径无有效模型 → 不再静默回退 v2，发 warning 让用户知情。
+        report.warnings.append(
+            ArtWarning(
+                code="feedback.model.unavailable",
+                message="指定反馈目录无有效学习模型（缺失/过期/损坏），本次分析回退 v2 规则",
+            )
+        )
+        return
     if bundle.saturation:
         report.warnings.append(
             ArtWarning(
@@ -154,7 +164,9 @@ def _apply_learning_pass(
     labeled = Counter(
         r.rule_id for r in valid_records(load_records(feedback_dir), profile=profile_name)
     )
-    worths: list[float] = []
+    # #158：quality_score 人口只含 assessed 维度的 slide finding（deck 级 consistency
+    # finding 与 insufficient_evidence 维度的 finding 天然排除），且需要 ≥3 个 worth。
+    covered: list[float] = []
     for finding, slide_index in _all_findings(report):
         if finding.severity_override:
             continue  # user / feedback override 的 finding 一律跳过
@@ -166,10 +178,18 @@ def _apply_learning_pass(
             continue  # 保守：模型不确定 / 特征 OOD 的 finding 不 shift（回退 v2）
         worth = infer.model_worth(feats, bundle)  # 模块级 seam，测试 monkeypatch 生效
         finding.severity = apply_severity_shift(finding.severity, severity_shift_from_worth(worth))
-        worths.append(worth)
-    if want_score and worths:
-        mean_worth = sum(worths) / len(worths)
+        # #158 assessed 门：维度状态在 report 侧（ArtSlideReport.by_dimension）——scene 的
+        # ArtSlide 无 by_dimension；仅 assessed 维度的 slide finding 才计入 quality_score 人口。
+        if slide_index is not None:
+            slide_report = next((sr for sr in report.slides if sr.slide_index == slide_index), None)
+            if slide_report is not None:
+                dim = slide_report.by_dimension(finding.dimension)
+                if dim is not None and dim.status == "assessed":
+                    covered.append(worth)
+    if want_score and len(covered) >= _MIN_QUALITY_SCORE_SAMPLES:
+        mean_worth = sum(covered) / len(covered)
         report.experimental_score = bundle.quality_score(mean_worth)
+        report.experimental_score_mode = "worth_sigmoid"  # #130：区分 grade-mean 来源
 
 
 def analyze_scene(

@@ -79,6 +79,18 @@ def _build_scene():
     )
 
 
+def _build_scene_3slides():
+    """3 页同构场景：每页一个 corner_cluster finding → 3 个 assessed 维度 worth。"""
+    s = _build_scene().slides[0]
+    return make_scene(
+        [
+            make_slide(1, height=1080.0, elements=s.elements),
+            make_slide(2, height=1080.0, elements=s.elements),
+            make_slide(3, height=1080.0, elements=s.elements),
+        ]
+    )
+
+
 def _finding(report, rule_id):
     for s in report.slides:
         for d in s.dimensions:
@@ -351,12 +363,13 @@ def test_analyze_scene_user_override_beats_feedback(tmp_path):
 
 
 def test_analyze_scene_feedback_empty_store_no_change(tmp_path):
-    """feedback=True 但反馈库为空 → 报告与 feedback=False 完全一致。"""
+    """feedback=True 但反馈库为空 → findings 与 feedback=False 一致，且发 warning。"""
     scene = _build_scene()
     default = analyze_scene(scene, profile="balanced")
-    assert dataclasses.asdict(default) == dataclasses.asdict(
-        analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path / "nope")
-    )
+    report = analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path / "nope")
+    assert _findings_map(default) == _findings_map(report)
+    codes = [w.code for w in report.warnings]
+    assert "feedback.model.unavailable" in codes
 
 
 def test_analyze_deck_feedback_adjusts_consistency_rule(tmp_path):
@@ -579,13 +592,16 @@ def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
     _write_learning_model(tmp_path)
     monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)  # 可接受 → 高分
     report = analyze_scene(
-        _build_scene(),
+        _build_scene_3slides(),  # #158：≥3 assessed worth 才写 score（旧单页 1 worth 不达标）
         profile="balanced",
         feedback=True,
         feedback_dir=tmp_path,
         include_experimental_score=True,
     )
     assert report.experimental_score == 73.1
+    assert report.experimental_score_mode == "worth_sigmoid"  # #130
+    # #133：coverage 断言在 B7 做（quality_score_coverage 字段由 B7 才加到 ArtReport，
+    # B2 阶段访问会 AttributeError）。此处只锁分数与来源 mode。
 
 
 def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
@@ -663,3 +679,41 @@ def test_apply_learning_pass_appends_saturation_warning(monkeypatch, tmp_path):
     _apply_learning_pass(report, None, "balanced", tmp_path, want_score=False)
     codes = [w.code for w in report.warnings]
     assert "feedback.model.saturated" in codes
+
+
+def test_analyze_learning_model_unavailable_warns(tmp_path):
+    """#158：feedback=True 无有效模型 → 发 feedback.model.unavailable warning，不静默回退。"""
+    report = analyze_scene(
+        _build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path / "nope"
+    )
+    codes = [w.code for w in report.warnings]
+    assert "feedback.model.unavailable" in codes
+
+
+def test_analyze_learning_quality_score_needs_three_worths(monkeypatch, tmp_path):
+    """#158：<3 个 assessed 维度 worth → quality_score 不写（不冒充分数）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)
+    report = analyze_scene(
+        _build_scene(),  # 单页 1 个 corner_cluster finding → 1 worth < 3
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    # 未达 ≥3 worth 门 → 未落 worth_sigmoid mode；grade_mean 兜底保留（90.0），不冒充分数
+    assert report.experimental_score_mode == "grade_mean"
+    assert report.experimental_score == 90.0
