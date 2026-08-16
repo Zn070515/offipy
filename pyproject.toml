@@ -172,6 +172,7 @@ allowed-confusables = [
 "src/offipy/diagrams.py" = ["SLF001"]
 "src/offipy/drawio.py" = ["SLF001"]
 "src/offipy/icons.py" = ["SLF001"]
+"src/offipy/animations/apply.py" = ["SLF001"]
 # tests/** 测试惯用模式定向放行（非 blanket ignore，只放行这组）：SLF001 是
 # python-pptx 内部 XML 断言（验证产出结构），ARG001-005 是 fixture/回调未用参数，
 # PT011/PT012/PT018 是 pytest 宽泛/复合断言——都是测试的常见写法，逐条改反而
