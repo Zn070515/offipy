@@ -523,7 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="反馈库目录（默认 ~/.offipy）",
     )
     deck = sub.add_parser("deck")
-    deck.add_argument("action", choices=["make", "outline", "audit"])
+    deck.add_argument("action", choices=["make", "outline", "audit", "add-anim"])
     # audit 的 HTML 源走位置参数（task 5）：make/outline 传了会在分支内拦截。
     deck.add_argument("source", nargs="?", help="audit 的 HTML 源文件（位置参数）")
     # 专用选项（P0-4）：布尔用 _BoolAction，`--overwrite false` 不再是
@@ -540,6 +540,15 @@ def build_parser() -> argparse.ArgumentParser:
     deck.add_argument("--theme", help="注入内置主题名（make/outline）")
     deck.add_argument("--layouts", action=_BoolAction, help="注入 data-layout 布局 CSS（make）")
     deck.add_argument("--overwrite", action=_BoolAction, help="覆盖已存在的 .pptx（make）")
+    deck.add_argument(
+        "--animations",
+        action="store_true",
+        help="渲染 PPTX 注入入场动画/过渡（make；默认关）",
+    )
+    deck.add_argument(
+        "--spec",
+        help='动画/过渡 spec.json（add-anim）：{"animations": [...], "transitions": [...]}',
+    )
     deck.add_argument(
         "--audit-mode",
         choices=["report", "strict"],
@@ -721,6 +730,7 @@ def _main(argv: list[str] | None = None) -> int | None:
                 theme=args.theme,
                 apply_layouts=args.layouts,
                 overwrite=args.overwrite,
+                animations=args.animations,
             )
             print(json.dumps({"pptx": pptx}, ensure_ascii=False))
         elif args.action == "outline":
@@ -751,6 +761,8 @@ def _main(argv: list[str] | None = None) -> int | None:
                 print(json.dumps({"html": str(Path(args.out).resolve())}, ensure_ascii=False))
             else:
                 print(outline.to_json())
+        elif args.action == "add-anim":
+            return _deck_add_anim(args)
         else:  # audit
             return _deck_audit(args)
         return None
@@ -921,7 +933,8 @@ def _deck_make_with_audit(args: argparse.Namespace) -> int | None:
             "用法: offipy deck make --html <deck.html> "
             "[--audit-mode report|strict] [--fail-on HIGH|MID|LOW] "
             "[--audit-report <path>] [--out <x.pptx>] [--no-open] "
-            "[--export-png <dir>] [--theme <name>] [--layouts] [--overwrite]"
+            "[--export-png <dir>] [--theme <name>] [--layouts] [--overwrite] "
+            "[--animations]"
         )
     fail_on = {"HIGH": Severity.HIGH, "MID": Severity.MID, "LOW": Severity.LOW}[args.fail_on]
     try:
@@ -933,6 +946,7 @@ def _deck_make_with_audit(args: argparse.Namespace) -> int | None:
             overwrite=args.overwrite,
             audit_mode=args.audit_mode,
             fail_on=fail_on,
+            animations=args.animations,
         )
     except AuditGateError as e:
         # strict 未通过：先落盘报告（若指定路径），再以 exit 1 收场（旧目标未动）。
@@ -954,6 +968,43 @@ def _deck_make_with_audit(args: argparse.Namespace) -> int | None:
     elif not args.no_open:
         open_live(pptx)
     print(json.dumps({"pptx": pptx}, ensure_ascii=False))
+    return None
+
+
+def _deck_add_anim(args: argparse.Namespace) -> int | None:
+    """offipy deck add-anim --pptx X --spec spec.json：给现成 .pptx 注入动画/过渡。"""
+    from .animations.apply import apply_animations
+    from .animations.spec import AnimationSpec, TransitionSpec
+
+    if not args.pptx:
+        _usage_exit("用法: offipy deck add-anim --pptx <deck.pptx> --spec <spec.json>")
+    if not args.spec:
+        _usage_exit("用法: offipy deck add-anim --pptx <deck.pptx> --spec <spec.json>")
+    try:
+        with Path(args.spec).open(encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        _usage_exit(f"找不到 spec 文件: {args.spec}")
+    except json.JSONDecodeError as e:
+        _usage_exit(f"spec 不是合法 JSON: {args.spec}（{e}）")
+    if not isinstance(data, dict):
+        _usage_exit('spec.json 必须是对象：{"animations": [...], "transitions": [...]}')
+    for key in ("animations", "transitions"):
+        if key in data and not isinstance(data[key], list):
+            _usage_exit(f"spec.json 的 {key} 必须是数组")
+    animations = []
+    for item in data.get("animations") or []:
+        if not isinstance(item, dict):
+            _usage_exit(f"animations 元素必须是对象（实际 {type(item).__name__}）")
+        # 字段非法 → InvalidArgumentError 冒泡（main 兜底）
+        animations.append(AnimationSpec(**item))
+    transitions = []
+    for item in data.get("transitions") or []:
+        if not isinstance(item, dict):
+            _usage_exit(f"transitions 元素必须是对象（实际 {type(item).__name__}）")
+        transitions.append(TransitionSpec(**item))
+    report = apply_animations(args.pptx, animations=animations, transitions=transitions)
+    print(json.dumps({"pptx": args.pptx, **report}, ensure_ascii=False))
     return None
 
 

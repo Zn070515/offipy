@@ -1,3 +1,5 @@
+from typing import Any
+
 from . import direct
 from .api import Excel, Ppt, RemoteExcel, RemotePpt, RemoteWord, Word, op
 from .art import (
@@ -78,6 +80,7 @@ __all__ = [
     "PLACEHOLDER_TYPE_NAMES",
     "PROGIDS",
     "SHAPE_TYPE_NAMES",
+    "AnimationSpec",
     "ArtColor",
     "ArtElement",
     "ArtElementRef",
@@ -118,10 +121,13 @@ __all__ = [
     "SlidePixelEvidence",
     "SlideTextRecord",
     "TargetNotFoundError",
+    "TransitionSpec",
     "UnsupportedPlatformError",
     "Word",
     "analyze_deck",
     "analyze_scene",
+    "apply_animations",
+    "apply_transitions",
     "audit_pptx",
     "build_scene",
     "compare_pptx",
@@ -141,3 +147,30 @@ __all__ = [
     "running",
     "shape_type_name",
 ]
+
+# animations 符号惰性导出：offipy.animations 包 __init__ 经 .apply 拉 python-pptx，
+# 而核心 `import offipy` 承诺零额外依赖（deck extra 才装 python-pptx/lxml）。PEP 562
+# __getattr__ 把 4 个符号的加载推迟到真正访问时，保住 test_import_offipy_does_not_load_pptx
+# 等「import offipy 不加载 pptx」契约。
+_ANIMATION_LAZY_EXPORTS = frozenset(
+    {"AnimationSpec", "TransitionSpec", "apply_animations", "apply_transitions"}
+)
+
+
+def __getattr__(name: str) -> Any:
+    """PEP 562 惰性导出 animations 符号（访问时才触发 offipy.animations 包）。"""
+    if name not in _ANIMATION_LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from .animations import (
+        AnimationSpec,
+        TransitionSpec,
+        apply_animations,
+        apply_transitions,
+    )
+
+    return {
+        "AnimationSpec": AnimationSpec,
+        "TransitionSpec": TransitionSpec,
+        "apply_animations": apply_animations,
+        "apply_transitions": apply_transitions,
+    }[name]
