@@ -34,9 +34,9 @@ _Arr = np.ndarray[Any, np.dtype[np.float64]]
 H_MIN, H_MAX = 4, 32
 SECOND_LAYER_N = 120
 # #121 A3 / #134：samples_per_param 告警阈值——spp≥1 ok、≥0.25 warn、<0.25 critical。
-# #134 重标定：旧 5/2 在全容量自适应（H=clamp(√n,4,32)）下误伤小样本——n=37 单层
-# 25 params 曾得 0.34→critical，实际小样本 spp≥1 已是健康信号。建议样本数只作估算
-# （suggest_n），容量仍是软告警不拒绝写盘。
+# #134 重标定：旧 5/2 在全容量自适应（H=clamp(√n,4,32)）下误伤小样本——如 n=37 单层
+# 25 params 得 spp=1.48 仍被判 critical，实际小样本 spp≥1 已是健康信号。建议样本数只作
+# 估算（suggest_n），容量仍是软告警不拒绝写盘。
 _SPP_OK = 1.0
 _SPP_WARN = 0.25
 
