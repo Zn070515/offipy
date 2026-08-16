@@ -75,7 +75,13 @@ def test_should_abstain_false_with_zero_margin(tmp_path):
 
 
 def test_should_abstain_true_when_members_diverge(tmp_path):
-    """std_p80=0 → member 分歧 std > 0 → abstain（分歧路径；margin 分支隔离）。"""
+    """std 分歧超阈值 → abstain（分歧路径；margin 分支隔离）。
+
+    std_p80 用 1e-9 而非 0.0：同权重成员在 CI 线程化 BLAS 下会产生 ~1e-15 级
+    浮点噪声（本地 OpenBLAS 逐位确定，CI Ubuntu 上偶发），严格 `std > 0.0` 会
+    把同权重成员的噪声误判为分歧。发散成员 std ~1e-2 与噪声 ~1e-15 差 7 个
+    数量级，1e-9 无歧义分隔。
+    """
     n = len(feature_keys())
     # 不同 seed 的随机 MLP：权重差异巨大 → 同一输入下输出分歧明显
     members = [
@@ -83,16 +89,17 @@ def test_should_abstain_true_when_members_diverge(tmp_path):
         (1, MLP(input_dim=n, hidden_dims=(4,), seed=1)),
         (2, MLP(input_dim=n, hidden_dims=(4,), seed=2)),
     ]
-    _write_bundle(tmp_path, members=members, abstain={"worth_margin_p25": 0.0, "std_p80": 0.0})
+    _write_bundle(tmp_path, members=members, abstain={"worth_margin_p25": 0.0, "std_p80": 1e-9})
     bundle = ModelBundle.load(tmp_path)
     assert bundle is not None
     feats = {"finding.confidence": 0.5}
     _mean, std = bundle.worth_stats(feats)
-    assert std > 0.0  # 成员输出确已分歧（前置条件，否则断言无意义）
+    assert std > 1e-9  # 成员输出确已分歧（前置条件，否则断言无意义）
     assert bundle.should_abstain(feats) is True  # std 分支触发
-    # 同 seed 拷贝（无分歧）→ std=0 → 不 abstain（证明是分歧触发，不是 margin）
+    # 同 seed 拷贝（无分歧）→ std 仅剩 BLAS 浮点噪声（<< 1e-9）→ 不 abstain
+    # （证明是分歧触发，不是 margin）
     dup_members = [(i, MLP(input_dim=n, hidden_dims=(4,), seed=7)) for i in range(3)]
-    _write_bundle(tmp_path, members=dup_members, abstain={"worth_margin_p25": 0.0, "std_p80": 0.0})
+    _write_bundle(tmp_path, members=dup_members, abstain={"worth_margin_p25": 0.0, "std_p80": 1e-9})
     dup = ModelBundle.load(tmp_path)
     assert dup is not None
     assert dup.should_abstain(feats) is False
