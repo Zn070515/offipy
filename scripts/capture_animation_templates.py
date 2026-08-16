@@ -37,9 +37,13 @@ def main() -> int:
     import win32com.client
 
     pythoncom.CoInitialize()
-    app = win32com.client.Dispatch("PowerPoint.Application")
-    pres = app.Presentations.Add()
+    errors = []
+    results = {}
+    app = None
+    pres = None
     try:
+        app = win32com.client.Dispatch("PowerPoint.Application")
+        pres = app.Presentations.Add()
         slide = pres.Slides.Add(1, 1)  # ppLayoutTitle
         # msoAnimEffect 常量（PowerPoint 对象模型）：
         # 1=Appear 2=FlyIn 10=Fade 11=FloatUp 13=GrowAndTurn 19=Wipe 20=ZoomIn
@@ -53,28 +57,57 @@ def main() -> int:
             "zoom_in": 20,
             "grow": 13,
         }
-        results = {}
         # 每个效果一个独立 textbox：保证每个效果在 timing 里是一个干净的
         # <p:par>，方便逐效果提取它的原生 <p:anim*>/<p:set> XML。
         for i, (name, eff_id) in enumerate(effects.items()):
-            shape = slide.Shapes.AddTextbox(1, 50, 100 + i * 60, 400, 40)
-            ok, info = add_effect(shape, eff_id)
+            try:
+                shape = slide.Shapes.AddTextbox(1, 50, 100 + i * 60, 400, 40)
+                ok, info = add_effect(shape, eff_id)
+            except Exception as e:  # textbox/AddEffect 之外的失败也捕获，不中断整轮
+                ok, info = False, {"error": str(e)}
             results[name] = {"ok": ok, **info}
         OUT_PPTX.parent.mkdir(exist_ok=True)
+        if OUT_PPTX.exists():
+            OUT_PPTX.unlink()  # 残留旧文件会让 SaveAs 弹"文件已存在"对话框卡住
         pres.SaveAs(str(OUT_PPTX))
+    except Exception as e:
+        errors.append(f"capture: {e}")
     finally:
-        pres.Close()
-        app.Quit()
+        # Close/Quit 各自 try/except：一个失败不能跳过另一个，避免泄漏 POWERPNT
+        # （CLAUDE.md：Quit 可能被加载项/关闭对话框卡住）。
+        if pres is not None:
+            try:
+                pres.Close()
+            except Exception as e:
+                errors.append(f"close: {e}")
+        if app is not None:
+            try:
+                app.Quit()
+            except Exception as e:
+                errors.append(f"quit: {e}")
 
-    # 解 zip 读 slide1.xml 的 <p:timing>
-    with zipfile.ZipFile(OUT_PPTX) as z:
-        xml = z.read("ppt/slides/slide1.xml").decode("utf-8")
-    start = xml.find("<p:timing>")
-    end = xml.find("</p:timing>") + len("</p:timing>")
-    timing = xml[start:end] if start >= 0 else "<p:timing>（无——未产生动画）</p:timing>"
+    # 解 zip 读 slide1.xml 的 <p:timing> —— 即使捕获/清理出错也要尽量产出产物。
+    timing = "<p:timing>（无——未产生动画）</p:timing>"
+    if OUT_PPTX.exists():
+        try:
+            with zipfile.ZipFile(OUT_PPTX) as z:
+                xml = z.read("ppt/slides/slide1.xml").decode("utf-8")
+            start = xml.find("<p:timing>")
+            end = xml.find("</p:timing>") + len("</p:timing>")
+            if start >= 0:
+                timing = xml[start:end]
+        except Exception as e:
+            errors.append(f"zip: {e}")
+        finally:
+            try:
+                OUT_PPTX.unlink()  # 读完就删中间 pptx，不留残余
+            except Exception as e:
+                errors.append(f"unlink: {e}")
+
     doc = {
         "results": results,
         "timing_xml": timing,
+        "errors": errors,
         "note": "PPT 把这些效果存成 presetID 模板或 animEffect/animMotion。"
         "float_up/zoom 等可能在 AddEffect 里用扩展常量，见 output 校准。",
     }
@@ -84,7 +117,9 @@ def main() -> int:
         "```json\n" + json.dumps(doc, indent=2, ensure_ascii=False) + "\n```\n", encoding="utf-8"
     )
     print(json.dumps(doc, indent=2, ensure_ascii=False))
-    return 0
+    # 任一效果失败、或任一阶段出错（含清理/解包）→ 非零退出码
+    ok_all = results and all(r["ok"] for r in results.values()) and not errors
+    return 0 if ok_all else 1
 
 
 if __name__ == "__main__":
