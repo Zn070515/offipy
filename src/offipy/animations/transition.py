@@ -20,12 +20,14 @@ _SPEED_MAP = {"slow": "slow", "medium": "med", "fast": "fast"}
 
 
 def build_transition(kind: str, speed: str = "medium") -> etree._Element:
+    if speed not in _SPEED_MAP:
+        raise InvalidArgumentError(f"未知过渡速度: {speed}（slow/medium/fast）")
     spd = _SPEED_MAP[speed]
     if kind == "fade":
         inner = "<p:fade/>"
     elif kind in {"wipe", "push", "cover"}:
         inner = f"<p:{kind} dir='l'/>"
     else:
-        raise InvalidArgumentError(f"未知过渡类型: {kind}")
+        raise InvalidArgumentError(f"未知过渡类型: {kind}（fade/wipe/push/cover）")
     xml = f"<p:transition {nsdecls('p')} spd='{spd}'>{inner}</p:transition>"
     return parse_xml(xml)

@@ -37,3 +37,8 @@ def test_transition_speed_values():
 def test_transition_unknown_kind_raises():
     with pytest.raises(InvalidArgumentError):
         build_transition("flip")
+
+
+def test_transition_unknown_speed_raises():
+    with pytest.raises(InvalidArgumentError):
+        build_transition("fade", speed="turbo")
