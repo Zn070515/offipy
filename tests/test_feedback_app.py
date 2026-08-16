@@ -132,3 +132,29 @@ def test_append_auto_fills_schema_version(tmp_path):
     rec = load_records(tmp_path)[0]
     assert rec.feature_schema_version == current()
     assert rec.features == {"finding.confidence": 0.5}
+
+
+def test_reschema_records_rewrites_expired(tmp_path):
+    """#144：过期但有 features 的记录重写为当前 version；无 features 跳过计数。"""
+    from offipy.art import append as art_append
+    from offipy.art.features_registry import feature_schema_version as current
+    from offipy.art.feedback import load_records, reschema_records
+    from offipy.audit import Severity
+
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version="999",
+    )
+    art_append(
+        "balanced", "art.hierarchy.title_too_small", "accepted", Severity.MID, feedback_dir=tmp_path
+    )  # 无 features
+    res = reschema_records(tmp_path)
+    assert res["rewritten"] == 1
+    assert res["skipped_no_features"] == 1
+    recs = load_records(tmp_path)
+    assert recs[0].feature_schema_version == current()

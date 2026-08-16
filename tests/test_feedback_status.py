@@ -157,3 +157,31 @@ def test_status_model_stale_when_kept_oob(tmp_path):
     s = report_status(tmp_path)
     assert s["model"] == "stale"
     assert "effective_dims" not in s
+
+
+def test_status_excluded_breakdown(tmp_path):
+    """#144：schema 过期/无特征记录在 status 里显式报出 excluded。"""
+    from offipy.art import append as art_append
+    from offipy.art.features_registry import feature_schema_version as current
+    from offipy.audit import Severity
+
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version=current(),
+    )
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version="999",
+    )
+    s = report_status(tmp_path)
+    assert s["excluded"] == {"schema_mismatch": 1, "no_features": 0, "ignored": 0, "other": 0}

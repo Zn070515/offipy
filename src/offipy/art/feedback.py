@@ -30,6 +30,7 @@ __all__ = [
     "load_records",
     "recommend_adjustments",
     "record_file",
+    "reschema_records",
 ]
 
 # 记录文件默认位置：~/.offipy/art_feedback.jsonl（与 v1 的 feedback.jsonl 分离）
@@ -237,3 +238,43 @@ def apply_feedback(
     target = get_profile(profile) if isinstance(profile, str) else profile
     adjustments = recommend_adjustments(target.name, feedback_dir=feedback_dir)
     return dataclasses.replace(target, feedback_severity_adjustments=adjustments)
+
+
+def reschema_records(feedback_dir: str | Path | None = None) -> dict[str, int]:
+    """把 schema 过期但有 features 的记录重写为当前 feature_schema_version。
+
+    #144：feature_schema_version bump 后旧记录被 valid_records 过滤。本函数把
+    仍有特征快照的过期记录原地重写（features dict 保留，缺失 key 由 encode_vector
+    补 0），返回 {rewritten, skipped_no_features, already_current}。无 features 的
+    记录无法重编码，跳过并计数。
+    """
+    from offipy.art.features_registry import feature_schema_version
+
+    current = feature_schema_version()
+    f = record_file(feedback_dir)
+    if not f.exists():
+        return {"rewritten": 0, "skipped_no_features": 0, "already_current": 0}
+    lines = f.read_text(encoding="utf-8").splitlines()
+    rewritten = skipped = already = 0
+    new_lines: list[str] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            rec = ArtFeedbackRecord.from_dict(json.loads(line))
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            new_lines.append(line)  # 坏行保留，不破坏文件
+            continue
+        if rec.feature_schema_version == current:
+            already += 1
+            new_lines.append(line)
+        elif rec.features is not None:
+            rec = dataclasses.replace(rec, feature_schema_version=current)
+            rewritten += 1
+            new_lines.append(json.dumps(rec.to_dict(), ensure_ascii=False))
+        else:
+            skipped += 1
+            new_lines.append(line)
+    if rewritten:
+        f.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+    return {"rewritten": rewritten, "skipped_no_features": skipped, "already_current": already}
