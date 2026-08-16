@@ -400,3 +400,40 @@ def test_measure_parse_single_index_graceful():
     assert _parse_single_index("3") == 3
     with pytest.raises(SystemExit, match="single_index"):
         _parse_single_index("abc")
+
+
+# ---------------------------------------------------------------- #141b 真实超链接 + 虚线边框
+
+
+def test_run_hyperlink_writes_hlinkClick(tmp_path):
+    """#141：<a href> 的 text run 产出真实 a:hlinkClick + 外部 hyperlink 关系。"""
+    from pptx import Presentation
+
+    rec = _text([{"text": "click me", "fontSize": 18, "fontWeight": "400",
+                  "fontFamily": "Arial", "color": "rgb(0, 0, 0)",
+                  "href": "https://example.com"}])
+    out = tmp_path / "t.pptx"
+    assemble({"slides": [_slide([rec])]}, out)
+    prs = Presentation(str(out))
+    slide = prs.slides[0]
+    xml = slide._element.xml
+    assert "a:hlinkClick" in xml and "r:id=" in xml
+    hyper = [r for r in slide.part.rels.values()
+             if r.reltype.endswith("/hyperlink")]
+    assert len(hyper) == 1
+    assert hyper[0].target_ref == "https://example.com"
+
+
+def test_dashed_border_emits_prstDash(tmp_path):
+    """#141：borderStyle: dashed → <a:prstDash val="dash"/>（不丢虚线样式）。
+
+    走四边同色分支（最常见卡片虚线场景）→ `_apply_border_dash(shape.line, deco)`
+    → `shape.line.dash_style`；单侧画线路径由 `_add_line` 的 dash 参数覆盖。
+    """
+    sides = {f"border{s}": True for s in ("Top", "Bottom", "Left", "Right")}
+    widths = {f"border{s}Width": 2 for s in ("Top", "Bottom", "Left", "Right")}
+    colors = {f"border{s}Color": "rgb(0, 0, 0)" for s in ("Top", "Bottom", "Left", "Right")}
+    xml = _render_xml(tmp_path, [
+        _shape(100, 100, 300, 150, {**sides, **widths, **colors, "borderStyle": "dashed"}),
+    ])
+    assert 'prstDash val="dash"' in xml

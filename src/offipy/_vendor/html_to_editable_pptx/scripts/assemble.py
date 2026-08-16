@@ -17,7 +17,9 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.util import Emu
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.dml import MSO_LINE
 from pptx.dml.color import RGBColor
+from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.oxml.ns import qn
 from lxml import etree
 
@@ -599,6 +601,7 @@ def add_shape_box(slide, rec):
         else:
             shape.line.color.rgb = make_rgb(border_rgba[:3])
             shape.line.width = Emu(px_to_emu(widest or 1))
+            _apply_border_dash(shape.line, deco)
             _set_line_alpha(shape, border_rgba[3])
         _apply_rotation(shape, rec)
         return shape
@@ -620,6 +623,7 @@ def add_shape_box(slide, rec):
             # 否则描边整个丢失（例：border-radius:50% + background + border 的头像圆）
             shape.line.color.rgb = make_rgb(border_rgba[:3])
             shape.line.width = Emu(px_to_emu(widest or 1))
+            _apply_border_dash(shape.line, deco)
             _set_line_alpha(shape, border_rgba[3])
         else:
             shape.line.fill.background()
@@ -631,19 +635,20 @@ def add_shape_box(slide, rec):
         return fill_shape
 
     # 否则按需画线（border-top / border-bottom 等单侧情形）
+    dash = _border_dash(deco)
     for side in active_sides:
         side_rgba = border_rgba_for(side)
         rgb = side_rgba[:3]
         alpha = side_rgba[3]
         bw = sides[side][1] or 1
         if side == "top":
-            _add_line(slide, x, y, x + w, y, rgb, bw, alpha)
+            _add_line(slide, x, y, x + w, y, rgb, bw, alpha, dash)
         elif side == "bottom":
-            _add_line(slide, x, y + h, x + w, y + h, rgb, bw, alpha)
+            _add_line(slide, x, y + h, x + w, y + h, rgb, bw, alpha, dash)
         elif side == "left":
-            _add_line(slide, x, y, x, y + h, rgb, bw, alpha)
+            _add_line(slide, x, y, x, y + h, rgb, bw, alpha, dash)
         elif side == "right":
-            _add_line(slide, x + w, y, x + w, y + h, rgb, bw, alpha)
+            _add_line(slide, x + w, y, x + w, y + h, rgb, bw, alpha, dash)
 
 
 def add_asset_placeholder(slide, rec):
@@ -736,13 +741,33 @@ def _set_line_alpha(shape_or_line, alpha: float):
     alpha_el.set("val", str(int(round(alpha * 100000))))
 
 
-def _add_line(slide, x1, y1, x2, y2, color_rgb, width_px, alpha: float = 1.0):
-    """画一条直线。x1/y1/x2/y2 已是 EMU。可选 alpha 支持半透明。"""
+_BORDER_DASH_MAP = {
+    "dashed": MSO_LINE.DASH,
+    "dotted": MSO_LINE.ROUND_DOT,
+}
+
+
+def _border_dash(deco):
+    """CSS border-style → MSO_LINE dash（未知/实线 → None，不写 prstDash 保持默认）。"""
+    style = (deco.get("borderStyle") or "solid").lower()
+    return _BORDER_DASH_MAP.get(style)
+
+
+def _apply_border_dash(line, deco):
+    dash = _border_dash(deco)
+    if dash is not None:
+        line.dash_style = dash
+
+
+def _add_line(slide, x1, y1, x2, y2, color_rgb, width_px, alpha: float = 1.0, dash=None):
+    """画一条直线。x1/y1/x2/y2 已是 EMU。可选 alpha 支持半透明，dash 可选虚线样式。"""
     from pptx.enum.shapes import MSO_CONNECTOR
     line = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x1, y1, x2, y2)
     line.line.color.rgb = make_rgb(color_rgb)
     line.line.width = Emu(px_to_emu(width_px))
     _set_line_alpha(line, alpha)
+    if dash is not None:
+        line.dash_style = dash
     return line
 
 
@@ -961,7 +986,7 @@ def add_text_box(slide, rec):
             if pending_space:
                 body = " " + body
                 pending_space = False
-            _emit_run(cur_para, body, run, text_transform)
+            _emit_run(cur_para, body, run, text_transform, part=slide.part)
 
     _fix_empty_paragraph_sizes(tf, style_for_lh.get("fontSize", 16))
 
@@ -1106,7 +1131,7 @@ def _annotate_baseline_offsets(runs):
             run["baselinePct"] = max(-400000, min(400000, pct))
 
 
-def _emit_run(paragraph, text, run, text_transform):
+def _emit_run(paragraph, text, run, text_transform, part=None):
     """向 paragraph 写入一个富文本 run。直接操作 OOXML 以精确控制 letterSpacing。"""
     if not text:
         return
@@ -1224,6 +1249,14 @@ def _emit_run(paragraph, text, run, text_transform):
         ea_el.set("typeface", font_name)
     cs_el = etree.SubElement(rPr, qn("a:cs"))
     cs_el.set("typeface", font_name)
+
+    # #141：<a href> → 真实 a:hlinkClick（外部关系）。schema 顺序：hlinkClick 必须
+    # 紧跟 latin/ea/cs 之后；<a:t> 是 <a:r> 的子节点，不参与 rPr 顺序。
+    href = run.get("href")
+    if href and part is not None:
+        r_id = part.relate_to(href, RT.HYPERLINK, is_external=True)
+        hlink = etree.SubElement(rPr, qn("a:hlinkClick"))
+        hlink.set(qn("r:id"), r_id)
 
     t_el = etree.SubElement(r_el, qn("a:t"))
     t_el.text = text
