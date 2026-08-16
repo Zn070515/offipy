@@ -18,6 +18,15 @@ _STATUS_LABEL = {
 }
 
 
+def score_label(mode: str | None) -> str:
+    """综合指数标签按来源区分：规则评级均值 vs 模型置信度（#130）。"""
+    if mode == "worth_sigmoid":
+        return "综合指数 (模型置信度)"
+    if mode == "grade_mean":
+        return "综合指数 (规则评级)"
+    return "综合指数 (experimental)"  # 旧报告缺 mode → 兼容旧标签
+
+
 def report_to_json(report: ArtReport) -> dict[str, Any]:
     return report.to_dict()
 
@@ -61,7 +70,7 @@ def _finding_html(f: ArtFinding) -> str:
 def render_markdown(report: ArtReport) -> str:
     lines = [f"# 艺术分析报告 (profile: {report.profile})", ""]
     if report.experimental_score is not None:
-        lines.append(f"综合指数 (experimental): {report.experimental_score}")
+        lines.append(f"{score_label(report.experimental_score_mode)}: {report.experimental_score}")
         lines.append("")
     for s in report.slides:
         lines.append(f"## Slide {s.slide_index}")
@@ -159,7 +168,8 @@ def render_html(report: ArtReport) -> str:
     )
     lines = [head, f"<h1>艺术分析报告 (profile: {html_lib.escape(report.profile)})</h1>"]
     if report.experimental_score is not None:
-        lines.append(f"<p>综合指数 (experimental): {report.experimental_score}</p>")
+        label = score_label(report.experimental_score_mode)
+        lines.append(f"<p>{label}: {report.experimental_score}</p>")
     for s in report.slides:
         lines.append(f"<h2>Slide {s.slide_index}</h2>")
         lines.append(_radar_svg(s.dimensions))

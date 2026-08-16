@@ -211,6 +211,8 @@ def analyze_scene(
     report.deck_findings = [apply_profile_to_finding(f, prof) for f in assess_deck(scene, prof)]
     if include_experimental_score:
         report.experimental_score = _experimental_score(report)
+        if report.experimental_score is not None:
+            report.experimental_score_mode = "grade_mean"  # #130：分数来源标注
     if feedback:
         _apply_learning_pass(
             report, scene, prof.name, feedback_dir, want_score=include_experimental_score
