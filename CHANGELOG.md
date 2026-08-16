@@ -40,6 +40,14 @@
   缺字段（None / 空文本）用 secondary 补齐（font_size 三元组同源），不再因测量缺
   证据丢视觉线索
 
+### Fixed
+
+- art: tiny_text/title_too_small/no_focus 的 finding 附可学习 details（#145）
+- art: 维度 reliability 从 finding 级 evidence_reliability 派生（#153）
+- art: experimental 规则 conf 封顶提至 0.4，低权重参与 grade（#154）
+- art: coverage 门控按规则独立判定，不再整维丢弃 findings（#155）
+- art: 强调色评估走 run 级颜色，口径与调色板统一（#156）
+
 ## [0.18.0] - 2026-08-15
 
 ### Added
