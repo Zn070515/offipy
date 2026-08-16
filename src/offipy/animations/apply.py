@@ -261,8 +261,11 @@ def postprocess_animations(html_path: str, pptx_path: str) -> dict[str, Any]:  #
         if isinstance(tdecl, dict):
             kind = tdecl.get("kind")
             speed = tdecl.get("speed", "medium")
-            if kind in {"fade", "wipe", "push", "cover"}:
+            if kind in {"fade", "wipe", "push", "cover"} and speed in {"slow", "medium", "fast"}:
                 transitions.append(TransitionSpec(slide=i, kind=kind, speed=speed))
+            elif kind in {"fade", "wipe", "push", "cover"}:
+                # speed 非法（如 "fastest"）→ 不构造 TransitionSpec，记告警跳过
+                warnings.append(_warning(f"slide {i} 过渡速度 {speed!r} 非法，跳过"))
             else:
                 warnings.append(_warning(f"slide {i} 未知过渡类型 {kind!r}，跳过"))
         for rec in sdata.get("records") or []:
@@ -319,7 +322,8 @@ def postprocess_animations(html_path: str, pptx_path: str) -> dict[str, Any]:  #
                 unmatched.append(u)
         warnings.extend(
             _warning(
-                f"slide {u.get('slide')} 元素 {u.get('elem_id')} 未产出可动画形状（unmatched）"
+                f"slide {u.get('slide')} 元素 {u.get('elem_id') or u.get('target', '')} "
+                "未产出可动画形状（unmatched）"
             )
             for u in unmatched
         )
@@ -344,4 +348,4 @@ def _append_warnings(meas_path: Path, warnings: list[dict[str, Any]]) -> None:
         existing = []
     existing.extend(warnings)
     data["_warnings"] = existing
-    meas_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    meas_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

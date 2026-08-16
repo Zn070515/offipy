@@ -153,7 +153,6 @@ def test_postprocess_invalid_decl_warning_persisted_even_without_injection(tmp_p
     # 唯一动画声明非法（未知效果 flip）→ parse None 产 spec 告警；无任何注入，
     # 但告警必须落进 measurements.json 的 _warnings（P1 dict 不崩 + P2 不丢）。
     html, pptx, meas_path = _build_fixture(tmp_path)
-    import json
     data = json.loads(meas_path.read_text(encoding="utf-8"))
     data["slides"][0]["records"][0]["anim_decl"] = {"anim": "flip"}
     meas_path.write_text(json.dumps(data), encoding="utf-8")
@@ -164,3 +163,18 @@ def test_postprocess_invalid_decl_warning_persisted_even_without_injection(tmp_p
     ws = updated.get("_warnings", [])
     assert ws and any(isinstance(w, dict) and w.get("kind") == "anim" for w in ws)
     assert any("flip" in str(w) for w in ws)
+
+
+def test_postprocess_invalid_transition_speed_warns_not_raises(tmp_path):
+    # 过渡声明 speed 非法（fastest）→ 不硬失败（kind 合法但 speed 越界），
+    # 记告警跳过、不构造 TransitionSpec；measurements.json _warnings 提到该 speed。
+    html, pptx, meas_path = _build_fixture(tmp_path)
+    data = json.loads(meas_path.read_text(encoding="utf-8"))
+    data["slides"][0]["slide"]["transition_decl"] = {"kind": "push", "speed": "fastest"}
+    meas_path.write_text(json.dumps(data), encoding="utf-8")
+    report = postprocess_animations(html, pptx)
+    assert report["transitions_applied"] == 0
+    updated = json.loads(meas_path.read_text(encoding="utf-8"))
+    ws = updated.get("_warnings", [])
+    assert ws and any(isinstance(w, dict) and w.get("kind") == "anim" for w in ws)
+    assert any("fastest" in str(w) for w in ws)
