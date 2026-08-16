@@ -404,6 +404,35 @@ def test_request_uses_per_port_token_and_absolutizes_paths(monkeypatch, tmp_path
     assert captured["auth"] == "Bearer p8901"  # P1-1：token 按 base_url 端口取
 
 
+def test_request_absolutizes_feedback_dir(monkeypatch, tmp_path):
+    """#146：feedback_dir 是目录参数，须按调用方 CWD 绝对化（server 是独立进程）。"""
+    captured = {}
+
+    class _Resp:
+        def read(self):
+            return b'{"ok": true, "result": null}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_open(req, timeout=None):
+        captured["data"] = json.loads(req.data.decode("utf-8"))
+        return _Resp()
+
+    monkeypatch.setattr("offipy.client._probe", lambda: "ok")
+    monkeypatch.setattr("offipy.client._OPENER.open", fake_open)
+    monkeypatch.delenv("OFFIPY_SERVER_TOKEN", raising=False)
+    (tmp_path / "token-8890").write_text("t8890", encoding="utf-8")
+    monkeypatch.setattr(client, "user_data_dir", lambda: tmp_path)
+
+    request("feedback", "train", base_url="http://127.0.0.1:8890", feedback_dir="rel/fb")
+    args = captured["data"]["args"]
+    assert args["feedback_dir"] == str(pathlib.Path("rel/fb").resolve())
+
+
 # --- pid 定位 / stop ---
 
 
