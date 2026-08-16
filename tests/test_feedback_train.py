@@ -150,3 +150,15 @@ def test_train_no_valid_samples_reports_excluded(tmp_path):
     assert res["reason"] == "no_valid_samples"
     assert res["excluded"]["no_features"] == 3
     assert "hint" in res
+
+
+def test_train_success_includes_per_rule(tmp_path):
+    """#152：成功训练返回体带逐规则样本诊断。"""
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "fixed", 12, features=_features(3.0, 1.0))
+    _add(tmp_path, RULE_TITLE_TOO_SMALL, "accepted", 4, features=_features(1.0, 0.2))
+    res = run_training(tmp_path, min_pairs=0)
+    assert res["trained"] is True
+    per = res["per_rule"]
+    assert set(per) == {RULE_TITLE_TOO_SMALL}
+    assert per[RULE_TITLE_TOO_SMALL]["pairs"] == 48
+    assert per[RULE_TITLE_TOO_SMALL]["single_direction"] is False

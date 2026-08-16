@@ -146,4 +146,9 @@ def run_training(
         abstain=abstain,
         path=path,
     )
-    return {"trained": True, **stats, "model": str(path)}
+    return {
+        "trained": True,
+        **stats,
+        "model": str(path),
+        "per_rule": per_rule_diagnosis(valid, min_pairs),
+    }

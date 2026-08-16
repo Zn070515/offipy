@@ -185,3 +185,19 @@ def test_status_excluded_breakdown(tmp_path):
     )
     s = report_status(tmp_path)
     assert s["excluded"] == {"schema_mismatch": 1, "no_features": 0, "ignored": 0, "other": 0}
+
+
+def test_status_per_rule_diagnosis(tmp_path):
+    """#152：status 输出逐规则样本诊断（fixed/accepted/pairs/single_direction/suggest）。"""
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
+    run_training(tmp_path, min_pairs=0)
+    s = report_status(tmp_path)
+    per = s["per_rule"]
+    assert set(per) == {RULE_TITLE_TOO_SMALL}
+    row = per[RULE_TITLE_TOO_SMALL]
+    assert row["fixed"] == 12
+    assert row["accepted"] == 4
+    assert row["pairs"] == 48
+    assert row["single_direction"] is False
+    assert "suggest" in row
