@@ -1,3 +1,5 @@
+import pytest
+
 from art_helpers import make_element, make_image_element, make_slide, make_text_element
 from offipy.art.features import (
     AlignmentLine,
@@ -501,3 +503,31 @@ def test_accent_elements_skips_skip_roles_and_zero_area():
     )
     ids = [e.element_id for e in accent_elements(slide)]
     assert ids == ["body"]
+
+
+def test_palette_accent_ratio_run_weighted():
+    # run 级加权核心路径：Hello(accent, 5 字) + World(中性, 5 字) → 面积均分 0.5
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element(
+                "t",
+                "HelloWorld",
+                font_size=20.0,
+                foreground=ArtColor(30, 30, 30),
+                runs=[
+                    ArtTextRun(
+                        text="Hello", font_size=20.0, font_size_unit="px", color=ArtColor(230, 0, 0)
+                    ),
+                    ArtTextRun(
+                        text="World",
+                        font_size=20.0,
+                        font_size_unit="px",
+                        color=ArtColor(30, 30, 30),
+                    ),
+                ],
+            ),
+        ],
+    )
+    pal = palette_features(slide)
+    assert pal["accent_ratio"] == pytest.approx(0.5, rel=1e-3)

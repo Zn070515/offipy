@@ -305,8 +305,8 @@ def is_accent(c: ArtColor) -> bool:
 
 def element_color_weights(el: ArtElement) -> list[tuple[ArtColor, float]]:
     """元素可着色权重：(color, weight)。文本 run 按文本长度加权；
-    无有色 run 回退元素 foreground；无颜色证据返回空。"""
-    colored = [(r.color, float(len(r.text))) for r in el.runs if r.color is not None]
+    空文本 run 不产生权重；无有色 run 回退元素 foreground；无颜色证据返回空。"""
+    colored = [(r.color, float(len(r.text))) for r in el.runs if r.color is not None and r.text]
     if colored:
         return colored
     if el.foreground is not None:
