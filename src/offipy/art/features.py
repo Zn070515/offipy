@@ -296,29 +296,48 @@ def font_hierarchy(slide: ArtSlide) -> dict[str, Any]:
     }
 
 
-def _is_accent(c: ArtColor) -> bool:
+def is_accent(c: ArtColor) -> bool:
     """近似判断「高饱和强调色」（前景色）。"""
     mx = max(c.r, c.g, c.b)
     mn = min(c.r, c.g, c.b)
     return (mx - mn) > 60 and mx > 160
 
 
+def element_color_weights(el: ArtElement) -> list[tuple[ArtColor, float]]:
+    """元素可着色权重：(color, weight)。文本 run 按文本长度加权；
+    无有色 run 回退元素 foreground；无颜色证据返回空。"""
+    colored = [(r.color, float(len(r.text))) for r in el.runs if r.color is not None]
+    if colored:
+        return colored
+    if el.foreground is not None:
+        return [(el.foreground, 1.0)]
+    return []
+
+
+def accent_elements(slide: ArtSlide) -> list[ArtElement]:
+    """强调色评估范围：可见元素（跳过 _SKIP_ROLES 与零面积）。"""
+    return [e for e in slide.elements if e.role not in _SKIP_ROLES and e.area]
+
+
 def palette_features(slide: ArtSlide) -> dict[str, Any]:
-    """RGB 分桶 + 面积加权 accent 占比（只算前景色）+ dominant 色。"""
+    """RGB 分桶 + 面积/文本加权 accent 占比（run 级颜色）+ dominant 色。"""
     buckets: dict[tuple[int, int, int], float] = {}
     accent_area = 0.0
     total_area = 0.0
     for e in slide.elements:
         if e.role in _SKIP_ROLES or not e.area:
             continue
-        c = e.foreground  # rev2.1：只用前景色；背景不算强调色
-        if c is None:
+        weights = element_color_weights(e)
+        if not weights:
             continue
-        bucket = ((c.r // 32) * 32, (c.g // 32) * 32, (c.b // 32) * 32)
-        buckets[bucket] = buckets.get(bucket, 0.0) + e.area
-        total_area += e.area
-        if _is_accent(c):
-            accent_area += e.area
+        total_w = sum(w for _c, w in weights) or 1.0
+        for c, w in weights:
+            contrib = e.area * (w / total_w)
+            bucket = ((c.r // 32) * 32, (c.g // 32) * 32, (c.b // 32) * 32)
+            buckets[bucket] = buckets.get(bucket, 0.0) + contrib
+            total_area += contrib
+            if is_accent(c):
+                accent_area += contrib
     if not buckets:
         return {"buckets": {}, "accent_ratio": 0.0, "dominant": (0, 0, 0)}
     dominant = max(buckets.items(), key=lambda kv: kv[1])[0]

@@ -10,7 +10,13 @@ from typing import TYPE_CHECKING
 
 from offipy.audit import Severity
 
-from .features import effective_background, palette_features
+from .features import (
+    accent_elements,
+    effective_background,
+    element_color_weights,
+    is_accent,
+    palette_features,
+)
 from .profiles import RULE_ACCENT_FLOOD, RULE_LOW_CONTRAST, RULE_NO_ACCENT
 from .rules import RuleContext, RuleEvaluation, RuleSpec, make_finding
 
@@ -105,26 +111,25 @@ def low_contrast_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
 
 
 def _area_weighted_accent_ratio(slide: ArtSlide) -> tuple[float, object | None]:
+    """run 级强调色占比 + 最大强调元素（口径与调色板一致，accent_elements）。"""
     pal = palette_features(slide)
     ratio = pal["accent_ratio"]
     largest: ArtElement | None = None
     best = 0.0
-    for e in slide.elements:
-        c = e.foreground  # rev2.1：只认前景色
-        if c is None or e.role in ("background", "container", "decoration"):
+    for e in accent_elements(slide):
+        if not any(is_accent(c) for c, _w in element_color_weights(e)):
             continue
-        sat = max(c.r, c.g, c.b) - min(c.r, c.g, c.b)
-        if sat > 60 and e.area > best:
+        if e.area > best:
             best = e.area
             largest = e
     return ratio, largest
 
 
 def _accent_rule_eval(slide: ArtSlide) -> tuple[int, int]:
-    """评估范围=全部可见元素；covered=有前景色证据可判 accent 者。"""
-    els = [e for e in slide.elements if e.role not in ("background", "container", "decoration")]
+    """评估范围=accent_elements（与调色板 _SKIP_ROLES 一致）；covered=有颜色证据者。"""
+    els = accent_elements(slide)
     eligible = len(els)
-    covered = len([e for e in els if e.foreground is not None])
+    covered = len([e for e in els if element_color_weights(e)])
     return eligible, covered
 
 

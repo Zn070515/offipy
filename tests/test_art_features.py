@@ -4,19 +4,22 @@ from offipy.art.features import (
     _drifted_count,
     _gaps,
     _row_clusters,
+    accent_elements,
     alignment_features,
     compute_features,
     density_features,
     effective_background,
+    element_color_weights,
     focus_features,
     font_hierarchy,
     infer_slide_role,
+    is_accent,
     palette_features,
     physical_aspect_ratio,
     spacing_features,
     visual_mass,
 )
-from offipy.art.models import ArtColor, ArtElement
+from offipy.art.models import ArtColor, ArtElement, ArtTextRun
 
 
 def _el(element_id, x, y, w, h, role="body", kind="text"):
@@ -432,3 +435,69 @@ def test_make_slide_sets_element_slide_index():
     )
     assert slide.index == 3
     assert all(e.slide_index == slide.index for e in slide.elements)
+
+
+def test_element_color_weights_run_text_length():
+    el = make_text_element(
+        "t",
+        "Hello",
+        font_size=20.0,
+        foreground=ArtColor(30, 30, 30),
+        runs=[
+            ArtTextRun(text="He", font_size=20.0, font_size_unit="px", color=ArtColor(230, 0, 0)),
+            ArtTextRun(text="llo", font_size=20.0, font_size_unit="px", color=ArtColor(30, 30, 30)),
+        ],
+    )
+    weights = element_color_weights(el)
+    assert weights == [(ArtColor(230, 0, 0), 2.0), (ArtColor(30, 30, 30), 3.0)]
+
+
+def test_element_color_weights_fallback_foreground():
+    el = ArtElement(
+        element_id="s",
+        kind="shape",
+        role="body",
+        x=0.1,
+        y=0.1,
+        width=0.2,
+        height=0.2,
+        slide_index=1,
+        foreground=ArtColor(230, 0, 0),
+    )
+    assert element_color_weights(el) == [(ArtColor(230, 0, 0), 1.0)]
+
+
+def test_element_color_weights_empty():
+    el = ArtElement(
+        element_id="s",
+        kind="shape",
+        role="body",
+        x=0.1,
+        y=0.1,
+        width=0.2,
+        height=0.2,
+        slide_index=1,
+    )
+    assert element_color_weights(el) == []
+
+
+def test_is_accent_public():
+    assert is_accent(ArtColor(230, 0, 0)) is True
+    assert is_accent(ArtColor(30, 30, 30)) is False
+
+
+def test_accent_elements_skips_skip_roles_and_zero_area():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("body", "B", font_size=20.0, foreground=ArtColor(30, 30, 30)),
+            make_text_element(
+                "pn", "1", font_size=20.0, role="page_number", foreground=ArtColor(30, 30, 30)
+            ),
+            make_text_element(
+                "ft", "f", font_size=20.0, role="footer", foreground=ArtColor(30, 30, 30)
+            ),
+        ],
+    )
+    ids = [e.element_id for e in accent_elements(slide)]
+    assert ids == ["body"]
