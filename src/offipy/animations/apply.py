@@ -84,8 +84,14 @@ def _inject_slide(
     slide_idx: int,
     animations: list[AnimationSpec],
     transitions: list[TransitionSpec],
-) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
-    """对单页注入。返回 (applied_count, unmatched, skipped)。slide_idx 为 1-based。"""
+) -> tuple[int, bool, list[dict[str, Any]], list[dict[str, Any]]]:
+    """对单页注入。返回 (anim_applied, trans_injected, unmatched, skipped)。
+
+    trans_injected 表示本页实际写入了 <p:transition>（供 apply_animations 汇总
+    transitions_applied）。slide 已有 <p:transition>（无 timing）时跳过全部过渡
+    请求，不产生第二个 transition（CT_Slide transition maxOccurs=1），并把它们
+    记入 skipped。slide_idx 为 1-based。
+    """
     units: list[AnimationUnit] = []
     unmatched: list[dict[str, Any]] = []
     for a in animations:
@@ -108,7 +114,7 @@ def _inject_slide(
 
     transitions_for_slide = [t for t in transitions if t.slide == slide_idx]
     if not units and not transitions_for_slide:
-        return 0, unmatched, []
+        return 0, False, unmatched, []
 
     # 幂等性：slide 已有 <p:timing> → 拒绝（spec §错误处理）
     existing_timing = slide._element.findall(
@@ -121,18 +127,32 @@ def _inject_slide(
 
     timing_el = build_timing(units)
     # 每页一个过渡（spec）：同页多余声明跳过并记入报告，不静默覆盖。
+    has_existing_transition = bool(
+        slide._element.findall(
+            ".//{http://schemas.openxmlformats.org/presentationml/2006/main}transition"
+        )
+    )
     transition_el = None
+    trans_injected = False
     skipped: list[dict[str, Any]] = []
     if transitions_for_slide:
-        transition_el = build_transition(
-            transitions_for_slide[0].kind, transitions_for_slide[0].speed
-        )
-        skipped = [
-            {"slide": slide_idx, "kind": extra.kind, "reason": "每页仅一个过渡"}
-            for extra in transitions_for_slide[1:]
-        ]
+        if has_existing_transition:
+            # slide 已有过渡 → 跳过全部请求，不产生第二个 transition（CT_Slide maxOccurs=1）
+            skipped = [
+                {"slide": slide_idx, "kind": t.kind, "reason": "slide 已有过渡"}
+                for t in transitions_for_slide
+            ]
+        else:
+            transition_el = build_transition(
+                transitions_for_slide[0].kind, transitions_for_slide[0].speed
+            )
+            trans_injected = True
+            skipped = [
+                {"slide": slide_idx, "kind": extra.kind, "reason": "每页仅一个过渡"}
+                for extra in transitions_for_slide[1:]
+            ]
     _insert_sld_elements(slide._element, transition_el, timing_el)
-    return len(units), unmatched, skipped
+    return len(units), trans_injected, unmatched, skipped
 
 
 def apply_animations(
@@ -159,12 +179,14 @@ def apply_animations(
     all_unmatched: list[dict[str, Any]] = []
     all_skipped: list[dict[str, Any]] = []
     for slide_idx, slide in enumerate(prs.slides, 1):
-        applied, unmatched, skipped = _inject_slide(slide, slide_idx, anim_specs, trans_specs)
+        applied, trans_injected, unmatched, skipped = _inject_slide(
+            slide, slide_idx, anim_specs, trans_specs
+        )
         total_anim += applied
+        if trans_injected:
+            total_trans += 1  # 每页至多注入一个过渡（实际写入才计）
         all_unmatched.extend(unmatched)
         all_skipped.extend(skipped)
-        if any(t.slide == slide_idx for t in trans_specs):
-            total_trans += 1  # 每页至多注入一个过渡
 
     # 全 miss 是纯错误路径：不写回文件，保持原 pptx 不变
     if (
