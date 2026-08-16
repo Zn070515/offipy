@@ -162,6 +162,7 @@ def embed(in_pptx: Path, measurement, out_pptx: Path, warnings: list | None = No
 
     # 1) 收集所有独立的 ttf 文件，每个文件 subset 一次
     file_blobs: dict[str, bytes] = {}
+    warned_fonts: set[str] = set()
     for plan in FONT_PLAN:
         for slot, fname in plan["slots"].items():
             if fname in file_blobs:
@@ -170,7 +171,9 @@ def embed(in_pptx: Path, measurement, out_pptx: Path, warnings: list | None = No
             if not ttf_path.exists():
                 # #141：字体未缓存 → 跳过该字体的 subset 嵌入（不再让 convert 失败）。
                 # PPTX 打开时由 PowerPoint 用替换字体显示；警告进 warnings 供 deck 透出。
-                if warnings is not None:
+                # warned_fonts 去重：缺缓存字体永不进 file_blobs，同一 fname 被多个 slot
+                # 引用时会重复走到这里——同一字体只产出一条降级警告。
+                if warnings is not None and fname not in warned_fonts:
                     warnings.append({
                         "kind": "font",
                         "message": (
@@ -178,6 +181,7 @@ def embed(in_pptx: Path, measurement, out_pptx: Path, warnings: list | None = No
                             "PPTX 打开时由 PowerPoint 替换显示"
                         ),
                     })
+                    warned_fonts.add(fname)
                 continue
             blob = subset_ttf(ttf_path, chars)
             file_blobs[fname] = blob

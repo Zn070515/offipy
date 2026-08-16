@@ -58,8 +58,10 @@ def _work_copy_target(in_path: Path) -> Path:
 
 
 def _append_measure_warnings(anchor_json: Path, warnings: list[dict]) -> None:
-    """把新增警告幂等合并进 measurements.json 的 _warnings（保留既有条目）。
+    """按 (kind, message) 幂等合并进 measurements.json 的 _warnings（保留既有条目，不重复）。
 
+    幂等：同一批警告重复调用不产生重复条目——audit 多轮迭代 measurements.json 持久化，
+    字体仍缺时每轮重新 append 同一警告，去重保证 deck 质量报告的替换计数不被堆叠夸大。
     文件缺失/损坏/非 dict → 静默忽略（测量数据损坏不应阻断转换成功路径）。
     """
     if not anchor_json.exists():
@@ -73,7 +75,12 @@ def _append_measure_warnings(anchor_json: Path, warnings: list[dict]) -> None:
     existing = data.get("_warnings", [])
     if not isinstance(existing, list):
         existing = []
-    existing.extend(warnings)
+    seen = {(w.get("kind"), w.get("message")) for w in existing if isinstance(w, dict)}
+    for w in warnings:
+        key = (w.get("kind"), w.get("message"))
+        if key not in seen:
+            existing.append(w)
+            seen.add(key)
     data["_warnings"] = existing
     try:
         anchor_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -90,12 +90,13 @@ def test_embed_missing_font_skips_and_warns(tmp_path, monkeypatch):
     monkeypatch.setattr(embed_fonts, "CACHE_DIR", cache)  # 空缓存目录 → 字体必缺
     monkeypatch.setattr(embed_fonts, "FONT_PLAN", [
         {"typeface": "Zz Face", "charset": "00", "pitchFamily": "2", "cjk": False,
-         "style": "sans", "slots": {"regular": "Zz-Face.ttf"}},
+         "style": "sans", "slots": {"regular": "Zz-Face.ttf", "bold": "Zz-Face.ttf"}},
     ])
     warnings: list[dict] = []
     embed(in_pptx, {"slides": [{"records": []}]}, out_pptx, warnings=warnings)
     assert warnings, "缺缓存字体应产生降级警告"
     assert all(w["kind"] == "font" for w in warnings)
+    assert len(warnings) == 1, "同一缺失字体被多个 slot 引用时只产出一条警告"
     assert out_pptx.exists()  # skip 后整体流程正常产出，不再中途崩
 
 
@@ -128,3 +129,20 @@ def test_append_measure_warnings_ignores_missing_corrupt_and_nondict(tmp_path):
     not_dict = tmp_path / "not_dict.json"
     not_dict.write_text("[1, 2]", encoding="utf-8")
     _append_measure_warnings(not_dict, [{"kind": "font"}])  # 非 dict 根 → 静默
+
+
+def test_append_measure_warnings_dedups_across_calls(tmp_path):
+    """#141：同一批字体警告重复合并不产生重复条目（audit 多轮迭代不堆积）。"""
+    from convert import _append_measure_warnings
+
+    m = tmp_path / "measurements.json"
+    m.write_text(json.dumps({"_warnings": [{"kind": "img", "message": "broken img"}]}),
+                 encoding="utf-8")
+    fw = [{"kind": "font", "message": "字体 X.ttf 未缓存"}]
+    _append_measure_warnings(m, fw)
+    _append_measure_warnings(m, fw)
+    data = json.loads(m.read_text(encoding="utf-8"))
+    assert data["_warnings"] == [
+        {"kind": "img", "message": "broken img"},
+        {"kind": "font", "message": "字体 X.ttf 未缓存"},
+    ]
