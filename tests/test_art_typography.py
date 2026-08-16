@@ -1,3 +1,5 @@
+import pytest
+
 from art_helpers import make_slide, make_text_element
 from offipy.art.features import compute_features
 from offipy.art.models import ArtElement, ArtTextRun
@@ -89,9 +91,11 @@ def test_tiny_text_details_font_size_norm():
     )
     ev = tiny_text_rule(slide, _ctx(slide))
     f = ev.findings[0]
+    n = 10.0 / 1080.0
     assert "font_size_norm" in f.details
     assert "ratio_vs_min" in f.details
-    assert abs(f.details["font_size_norm"] - 10.0 / 1080.0) < 1e-4
+    assert abs(f.details["font_size_norm"] - n) < 1e-4
+    assert f.details["ratio_vs_min"] == pytest.approx(n / 0.015, rel=1e-3)
 
 
 def test_flat_scale_fires_low_ratio():
