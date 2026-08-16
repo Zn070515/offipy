@@ -113,3 +113,22 @@ def test_append_bad_severity_raises(tmp_path):
             "bogus",
             feedback_dir=str(tmp_path),
         )
+
+
+def test_append_auto_fills_schema_version(tmp_path):
+    """#143：append 带 features 缺 version → 自动填当前 feature_schema_version。"""
+    from offipy.art.features_registry import feature_schema_version as current
+    from offipy.art.feedback import load_records
+
+    app = FeedbackApp()
+    app.append(
+        "balanced",
+        RULE_TITLE_TOO_SMALL,
+        "fixed",
+        "MID",
+        feedback_dir=str(tmp_path),
+        features={"finding.confidence": 0.5},
+    )
+    rec = load_records(tmp_path)[0]
+    assert rec.feature_schema_version == current()
+    assert rec.features == {"finding.confidence": 0.5}
