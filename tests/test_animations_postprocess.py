@@ -6,8 +6,6 @@
 
 import json
 
-import pytest
-
 from offipy.animations.apply import postprocess_animations
 
 
@@ -17,6 +15,7 @@ def _qn(tag):
 
 def _measurements_path(pptx):
     from pathlib import Path
+
     p = Path(pptx)
     return p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json"
 
@@ -49,9 +48,14 @@ def _build_fixture(tmp_path):
             {
                 "slide": {"background": "rgb(255,255,255)"},
                 "records": [
-                    {"id": 1, "kind": "shape", "className": "",
-                     "anim_decl": {"anim": "fade"}, "elem_id": "1.0",
-                     "rect": {"x": 0, "y": 0, "w": 10, "h": 10}},
+                    {
+                        "id": 1,
+                        "kind": "shape",
+                        "className": "",
+                        "anim_decl": {"anim": "fade"},
+                        "elem_id": "1.0",
+                        "rect": {"x": 0, "y": 0, "w": 10, "h": 10},
+                    },
                 ],
             }
         ],
@@ -66,6 +70,7 @@ def test_postprocess_injects_timing_and_counts(tmp_path):
     assert report["animations_applied"] == 1
     assert report["unmatched"] == []
     from pptx import Presentation
+
     sld = Presentation(pptx).slides[0]
     timings = sld._element.findall(".//{*}timing")
     assert len(timings) == 1
@@ -75,6 +80,7 @@ def test_postprocess_multi_shape_unit_all_shapes_animated(tmp_path):
     html, pptx, _ = _build_fixture(tmp_path)
     postprocess_animations(html, pptx)
     from pptx import Presentation
+
     sld = Presentation(pptx).slides[0]
     spids = [t.get("spid") for t in sld._element.findall(".//{*}spTgt")]
     # fill + 2 边框线 = 3 个形状，各一组 set+effect → 6 个 spTgt
@@ -85,6 +91,7 @@ def test_postprocess_sld_child_order(tmp_path):
     html, pptx, _ = _build_fixture(tmp_path)
     postprocess_animations(html, pptx)
     from pptx import Presentation
+
     sld = Presentation(pptx).slides[0]
     names = [_qn(c.tag) for c in sld._element]
     assert names.index("cSld") < names.index("timing")
@@ -99,6 +106,7 @@ def test_postprocess_transition_injected_and_before_timing(tmp_path):
     report = postprocess_animations(html, pptx)
     assert report["transitions_applied"] == 1
     from pptx import Presentation
+
     sld = Presentation(pptx).slides[0]
     names = [_qn(c.tag) for c in sld._element]
     assert names.index("transition") < names.index("timing")
@@ -109,9 +117,14 @@ def test_postprocess_unmatched_elem_records_warning_not_fail(tmp_path):
     data = json.loads(meas_path.read_text(encoding="utf-8"))
     # 加一个 anim_decl 但 assemble 没产出对应形状（无 OFFIPY_ELEM::9.9 shape）
     data["slides"][0]["records"].append(
-        {"id": 2, "kind": "shape", "className": "",
-         "anim_decl": {"anim": "fade"}, "elem_id": "9.9",
-         "rect": {"x": 0, "y": 0, "w": 5, "h": 5}},
+        {
+            "id": 2,
+            "kind": "shape",
+            "className": "",
+            "anim_decl": {"anim": "fade"},
+            "elem_id": "9.9",
+            "rect": {"x": 0, "y": 0, "w": 5, "h": 5},
+        },
     )
     meas_path.write_text(json.dumps(data), encoding="utf-8")
     report = postprocess_animations(html, pptx)
@@ -124,7 +137,6 @@ def test_postprocess_unmatched_elem_records_warning_not_fail(tmp_path):
 def test_postprocess_no_animations_noop(tmp_path):
     html, pptx, _ = _build_fixture(tmp_path)
     # 清掉 anim_decl
-    from pathlib import Path
     meas_path = _measurements_path(pptx)
     data = json.loads(meas_path.read_text(encoding="utf-8"))
     for rec in data["slides"][0]["records"]:
@@ -135,6 +147,7 @@ def test_postprocess_no_animations_noop(tmp_path):
     assert report["animations_applied"] == 0
     assert report["transitions_applied"] == 0
     from pptx import Presentation
+
     sld = Presentation(pptx).slides[0]
     assert not sld._element.findall(".//{*}timing")
 
@@ -144,6 +157,7 @@ def test_postprocess_missing_measurements_noop(tmp_path):
     html.write_text("x", encoding="utf-8")
     pptx = tmp_path / "x.pptx"
     from pptx import Presentation
+
     Presentation().save(str(pptx))
     report = postprocess_animations(str(html), str(pptx))
     assert report["animations_applied"] == 0
