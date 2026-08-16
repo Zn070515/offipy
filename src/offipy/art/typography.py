@@ -90,6 +90,10 @@ def tiny_text_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                     0.6,
                     slide.index,
                     primary=e,
+                    details={
+                        "font_size_norm": round(n, 4),
+                        "ratio_vs_min": round(n / ctx.profile.min_text_size_norm, 3),
+                    },
                 )
             )
     return RuleEvaluation(findings=out, covered_count=covered, eligible_count=len(eligible))

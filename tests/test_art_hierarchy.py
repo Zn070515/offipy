@@ -42,6 +42,19 @@ def test_title_too_small_ok():
     assert title_too_small_rule(slide, _ctx(slide)).findings == []
 
 
+def test_title_too_small_details():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("t", "Title", font_size=20.0, role="title"),  # 20/1080 < 0.03
+        ],
+    )
+    ev = title_too_small_rule(slide, _ctx(slide))
+    f = ev.findings[0]
+    assert "font_size_norm" in f.details
+    assert "ratio_vs_min" in f.details
+
+
 def test_no_focus_fires_when_flat():
     slide = make_slide(
         1,
@@ -55,6 +68,20 @@ def test_no_focus_fires_when_flat():
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.hierarchy.no_focus"
     assert ev.findings[0].confidence <= 0.3  # experimental
+
+
+def test_no_focus_details_focus_ratio():
+    slide = make_slide(
+        1,
+        elements=[
+            make_text_element("a", "A", font_size=24.0),
+            make_text_element("b", "B", y=0.2, font_size=24.0),
+            make_text_element("c", "C", y=0.3, font_size=24.0),
+        ],
+    )
+    ev = no_focus_rule(slide, _ctx(slide))
+    f = ev.findings[0]
+    assert "focus_ratio" in f.details
 
 
 def test_no_focus_ok_when_dominant():
