@@ -130,3 +130,23 @@ def test_diverged_loss_reports_status_no_model(tmp_path):
     assert res["trained"] is False
     assert res["reason"] == "training_diverged"
     assert not model_file(tmp_path).exists()
+
+
+def test_train_no_valid_samples_reports_excluded(tmp_path):
+    """#131：全未采样记录 → no_valid_samples + excluded.no_features 可见。"""
+    from offipy.art import append as art_append
+    from offipy.audit import Severity
+
+    for _ in range(3):
+        art_append(
+            "balanced",
+            "art.hierarchy.title_too_small",
+            "fixed",
+            Severity.MID,
+            feedback_dir=tmp_path,
+        )  # 无 features
+    res = run_training(tmp_path)
+    assert res["trained"] is False
+    assert res["reason"] == "no_valid_samples"
+    assert res["excluded"]["no_features"] == 3
+    assert "hint" in res

@@ -94,3 +94,28 @@ def per_rule_diagnosis(
             "suggest": suggest,
         }
     return out
+
+
+def record_filter_breakdown(
+    records: Iterable[ArtFeedbackRecord],
+) -> dict[str, int]:
+    """记录过滤分类：valid / no_features / schema_mismatch / ignored / other。
+
+    供 status（#144 excluded 明细）与 train（#131 未采样提示）共用，让「被静默
+    过滤」变成「显式分类可见」。与 valid_records 同判据（fixed/accepted + features
+    非 None + schema 匹配），单一事实来源不漂移。
+    """
+    current_schema = feature_schema_version()
+    out = {"valid": 0, "no_features": 0, "schema_mismatch": 0, "ignored": 0, "other": 0}
+    for r in records:
+        if r.action == "ignored":
+            out["ignored"] += 1
+        elif r.action not in ("fixed", "accepted"):
+            out["other"] += 1
+        elif r.features is None:
+            out["no_features"] += 1
+        elif r.feature_schema_version != current_schema:
+            out["schema_mismatch"] += 1
+        else:
+            out["valid"] += 1
+    return out

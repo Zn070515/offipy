@@ -16,7 +16,7 @@ from offipy.art.feedback import load_records
 
 from .mlp import MLP, SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
-from .pairs import build_pairs, per_rule_diagnosis, valid_records
+from .pairs import build_pairs, per_rule_diagnosis, record_filter_breakdown, valid_records
 from .preprocess import fit_preprocessing, transform_features
 from .registry import OUTPUT_SCHEMA_VERSION
 from .validation import repeated_stratified_cv
@@ -41,7 +41,18 @@ def run_training(
     records = load_records(dir_path)
     valid = valid_records(records)
     if not valid:
-        return {"trained": False, "reason": "no_valid_samples", "samples": len(records)}
+        # #131：无有效样本时给出被过滤原因分类，不再静默返回。
+        breakdown = record_filter_breakdown(records)
+        return {
+            "trained": False,
+            "reason": "no_valid_samples",
+            "samples": len(records),
+            "excluded": {k: v for k, v in breakdown.items() if k != "valid"},
+            "hint": (
+                "无带特征快照的可训练样本：features 只能在 analyze 现场编码，"
+                "请经 deck audit 内联标注或 append 时传 --features"
+            ),
+        }
     # #112：NaN 特征 → 不静默 drop 也不训练，保持契约（training_diverged 不写模型）
     X_raw = np.array([encode_vector(r.features or {}) for r in valid])
     if not np.isfinite(X_raw).all():

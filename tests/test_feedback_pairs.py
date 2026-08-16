@@ -151,3 +151,53 @@ def test_cross_profile_fixed_accepted_do_not_pair():
     assert d["pairs"] == 0
     assert d["single_direction"] is True
     assert d["suggest"] > 0
+
+
+# ---- record_filter_breakdown (#131/#144) ----
+
+
+def test_record_filter_breakdown_classifies(tmp_path):
+    """#131/#144：按 valid/no_features/schema_mismatch/ignored/other 分类。"""
+    from offipy.art import append as art_append
+    from offipy.art.features_registry import feature_schema_version as current
+    from offipy.art.feedback import load_records
+    from offipy.audit import Severity
+    from offipy.feedback.pairs import record_filter_breakdown
+
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version=current(),
+    )  # valid
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "accepted",
+        Severity.MID,
+        feedback_dir=tmp_path,
+    )  # no_features
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version="999",
+    )  # schema_mismatch
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "ignored",
+        Severity.MID,
+        feedback_dir=tmp_path,
+    )  # ignored
+    b = record_filter_breakdown(load_records(tmp_path))
+    assert b["valid"] == 1
+    assert b["no_features"] == 1
+    assert b["schema_mismatch"] == 1
+    assert b["ignored"] == 1
