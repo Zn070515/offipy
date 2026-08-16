@@ -1,0 +1,6 @@
+# actionlint 配置：声明自托管 Office runner 的自定义 label。
+# office-tests.yml 的 office-real job 用 runs-on: [self-hosted, windows, office]，
+# 其中 office 是自托管 runner 的自定义 label，不声明会被 actionlint 当未知 label 报错。
+self-hosted-runner:
+  labels:
+    - office

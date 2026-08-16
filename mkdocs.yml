@@ -1,6 +1,7 @@
 site_name: offipy
 site_description: Live Microsoft Office automation via COM (session-based) + HTML-first slide pipeline
 repo_url: https://github.com/Zn070515/offipy
+site_url: https://zn070515.github.io/offipy/
 docs_dir: docs
 
 exclude_docs: |

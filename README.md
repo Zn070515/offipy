@@ -7,6 +7,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
 - **当前版本**：0.20.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **在线文档**：[https://zn070515.github.io/offipy/](https://zn070515.github.io/offipy/)（mkdocs 构建，push main 自动发布）
 
 ## 特性
 

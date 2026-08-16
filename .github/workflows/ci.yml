@@ -23,6 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -41,6 +44,22 @@ jobs:
       - name: Docs build (mkdocs --strict)
         run: uv run mkdocs build --strict
 
+  # workflow 语法机器校验：防「YAML 结构错 → 0 jobs 秒挂、无日志」复发
+  # （round-6 env key 大小写去重、#106 reusable 调用方 job 写禁 key 都因此漏过）。
+  # actionlint 检查全仓库 .github/workflows/*.yml，自托管 label 配置见 .github/actionlint.yaml。
+  workflow-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7  # v2.2.0
+        with:
+          version: 1.7.12
+          # shellcheck 关闭：门禁目标是「workflow 结构错 → 秒挂无日志」，actionlint 自带
+          # shell 解析已够；shellcheck 对 run: 脚本内容深检，office-real/release 的复杂
+          # bash（heredoc/网络重试）会触发与门禁无关的 SC 噪声，首跑即红风险大于收益。
+          shellcheck: false
+
   # 最新依赖门禁（P1-6）：锁文件测试一条（windows/pure-module）之外，另起一条
   # `uv sync --upgrade` 解析到依赖上限内的最新版本跑纯模块子集——范围锁死不掩盖
   # 上游破坏性变更；配合 dependabot 每周批量升级 PR，跨上限大版本需人工审。
@@ -50,6 +69,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
@@ -68,6 +90,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
@@ -99,6 +124,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
