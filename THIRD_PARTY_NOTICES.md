@@ -23,6 +23,14 @@ offipy 内嵌或依赖以下第三方组件。许可证原文随产物分发，�
   四类，让 audit 识别光栅化装饰）；deco_snapshot 截图扩视口（#138：右/下越界临时扩视口截全
   捕获框后还原，左/上负坐标 clamp 并回写偏移，不再双轴 clamp）。改动保持最小——仅加字段与
   截图策略，渲染与安全边界不变。
+- **补丁（第 3 轮，wave3-3C #141，媒体保真度）**：`scripts/measure.py` 的 `<audio>` 元素静默
+  丢弃并产生告警（PPTX 无法表达音频）；`<video>` 记录 `videoSrc` 元数据并产生首帧静态图
+  告警；`<a href>` 链接 href 穿针 extractRuns 与 applyNaturalLineBreaks（重建 run 不丢）；
+  告警聚合进 measurements.json `_warnings`。`scripts/assemble.py` 把 `<a href>` 写成真实
+  `a:hlinkClick`（外部 hyperlink 关系）、CSS 虚线/点线边框映射 `a:prstDash`
+  （dash/roundDot）。`scripts/embed_fonts.py` 字体未缓存时跳过 subset 嵌入并产生降级告警
+  （原 FileNotFoundError 中断转换）。改动保持最小（仅加告警与 href/样式透传），渲染与
+  安全边界不变。
 
 ### 社论图表 skill（diagram-design）
 

@@ -57,6 +57,37 @@ def _work_copy_target(in_path: Path) -> Path:
     return in_path
 
 
+def _append_measure_warnings(anchor_json: Path, warnings: list[dict]) -> None:
+    """按 (kind, message) 幂等合并进 measurements.json 的 _warnings（保留既有条目，不重复）。
+
+    幂等：同一批警告重复调用不产生重复条目——audit 多轮迭代 measurements.json 持久化，
+    字体仍缺时每轮重新 append 同一警告，去重保证 deck 质量报告的替换计数不被堆叠夸大。
+    文件缺失/损坏/非 dict → 静默忽略（测量数据损坏不应阻断转换成功路径）。
+    """
+    if not anchor_json.exists():
+        return
+    try:
+        data = json.loads(anchor_json.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError):
+        return
+    if not isinstance(data, dict):
+        return
+    existing = data.get("_warnings", [])
+    if not isinstance(existing, list):
+        existing = []
+    seen = {(w.get("kind"), w.get("message")) for w in existing if isinstance(w, dict)}
+    for w in warnings:
+        key = (w.get("kind"), w.get("message"))
+        if key not in seen:
+            existing.append(w)
+            seen.add(key)
+    data["_warnings"] = existing
+    try:
+        anchor_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _collect_broken_images(meas: dict) -> list[dict]:
     """收集 meas 里加载失败的 <img> record（naturalWidth/Height 为 0 = 破图）。
 
@@ -290,9 +321,13 @@ def convert(html_path: Path, out_path: Path, keep_screenshots: bool, embed_fonts
 
         # 3) embed fonts（可选）
         t0 = time.perf_counter()
+        font_warnings: list[dict] = []
         if embed_fonts:
-            embed(intermediate_pptx, meas, out_path)
+            embed(intermediate_pptx, meas, out_path, warnings=font_warnings)
             print(f"[embed]    {time.perf_counter()-t0:.2f}s")
+            if font_warnings:
+                # #141：字体降级警告合并进 measurements.json，deck 端透出（诚实披露）
+                _append_measure_warnings(anchor_json, font_warnings)
         else:
             shutil.copy(intermediate_pptx, out_path)
             print("[embed]    跳过")

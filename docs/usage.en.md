@@ -193,6 +193,15 @@ Orthogonal/curved edges render as polylines along their waypoints (arrows kept),
 and `strokeWidth`, `rotation`, and `dashPattern` (space-separated pairs) propagate
 to the generated shapes.
 
+### Media fidelity
+
+Media fidelity (#141): `<audio>` cannot be expressed in PPTX, so it is silently dropped
+during conversion with a warning; `<video>` is embedded as a static first-frame image (no
+native playback), also with a warning; an uncached webfont skips subset embedding and is
+replaced by PowerPoint when opened — these warnings surface through the deck quality
+report (`deck.media.audio_dropped` / `deck.media.video_static` / `deck.font.substituted`).
+`<a href>` links are written as real hyperlinks (clickable).
+
 ## Python API
 
 ```python

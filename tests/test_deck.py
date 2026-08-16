@@ -1043,3 +1043,31 @@ def test_render_with_quality_report_passes_experimental_score(monkeypatch):
 
     deck.render_with_quality_report("<html><body>deck</body></html>")
     assert seen[-1]["include_experimental_score"] is False
+
+
+def test_measure_warnings_surface_from_measurements(tmp_path):
+    """#141：measurements.json 的 _warnings（audio/video/font）映射为 ArtWarning 并透出。"""
+    from offipy import deck
+
+    m = tmp_path / "measurements.json"
+    m.write_text(
+        json.dumps(
+            {
+                "slides": [],
+                "_warnings": [
+                    {"slide": 1, "kind": "audio", "message": "slide 1 含 <audio>，已丢弃"},
+                    {"slide": 1, "kind": "video", "message": "slide 1 含 <video>，首帧图"},
+                    {"kind": "font", "message": "字体 X 未缓存"},
+                    {"kind": "bogus", "message": "未知 kind 忽略"},
+                    "not-a-dict",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ws = deck._measure_warnings(m)
+    assert [w.code for w in ws] == [
+        "deck.media.audio_dropped",
+        "deck.media.video_static",
+        "deck.font.substituted",
+    ]
