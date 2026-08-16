@@ -117,7 +117,7 @@ def test_accent_flood_fires_over_ratio():
     )
     ev = accent_flood_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
-    assert ev.findings[0].confidence <= 0.3  # experimental
+    assert ev.findings[0].confidence <= 0.4  # experimental
     assert ev.findings[0].severity == Severity.LOW
 
 
@@ -132,7 +132,7 @@ def test_no_accent_fires_at_zero():
     ev = no_accent_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.color.no_accent"
-    assert ev.findings[0].confidence <= 0.3
+    assert ev.findings[0].confidence <= 0.4
 
 
 def test_color_rules_are_rule_specs():

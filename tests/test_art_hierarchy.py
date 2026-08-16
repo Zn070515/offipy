@@ -72,7 +72,7 @@ def test_no_focus_fires_when_flat():
     ev = no_focus_rule(slide, _ctx(slide))
     assert len(ev.findings) == 1
     assert ev.findings[0].rule_id == "art.hierarchy.no_focus"
-    assert ev.findings[0].confidence <= 0.3  # experimental
+    assert ev.findings[0].confidence <= 0.4  # experimental
 
 
 def test_no_focus_details_focus_ratio():

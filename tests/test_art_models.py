@@ -30,7 +30,7 @@ def _el(**kw):
 
 def test_schema_versions():
     assert ART_SCHEMA_VERSION == "0.2"
-    assert ART_REPORT_SCHEMA_VERSION == "0.3"
+    assert ART_REPORT_SCHEMA_VERSION == "0.4"
 
 
 def test_alpha_composite():
@@ -347,3 +347,25 @@ def test_scene_from_dict_parses_pixel_evidence_and_metadata():
     assert scene.metadata["pixel_pages_covered"] == 1
     assert scene.slides[0].pixel_evidence.background_confidence == 0.9
     assert scene.slides[0].elements[0].pixel_evidence.method == "declared_verified"
+
+
+def test_finding_experimental_serialized_only_when_true():
+    f = ArtFinding(
+        rule_id="a.h",
+        dimension="hierarchy",
+        severity=Severity.MID,
+        message="m",
+        confidence=0.4,
+        experimental=True,
+    )
+    assert f.to_dict()["experimental"] is True
+    assert (
+        "experimental"
+        not in ArtFinding(
+            rule_id="a.h",
+            dimension="hierarchy",
+            severity=Severity.MID,
+            message="m",
+            confidence=0.4,
+        ).to_dict()
+    )

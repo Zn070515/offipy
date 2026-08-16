@@ -66,7 +66,7 @@ def no_focus_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                 "hierarchy",
                 Severity.LOW,
                 "页面没有明确的视觉焦点（字号层级过平）。",
-                0.25,
+                0.4,
                 slide.index,
                 primary=dominant,
                 details={"focus_ratio": focus.get("ratio")},

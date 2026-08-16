@@ -145,7 +145,7 @@ def accent_flood_rule(slide: ArtSlide, ctx: RuleContext) -> RuleEvaluation:
                 "color",
                 Severity.LOW,
                 f"强调色占比 {ratio:.2f} 超过 {ctx.profile.max_accent_ratio}。",
-                0.3,
+                0.4,
                 slide.index,
                 primary=primary,
                 details={"accent_ratio": ratio},
@@ -168,7 +168,7 @@ def no_accent_rule(slide: ArtSlide, _ctx: RuleContext) -> RuleEvaluation:
                 "color",
                 Severity.LOW,
                 "页面完全没有强调色。",
-                0.3,
+                0.4,
                 slide.index,
                 details={"accent_ratio": 0.0},
             )

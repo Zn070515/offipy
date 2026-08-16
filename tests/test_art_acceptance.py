@@ -12,7 +12,8 @@ _ACCEPTANCE = [
     # 左文右图：构图平衡、有焦点、图片不失真、深灰白底高对比（不误报 low_contrast）
     # 健康场景 present 为空 []，靠测试体里「composition 维度须 assessed」断言证明规则真运行了
     # 已知：corner_cluster（大图占右上 60% 面积）与 no_accent（灰阶）会触发，均 experimental 且
-    # conf 封顶 0.3、不驱动降级 —— 属 Task 20 标定的噪声项，本测试不断言也不屏蔽
+    # conf 封顶 0.4、低权重参与 grade（不断言 grade）—— 属 Task 20 标定的噪声项，
+    # 本测试不断言也不屏蔽
     (
         "left_text_right_image.json",
         "balanced",
@@ -41,6 +42,7 @@ _ACCEPTANCE = [
     # 通版背景：背景元素不计入 mass/margin；无失真。media 维度因加了比例正确的大图而
     # genuinely assessed（distorted_image 断言非空心）。已知噪声（Task 20 标定）：
     # corner_cluster（左侧文字区占 TL 面积多）与 no_focus（focus 中位数 quirk，见 features.py）
+    # 两者均 experimental、conf 封顶 0.4、低权重参与 grade（不断言 grade）
     (
         "full_bleed_background.json",
         "balanced",

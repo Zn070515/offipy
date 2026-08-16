@@ -206,7 +206,8 @@ def test_assess_dimension_experimental_caps_confidence():
     ]
     d = assess_dimension("composition", specs, _ctx(slide))
     assert d.status == "assessed"
-    assert d.findings[0].confidence <= 0.3  # experimental cap
+    assert d.findings[0].confidence <= 0.4  # experimental cap
+    assert d.findings[0].experimental is True
 
 
 def test_dimension_confidence_reliability_pptx_only():
@@ -535,7 +536,7 @@ def test_experimental_confidence_cap_with_feedback_delta():
     assert found.severity_override is True
     assert found.severity_override_source == "feedback"
     # confidence still capped by experimental
-    assert found.confidence <= 0.3
+    assert found.confidence <= 0.4
 
 
 # ---------------------------------------------------------------------------
@@ -573,3 +574,26 @@ def test_apply_profile_to_finding_confidence_override():
     prof = ArtProfile(name="x", confidence_overrides={"art.color.low_contrast": 0.9})
     result = apply_profile_to_finding(f, prof)
     assert result.confidence == 0.9
+
+
+def test_experimental_finding_participates_in_grade():
+    # #154：experimental 规则 conf 封顶 0.4（过 0.35 地板）→ 低权重参与 grade
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(
+        "art.composition.off_balance", "composition", Severity.LOW, "m", 0.8, slide_index=1
+    )
+    specs = [
+        _rule(
+            "art.composition.off_balance",
+            dimension="composition",
+            experimental=True,
+            findings=[f],
+            covered=3,
+            eligible=3,
+        )
+    ]
+    d = assess_dimension("composition", specs, _ctx(slide))
+    assert d.status == "assessed"
+    assert d.findings[0].confidence == 0.4
+    assert d.findings[0].experimental is True
+    assert d.grade == "good"  # 0.5*0.4=0.2 → good；旧 cap 0.3 跳过 → excellent

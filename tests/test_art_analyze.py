@@ -406,7 +406,7 @@ def test_analyze_scene_real_fixture_feedback_flow(tmp_path):
     scene = build_scene(measurements=raw)
 
     baseline = analyze_scene(scene, profile="balanced")  # feedback 默认 False
-    assert baseline.schema_version == "0.3"  # 报告 schema 0.3
+    assert baseline.schema_version == "0.4"  # 报告 schema 0.4
     assert _finding(baseline, RULE_CORNER_CLUSTER).severity == Severity.LOW
     assert _finding(baseline, RULE_NO_ACCENT).severity == Severity.LOW
 

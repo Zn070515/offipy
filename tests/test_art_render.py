@@ -322,3 +322,15 @@ def test_report_to_json_emits_override_provenance():
     fd = report_to_json(rep)["slides"][0]["dimensions"][0]["findings"][0]
     assert fd["severity_override"] is True
     assert fd["severity_override_source"] == "feedback"
+
+
+def test_render_marks_experimental_findings():
+    f = _finding()
+    f.experimental = True
+    d = DimensionAssessment(
+        dimension="hierarchy", status="assessed", grade="good", confidence=0.8, findings=[f]
+    )
+    md = render_markdown(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "[experimental]" in md
+    html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
+    assert "experimental" in html

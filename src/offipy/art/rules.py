@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 _SEVERITY_WEIGHT = {Severity.LOW: 0.5, Severity.MID: 1.5, Severity.HIGH: 3.0}
 # 契约：finding_confidence < 0.35 不驱动降级（低置信发现不进 penalty 求和）
 _GRADE_CONFIDENCE_FLOOR = 0.35
+# experimental 规则 conf 封顶：> floor 0.35 → 低权重参与 grade（0.5×0.4=0.2 起步）
+_EXPERIMENTAL_CONFIDENCE_CAP = 0.4
 _COVERAGE_MIN = 0.5
 
 _GRADE_THRESHOLDS = (0.0, 1.0, 2.5)  # ≤0 excellent, ≤1 good, ≤2.5 attention, else poor
@@ -166,7 +168,8 @@ def apply_profile_to_finding(
     if conf is not None:
         finding.confidence = float(conf)
     if experimental or finding.rule_id in profile.experimental_rules:
-        finding.confidence = min(finding.confidence, 0.3)
+        finding.experimental = True
+        finding.confidence = min(finding.confidence, _EXPERIMENTAL_CONFIDENCE_CAP)
     return finding
 
 
