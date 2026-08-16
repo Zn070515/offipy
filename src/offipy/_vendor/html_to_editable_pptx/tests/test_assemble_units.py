@@ -437,3 +437,14 @@ def test_dashed_border_emits_prstDash(tmp_path):
         _shape(100, 100, 300, 150, {**sides, **widths, **colors, "borderStyle": "dashed"}),
     ])
     assert 'prstDash val="dash"' in xml
+
+
+def test_dashed_border_single_side_bottom_emits_prstDash(tmp_path):
+    """#141：border-bottom 单侧 dashed → 单侧画线走 _add_line dash 参数 → prstDash。"""
+    xml = _render_xml(tmp_path, [
+        _shape(100, 100, 300, 150, {
+            "borderBottom": True, "borderBottomWidth": 2,
+            "borderBottomColor": "rgb(0, 0, 0)", "borderStyle": "dashed",
+        }),
+    ])
+    assert 'prstDash val="dash"' in xml

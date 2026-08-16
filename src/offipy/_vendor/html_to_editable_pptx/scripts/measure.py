@@ -125,7 +125,8 @@ EXTRACT_JS = r"""
 
   const decoFromStyle = (s, hasBg, bg, borderTop, borderBottom, borderLeft, borderRight) => ({
     hasBg, bg, borderTop, borderBottom, borderLeft, borderRight,
-    borderStyle: s.borderTopStyle,
+    borderStyle: [s.borderTopStyle, s.borderBottomStyle, s.borderLeftStyle, s.borderRightStyle]
+      .find(st => st && st !== 'none') || 'solid',
     borderColor: s.borderTopColor,
     borderTopColor: s.borderTopColor,
     borderBottomColor: s.borderBottomColor,

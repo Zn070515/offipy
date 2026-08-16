@@ -298,3 +298,15 @@ def test_gradient_and_shadow_fill_kind_marked(gradient_shadow):
     }
     assert "gradient" in kinds, f"渐变卡片未标记 fill_kind=gradient: {kinds}"
     assert "shadow" in kinds, f"阴影卡片未标记 fill_kind=shadow: {kinds}"
+
+
+def test_measure_border_style_dashed(tmp_path_factory):
+    """#141：border-bottom: dashed → shape deco.borderStyle == 'dashed'。
+
+    单侧 bottom-dashed 元素（borderTopStyle == 'none'）也必须算出 borderStyle='dashed'，
+    否则 assemble 的 _border_dash 走不到 _add_line 的 dash 参数，虚线会渲染成实线。
+    """
+    data = _measure("border_dashed.html", tmp_path_factory)
+    border_styles = {rec["deco"].get("borderStyle")
+                     for rec in data["slides"][0].get("records", []) if rec.get("deco")}
+    assert "dashed" in border_styles, f"border-bottom: dashed 未算出 borderStyle=dashed: {border_styles}"

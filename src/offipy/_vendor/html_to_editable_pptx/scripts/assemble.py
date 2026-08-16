@@ -767,7 +767,7 @@ def _add_line(slide, x1, y1, x2, y2, color_rgb, width_px, alpha: float = 1.0, da
     line.line.width = Emu(px_to_emu(width_px))
     _set_line_alpha(line, alpha)
     if dash is not None:
-        line.dash_style = dash
+        line.line.dash_style = dash
     return line
 
 
