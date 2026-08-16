@@ -19,6 +19,11 @@ if TYPE_CHECKING:
     from offipy.art.feedback import ArtFeedbackRecord
 
 
+# 默认最小配对门限：train 的 min_pairs 默认值与 status 的逐规则诊断视野共用，
+# 放此处避免跨模块重复字面量漂移（pairs 纯 python 无 numpy，status 顶层可安全 import）。
+MIN_PAIRS = 50
+
+
 def valid_records(
     records: Iterable[ArtFeedbackRecord],
     profile: str | None = None,

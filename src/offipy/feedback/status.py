@@ -14,11 +14,13 @@ from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.feedback import load_records
 
 from .model import kept_valid, load_model, model_file, model_valid
-from .pairs import build_pairs, per_rule_diagnosis, record_filter_breakdown, valid_records
-
-# #152：status 顶层逐规则诊断用的 min_pairs 视野——镜像 train._MIN_PAIRS。
-# status 顶层 numpy-free，不跨模块 import train 拖 numpy，故用字面量 50。
-_STATUS_PER_RULE_MIN_PAIRS = 50
+from .pairs import (
+    MIN_PAIRS,
+    build_pairs,
+    per_rule_diagnosis,
+    record_filter_breakdown,
+    valid_records,
+)
 
 
 def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
@@ -28,9 +30,9 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
     pairs = build_pairs(valid)
     excluded = {k: v for k, v in record_filter_breakdown(records).items() if k != "valid"}
     # #152：逐规则样本诊断（与 build_pairs 同判据——用 valid 记录，pairs 数与
-    # pair_potential 一致）。诊断视野 min_pairs 用字面 50 镜像 train._MIN_PAIRS
-    # （status 顶层 numpy-free，不能 import train 拖 numpy）。
-    per_rule = per_rule_diagnosis(valid, _STATUS_PER_RULE_MIN_PAIRS)
+    # pair_potential 一致）。诊断视野 min_pairs 用共享的 pairs.MIN_PAIRS（与 train
+    # 默认同源，避免字面量漂移）；status 顶层 numpy-free，从 pairs import 而非 train。
+    per_rule = per_rule_diagnosis(valid, MIN_PAIRS)
     data = load_model(model_file(dir_path))
     if data is not None and model_valid(data, feature_schema_version()):
         # #150：schema 匹配但 kept 越界/缺失/非数值（bump 忘重训）→ stale，不冒充 valid。

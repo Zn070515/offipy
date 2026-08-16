@@ -16,13 +16,18 @@ from offipy.art.feedback import load_records
 
 from .mlp import MLP, SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
-from .pairs import build_pairs, per_rule_diagnosis, record_filter_breakdown, valid_records
+from .pairs import (
+    MIN_PAIRS,
+    build_pairs,
+    per_rule_diagnosis,
+    record_filter_breakdown,
+    valid_records,
+)
 from .preprocess import fit_preprocessing, transform_features
 from .registry import OUTPUT_SCHEMA_VERSION
 from .validation import repeated_stratified_cv
 from .vector import encode_vector
 
-_MIN_PAIRS = 50
 # #122 A6：ensemble member 数——多 seed 训练取平均降方差，member 之间只 seed 不同。
 K = 5
 # #112：判别力门禁阈值——训练后模型对全量样本输出的 worth 标准差低于该值视为
@@ -34,7 +39,7 @@ def run_training(
     feedback_dir: str | Path | None = None,
     *,
     seed: int = SEED,
-    min_pairs: int = _MIN_PAIRS,
+    min_pairs: int = MIN_PAIRS,
 ) -> dict[str, Any]:
     """训练并写 model.json；失败返回状态 JSON（不抛、不覆盖旧模型）。"""
     dir_path = Path(feedback_dir) if feedback_dir else None
