@@ -96,12 +96,17 @@ def test_should_abstain_true_when_members_diverge(tmp_path):
     _mean, std = bundle.worth_stats(feats)
     assert std > 1e-9  # 成员输出确已分歧（前置条件，否则断言无意义）
     assert bundle.should_abstain(feats) is True  # std 分支触发
-    # 同 seed 拷贝（无分歧）→ std 仅剩 BLAS 浮点噪声（<< 1e-9）→ 不 abstain
-    # （证明是分歧触发，不是 margin）
-    dup_members = [(i, MLP(input_dim=n, hidden_dims=(4,), seed=7)) for i in range(3)]
-    _write_bundle(tmp_path, members=dup_members, abstain={"worth_margin_p25": 0.0, "std_p80": 1e-9})
-    dup = ModelBundle.load(tmp_path)
-    assert dup is not None
+    # 无分歧（同一 MLP 对象×3）→ std 精确 0.0 → 不 abstain（证明是分歧触发，不是 margin）。
+    # 不能用「同 seed 的 3 个独立 MLP 实例」：CI 线程化 BLAS 下 predict 偶发 ~1e-15 级
+    # 浮点噪声，std 可能越过 1e-9 误判分歧（4 次 main 红里 3 次是这个）——同一对象同一
+    # 输入逐位一致，全平台确定性。
+    mlp = MLP(input_dim=n, hidden_dims=(4,), seed=7)
+    dup = ModelBundle(
+        members=[mlp, mlp, mlp],
+        pre=_identity_pre(),
+        calibration={"worth_scale": 1.0},
+        abstain={"worth_margin_p25": 0.0, "std_p80": 1e-9},
+    )
     assert dup.should_abstain(feats) is False
 
 
