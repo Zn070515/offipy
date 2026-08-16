@@ -79,8 +79,10 @@ class AnimationSpec:
             )
         if not isinstance(self.trigger, str) or self.trigger not in _TRIGGERS:
             problems.append(f"trigger 必须是 {'/'.join(_TRIGGERS)}（实际 {self.trigger!r}）")
-        if isinstance(self.effect, str) and self.effect in _DIRECTIONAL_EFFECTS and (
-            not isinstance(self.direction, str) or self.direction not in _DIRECTIONS
+        if (
+            isinstance(self.effect, str)
+            and self.effect in _DIRECTIONAL_EFFECTS
+            and (not isinstance(self.direction, str) or self.direction not in _DIRECTIONS)
         ):
             allowed = "/".join(_DIRECTIONS)
             problems.append(

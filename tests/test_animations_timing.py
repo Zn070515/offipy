@@ -1,6 +1,9 @@
 """animations/timing.py：<p:timing> OOXML 树构建。"""
 
+import pytest
+
 from offipy.animations.timing import AnimationUnit, build_timing
+from offipy.exceptions import InvalidArgumentError
 
 
 def _qn(tag):
@@ -225,3 +228,54 @@ def test_build_timing_bld_list_per_shape():
     timing = build_timing([unit])
     bldp = [b.get("spid") for b in timing.findall(".//{*}bldP")]
     assert sorted(bldp) == ["2", "5"]
+
+
+def test_build_timing_empty_returns_none():
+    assert build_timing([]) is None
+
+
+def test_build_timing_has_prev_next_conds():
+    # PowerPoint 接受的 mainSeq 需要 onPrev/onNext 条件（sldTgt）才能正确前进/后退
+    unit = AnimationUnit(
+        spids=[2],
+        effect="fade",
+        direction="bottom",
+        trigger="click",
+        duration_ms=500,
+        delay_ms=0,
+    )
+    timing = build_timing([unit])
+    prev = timing.find(".//{*}prevCondLst")
+    nxt = timing.find(".//{*}nextCondLst")
+    assert prev is not None and prev.findall(".//{*}sldTgt")
+    assert nxt is not None and nxt.findall(".//{*}sldTgt")
+
+
+def test_build_timing_invalid_input_raises():
+    # AnimationUnit 可被直接构造绕过 spec.py 归一化 → 非法效果/方向抛 InvalidArgumentError
+    with pytest.raises(InvalidArgumentError):
+        build_timing(
+            [
+                AnimationUnit(
+                    spids=[2],
+                    effect="wobble",
+                    direction="bottom",
+                    trigger="click",
+                    duration_ms=500,
+                    delay_ms=0,
+                )
+            ]
+        )
+    with pytest.raises(InvalidArgumentError):
+        build_timing(
+            [
+                AnimationUnit(
+                    spids=[2],
+                    effect="fly_in",
+                    direction="northwest",
+                    trigger="click",
+                    duration_ms=500,
+                    delay_ms=0,
+                )
+            ]
+        )

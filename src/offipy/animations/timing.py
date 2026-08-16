@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 from pptx.oxml import parse_xml
 from pptx.oxml.ns import nsdecls
 
+from offipy.exceptions import InvalidArgumentError
+
 if TYPE_CHECKING:
     from lxml import etree
 
@@ -122,6 +124,21 @@ def _flt_anim(ids: _IdSeq, spid: int, attr: str, from_fmla: str, duration_ms: in
     )
 
 
+def _validate_unit(unit: AnimationUnit) -> None:
+    """build_timing 前置校验：效果/方向非法抛 InvalidArgumentError（AnimationUnit
+    可被直接构造，绕过 spec.py 归一化）。"""
+    if unit.effect not in _PRESET_META:
+        raise InvalidArgumentError(f"未知动画效果 {unit.effect!r}（目录 {sorted(_PRESET_META)}）")
+    if unit.effect == "fly_in" and unit.direction not in _FLY_SUBTYPE:
+        raise InvalidArgumentError(
+            f"fly_in direction {unit.direction!r} 非法（{sorted(_FLY_SUBTYPE)}）"
+        )
+    if unit.effect == "wipe" and unit.direction not in _WIPE_SUBTYPE:
+        raise InvalidArgumentError(
+            f"wipe direction {unit.direction!r} 非法（{sorted(_WIPE_SUBTYPE)}）"
+        )
+
+
 def _effect_body(ids: _IdSeq, spid: int, unit: AnimationUnit) -> str:
     if unit.effect in _ANIM_EFFECT_FILTER:
         i = ids.next()
@@ -147,7 +164,7 @@ def _effect_body(ids: _IdSeq, spid: int, unit: AnimationUnit) -> str:
         return _flt_anim(ids, spid, "ppt_w", "#ppt_w*sin(2.5*pi*$)", unit.duration_ms) + _num_anim(
             ids, spid, "ppt_h", "#ppt_h", "#ppt_h", unit.duration_ms
         )
-    raise ValueError(f"未实现的动画效果: {unit.effect}")
+    raise InvalidArgumentError(f"未实现的动画效果: {unit.effect}")
 
 
 def _unit_xml(ids: _IdSeq, unit: AnimationUnit, start_delay_ms: int) -> str:
@@ -191,6 +208,7 @@ def build_timing(units: list[AnimationUnit]) -> etree._Element | None:
     parts: list[str] = []
     blds: list[str] = []
     for u in units:
+        _validate_unit(u)
         start_ms = cumulative + u.delay_ms if u.trigger == "after" else 0
         parts.append(_unit_xml(ids, u, start_ms))
         blds.extend(f"<p:bldP spid='{spid}' grpId='0'/>" for spid in u.spids)
