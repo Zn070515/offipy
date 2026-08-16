@@ -867,7 +867,7 @@ def add_text_box(slide, rec, elem_id=None):
     if has_decoration:
         # 用一个仅含 deco 的合成 record 调 add_shape_box
         synth = {"rect": r, "deco": deco, "kind": "shape", "tag": rec.get("tag", "div")}
-        add_shape_box(slide, synth)
+        add_shape_box(slide, synth, elem_id)
 
     # 判断单行 / 多行：浏览器测得高度 < 1.8 × 主字号 → 单行
     layout = rec.get("_pptx_text_layout")
