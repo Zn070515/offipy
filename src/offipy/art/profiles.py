@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
+import os
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from offipy.exceptions import InvalidArgumentError
@@ -221,3 +226,66 @@ def get_profile(name: str) -> ArtProfile:
 
 def profile_names() -> list[str]:
     return list(_BUILTIN)
+
+
+PROFILE_STORE_FILE = "art_profiles.json"
+# #160：apply 把学习到的 rule.delta 持久化到该目录（默认 ~/.offipy）。测试 monkeypatch
+# 本常量到 tmp_path 隔离。不能 import art/feedback.DEFAULT_DIR——会与 profiles 成环。
+PROFILE_STORE_DIR = Path.home() / ".offipy"
+
+
+def _profile_store_path(store_dir: str | Path | None) -> Path:
+    if store_dir is not None:
+        return Path(store_dir) / PROFILE_STORE_FILE
+    return PROFILE_STORE_DIR / PROFILE_STORE_FILE
+
+
+def load_persisted_adjustments(
+    store_dir: str | Path | None = None,
+) -> dict[str, dict[str, int]]:
+    """读持久化 rule.delta：{profile_name: {rule_id: ±1}}。损坏/缺失 → {}。"""
+    p = _profile_store_path(store_dir)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for name, rules in data.items():
+        if not isinstance(rules, dict):
+            continue
+        clean = {
+            str(k): int(v)
+            for k, v in rules.items()
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and int(v) in (-1, 1)
+        }
+        if clean:
+            out[str(name)] = clean
+    return out
+
+
+def save_persisted_adjustments(
+    adjustments: Mapping[str, Mapping[str, int]],
+    store_dir: str | Path | None = None,
+) -> Path:
+    """原子写持久化 rule.delta（临时文件 + os.replace，失败不触碰旧文件）。"""
+    p = _profile_store_path(store_dir)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps({k: dict(v) for k, v in adjustments.items()}, ensure_ascii=False, indent=2)
+        + "\n"
+    )
+    fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".profiles-", suffix=".tmp")
+    tmp_path = Path(tmp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        tmp_path.replace(p)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+    return p

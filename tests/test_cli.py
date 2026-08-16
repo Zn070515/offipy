@@ -166,6 +166,60 @@ def test_deck_make_overwrite_false_not_bool_true(monkeypatch, capsys):
     assert captured["kw"]["overwrite"] is True
 
 
+def test_feedback_recommend_cli_passes_kwargs(monkeypatch):
+    """#160：feedback recommend CLI → call 收到 pptx/feedback_dir/profile/json。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["app"] = app
+        captured["op"] = op
+        captured["kw"] = kw
+        return {"source": "x.pptx"}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(
+        [
+            "feedback",
+            "recommend",
+            "--pptx",
+            "x.pptx",
+            "--feedback_dir",
+            r"C:\fb",
+            "--profile",
+            "balanced",
+            "--json",
+        ]
+    )
+    assert captured["app"] == "feedback"
+    assert captured["op"] == "recommend"
+    assert captured["kw"]["pptx"] == "x.pptx"
+    assert captured["kw"]["feedback_dir"] == r"C:\fb"
+    assert captured["kw"]["profile"] == "balanced"
+    assert captured["kw"]["json"] is True  # --json 裸 flag → True
+
+
+def test_feedback_apply_cli_passes_kwargs(monkeypatch):
+    """#160：feedback apply CLI → call 收到 profile/feedback_dir。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["app"] = app
+        captured["op"] = op
+        captured["kw"] = kw
+        return {"profile": "balanced"}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["feedback", "apply", "--profile", "balanced", "--feedback_dir", r"C:\fb"])
+    assert captured["app"] == "feedback"
+    assert captured["op"] == "apply"
+    assert captured["kw"]["profile"] == "balanced"
+    assert captured["kw"]["feedback_dir"] == r"C:\fb"
+
+
 def test_deck_make_layouts_false(monkeypatch, capsys):
     # P0-4 回归：--layouts false 必须为 False，不能走 bool("false")。
     from offipy import cli

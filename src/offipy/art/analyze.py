@@ -33,7 +33,7 @@ from .models import (
     DeckQualityReport,
     DimensionAssessment,
 )
-from .profiles import ArtProfile, get_profile
+from .profiles import ArtProfile, get_profile, load_persisted_adjustments
 from .rules import RuleContext, apply_profile_to_finding, assess_dimension, grade_from_findings
 from .typography import RULES as TYPOGRAPHY_RULES
 
@@ -99,6 +99,12 @@ def _resolve_profile(
 ) -> ArtProfile:
     prof = profile if isinstance(profile, ArtProfile) else get_profile(profile or "balanced")
     if not feedback:
+        # #160：apply 持久化的 rule.delta 落到 builtin profile 之上（dataclasses.replace
+        # 副本，永不 mutate 共享对象）。feedback=False 也吃默认存储，所以
+        # `deck audit --profile balanced`（不带 --feedback-dir）能反映 apply 结果。
+        persisted = load_persisted_adjustments().get(prof.name)
+        if persisted:
+            prof = dataclasses.replace(prof, feedback_severity_adjustments=persisted)
         return prof
     adjustments = _learned_adjustments_safe(prof.name, feedback_dir)
     if adjustments is not None:
