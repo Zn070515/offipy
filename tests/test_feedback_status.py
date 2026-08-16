@@ -224,6 +224,27 @@ def test_status_excluded_breakdown(tmp_path):
     assert s["excluded"] == {"schema_mismatch": 1, "no_features": 0, "ignored": 0, "other": 0}
 
 
+def test_reschema_clears_schema_mismatch(tmp_path):
+    """#144：旧 schema 记录 → reschema 后 excluded.schema_mismatch 归零（rewritten +1）。"""
+    from offipy.art.feedback import reschema_records
+
+    _add(tmp_path, "fixed", 1, features={"finding.confidence": 0.5})
+    art_append(
+        "balanced",
+        RULE_TITLE_TOO_SMALL,
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version="999",
+    )
+    s = report_status(tmp_path)
+    assert s["excluded"]["schema_mismatch"] == 1
+    res = reschema_records(tmp_path)
+    assert res["rewritten"] == 1
+    assert report_status(tmp_path)["excluded"]["schema_mismatch"] == 0
+
+
 def test_status_per_rule_diagnosis(tmp_path):
     """#152：status 输出逐规则样本诊断（fixed/accepted/pairs/single_direction/suggest）。"""
     _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))

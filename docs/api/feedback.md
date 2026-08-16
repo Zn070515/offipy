@@ -49,3 +49,13 @@
 - **参数**: `profile: str`、`feedback_dir: str`
 - **返回**: `dict`
 - **标志**: 普通操作
+
+---
+
+### `reschema`
+
+把 schema 过期的历史反馈记录（有特征快照）原地重写为当前 feature_schema_version，供 bump 后迁移。返回 {rewritten, skipped_no_features, already_current}。坏行保留不破坏文件。
+
+- **参数**: `feedback_dir: str`
+- **返回**: `dict`
+- **标志**: 普通操作

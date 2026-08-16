@@ -174,6 +174,46 @@ def test_reschema_records_empty_dir(tmp_path):
     assert res == {"rewritten": 0, "skipped_no_features": 0, "already_current": 0}
 
 
+def test_app_reschema_rewrites_expired(tmp_path):
+    """#144：FeedbackApp.reschema 包装 reschema_records——旧记录原地重写 + 计数正确。"""
+    from offipy.art import append as art_append
+    from offipy.art.features_registry import feature_schema_version as current
+    from offipy.art.feedback import load_records
+    from offipy.audit import Severity
+
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "fixed",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version="999",
+    )
+    art_append(
+        "balanced",
+        "art.hierarchy.title_too_small",
+        "accepted",
+        Severity.MID,
+        feedback_dir=tmp_path,
+        features={"finding.confidence": 0.5},
+        feature_schema_version=current(),
+    )  # 已当前版本（直接 art_append 不自动补版本，须显式传）
+    res = FeedbackApp().reschema(str(tmp_path))
+    assert res == {"rewritten": 1, "skipped_no_features": 0, "already_current": 1}
+    recs = load_records(tmp_path)
+    assert all(r.feature_schema_version == current() for r in recs)
+
+
+def test_app_reschema_empty_dir(tmp_path):
+    """#144：无记录 → 全零计数。"""
+    assert FeedbackApp().reschema(str(tmp_path)) == {
+        "rewritten": 0,
+        "skipped_no_features": 0,
+        "already_current": 0,
+    }
+
+
 # ---------------------------------------------------------------- recommend / apply (#160)
 
 

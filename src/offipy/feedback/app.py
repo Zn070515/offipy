@@ -1,9 +1,9 @@
-"""FeedbackApp：feedback 学习系统（schema app，train/status/append/recommend/apply 五 op）。
+"""FeedbackApp：feedback 学习系统（schema app，train/status/append/recommend/apply/reschema）。
 
 纯本地纯 CPU，无 COM（has_com_root=False → server._alive 恒 True）。顶层只
 标准库 + numpy-free 红线：numpy 只在 train()/status()/recommend()/apply() 内部
-惰性 import（append 不需要 numpy），所以 base install（无 feedback extra）起
-server 不崩。
+惰性 import（append/reschema 不需要 numpy），所以 base install（无 feedback
+extra）起 server 不崩。
 """
 
 from __future__ import annotations
@@ -30,6 +30,16 @@ class FeedbackApp:
         from .status import report_status
 
         return report_status(feedback_dir)
+
+    def reschema(self, feedback_dir: str | None = None) -> dict[str, int]:
+        """把 schema 过期的历史反馈记录（有特征快照）原地重写为当前 schema 版本。
+
+        #144：feature_schema_version bump 后旧记录被 valid_records 过滤，本方法做
+        一次性迁移（features dict 保留，缺失 key 补 0）。坏行保留不破坏文件。
+        """
+        from offipy.art.feedback import reschema_records
+
+        return reschema_records(feedback_dir)
 
     def recommend(
         self,

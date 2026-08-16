@@ -10,7 +10,7 @@
 | [Word](word.md) | 32 | 3 | 25 |
 | [PowerPoint](ppt.md) | 27 | 5 | 17 |
 | [图表](diagram.md) | 2 | 0 | 0 |
-| [反馈学习](feedback.md) | 5 | 2 | 0 |
+| [反馈学习](feedback.md) | 6 | 2 | 0 |
 
 每个操作：`doc_id` 缺省走当前活动文档（Excel `book<hex>` / Word `doc<hex>` / PPT `pres<hex>`，高熵不透明，不可枚举）；`expected_target` 用于破坏性操作的绑定校验。`diagram`/`feedback` 不经过 COM、无 Office 文档目标，不适用 `doc_id`/`expected_target`。
 

@@ -478,6 +478,12 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "so `deck audit --profile <name>` (without --feedback-dir) also reflects learned "
         "adjustments. Requires a valid model."
     ),
+    ("feedback", "reschema"): (
+        "Rewrite schema-expired historical feedback records that carry a feature snapshot in "
+        "place to the current feature_schema_version, for migration after a schema bump. Returns "
+        "{rewritten, skipped_no_features, already_current}. Bad lines are preserved (the file is "
+        "never corrupted)."
+    ),
 }
 
 
