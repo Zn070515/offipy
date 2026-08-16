@@ -138,7 +138,7 @@ def test_reschema_records_rewrites_expired(tmp_path):
     """#144：过期但有 features 的记录重写为当前 version；无 features 跳过计数。"""
     from offipy.art import append as art_append
     from offipy.art.features_registry import feature_schema_version as current
-    from offipy.art.feedback import load_records, reschema_records
+    from offipy.art.feedback import ART_FEEDBACK_FILE, load_records, reschema_records
     from offipy.audit import Severity
 
     art_append(
@@ -158,3 +158,15 @@ def test_reschema_records_rewrites_expired(tmp_path):
     assert res["skipped_no_features"] == 1
     recs = load_records(tmp_path)
     assert recs[0].feature_schema_version == current()
+    # 无 features 的 skipped 行必须字节级保留（原 JSON，无 feature_schema_version key）
+    lines = (tmp_path / ART_FEEDBACK_FILE).read_text(encoding="utf-8").splitlines()
+    skipped_line = [ln for ln in lines if '"action": "accepted"' in ln]
+    assert skipped_line and "feature_schema_version" not in skipped_line[0]
+
+
+def test_reschema_records_empty_dir(tmp_path):
+    """#144：无记录文件 → 全零计数，不创建文件。"""
+    from offipy.art.feedback import reschema_records
+
+    res = reschema_records(tmp_path)
+    assert res == {"rewritten": 0, "skipped_no_features": 0, "already_current": 0}

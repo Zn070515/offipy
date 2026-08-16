@@ -9,8 +9,11 @@ v1 的 `~/.offipy/feedback.jsonl`（offipy.feedback）是维度级权重；v2 �
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -259,6 +262,7 @@ def reschema_records(feedback_dir: str | Path | None = None) -> dict[str, int]:
     new_lines: list[str] = []
     for line in lines:
         if not line.strip():
+            new_lines.append(line)  # 保留空行，重写字节级忠实
             continue
         try:
             rec = ArtFeedbackRecord.from_dict(json.loads(line))
@@ -276,5 +280,15 @@ def reschema_records(feedback_dir: str | Path | None = None) -> dict[str, int]:
             skipped += 1
             new_lines.append(line)
     if rewritten:
-        f.write_text("\n".join(new_lines) + ("\n" if new_lines else ""), encoding="utf-8")
+        payload = "\n".join(new_lines) + ("\n" if new_lines else "")
+        fd, tmp = tempfile.mkstemp(dir=str(f.parent), prefix=".records-", suffix=".tmp")
+        tmp_path = Path(tmp)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            tmp_path.replace(f)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
+            raise
     return {"rewritten": rewritten, "skipped_no_features": skipped, "already_current": already}
