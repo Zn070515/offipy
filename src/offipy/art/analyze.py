@@ -177,18 +177,26 @@ def _apply_learning_pass(
     labeled = Counter(
         r.rule_id for r in valid_records(load_records(feedback_dir), profile=profile_name)
     )
-    # #158：quality_score 人口只含 assessed 维度的 slide finding（deck 级 consistency
-    # finding 与 insufficient_evidence 维度的 finding 天然排除），且需要 ≥3 个 worth。
+    # #133：quality_score 人口统计——covered 是进入分数计算的 assessed 维度 worth 子集；
+    # abstain/ood 被挡下的 finding 单独计数，让「分数只基于置信子集」的偏差可见。
     covered: list[float] = []
+    total_findings = 0
+    abstained_count = 0
+    ood_count = 0
     for finding, slide_index in _all_findings(report):
         if finding.severity_override:
             continue  # user / feedback override 的 finding 一律跳过
         if labeled[finding.rule_id] < _MIN_LABELS_PER_RULE:
             continue  # 证据不足的规则不 shift（Counter 对未出现 key 返回 0）
+        total_findings += 1
         slide = scene.by_slide(slide_index) if slide_index is not None else None
         feats = encode_features(finding, slide, scene, profile_name)
-        if bundle.should_abstain(feats) or bundle.ood_flagged(feats):
-            continue  # 保守：模型不确定 / 特征 OOD 的 finding 不 shift（回退 v2）
+        if bundle.should_abstain(feats):
+            abstained_count += 1
+            continue  # 保守：模型不确定的 finding 不 shift（回退 v2）
+        if bundle.ood_flagged(feats):
+            ood_count += 1
+            continue  # 特征 OOD 的 finding 不 shift（回退 v2）
         worth = infer.model_worth(feats, bundle)  # 模块级 seam，测试 monkeypatch 生效
         shift = severity_shift_from_worth(worth)
         before = finding.severity
@@ -214,8 +222,17 @@ def _apply_learning_pass(
                     covered.append(worth)
     if want_score and len(covered) >= _MIN_QUALITY_SCORE_SAMPLES:
         mean_worth = sum(covered) / len(covered)
-        report.experimental_score = bundle.quality_score(mean_worth)
+        confident_quality = bundle.quality_score(mean_worth)
+        report.experimental_score = confident_quality
         report.experimental_score_mode = "worth_sigmoid"  # #130：区分 grade-mean 来源
+        report.quality_score_coverage = {
+            "mean_worth": round(mean_worth, 4),
+            "confident_quality": confident_quality,
+            "covered_findings": len(covered),
+            "total_findings": total_findings,
+            "abstained_count": abstained_count,
+            "ood_count": ood_count,
+        }
     # #132：severity_shift 改 severity 后重推 grade，否则 grade 与 finding 不一致
     _reconcile_grades(report)
 

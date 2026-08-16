@@ -777,3 +777,79 @@ def test_analyze_learning_no_shift_no_provenance(monkeypatch, tmp_path):
     assert f.severity == Severity.LOW
     assert f.severity_override is False
     assert "feedback" not in f.details
+
+
+def test_analyze_learning_coverage_counts_subset(monkeypatch, tmp_path):
+    """#133：quality_score_coverage 报出置信子集与全体——abstain/ood 被挡下的 finding 可见。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path, abstain={"worth_margin_p25": 100.0, "std_p80": 1e9})
+    # #122 同款隔离：margin 巨大 → should_abstain 恒 True，全部 finding 被 abstain 挡下
+    monkeypatch.setattr(infer, "learned_adjustments", lambda *a, **k: {})
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.8)
+    report = analyze_scene(
+        _build_scene_3slides(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    # 3 个 finding 全部 abstain → 无 covered → 不写 score；coverage 也空
+    assert report.quality_score_coverage is None
+    assert report.experimental_score_mode != "worth_sigmoid"
+
+
+def test_analyze_learning_coverage_mixed(monkeypatch, tmp_path):
+    """#133：3 页同构全过门 → 分数与 coverage 结构确定（covered=3/3, abstain=0, ood=0）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+
+    calls = {"n": 0}
+
+    def fake_worth(features, mlp=None):
+        calls["n"] += 1
+        return -0.5
+
+    # 3 页同构且默认 abstain 关 → 全部 finding 过门（不 abstain、不 OOD），covered=3。
+    # OOD/abstain 拦截语义由既有 test_analyze_abstain_skips_severity_shift 覆盖，
+    # 本用例只锁定「计数不崩、覆盖结构正确」。
+    monkeypatch.setattr(infer, "model_worth", fake_worth)
+    report = analyze_scene(
+        _build_scene_3slides(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    # 3 页同构 → 3 个 corner_cluster worth 全过门 → covered=3 → 有分数与 coverage
+    assert report.experimental_score == 73.1
+    cov = report.quality_score_coverage
+    assert cov["covered_findings"] == 3
+    assert cov["total_findings"] == 3
+    assert cov["abstained_count"] == 0
+    assert cov["ood_count"] == 0
+    assert cov["confident_quality"] == 73.1
+    assert cov["mean_worth"] == -0.5

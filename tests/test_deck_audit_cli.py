@@ -536,3 +536,30 @@ def test_deck_audit_surfaces_rule_delta(monkeypatch, capsys):
     assert "模型调整 (rule.delta)" in out
     assert "art.composition.corner_cluster: +1" in out
     assert "art.hierarchy.title_too_small: -1" in out
+
+
+def test_deck_audit_surfaces_score_coverage(monkeypatch, capsys):
+    """#133：JSON 含 quality_score_coverage；文本含分数覆盖行。"""
+    from offipy import cli
+
+    rep = _report()
+    rep.art.experimental_score = 73.1
+    rep.art.experimental_score_mode = "worth_sigmoid"
+    rep.art.quality_score_coverage = {
+        "mean_worth": -0.5,
+        "confident_quality": 73.1,
+        "covered_findings": 3,
+        "total_findings": 5,
+        "abstained_count": 1,
+        "ood_count": 1,
+    }
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: rep)
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["quality_score_coverage"]["covered_findings"] == 3
+    assert data["quality_score_coverage"]["ood_count"] == 1
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
+    out = capsys.readouterr().out
+    assert "分数覆盖: covered=3/5 (abstain 1, ood 1)" in out
