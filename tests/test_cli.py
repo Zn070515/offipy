@@ -1,5 +1,7 @@
 """CLI 参数解析测试（不依赖 Office）。"""
 
+import sys
+
 import pytest
 
 from offipy.cli import build_parser
@@ -1502,3 +1504,23 @@ def test_feedback_append_dual_spelling_rule_id(monkeypatch):
     )
     assert captured["kw"]["rule_id"] == "art.x.y"
     assert captured["kw"]["feedback_dir"] == r"C:\fb"
+
+
+def test_force_utf8_at_cli_entry(monkeypatch):
+    """#149：CLI 入口统一把 stdout/stderr 切到 UTF-8，Windows GBK 终端中文不乱码。"""
+    from offipy import cli
+
+    calls = []
+
+    class _FakeStream:
+        def reconfigure(self, **kw):
+            calls.append(kw)
+
+        def write(self, s):  # argparse 报错路径会向 stderr 写 usage；缺 write 会 AttributeError
+            pass
+
+    monkeypatch.setattr(sys, "stdout", _FakeStream())
+    monkeypatch.setattr(sys, "stderr", _FakeStream())
+    with pytest.raises(SystemExit):  # 缺 app → argparse exit 2，但 _force_utf8 已先跑
+        cli.main([])
+    assert calls == [{"encoding": "utf-8"}, {"encoding": "utf-8"}]

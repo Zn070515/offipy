@@ -809,12 +809,25 @@ def _feedback_main(args: argparse.Namespace) -> int | None:
     return None
 
 
+def _force_utf8() -> None:
+    """Windows 终端默认 GBK：统一把 stdout/stderr 切到 UTF-8，避免中文乱码（#149）。
+
+    用 getattr 探测 reconfigure：被替换的流（测试捕获/重定向）没有该能力则跳过，
+    不强制改写调用方流对象。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int | None:
     """offipy CLI 入口：InvalidArgumentError→exit 2；其余 OffipyError→exit 1。
 
     SystemExit/argparse 原样放行（非 OffipyError 内建异常从 _main 逃逸时
     保持裸 traceback + Python 默认 exit 1）。
     """
+    _force_utf8()  # #149：先切 UTF-8，再进任何打印/错误路径
     try:
         return _main(argv)
     except InvalidArgumentError as e:
