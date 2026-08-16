@@ -91,6 +91,20 @@ def _build_scene_3slides():
     )
 
 
+def _build_scene_5slides():
+    """5 页同构场景：每页一个 corner_cluster finding → 5 个 assessed 维度 worth。"""
+    s = _build_scene().slides[0]
+    return make_scene(
+        [
+            make_slide(1, height=1080.0, elements=s.elements),
+            make_slide(2, height=1080.0, elements=s.elements),
+            make_slide(3, height=1080.0, elements=s.elements),
+            make_slide(4, height=1080.0, elements=s.elements),
+            make_slide(5, height=1080.0, elements=s.elements),
+        ]
+    )
+
+
 def _finding(report, rule_id):
     for s in report.slides:
         for d in s.dimensions:
@@ -827,16 +841,10 @@ def test_analyze_learning_coverage_mixed(monkeypatch, tmp_path):
         )
     _write_learning_model(tmp_path)
 
-    calls = {"n": 0}
-
-    def fake_worth(features, mlp=None):
-        calls["n"] += 1
-        return -0.5
-
     # 3 页同构且默认 abstain 关 → 全部 finding 过门（不 abstain、不 OOD），covered=3。
     # OOD/abstain 拦截语义由既有 test_analyze_abstain_skips_severity_shift 覆盖，
     # 本用例只锁定「计数不崩、覆盖结构正确」。
-    monkeypatch.setattr(infer, "model_worth", fake_worth)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)
     report = analyze_scene(
         _build_scene_3slides(),
         profile="balanced",
@@ -853,3 +861,43 @@ def test_analyze_learning_coverage_mixed(monkeypatch, tmp_path):
     assert cov["ood_count"] == 0
     assert cov["confident_quality"] == 73.1
     assert cov["mean_worth"] == -0.5
+
+
+def test_analyze_learning_coverage_mixed_abstain(monkeypatch, tmp_path):
+    """#133：有分数且带 abstain 计数——covered≥3 时 dict 写出非零 abstained_count。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(5):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+
+    calls = {"n": 0}
+
+    def selective_abstain(self, feats):
+        calls["n"] += 1
+        return calls["n"] <= 2  # 前 2 个 finding abstain，后 3 个过门
+
+    monkeypatch.setattr(infer.ModelBundle, "should_abstain", selective_abstain)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)
+    report = analyze_scene(
+        _build_scene_5slides(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    cov = report.quality_score_coverage
+    assert cov["covered_findings"] == 3
+    assert cov["abstained_count"] == 2
+    assert cov["ood_count"] == 0
+    assert cov["total_findings"] == 5
+    assert report.experimental_score == 73.1

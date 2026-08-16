@@ -179,6 +179,7 @@ def _apply_learning_pass(
     )
     # #133：quality_score 人口统计——covered 是进入分数计算的 assessed 维度 worth 子集；
     # abstain/ood 被挡下的 finding 单独计数，让「分数只基于置信子集」的偏差可见。
+    # total_findings 含 deck 级/非 assessed 维度 finding（永不进 covered），残余是有意的保守披露。
     covered: list[float] = []
     total_findings = 0
     abstained_count = 0
