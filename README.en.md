@@ -36,8 +36,8 @@ Built for Python developers and AI agents to independently produce **polished, a
   pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
 - **Learnable feedback (v0.18)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
-  `offipy feedback train` / `status` / `append` / `recommend` / `apply`, cold-start falls back to
-  v2, core stays numpy-free. Learning quality (#115-#122): standardized preprocessing (zero-variance
+  `offipy feedback train` / `status` / `append` / `recommend` / `apply` / `reschema`, cold-start falls
+  back to v2, core stays numpy-free. Learning quality (#115-#122): standardized preprocessing (zero-variance
   drop + high-correlation dedup + z-score), ensemble K=5 + calibration + abstain + OOD, sample-level
   repeated stratified CV, capacity-adaptive warnings, per-rule sample diagnosis; consumer side
   (#130-#160): status reports stale/corrupt, `experimental_score_mode` annotates the score source,

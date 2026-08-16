@@ -45,6 +45,7 @@ offipy feedback status [--feedback-dir <dir>]       # sample/model status
 offipy feedback append --profile <p> --rule-id <id> --action fixed|accepted|ignored --severity LOW|MID|HIGH [--features '<json>'] [--feedback-dir <dir>]
 offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir> [--profile <p>] [--json]
 offipy feedback apply --profile <p> [--feedback-dir <dir>]
+offipy feedback reschema [--feedback-dir <dir>]     # rewrite schema-expired records (bump migration)
 ```
 
 Destructive ops need a target: `--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`.
@@ -262,7 +263,8 @@ Three layers of feedback semantics (pinned here to avoid confusion):
 - `offipy.feedback` (v1): dimension weights, `dimension_weights()`, `~/.offipy/feedback.jsonl`
 - `offipy.art.feedback` (v2): per-rule ±1, `recommend_adjustments` → `feedback_severity_adjustments`
 - `offipy feedback` (v3, this system): learnable numpy MLP, `feedback_train` /
-  `feedback_status` / `feedback_append` / `feedback_recommend` / `feedback_apply`
+  `feedback_status` / `feedback_append` / `feedback_recommend` / `feedback_apply` /
+  `feedback_reschema`
 
 Training: `offipy feedback train` (reads `~/.offipy/art_feedback.jsonl` → trains →
 writes `~/.offipy/art_feedback_model.json`). With insufficient / no valid samples it returns a
@@ -300,11 +302,22 @@ Append labels: `offipy feedback append --profile <p> --rule_id <r> --action fixe
 
 Status: `offipy feedback status` (sample count / valid sample count / pairing potential /
 model none|valid|stale|corrupt|expired; when the model is valid it additionally surfaces
-`effective_dims` / `samples_per_param` / `poor_generalization` / `saturation`; every branch
+`effective_dims` / `samples_per_param` / `poor_generalization` / `saturation`, plus the full
+`capacity` dict (`level` / `suggest_n` / `samples_per_param`, #134) and a `capacity_warning`
+boolean — grade and retrain guidance become visible to consumers, and a missing/malformed
+`capacity` is normalized to `None` without raising; every branch
 carries `excluded` (filtered-record breakdown) and `per_rule` (per-rule sample diagnosis).
 `stale` = schema matches but kept indices are out-of-bounds/missing/non-numeric (a bump forgot
 to retrain, #150); `corrupt` = schema matches but the weights fail to rebuild (#147); neither
 masquerades as a valid model).
+
+Reschema migration (#144): `offipy feedback reschema [--feedback-dir <dir>]` rewrites
+schema-expired historical records that still carry a feature snapshot in place to the current
+`feature_schema_version` (the features dict is preserved, missing keys are zero-filled) and
+returns `{rewritten, skipped_no_features, already_current}`; bad lines are preserved (the file
+is never corrupted). After a bump the old records are no longer filtered by `valid_records`
+(`status` `excluded.schema_mismatch` drops to zero) — no need to rebuild the feedback store
+manually.
 
 Consumption rule (#113): learning **consumption** requires an explicit `feedback_dir` —
 `analyze_scene(feedback=True)` without a dir → `InvalidArgumentError`; `learned_adjustments`
