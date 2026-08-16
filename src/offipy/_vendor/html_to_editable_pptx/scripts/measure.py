@@ -87,6 +87,19 @@ EXTRACT_JS = r"""
   const records = [];
   let nodeId = 0;
 
+  // #141：单页保真度告警（audio 丢弃 / video 首帧化等），随 EXTRACT_JS 返回，
+  // measure() 聚合进 payload["_warnings"]，deck 端透出为质量报告警告。
+  const slideWarnings = [];
+  const warnSlide = (kind, message) => {
+    slideWarnings.push({ slide: slideIndex + 1, kind, message });
+  };
+  // #141：<audio> 无法用 PPTX 表达——统一告警文案，drop 后不生成任何 record。
+  // 三个路由入口共用（walk 主循环 / emitInlineGroup.walkInline / extractRuns.walk），
+  // 覆盖 audio 在不同 DOM 位置的所有被跳过路径。
+  const dropAudio = () => {
+    warnSlide('audio', `slide ${slideIndex + 1} 含 <audio>，PPTX 无法表达音频，已静默丢弃`);
+  };
+
   // 标记一个节点是否为 "text leaf"：包含 textContent 但所有子节点要么是文本节点，要么是 inline 装饰（em/span 等没有进一步分割结构的）
   // 简化：只要这个元素的 children 中没有任何 block 级元素，就算 text leaf。
   // 漏 ASIDE 这类块元素会让父容器的 inline-group 误把整个 <aside>...</aside> 当 inline 吞掉，
@@ -252,6 +265,10 @@ EXTRACT_JS = r"""
         const rng = document.createRange();
         rng.selectNodeContents(n);
         const rr = rng.getBoundingClientRect();
+        // #141：<a href> 超链接透传到 run——assemble 据此写 OOXML a:hlinkClick，
+        // deck 落盘后文本可点。无 <a> 祖先或 href 为空时不带该字段。
+        const anchor = parent.closest ? parent.closest('a') : null;
+        const href = anchor && anchor.getAttribute('href') ? anchor.getAttribute('href') : null;
         runs.push({
           text,
           fontFamily: s.fontFamily,
@@ -266,11 +283,18 @@ EXTRACT_JS = r"""
           textTransform: s.textTransform,
           verticalAlign: s.verticalAlign,
           inkBottom: rr.height > 0 ? rr.bottom : null,
+          ...(href ? { href } : {}),
         });
       } else if (n.nodeType === 1) {
         // skip <br>: emit a soft break marker
         if (n.tagName === 'BR') {
           runs.push({ text: '\n', linebreak: true });
+          return;
+        }
+        // #141：<audio> 非 block 非 atomic，isTextLeaf 会把它放行进 text leaf——
+        // 但无 controls 的它 0×0，isHidden 会静默跳过。显式告警并丢弃。
+        if (n.tagName === 'AUDIO') {
+          dropAudio();
           return;
         }
         // display:none / visibility:hidden 的 inline 子树 HTML 里不可见，不进 runs
@@ -295,7 +319,8 @@ EXTRACT_JS = r"""
       && a.letterSpacing === b.letterSpacing
       && a.textDecoration === b.textDecoration
       && a.textShadow === b.textShadow
-      && a.textTransform === b.textTransform;
+      && a.textTransform === b.textTransform
+      && (a.href || null) === (b.href || null);
   };
 
   const pushStyledText = (runs, text, style) => {
@@ -323,6 +348,10 @@ EXTRACT_JS = r"""
         const parent = n.parentElement;
         if (!parent) return;
         const s = getComputedStyle(parent);
+        // #141：natural line-break 重建 run 时 href 必须进 style，
+        // 否则重建后链接丢失（该函数会整体重排 runs）。
+        const anchor = parent.closest ? parent.closest('a') : null;
+        const href = anchor && anchor.getAttribute('href') ? anchor.getAttribute('href') : null;
         const style = {
           fontFamily: s.fontFamily,
           fontSize: parseFloat(s.fontSize),
@@ -335,6 +364,7 @@ EXTRACT_JS = r"""
           lineHeight: s.lineHeight,
           textTransform: s.textTransform,
           verticalAlign: s.verticalAlign,
+          ...(href ? { href } : {}),
         };
         for (const m of raw.matchAll(/\S+/g)) {
           range.setStart(n, m.index);
@@ -448,6 +478,15 @@ EXTRACT_JS = r"""
   // 选择需要导出的节点
   const walk = (el) => {
     if (!el || el.nodeType !== 1) return;
+    // #141：<audio> 无法用 PPTX 表达——不生成任何 record，显式告警（诚实披露）。
+    // 必须放在 isHidden 检查之前：无 controls 的 <audio> 是 0×0 rect，isHidden 会
+    // 先判隐藏返回（measure.py:58），放它后面则告警永不触发。
+    // 注意：inline <audio> 走 emitInlineGroup.walkInline / extractRuns.walk，到不了
+    // walk()——那两个入口也各有 dropAudio() 兜底。
+    if (el.tagName.toLowerCase() === 'audio') {
+      dropAudio();
+      return;
+    }
     if (isHidden(el)) return;
 
     // Asset 声明（data-offipy-asset-id）：converter 只量占位框 + 主题 token，
@@ -535,6 +574,11 @@ EXTRACT_JS = r"""
         const canvasIndex = records.filter(x => x.kind === 'canvas').length;
         const marker = `slide${slideIndex+1}-canvas${canvasIndex+1}`;
         el.setAttribute('data-pptx-canvas-id', marker);
+        const videoSrc = tagLow === 'video' ? (el.currentSrc || el.src || '') : '';
+        if (tagLow === 'video') {
+          warnSlide('video',
+            `slide ${slideIndex + 1} 含 <video>，PPTX 无原生播放，已嵌入首帧静态图（源：${videoSrc || '未知'}）`);
+        }
         records.push({
           id: nodeId++,
           kind: 'canvas',
@@ -543,6 +587,7 @@ EXTRACT_JS = r"""
           naturalSize: { w: el.offsetWidth, h: el.offsetHeight },
           rotation: cumulativeRotation(el),
           marker,
+          videoSrc,
         });
       }
       return;
@@ -775,6 +820,10 @@ EXTRACT_JS = r"""
         const irng = document.createRange();
         irng.selectNodeContents(n);
         const irr = irng.getBoundingClientRect();
+        // #141：inline-group 文本（flex-spacing / 混合容器直接挂文本）同样透传
+        // <a href>——这类 run 走 emitInlineGroup 而非 extractRuns，超链接不能丢。
+        const anchor = p.closest ? p.closest('a') : null;
+        const href = anchor && anchor.getAttribute('href') ? anchor.getAttribute('href') : null;
         runs.push({
           text: n.nodeValue,
           fontFamily: ps.fontFamily,
@@ -789,9 +838,17 @@ EXTRACT_JS = r"""
           textTransform: ps.textTransform,
           verticalAlign: ps.verticalAlign,
           inkBottom: irr.height > 0 ? irr.bottom : null,
+          ...(href ? { href } : {}),
         });
       } else if (n.nodeType === 1) {
         if (n.tagName === 'BR') { runs.push({ text: '\n', linebreak: true }); return; }
+        // #141：inline group 里的 <audio>（section 直接子 / 混合容器）是 0×0 rect，
+        // isHidden 会静默跳过——walk() 只下钻 block 子，到不了这里的 audio 分支，
+        // 必须在 isHidden 前显式告警并丢弃。
+        if (n.tagName === 'AUDIO') {
+          dropAudio();
+          return;
+        }
         // 隐藏的 inline 子树不进 runs（与 extractRuns.walk 同规则）
         if (isHidden(n)) return;
         const before = extractPseudoRun(n, '::before');
@@ -1100,6 +1157,7 @@ EXTRACT_JS = r"""
       color: getComputedStyle(slide).color,
     },
     records,
+    warnings: slideWarnings,
   };
 }
 """
@@ -1415,6 +1473,7 @@ def measure(html_path: Path, out_json: Path | None = None, *,
             indices = list(range(total))
 
         slides_data = []
+        warnings: list[dict] = []
         for i in indices:
             page.evaluate(ACTIVATE_JS, i)
             # 等一帧让 .active 类等切换后的 computed style / transform 生效
@@ -1452,6 +1511,8 @@ def measure(html_path: Path, out_json: Path | None = None, *,
                         }
                     }""")
             data = page.evaluate(EXTRACT_JS, i)
+            # #141：单页保真度告警（audio 丢弃 / video 首帧化）聚合进 payload["_warnings"]
+            warnings.extend(data.get("warnings", []) or [])
 
             # 统一截图四类 marker 元素：deco_snapshot / svg / canvas / img
             # 类型差异封装在 _MARKER_SHOOT_SPECS（pre/post JS、omit_background）
@@ -1490,6 +1551,9 @@ def measure(html_path: Path, out_json: Path | None = None, *,
             }
         else:
             payload = {"slides": slides_data}
+        # #141：媒体保真度告警聚合进 payload（single_index 已带每页 warnings 字段）
+        if warnings and single_index is None:
+            payload["_warnings"] = warnings
 
         if out_json is not None:
             Path(out_json).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
