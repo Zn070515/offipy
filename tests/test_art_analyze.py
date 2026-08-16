@@ -717,3 +717,30 @@ def test_analyze_learning_quality_score_needs_three_worths(monkeypatch, tmp_path
     # 未达 ≥3 worth 门 → 未落 worth_sigmoid mode；grade_mean 兜底保留（90.0），不冒充分数
     assert report.experimental_score_mode == "grade_mean"
     assert report.experimental_score == 90.0
+
+
+def test_reconcile_grades_after_severity_shift():
+    """#132：severity 被 shift 后 grade 按 post-shift findings 重推（grade 与 finding 一致）。"""
+    from offipy.art.analyze import _reconcile_grades
+    from offipy.art.models import ArtFinding, ArtReport, ArtSlideReport, DimensionAssessment
+    from offipy.art.rules import grade_from_findings
+
+    f = ArtFinding(
+        rule_id="art.color.no_accent",
+        dimension="color",
+        severity=Severity.LOW,
+        message="x",
+        confidence=0.9,
+    )
+    dim = DimensionAssessment(
+        dimension="color",
+        status="assessed",
+        grade="good",
+        findings=[f],
+    )
+    report = ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[dim])])
+    assert dim.grade == "good"  # LOW×0.9 = 0.45 ≤ 1.0 → good
+    f.severity = Severity.HIGH  # 模拟 severity_shift：LOW→HIGH
+    _reconcile_grades(report)
+    assert dim.grade == "poor"  # HIGH×0.9 = 2.7 > 2.5 → poor
+    assert dim.grade == grade_from_findings(dim.findings)

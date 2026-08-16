@@ -34,7 +34,7 @@ from .models import (
     DimensionAssessment,
 )
 from .profiles import ArtProfile, get_profile
-from .rules import RuleContext, apply_profile_to_finding, assess_dimension
+from .rules import RuleContext, apply_profile_to_finding, assess_dimension, grade_from_findings
 from .typography import RULES as TYPOGRAPHY_RULES
 
 if TYPE_CHECKING:
@@ -118,6 +118,18 @@ def _all_findings(report: ArtReport) -> Iterator[tuple[ArtFinding, int | None]]:
         yield f, None
 
 
+def _reconcile_grades(report: ArtReport) -> None:
+    """#132：severity_shift 改了 finding.severity → 重推 assessed 维度 grade。
+
+    grade 的单一事实来源是 rules.grade_from_findings；学习 pass 在 shift 后调用，
+    保证 grade 与 post-shift finding 一致（confidence / evidence_coverage 不动）。
+    """
+    for slide in report.slides:
+        for dim in slide.dimensions:
+            if dim.status == "assessed" and dim.findings:
+                dim.grade = grade_from_findings(dim.findings)
+
+
 def _apply_learning_pass(
     report: ArtReport,
     scene: ArtScene,
@@ -128,9 +140,10 @@ def _apply_learning_pass(
 ) -> None:
     """学习后处理 pass：severity_shift（severity_override=False 才作用）+ quality.score。
 
-    severity_shift 是「推荐」语义：只改 finding.severity，不改 dimension grade
-    （grade 在 assess_dimension 时已定）。quality.score 有请求且模型有效时替换
-    experimental_score。全程惰性 import：无 feedback extra 时 ImportError → 跳过。
+    severity_shift 是「推荐」语义：先改 finding.severity，再按 post-shift findings
+    重推 assessed 维度 grade（#132 _reconcile_grades，避免 grade 与 finding 不一致）。
+    quality.score 有请求且模型有效时替换 experimental_score。全程惰性 import：
+    无 feedback extra 时 ImportError → 跳过。
     """
     try:
         from offipy.art.features_registry import encode_features
@@ -190,6 +203,8 @@ def _apply_learning_pass(
         mean_worth = sum(covered) / len(covered)
         report.experimental_score = bundle.quality_score(mean_worth)
         report.experimental_score_mode = "worth_sigmoid"  # #130：区分 grade-mean 来源
+    # #132：severity_shift 改 severity 后重推 grade，否则 grade 与 finding 不一致
+    _reconcile_grades(report)
 
 
 def analyze_scene(
