@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **PPTX 动画效果（v0.20）**：HTML 声明 `data-ppt-anim`/`data-ppt-transition` + 约定回退
+  （`data-aos`/`data-anim`/`.fade-in`）→ 入场动画（fade/float_up/fly_in/wipe/zoom_in/grow）
+  与页面过渡（fade/wipe/push/cover）。`deck make --animations` 开启；独立 API
+  `apply_animations`/`apply_transitions` 对现成 .pptx 注入；`deck add-anim --pptx X --spec spec.json` CLI。
+
 ## [0.19.0] - 2026-08-16
 
 ### Fixed

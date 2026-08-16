@@ -139,6 +139,8 @@ MCP server 走 stdio，工具集合从 `schema.py` 自动注册。Claude Desktop
 
 ```bash
 offipy deck make --html deck.html --out deck.pptx --no-open
+offipy deck make --html deck.html --out deck.pptx --animations   # 渲染时注入入场动画 + 页面过渡
+offipy deck add-anim --pptx deck.pptx --spec spec.json            # 给现成 pptx 注入动画/过渡
 offipy deck outline --input outline.md --out deck.html   # markdown 大纲 → HTML 骨架
 ```
 
@@ -160,6 +162,25 @@ playwright install chromium
 
 `data-asset` / `data-primitive` / `data-asset-param-*` / `data-asset-placement` 资源
 声明与 `asset://` URI、provider 与 `assets.json` 溯源，见 [资源系统](assets.md)。
+
+### 动画声明（v0.20）
+
+HTML 里给元素打属性即可声明入场动画与页面过渡（默认关闭，`deck make --animations`
+才在渲染时注入）：
+
+- **入场动画**：`data-ppt-anim="fade|float_up|fly_in|wipe|zoom_in|grow"`；
+  方向 `data-ppt-dir="bottom|left|right|top"`（仅 `fly_in` / `wipe` 生效）；
+  触发 `data-ppt-trigger="click|after"`；时长 / 延迟 `data-ppt-dur` / `data-ppt-delay`（秒）。
+- **页面过渡**：`data-ppt-transition="fade|wipe|push|cover"` +
+  `data-ppt-transition-speed="slow|medium|fast"`。
+- **约定回退**：`data-aos` / `data-anim` / `.fade-in` 类也被识别为入场动画
+  （过渡仍须显式 `data-ppt-transition`）。
+- **启用**：`deck make --animations`（默认关，输出与旧版逐字节一致）；
+  `--no-visual-audit` 与动画声明互斥（fail-fast）。
+- **现成 pptx 注入**：`deck add-anim --pptx deck.pptx --spec spec.json`，spec 形如
+  `{"animations": [{"slide": 1, "target": "title", "effect": "fade", "direction": ..., "trigger": ..., "duration": ..., "delay": ...}], "transitions": [{"slide": 2, "kind": "push", "speed": "medium"}]}`，
+  `target` 为形状**名称**（精确匹配）；返回注入报告（`animations_applied` /
+  `transitions_applied` / `unmatched` / `skipped`）。
 
 ### Mermaid 图
 
