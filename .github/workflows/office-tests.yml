@@ -98,13 +98,25 @@ jobs:
       # "module ... has no attribute 'CLSIDToClassMap'"，Word 等 op 全挂。
       # 用与后续测试相同的解释器清空缓存，下次启动自动重建类型库。
       # 与 COM 测试用同一解释器，避免 bash $TEMP 与 Windows Python 临时目录映射错位。
-      - name: Clear pywin32 gen_py cache (runner 自愈)
+      #
+      # 清 gen_py 前先杀残留 Office + 清完重启常驻 8890 server——常驻 server
+      # 内存缓存着指向 gen_py 的模块引用，删盘后它再解析新成员（如 set_title 的
+      # Shapes）会尝试把生成的 .py 写回已删目录 → FileNotFoundError（bench 实测复现，
+      # 见 docs/development）。顺序：杀 Office → 清 gen_py → 重启 server（新进程首调
+      # 自动重建类型库）。
+      - name: Reset COM baseline + clear pywin32 gen_py cache (runner 自愈)
         shell: bash
         run: |
+          for p in POWERPNT WINWORD EXCEL; do
+            taskkill //F //IM "$p.EXE" 2>/dev/null || true
+          done
+          sleep 2
           if [ "${{ inputs.install_from_wheel }}" = "true" ]; then
             .venv-wheel/Scripts/python.exe -c "import shutil, win32com; shutil.rmtree(win32com.__gen_path__, ignore_errors=True)"
+            .venv-wheel/Scripts/python.exe -m offipy.cli server restart >/dev/null 2>&1 || true
           else
             uv run python -c "import shutil, win32com; shutil.rmtree(win32com.__gen_path__, ignore_errors=True)"
+            uv run offipy server restart >/dev/null 2>&1 || true
           fi
 
       - name: Test COM + deck_render (真机)
@@ -115,6 +127,20 @@ jobs:
           else
             uv run pytest tests -m "${{ inputs.test_marker }}" -q
           fi
+
+      # COM 测试会在 server 进程累积 Office 实例（实测 25+ 未保存演示文稿），
+      # 直接复用会让 bench 收尾的 quit 拒退既有实例；server 长存进程也可能带坏
+      # 类型库状态（见上方 gen_py 清理步骤）。bench 前再回一次干净基线，保证基准
+      # 确定性。release 的 install_from_wheel 不跑 bench，故本步同款跳过。
+      - name: Reset COM baseline before benchmark
+        if: ${{ !inputs.install_from_wheel }}
+        shell: bash
+        run: |
+          for p in POWERPNT WINWORD EXCEL; do
+            taskkill //F //IM "$p.EXE" 2>/dev/null || true
+          done
+          sleep 2
+          uv run offipy server restart >/dev/null 2>&1 || true
 
       # RPC op 基准轻档（#107）：真机验证 bench 脚本不坏 + 指标能产出。
       # bench_ops 走 COM（client.call → server → Office），只能挂有 Office 的
