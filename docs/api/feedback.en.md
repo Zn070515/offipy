@@ -49,3 +49,13 @@ Persist learned rule.delta to the profile store (default ~/.offipy/art_profiles.
 - **Parameters**: `profile: str`, `feedback_dir: str`
 - **Returns**: `dict`
 - **Flags**: normal operation
+
+---
+
+### `reschema`
+
+Rewrite schema-expired historical feedback records that carry a feature snapshot in place to the current feature_schema_version, for migration after a schema bump. Returns {rewritten, skipped_no_features, already_current}. Bad lines are preserved (the file is never corrupted).
+
+- **Parameters**: `feedback_dir: str`
+- **Returns**: `dict`
+- **Flags**: normal operation

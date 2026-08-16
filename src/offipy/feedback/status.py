@@ -59,15 +59,18 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
         stats = data.get("stats", {})
         kept = pre.get("kept")
         capacity = stats.get("capacity")
+        # #134：capacity 可能是脏值（缺/非 dict）——isinstance 归一化，不把原始对象
+        # 泄漏进 status（否则破坏 JSON 序列化与下游断言）；缺/坏 → None。
+        cap = capacity if isinstance(capacity, dict) else None
         return {
             "samples": len(records),
             "valid_samples": len(valid),
             "pair_potential": len(pairs),
             "model": "valid",
             "effective_dims": len(kept),
-            "samples_per_param": (
-                capacity.get("samples_per_param") if isinstance(capacity, dict) else None
-            ),
+            "samples_per_param": cap.get("samples_per_param") if cap else None,
+            "capacity": cap,
+            "capacity_warning": bool(stats.get("capacity_warning")),
             "poor_generalization": stats.get("poor_generalization"),
             "saturation": stats.get("saturation"),
             "excluded": excluded,

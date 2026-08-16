@@ -441,7 +441,9 @@ def build_parser() -> argparse.ArgumentParser:
     # 显式声明 5 个 op 与参数（op 白名单 + 必填由 argparse 兜底，缺参 exit 2）。
     # 参数名双写法（--rule-id/--rule_id、--feedback-dir/--feedback_dir）保留
     # 「全局归一化 - → _」承诺：underscore 写法继续可用（既有测试/文档不破）。
-    fb = sub.add_parser("feedback", help="反馈学习系统（train/status/append/recommend/apply）")
+    fb = sub.add_parser(
+        "feedback", help="反馈学习系统（train/status/append/recommend/apply/reschema）"
+    )
     fb_op = fb.add_subparsers(dest="op", required=True)
     fb_train = fb_op.add_parser("train", help="离线训练反馈学习模型（numpy MLP ensemble）")
     fb_train.add_argument(
@@ -506,6 +508,15 @@ def build_parser() -> argparse.ArgumentParser:
     fb_apply = fb_op.add_parser("apply", help="把学习到的 rule.delta 持久化到 profile 存储")
     fb_apply.add_argument("--profile", required=True, help="目标 profile 名")
     fb_apply.add_argument(
+        "--feedback-dir",
+        "--feedback_dir",
+        dest="feedback_dir",
+        help="反馈库目录（默认 ~/.offipy）",
+    )
+    fb_reschema = fb_op.add_parser(
+        "reschema", help="把 schema 过期的历史反馈记录重写为当前 schema 版本（bump 迁移）"
+    )
+    fb_reschema.add_argument(
         "--feedback-dir",
         "--feedback_dir",
         dest="feedback_dir",
@@ -799,6 +810,10 @@ def _feedback_main(args: argparse.Namespace) -> int | None:
             kw["profile"] = args.profile
         if args.json:
             kw["json"] = True
+    elif op == "reschema":
+        kw = {}
+        if args.feedback_dir:
+            kw["feedback_dir"] = args.feedback_dir
     else:  # apply
         kw = {"profile": args.profile}
         if args.feedback_dir:

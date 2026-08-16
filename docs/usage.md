@@ -42,6 +42,7 @@ offipy feedback status [--feedback-dir <dir>]       # 样本/模型状态
 offipy feedback append --profile <p> --rule-id <id> --action fixed|accepted|ignored --severity LOW|MID|HIGH [--features '<json>'] [--feedback-dir <dir>]
 offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir> [--profile <p>] [--json]
 offipy feedback apply --profile <p> [--feedback-dir <dir>]
+offipy feedback reschema [--feedback-dir <dir>]     # 重写过期 schema 记录（bump 迁移）
 ```
 
 破坏性 op 需要一个目标：`--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`。
@@ -287,7 +288,7 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 - `offipy.feedback`（v1）：维度权重，`dimension_weights()`，`~/.offipy/feedback.jsonl`
 - `offipy.art.feedback`（v2）：规则 ±1，`recommend_adjustments` → `feedback_severity_adjustments`
 - `offipy feedback`（v3，本系统）：可学习 numpy MLP，`feedback_train` / `feedback_status` /
-  `feedback_append` / `feedback_recommend` / `feedback_apply`
+  `feedback_append` / `feedback_recommend` / `feedback_apply` / `feedback_reschema`
 
 训练：`offipy feedback train`（读 `~/.offipy/art_feedback.jsonl` → 训练 →
 写 `~/.offipy/art_feedback_model.json`）。样本不足/无有效样本时返回状态 JSON，
@@ -321,10 +322,18 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 
 状态：`offipy feedback status`（样本数 / 有效样本 / 配对潜力 / 模型
 none|valid|stale|corrupt|expired；模型有效时另表面 `effective_dims` /
-`samples_per_param` / `poor_generalization` / `saturation`；各分支都带 `excluded`
-（被过滤记录分类）与 `per_rule`（逐规则样本诊断）。`stale` = schema 匹配但 kept
-下标越界/缺失/非数值（bump 忘重训，#150），load 阶段回退 v2；`corrupt` = schema
-匹配但权重形状损坏（weights 重建失败，#147），也不冒充有效模型）。
+`samples_per_param` / `poor_generalization` / `saturation`，以及 **`capacity` 全量
+dict（`level` / `suggest_n` / `samples_per_param`，#134）与 `capacity_warning` 布尔**
+——阈值分级与补样建议对消费方可见，capacity 缺失/异常时归一化为 `None` 不抛；各分支
+都带 `excluded`（被过滤记录分类）与 `per_rule`（逐规则样本诊断）。`stale` = schema
+匹配但 kept 下标越界/缺失/非数值（bump 忘重训，#150），load 阶段回退 v2；`corrupt` =
+schema 匹配但权重形状损坏（weights 重建失败，#147），也不冒充有效模型）。
+
+重采样迁移（#144）：`offipy feedback reschema [--feedback-dir <dir>]` 把 schema 过期、
+仍有特征快照的历史记录原地重写为当前 `feature_schema_version`（features dict 保留，
+缺失 key 补 0），返回 `{rewritten, skipped_no_features, already_current}`；坏行保留
+不破坏文件。bump 后旧记录不再被 valid_records 过滤（status `excluded.schema_mismatch`
+归零），无需手动重建反馈库。
 
 消费侧要求（#113）：学习**消费**必须显式 `feedback_dir`——`analyze_scene(feedback=True)`
 不带目录 → `InvalidArgumentError`；`learned_adjustments` 不带目录 → 返回 None，

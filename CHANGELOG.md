@@ -3,6 +3,20 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
+## [Unreleased]
+
+### Fixed
+
+- **feedback status 透传 capacity（#134）**：valid 分支输出 `capacity` 全量 dict
+  （`level` / `suggest_n` / `samples_per_param`）与 `capacity_warning` 布尔——capacity
+  告警不再只有裸 `samples_per_param` 数字，阈值分级与补样建议对消费方可见。
+
+### Added
+
+- **CLI feedback reschema（#144）**：`offipy feedback reschema` 把 schema 过期的历史
+  反馈记录（有特征快照）原地重写为当前 `feature_schema_version`，供 bump 后迁移。
+  返回 `{rewritten, skipped_no_features, already_current}`；坏行保留不破坏文件。
+
 ## [0.18.2] - 2026-08-16
 
 ### Added

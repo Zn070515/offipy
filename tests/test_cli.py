@@ -222,6 +222,40 @@ def test_feedback_apply_cli_passes_kwargs(monkeypatch):
     assert captured["kw"]["feedback_dir"] == r"C:\fb"
 
 
+def test_feedback_reschema_cli_passes_kwargs(monkeypatch):
+    """#144：feedback reschema CLI → call 收到 app=feedback/op=reschema/feedback_dir。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["app"] = app
+        captured["op"] = op
+        captured["kw"] = kw
+        return {"rewritten": 1, "skipped_no_features": 0, "already_current": 0}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["feedback", "reschema", "--feedback_dir", r"C:\fb"])
+    assert captured["app"] == "feedback"
+    assert captured["op"] == "reschema"
+    assert captured["kw"]["feedback_dir"] == r"C:\fb"
+
+
+def test_feedback_reschema_cli_without_dir(monkeypatch):
+    """#144：feedback reschema 缺 --feedback-dir → 不传 key（FeedbackApp 走默认目录）。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["kw"] = kw
+        return {"rewritten": 0, "skipped_no_features": 0, "already_current": 0}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(["feedback", "reschema"])
+    assert "feedback_dir" not in captured["kw"]
+
+
 def test_deck_make_layouts_false(monkeypatch, capsys):
     # P0-4 回归：--layouts false 必须为 False，不能走 bool("false")。
     from offipy import cli
@@ -1445,14 +1479,14 @@ def test_cli_smoke_matrix(monkeypatch, capsys, args, exc_cls, msg, code, snippet
 
 
 def test_feedback_help_lists_all_ops(capsys):
-    """#135：feedback --help 列出 5 个 op 与用途，不再零引导。"""
+    """#135：#144：feedback --help 列出 6 个 op 与用途，不再零引导。"""
     from offipy import cli
 
     with pytest.raises(SystemExit) as exc:
         cli.main(["feedback", "--help"])
     assert exc.value.code == 0
     out = capsys.readouterr().out
-    for op in ("train", "status", "append", "recommend", "apply"):
+    for op in ("train", "status", "append", "recommend", "apply", "reschema"):
         assert op in out
 
 
