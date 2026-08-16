@@ -54,8 +54,13 @@ def _occurrence(f: ArtFinding) -> str:
         raw = "".join(sorted(r.element_id for r in f.related))
         raw += f.primary.kind + f.primary.role
     else:
-        # 无 primary（deck 级 finding）：用 message+details 定身份，避免全 "none" 冲突
-        raw = f.message + "".join(sorted(f"{k}:{v}" for k, v in f.details.items()))
+        # 无 primary（deck 级 finding）：用 message+details 定身份，避免全 "none" 冲突。
+        # #157：details["feedback"] 是 severity_shift provenance，不参与身份 hash——否则
+        # feedback shift 的 deck finding 跨配置对比会误报 resolved+new（severity 变化由
+        # _status 的 severity_override pair 检查捕获）。
+        raw = f.message + "".join(
+            sorted(f"{k}:{v}" for k, v in f.details.items() if k != "feedback")
+        )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
 
 

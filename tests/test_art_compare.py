@@ -197,3 +197,52 @@ def test_cross_schema_compare_no_panic_and_warns():
     diff = compare_reports(before, after)
     assert any(w.code == "art.compare.schema_mismatch" for w in diff.warnings)
     assert any(c.rule_id == "a.h" and c.status == "changed" for c in diff.changes)
+
+
+def test_feedback_provenance_excluded_from_deck_identity():
+    # #157：details["feedback"] 是 severity_shift provenance，不参与无 primary finding 的
+    # 身份 hash——否则 feedback shift 的 deck finding 跨配置对比会误报 resolved+new 而非
+    # worsened（severity 变化由 _status 的 severity_override pair 检查捕获）。
+    from offipy.art.compare import _occurrence, _stable_key
+
+    plain = ArtFinding(
+        rule_id="art.consistency.margin_drift",
+        dimension="consistency",
+        severity=Severity.LOW,
+        message="margin drift",
+        confidence=0.6,
+        slide_index=None,
+        primary=None,
+    )
+    shifted = ArtFinding(
+        rule_id="art.consistency.margin_drift",
+        dimension="consistency",
+        severity=Severity.MID,
+        message="margin drift",
+        confidence=0.6,
+        slide_index=None,
+        primary=None,
+        details={
+            "feedback": {
+                "head": "severity_shift",
+                "worth": 0.8,
+                "shift": 0.8,
+                "before": "LOW",
+                "after": "MID",
+            }
+        },
+    )
+    shifted.severity_override = True
+    shifted.severity_override_source = "feedback"
+    assert _occurrence(plain) == _occurrence(shifted)
+    assert _stable_key(plain) == _stable_key(shifted)
+    # identity 匹配后，severity 变化 → worsened（而非 resolved+new）
+    diff = compare_reports(
+        ArtReport(slides=[], deck_findings=[plain]),
+        ArtReport(slides=[], deck_findings=[shifted]),
+    )
+    assert diff.new_findings == []
+    assert diff.resolved_findings == []
+    assert any(
+        c.rule_id == "art.consistency.margin_drift" and c.status == "worsened" for c in diff.changes
+    )
