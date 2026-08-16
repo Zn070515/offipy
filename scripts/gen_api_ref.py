@@ -454,7 +454,7 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Train the feedback learning system offline: read ~/.offipy/art_feedback.jsonl → "
         "encode against the current FEATURES schema → build pairs (same rule×profile: "
         "fixed > accepted) → train a numpy MLP → atomically write art_feedback_model.json. "
-        "With too few samples it returns a status instead of failing (does not delete an "
+        "With too few samples or no valid samples it returns a status instead of failing (does not delete an "
         'existing model). Requires numpy: pip install "offipy[feedback]".'
     ),
     ("feedback", "status"): (
@@ -464,7 +464,7 @@ _EN_DESC: dict[tuple[str, str], str] = {
     ("feedback", "append"): (
         "Append one feedback label: how a user disposed of a finding for a rule "
         "(fixed = should fix, accepted = rule is right, ignored = irrelevant). Written to the "
-        "feedback_dir JSONL (default ~/.offipy when absent), consumed by feedback train. "
+        "feedback_dir JSONL (default ~/.offipy when feedback_dir is omitted), consumed by feedback train. "
         "features is a flat feature snapshot (encode_features output); the CLI accepts a JSON string."
     ),
     ("feedback", "recommend"): (
