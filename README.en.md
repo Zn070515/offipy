@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM (session-based) + an HTML-first editabl
 Built for Python developers and AI agents to independently produce **polished, aesthetically sound, substantive** Office deliverables (Word / PPT / Excel).
 
 - **Library / command**: `pip install offipy`, `import offipy`, CLI command `offipy`
-- **Current version**: 0.18.0 (the current stable release; 1.0.0 will follow broader API validation)
+- **Current version**: 0.18.2 (the current stable release; 1.0.0 will follow broader API validation)
 
 ## Features
 
@@ -36,12 +36,14 @@ Built for Python developers and AI agents to independently produce **polished, a
   pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
 - **Learnable feedback (v0.18)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
-  `offipy feedback train` / `status` / `append`, cold-start falls back to v2, core stays numpy-free.
-  Learning quality (#115-#122): standardized preprocessing (zero-variance drop + high-correlation
-  dedup + z-score), ensemble K=5 + calibration + abstain + OOD, sample-level repeated stratified CV,
-  capacity-adaptive warnings, per-rule sample diagnosis — `feedback status` surfaces effective_dims /
-  samples_per_param / poor_generalization, and `deck audit --feedback-dir` passes through
-  experimental score
+  `offipy feedback train` / `status` / `append` / `recommend` / `apply`, cold-start falls back to
+  v2, core stays numpy-free. Learning quality (#115-#122): standardized preprocessing (zero-variance
+  drop + high-correlation dedup + z-score), ensemble K=5 + calibration + abstain + OOD, sample-level
+  repeated stratified CV, capacity-adaptive warnings, per-rule sample diagnosis; consumer side
+  (#130-#160): status reports stale/corrupt, `experimental_score_mode` annotates the score source,
+  `quality_score_coverage` reports confident-subset coverage, severity_shift has provenance
+  (override + details), rule.delta is visible in the report, and `recommend`/`apply` persist to
+  profile storage — `deck audit --feedback-dir` passes through experimental score
 - **Shape-level PPT reading and editing**: `ppt read_shapes` reads the shape tree (frozen `ShapeInfo` /
   shape-type contract), with `set_shape_geometry/text/font/fill/outline/visible`, `delete_shape`, and
   `set_shape_z_order` to edit real PowerPoint objects incrementally

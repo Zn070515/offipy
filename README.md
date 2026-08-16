@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.18.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.18.2（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -33,11 +33,13 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 三源（measurements + pptx 几何 +
   slides_dir 逐页 PNG 像素）一次评估，`deck.render_with_quality_report` 生成即质量参考
 - **可学习 feedback（v0.18）**：numpy MLP + 注册式输入输出（FEATURES/OUTPUTS），
-  `offipy feedback train` / `status` / `append`，冷启动回退 v2，核心零 numpy 依赖。
-  学习质量（#115-#122）：预处理标准化（零方差 drop + 高相关去重 + z-score）、
-  ensemble K=5 + 校准 + abstain + OOD、样本级 repeated stratified CV、
-  容量自适应告警、逐规则样本诊断——`feedback status` 表面 effective_dims /
-  samples_per_param / poor_generalization，`deck audit --feedback-dir` 透传
+  `offipy feedback train` / `status` / `append` / `recommend` / `apply`，冷启动回退 v2，
+  核心零 numpy 依赖。学习质量（#115-#122）：预处理标准化（零方差 drop + 高相关去重 +
+  z-score）、ensemble K=5 + 校准 + abstain + OOD、样本级 repeated stratified CV、
+  容量自适应告警、逐规则样本诊断；消费端（#130-#160）：status 报 stale/corrupt、
+  `experimental_score_mode` 标注分数来源、`quality_score_coverage` 覆盖率统计、
+  severity_shift 溯源（override + details）、rule.delta 报告可见、
+  `recommend`/`apply` 持久化到 profile 存储——`deck audit --feedback-dir` 透传
   experimental score
 - **PPT 形状级读取与编辑**：`ppt read_shapes` 读取形状树（冻结 `ShapeInfo` / 形状类型契约），
   `set_shape_geometry/text/font/fill/outline/visible`、`delete_shape`、`set_shape_z_order`

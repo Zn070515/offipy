@@ -261,7 +261,8 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 Three layers of feedback semantics (pinned here to avoid confusion):
 - `offipy.feedback` (v1): dimension weights, `dimension_weights()`, `~/.offipy/feedback.jsonl`
 - `offipy.art.feedback` (v2): per-rule ±1, `recommend_adjustments` → `feedback_severity_adjustments`
-- `offipy feedback` (v3, this system): learnable numpy MLP, `feedback_train` / `feedback_status` / `feedback_append`
+- `offipy feedback` (v3, this system): learnable numpy MLP, `feedback_train` /
+  `feedback_status` / `feedback_append` / `feedback_recommend` / `feedback_apply`
 
 Training: `offipy feedback train` (reads `~/.offipy/art_feedback.jsonl` → trains →
 writes `~/.offipy/art_feedback_model.json`). With insufficient / no valid samples it returns a
@@ -298,11 +299,12 @@ Append labels: `offipy feedback append --profile <p> --rule_id <r> --action fixe
 `train` to learn; severity is limited to LOW/MID/HIGH).
 
 Status: `offipy feedback status` (sample count / valid sample count / pairing potential /
-model none|valid|stale|expired; when the model is valid it additionally surfaces `effective_dims` /
-`samples_per_param` / `poor_generalization` / `saturation`; every branch carries `excluded`
-(filtered-record breakdown) and `per_rule` (per-rule sample diagnosis). `stale` = schema matches
-but kept indices are out-of-bounds/missing/non-numeric (a bump forgot to retrain, #150); load
-falls back to v2).
+model none|valid|stale|corrupt|expired; when the model is valid it additionally surfaces
+`effective_dims` / `samples_per_param` / `poor_generalization` / `saturation`; every branch
+carries `excluded` (filtered-record breakdown) and `per_rule` (per-rule sample diagnosis).
+`stale` = schema matches but kept indices are out-of-bounds/missing/non-numeric (a bump forgot
+to retrain, #150); `corrupt` = schema matches but the weights fail to rebuild (#147); neither
+masquerades as a valid model).
 
 Consumption rule (#113): learning **consumption** requires an explicit `feedback_dir` —
 `analyze_scene(feedback=True)` without a dir → `InvalidArgumentError`; `learned_adjustments`
@@ -319,22 +321,39 @@ CLI consumption channel (#114/#116):
 
 Inference consumption points:
 - `rule.delta.<rule_id>`: mean worth of historical records → ±1 adjustment →
-  `feedback_severity_adjustments`
+  `feedback_severity_adjustments`; also lands in `report.feedback_adjustments`, visible in the
+  deck audit JSON / text "模型调整 (rule.delta)" segment (#159)
 - `finding.severity_shift`: a post-processing pass in analyze, applied only to rule-computed
   (no-override) findings; **per-rule evidence gate (#111)** — only rules with ≥ 3 valid labels
   get shifted; 0-label rules are not cross-rule-generalized; findings the model is uncertain
   about (abstain) or that are out-of-distribution (OOD) are not shifted (conservative fallback
-  to v2)
+  to v2); when a shift applies the finding is marked override + traced in `details.feedback`
+  (before/after/worth/shift, #157), and the dimension grade is re-derived from post-shift
+  findings (#132)
 - `quality.score`: replaces `experimental_score` (only computed when
-  `include_experimental_score=True`); same evidence gate — contributed only by gated
-  (shiftable) findings; the value is mapped from the ensemble-mean worth via calibration
-  (worth_scale normalization)
+  `include_experimental_score=True`); **requires ≥ 3 assessed-dimension worths** (below that no
+  score is written, #158); same evidence gate — contributed only by gated (shiftable) findings;
+  the value is mapped from the ensemble-mean worth via calibration (worth_scale normalization),
+  and the source is annotated in `experimental_score_mode` (`worth_sigmoid`; grade-mean source
+  is `grade_mean`, #130); coverage of the confident subset is reported via
+  `quality_score_coverage` (covered/total/abstain/ood, #133); with no valid model a
+  `feedback.model.unavailable` warning is emitted instead of a silent v2 fallback (#158)
 
 Cold start: no model / expired model (feature_schema_version / model schema mismatch) / stale
-model (schema matches but kept indices out-of-bounds, #150) / numpy not installed → full fallback
-to v2 behavior (`recommend_adjustments`). Deleting
+model (schema matches but kept indices out-of-bounds, #150) / corrupt (weights fail to rebuild,
+#147) / numpy not installed → full fallback to v2 behavior (`recommend_adjustments`). Deleting
 model.json returns to v2. The learning system is a detachable enhancement and never relaxes
 the audit hard gate.
+
+recommend / apply (#160):
+- `offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir>`: read-only recommendations —
+  runs analysis + learned inference, projects `adjusted_findings` / `suggestions`, writes nothing
+  to documents or the feedback store; with no valid model it raises explicitly (no silent v2
+  fallback).
+- `offipy feedback apply --profile <p>`: persists the learned rule.delta to
+  `~/.offipy/art_profiles.json` — afterwards `deck audit --profile <name>` (without
+  `--feedback-dir`) also reflects the adjustment (the default store only takes effect for a
+  profile once adjustments have been applied to it).
 
 ## Capability boundary: create/append vs incremental edit
 

@@ -286,7 +286,8 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 三层 feedback 语义（文档钉死，避免混淆）：
 - `offipy.feedback`（v1）：维度权重，`dimension_weights()`，`~/.offipy/feedback.jsonl`
 - `offipy.art.feedback`（v2）：规则 ±1，`recommend_adjustments` → `feedback_severity_adjustments`
-- `offipy feedback`（v3，本系统）：可学习 numpy MLP，`feedback_train` / `feedback_status` / `feedback_append`
+- `offipy feedback`（v3，本系统）：可学习 numpy MLP，`feedback_train` / `feedback_status` /
+  `feedback_append` / `feedback_recommend` / `feedback_apply`
 
 训练：`offipy feedback train`（读 `~/.offipy/art_feedback.jsonl` → 训练 →
 写 `~/.offipy/art_feedback_model.json`）。样本不足/无有效样本时返回状态 JSON，
@@ -318,10 +319,12 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
 --severity MID --features '<json>' --feedback_dir <dir>`（写入该目录 JSONL，
 供 train 学习；severity 限 LOW/MID/HIGH）。
 
-状态：`offipy feedback status`（样本数 / 有效样本 / 配对潜力 / 模型 none|valid|stale|expired；
-模型有效时另表面 `effective_dims` / `samples_per_param` / `poor_generalization` / `saturation`；
-各分支都带 `excluded`（被过滤记录分类）与 `per_rule`（逐规则样本诊断）。`stale` = schema
-匹配但 kept 下标越界/缺失/非数值（bump 忘重训，#150），load 阶段回退 v2）。
+状态：`offipy feedback status`（样本数 / 有效样本 / 配对潜力 / 模型
+none|valid|stale|corrupt|expired；模型有效时另表面 `effective_dims` /
+`samples_per_param` / `poor_generalization` / `saturation`；各分支都带 `excluded`
+（被过滤记录分类）与 `per_rule`（逐规则样本诊断）。`stale` = schema 匹配但 kept
+下标越界/缺失/非数值（bump 忘重训，#150），load 阶段回退 v2；`corrupt` = schema
+匹配但权重形状损坏（weights 重建失败，#147），也不冒充有效模型）。
 
 消费侧要求（#113）：学习**消费**必须显式 `feedback_dir`——`analyze_scene(feedback=True)`
 不带目录 → `InvalidArgumentError`；`learned_adjustments` 不带目录 → 返回 None，
@@ -334,18 +337,33 @@ CLI 学习消费通道（#114/#116）：
   语义不变，仍只是导出目录，不触发学习消费）
 
 推理消费点：
-- `rule.delta.<rule_id>`：历史记录 worth 均值 → ±1 调整 → `feedback_severity_adjustments`
+- `rule.delta.<rule_id>`：历史记录 worth 均值 → ±1 调整 → `feedback_severity_adjustments`；
+  落到 `report.feedback_adjustments`，deck audit JSON / 文本「模型调整 (rule.delta)」段可见（#159）
 - `finding.severity_shift`：analyze 后处理 pass，仅 rule-computed（无 override）finding 生效；
   **按规则证据门禁（#111）**——仅该规则有效标签 ≥3 才被 shift，0 标签规则不做跨规则泛化；
-  模型不确定（abstain）/ 特征 OOD 的 finding 不 shift（保守回退 v2）
+  模型不确定（abstain）/ 特征 OOD 的 finding 不 shift（保守回退 v2）；shift 生效时标
+  override + `details.feedback` 溯源（before/after/worth/shift，#157），并按 post-shift
+  findings 重推维度 grade（#132）
 - `quality.score`：替换 `experimental_score`（仅 `include_experimental_score=True` 时算）；
-  同证据门禁，只由通过门禁（可被 shift）的 finding 贡献；值由 ensemble 均值 worth 经校准
-  （worth_scale 归一）映射
+  **需 ≥3 个 assessed 维度 worth**（不足不冒充分数，#158）；同证据门禁，只由通过门禁
+  （可被 shift）的 finding 贡献；值由 ensemble 均值 worth 经校准（worth_scale 归一）映射，
+  并标注 `experimental_score_mode`（`worth_sigmoid`；grade-mean 来源为 `grade_mean`，#130）；
+  分数基于置信子集的覆盖率由 `quality_score_coverage` 报出
+  （covered/total/abstain/ood，#133）；无有效模型时发 `feedback.model.unavailable` warning，
+  不静默回退 v2（#158）
 
 冷启动：无模型 / 模型过期（feature_schema_version / model schema 不符）/ 模型 stale
-（schema 匹配但 kept 下标越界，#150）/ 未装 numpy → 完全回退 v2 行为
-（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是可拆卸增强，
-绝不回退 audit 硬门禁。
+（schema 匹配但 kept 下标越界，#150）/ corrupt（权重形状损坏，#147）/ 未装 numpy →
+完全回退 v2 行为（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是
+可拆卸增强，绝不回退 audit 硬门禁。
+
+recommend / apply（#160）：
+- `offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir>`：只读建议——跑分析 +
+  学习推理，投影 `adjusted_findings` / `suggestions`，不进文档、不写反馈库；无有效模型
+  显式报错（不回退 v2 静默推荐）。
+- `offipy feedback apply --profile <p>`：把学习到的 rule.delta 持久化到
+  `~/.offipy/art_profiles.json`——之后 `deck audit --profile <name>`（不带
+  `--feedback-dir`）也反映该调整（默认存储仅在该 profile 有调整时生效）。
 
 ## 能力边界：创建/追加 vs 增量修改
 
