@@ -191,24 +191,26 @@ def assess_dimension(
     rule_specs: list[RuleSpec],
     ctx: RuleContext,
 ) -> DimensionAssessment:
-    """聚合一个维度：先判 active 规则，再算 coverage，最后 grade/confidence 分离。"""
+    """聚合一个维度：先判 active 规则，再逐规则 coverage 门控，最后 grade/confidence 分离。
+
+    rev3（#155）：coverage 门控下沉到规则级——只有 eligible>0 且 covered/eligible≥0.5
+    的规则（assessable）才保留其 finding；evidence_coverage 仍按 applicable 规则聚合；
+    status=assessed 当且仅当存在 ≥1 条 assessable 规则；被门控的规则附 warning。
+    """
     active = [rs for rs in rule_specs if _is_active(rs, ctx.profile)]
     if not active:
         return DimensionAssessment(dimension=dimension, status="not_applicable")
     findings: list[ArtFinding] = []
-    covered = 0
-    eligible = 0
     warnings: list[ArtWarning] = []
     applicable = 0
+    assessable = 0
+    applicable_covered = 0
+    applicable_eligible = 0
     reliability_terms: list[float] = []
     reliability_weights: list[int] = []
     for rs in active:
         ev = rs.run(ctx.slide, ctx)
-        covered += ev.covered_count
-        eligible += ev.eligible_count
         warnings.extend(ev.warnings)
-        if ev.eligible_count > 0:
-            applicable += 1
         rule_rel = _rule_reliability(ev)
         if (
             rule_rel is not None
@@ -218,13 +220,26 @@ def assess_dimension(
         ):
             reliability_terms.append(rule_rel)
             reliability_weights.append(ev.covered_count)
-        findings.extend(
-            apply_profile_to_finding(f, ctx.profile, experimental=rs.experimental)
-            for f in ev.findings
-        )
-    coverage = (covered / eligible) if eligible else 0.0
-    if coverage < _COVERAGE_MIN:
-        # 证据不足 → 不误报：丢弃低置信 finding，只保留 coverage 状态与 warnings
+        if ev.eligible_count > 0:
+            applicable += 1
+            applicable_covered += ev.covered_count
+            applicable_eligible += ev.eligible_count
+            if ev.covered_count / ev.eligible_count >= _COVERAGE_MIN:
+                assessable += 1
+                findings.extend(
+                    apply_profile_to_finding(f, ctx.profile, experimental=rs.experimental)
+                    for f in ev.findings
+                )
+            else:
+                warnings.append(
+                    ArtWarning(
+                        code="art.rule.insufficient_coverage",
+                        message=f"规则 {rs.rule_id} 证据不足，其 finding 已丢弃",
+                    )
+                )
+    coverage = (applicable_covered / applicable_eligible) if applicable_eligible else 0.0
+    if assessable == 0:
+        # 无任何规则达到覆盖门槛 → 不误报：丢弃全部 finding，保留 coverage 状态与 warnings
         return DimensionAssessment(
             dimension=dimension,
             status="insufficient_evidence",
@@ -233,7 +248,7 @@ def assess_dimension(
             warnings=warnings,
         )
     grade = grade_from_findings(findings)
-    applicability = (applicable / len(active)) if active else 0.0
+    applicability = (assessable / len(active)) if active else 0.0
     weight_total = sum(reliability_weights)
     if weight_total > 0:
         reliability = (
