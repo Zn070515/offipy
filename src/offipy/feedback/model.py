@@ -117,6 +117,20 @@ def model_valid(data: dict[str, Any], input_schema_version: str) -> bool:
     return data.get("input_schema_version") == input_schema_version
 
 
+def kept_valid(pre: dict[str, Any], num_features: int) -> bool:
+    """kept 是否为当前 feature_keys 下的合法绝对下标列表。
+
+    #150：schema bump 后 persisted kept 可能越界 / 缺失 / 含非数值 / 负值
+    → 视为无模型回退 v2。全 int（不含 bool）、非空、0 ≤ i < num_features。
+    """
+    kept = pre.get("kept")
+    if not isinstance(kept, list) or not kept:
+        return False
+    return all(
+        isinstance(i, int) and not isinstance(i, bool) and 0 <= i < num_features for i in kept
+    )
+
+
 def weights_from_dict(data: dict[str, Any], *, input_dim: int, hidden_dims: tuple[int, ...]) -> MLP:
     """按 data['weights'] 还原 MLP（形状校验失败抛 ValueError → 调用方视为无模型）。"""
     import numpy as np

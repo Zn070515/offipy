@@ -13,7 +13,7 @@ from typing import Any
 from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.feedback import load_records
 
-from .model import load_model, model_file, model_valid
+from .model import kept_valid, load_model, model_file, model_valid
 from .pairs import build_pairs, valid_records
 
 
@@ -24,10 +24,8 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
     pairs = build_pairs(valid)
     data = load_model(model_file(dir_path))
     if data is not None and model_valid(data, feature_schema_version()):
-        # #150：schema 匹配但 kept 越界（bump 忘重训）→ stale，不冒充 valid。
-        kept = data.get("preprocessing", {}).get("kept")
-        kept_ok = isinstance(kept, list) and bool(kept) and max(kept) < len(feature_keys())
-        if not kept_ok:
+        # #150：schema 匹配但 kept 越界/缺失/非数值（bump 忘重训）→ stale，不冒充 valid。
+        if not kept_valid(data.get("preprocessing", {}), len(feature_keys())):
             return {
                 "samples": len(records),
                 "valid_samples": len(valid),
@@ -43,7 +41,7 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
             "valid_samples": len(valid),
             "pair_potential": len(pairs),
             "model": "valid",
-            "effective_dims": len(kept) if isinstance(kept, list) else None,
+            "effective_dims": len(kept),
             "samples_per_param": (
                 capacity.get("samples_per_param") if isinstance(capacity, dict) else None
             ),

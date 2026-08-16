@@ -8,6 +8,7 @@ from offipy.feedback.mlp import HIDDEN_DIMS, MLP
 from offipy.feedback.model import (
     MODEL_FILE,
     MODEL_FORMAT_VERSION,
+    kept_valid,
     load_model,
     model_file,
     model_valid,
@@ -172,3 +173,16 @@ def test_save_failure_keeps_old_model(tmp_path):
             _fail=True,
         )
     assert old.read_bytes() == before  # 旧模型未被覆盖
+
+
+def test_kept_valid_accepts_in_bounds_ints():
+    assert kept_valid({"kept": [0, 1, 7]}, 8) is True
+
+
+def test_kept_valid_rejects_bad_kept():
+    assert kept_valid({"kept": []}, 8) is False  # empty
+    assert kept_valid({"kept": "nope"}, 8) is False  # not a list
+    assert kept_valid({"kept": [0, 9999]}, 8) is False  # out of bounds
+    assert kept_valid({"kept": [-1]}, 8) is False  # negative
+    assert kept_valid({"kept": [1, "2"]}, 8) is False  # non-numeric
+    assert kept_valid({}, 8) is False  # missing key

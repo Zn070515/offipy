@@ -23,7 +23,7 @@ from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.feedback import load_records
 
 from .heads import quality_score_from_worth, quantize_delta
-from .model import load_model, model_file, model_valid, weights_from_dict
+from .model import kept_valid, load_model, model_file, model_valid, weights_from_dict
 from .pairs import valid_records
 from .preprocess import transform_features
 
@@ -89,9 +89,8 @@ class ModelBundle:
         if data is None or not model_valid(data, feature_schema_version()):
             return None
         # #150：schema bump 后 persisted kept 下标可能越过当前 feature_keys——load 阶段
-        # 校验，越界/缺失视为无模型回退 v2，杜绝 analyze_scene 抛 IndexError。
-        kept = data.get("preprocessing", {}).get("kept")
-        if not isinstance(kept, list) or not kept or max(kept) >= len(feature_keys()):
+        # 校验，越界/缺失/非数值视为无模型回退 v2，杜绝 analyze_scene 抛 IndexError。
+        if not kept_valid(data.get("preprocessing", {}), len(feature_keys())):
             return None
         if not data.get("members"):
             return None  # 防御：空 ensemble（np.mean([]) → nan）
