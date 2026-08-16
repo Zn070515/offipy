@@ -33,9 +33,12 @@ _Arr = np.ndarray[Any, np.dtype[np.float64]]
 # #121 A3：容量自适应经验法则（Lunt & Xu 2016）的下限/上限与「加第二层」样本阈值。
 H_MIN, H_MAX = 4, 32
 SECOND_LAYER_N = 120
-# #121 A3：samples_per_param 告警阈值——spp≥5 ok、≥2 warn、<2 critical。
-_SPP_OK = 5.0
-_SPP_WARN = 2.0
+# #121 A3 / #134：samples_per_param 告警阈值——spp≥1 ok、≥0.25 warn、<0.25 critical。
+# #134 重标定：旧 5/2 在全容量自适应（H=clamp(√n,4,32)）下误伤小样本——n=37 单层
+# 25 params 曾得 0.34→critical，实际小样本 spp≥1 已是健康信号。建议样本数只作估算
+# （suggest_n），容量仍是软告警不拒绝写盘。
+_SPP_OK = 1.0
+_SPP_WARN = 0.25
 
 
 def adaptive_hidden_dims(n: int) -> tuple[int, ...]:
@@ -51,10 +54,11 @@ def params_count(input_dim: int, hidden_dims: tuple[int, ...]) -> int:
 
 
 def capacity_report(n: int, input_dim: int, hidden_dims: tuple[int, ...]) -> dict[str, Any]:
-    """容量报告：samples_per_param 分级（ok/warn/critical），只供记录不拒绝。"""
+    """容量报告：samples_per_param 分级（ok/warn/critical）+ suggest_n 补样估算。"""
     params = params_count(input_dim, hidden_dims)
     spp = n / params if params else 0.0
     level = "ok" if spp >= _SPP_OK else ("warn" if spp >= _SPP_WARN else "critical")
+    suggest_n = max(0, math.ceil(_SPP_OK * params) - n) if params else 0
     return {
         "n": n,
         "input_dim": input_dim,
@@ -62,6 +66,7 @@ def capacity_report(n: int, input_dim: int, hidden_dims: tuple[int, ...]) -> dic
         "params": params,
         "samples_per_param": round(spp, 2),
         "level": level,
+        "suggest_n": suggest_n,  # #134：达到 ok 约需再补的样本数（基于当前容量估算）
     }
 
 

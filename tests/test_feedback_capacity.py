@@ -59,18 +59,21 @@ def test_capacity_ok_when_samples_abundant():
     assert rep["level"] == "ok"
     assert rep["hidden_dims"] == [4]
     assert rep["n"] == 1000 and rep["input_dim"] == 4
+    assert rep["suggest_n"] == 0
 
 
 def test_capacity_warn_when_samples_scarce():
-    rep = capacity_report(100, 4, (4,))  # spp=4.0 → warn
-    assert rep["samples_per_param"] == 4.0
+    rep = capacity_report(10, 4, (4,))  # spp=0.4 → warn（新阈值 0.25 ≤ 0.4 < 1.0）
+    assert rep["samples_per_param"] == 0.4
     assert rep["level"] == "warn"
+    assert rep["suggest_n"] == 15  # 达到 ok（spp≥1）约需 25 样本，还差 15
 
 
 def test_capacity_critical_when_samples_very_scarce():
-    rep = capacity_report(10, 4, (4,))  # spp=0.4 → critical
-    assert rep["samples_per_param"] == 0.4
+    rep = capacity_report(5, 4, (4,))  # spp=0.2 → critical（< 0.25）
+    assert rep["samples_per_param"] == 0.2
     assert rep["level"] == "critical"
+    assert rep["suggest_n"] == 20
 
 
 # --- 集成：软告警只记录，不拒绝写盘 ---
@@ -90,12 +93,12 @@ def _add(tmp_path, rule_id, action, n, *, features):
 
 
 def test_capacity_warning_is_soft_and_never_rejects_model(tmp_path):
-    # n=16 独立样本 + (4,) 隐层 → params≥13 → spp<5 → 至少 warn
+    # n=11 独立样本 + (4,) 隐层 → params=13 → spp≈0.85 → warn（新阈值 0.25 ≤ 0.85 < 1.0）
     _add(
         tmp_path,
         RULE_TITLE_TOO_SMALL,
         "fixed",
-        12,
+        7,
         features={"finding.severity_ordinal": 3.0, "finding.confidence": 1.0},
     )
     _add(
@@ -107,11 +110,12 @@ def test_capacity_warning_is_soft_and_never_rejects_model(tmp_path):
     )
     res = run_training(tmp_path, min_pairs=0)
     assert res["trained"] is True  # 软告警绝不拒绝
-    assert res["samples"] == 16
+    assert res["samples"] == 11
     assert res["capacity_warning"] is True
-    assert res["capacity"]["level"] in ("warn", "critical")
-    assert res["capacity"]["samples_per_param"] < 5.0
-    # n=16 → H=clamp(round(√16))=4 单层；两特征完全相关 → dedup 后 input_dim=1 → params=13
+    assert res["capacity"]["level"] == "warn"
+    assert res["capacity"]["samples_per_param"] == 0.85
+    assert res["capacity"]["samples_per_param"] < 1.0
+    # n=11 → H=clamp(round(√11))=4 单层；两特征完全相关 → dedup 后 input_dim=1 → params=13
     assert res["capacity"]["hidden_dims"] == [4]
     assert res["capacity"]["params"] == params_count(res["capacity"]["input_dim"], (4,))
     assert res["capacity"]["params"] == 13
