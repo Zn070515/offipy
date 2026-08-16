@@ -64,3 +64,31 @@ def test_outputs_registry_has_all_rules_and_three_heads():
     assert "finding.severity_shift" in OUTPUTS
     assert "quality.score" in OUTPUTS
     assert all(s.kind == "derived" for s in OUTPUTS.values())
+
+
+def test_quantize_delta_nan_is_zero():
+    """#148：NaN worth → 0，不返回 -1（旧行为 abs(NaN)<0.5 为 False 落入 -1）。"""
+    assert quantize_delta(float("nan")) == 0
+
+
+def test_apply_severity_shift_threshold_step():
+    """#148：|shift|≥0.5 才 ±1 级（与 quantize_delta 同阈值），方向明确且单调。"""
+    # LOW=1 MID=2 HIGH=3。MID + 0.5 → +1 级 → 3 (HIGH)；MID - 0.5 → -1 级 → 1 (LOW)。
+    assert apply_severity_shift(Severity.MID, 0.5) == Severity.HIGH
+    assert apply_severity_shift(Severity.MID, -0.5) == Severity.LOW
+    assert apply_severity_shift(Severity.MID, 0.49) == Severity.MID
+    assert apply_severity_shift(Severity.HIGH, 0.9) == Severity.HIGH  # 夹紧
+    assert apply_severity_shift(Severity.LOW, -0.9) == Severity.LOW  # 夹紧
+
+
+def test_apply_severity_shift_nan_keeps_severity():
+    """#148：NaN shift 不改 severity（不崩、不落到夹紧值）。"""
+    assert apply_severity_shift(Severity.MID, float("nan")) == Severity.MID
+
+
+def test_quantize_and_shift_consistent_at_threshold():
+    """#148：quantize_delta 与 severity 移动在 DELTA_THRESHOLD=0.5 处语义一致。"""
+    assert quantize_delta(0.5) == 1
+    assert quantize_delta(-0.5) == -1
+    assert quantize_delta(0.49) == 0
+    assert quantize_delta(-0.49) == 0
