@@ -431,10 +431,86 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--port", type=int, help="连指定端口的 server 实例（默认 8890）")
     sub = p.add_subparsers(dest="app", required=True)
     for app in schema.apps():
+        if app == "feedback":  # #135：feedback 有专属子解析器（下方单独定义）
+            continue
         sp = sub.add_parser(app)
         sp.add_argument("op")
         # REMAINDER：原样捕获 --key value 形式的任意 kwargs
         sp.add_argument("kwargs", nargs=argparse.REMAINDER)
+    # #135：feedback 专属子解析器——generic REMAINDER 无 help/无 op 校验，改这里
+    # 显式声明 5 个 op 与参数（op 白名单 + 必填由 argparse 兜底，缺参 exit 2）。
+    # 参数名双写法（--rule-id/--rule_id、--feedback-dir/--feedback_dir）保留
+    # 「全局归一化 - → _」承诺：underscore 写法继续可用（既有测试/文档不破）。
+    fb = sub.add_parser("feedback", help="反馈学习系统（train/status/append/recommend/apply）")
+    fb_op = fb.add_subparsers(dest="op", required=True)
+    fb_train = fb_op.add_parser("train", help="离线训练反馈学习模型（numpy MLP ensemble）")
+    fb_train.add_argument(
+        "--feedback-dir",
+        "--feedback_dir",
+        dest="feedback_dir",
+        help="反馈库目录（默认 ~/.offipy）",
+    )
+    fb_train.add_argument("--seed", type=int, default=42, help="训练随机种子（默认 42）")
+    fb_status = fb_op.add_parser("status", help="反馈学习状态：样本数/配对潜力/模型状态")
+    fb_status.add_argument(
+        "--feedback-dir",
+        "--feedback_dir",
+        dest="feedback_dir",
+        help="反馈库目录（默认 ~/.offipy）",
+    )
+    fb_append = fb_op.add_parser("append", help="追加一条反馈标签（fixed/accepted/ignored）")
+    fb_append.add_argument("--profile", required=True, help="艺术分析 profile 名")
+    fb_append.add_argument(
+        "--rule-id", "--rule_id", dest="rule_id", required=True, help="finding 的 rule_id"
+    )
+    fb_append.add_argument(
+        "--action", required=True, choices=["fixed", "accepted", "ignored"], help="处置"
+    )
+    fb_append.add_argument(
+        "--severity", required=True, choices=["LOW", "MID", "HIGH"], help="严重度"
+    )
+    fb_append.add_argument(
+        "--slide-index",
+        "--slide_index",
+        dest="slide_index",
+        type=int,
+        help="finding 所在 slide（0 基，可省）",
+    )
+    fb_append.add_argument("--message", default="", help="备注")
+    fb_append.add_argument("--source", default="", help="来源标注")
+    fb_append.add_argument(
+        "--feedback-dir",
+        "--feedback_dir",
+        dest="feedback_dir",
+        help="反馈库目录（默认 ~/.offipy）",
+    )
+    fb_append.add_argument("--ts", help="ISO 时间戳（默认现在）")
+    fb_append.add_argument(
+        "--features", help="扁平特征 JSON 字符串（如 '{\"finding.confidence\": 0.5}'）"
+    )
+    fb_recommend = fb_op.add_parser(
+        "recommend", help="对 .pptx 跑学习推理，返回调整 finding 与建议（只读）"
+    )
+    fb_recommend.add_argument("--pptx", required=True, help="目标 .pptx 路径")
+    fb_recommend.add_argument(
+        "--feedback-dir",
+        "--feedback_dir",
+        dest="feedback_dir",
+        required=True,
+        help="反馈库目录（只读建议必须绑定）",
+    )
+    fb_recommend.add_argument(
+        "--profile", default="balanced", help="艺术分析 profile（默认 balanced）"
+    )
+    fb_recommend.add_argument("--json", action="store_true", help="输出 JSON（默认即 JSON）")
+    fb_apply = fb_op.add_parser("apply", help="把学习到的 rule.delta 持久化到 profile 存储")
+    fb_apply.add_argument("--profile", required=True, help="目标 profile 名")
+    fb_apply.add_argument(
+        "--feedback-dir",
+        "--feedback_dir",
+        dest="feedback_dir",
+        help="反馈库目录（默认 ~/.offipy）",
+    )
     deck = sub.add_parser("deck")
     deck.add_argument("action", choices=["make", "outline", "audit"])
     # audit 的 HTML 源走位置参数（task 5）：make/outline 传了会在分支内拦截。
@@ -667,6 +743,8 @@ def _main(argv: list[str] | None = None) -> int | None:
         else:  # audit
             return _deck_audit(args)
         return None
+    if args.app == "feedback":
+        return _feedback_main(args)
     kw = _parse_kwargs(args.kwargs)
     _validate_kwargs(args.app, args.op, kw)
     _validate_required(args.app, args.op, kw)
@@ -678,12 +756,78 @@ def _main(argv: list[str] | None = None) -> int | None:
     return None
 
 
+def _feedback_main(args: argparse.Namespace) -> int | None:
+    """feedback 专属分发：按子命令构造 kwargs，经 cli.call 转发（与 generic 同语义）。
+
+    只在用户显式给出时传可选参（feedback_dir 等缺省 None → FeedbackApp 走 ~/.offipy）；
+    必填参（profile/rule_id/action/severity、recommend 的 pptx/feedback_dir）由 argparse
+    required 兜底，缺省 exit 2。recommend 的 --json 透传 True（既有捕获测试断言）。
+    """
+    op = args.op
+    if op == "train":
+        kw = {}
+        if args.feedback_dir:
+            kw["feedback_dir"] = args.feedback_dir
+        if args.seed != 42:
+            kw["seed"] = args.seed
+    elif op == "status":
+        kw = {}
+        if args.feedback_dir:
+            kw["feedback_dir"] = args.feedback_dir
+    elif op == "append":
+        kw = {
+            "profile": args.profile,
+            "rule_id": args.rule_id,
+            "action": args.action,
+            "severity": args.severity,
+        }
+        if args.slide_index is not None:
+            kw["slide_index"] = args.slide_index
+        if args.message:
+            kw["message"] = args.message
+        if args.source:
+            kw["source"] = args.source
+        if args.feedback_dir:
+            kw["feedback_dir"] = args.feedback_dir
+        if args.ts:
+            kw["ts"] = args.ts
+        if args.features:
+            kw["features"] = args.features
+    elif op == "recommend":
+        kw = {"pptx": args.pptx, "feedback_dir": args.feedback_dir}
+        if args.profile:
+            kw["profile"] = args.profile
+        if args.json:
+            kw["json"] = True
+    else:  # apply
+        kw = {"profile": args.profile}
+        if args.feedback_dir:
+            kw["feedback_dir"] = args.feedback_dir
+    result = call("feedback", op, **kw)
+    if result is not None:
+        print(json.dumps(result, ensure_ascii=False))
+    return None
+
+
+def _force_utf8() -> None:
+    """Windows 终端默认 GBK：统一把 stdout/stderr 切到 UTF-8，避免中文乱码（#149）。
+
+    用 getattr 探测 reconfigure：被替换的流（测试捕获/重定向）没有该能力则跳过，
+    不强制改写调用方流对象。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int | None:
     """offipy CLI 入口：InvalidArgumentError→exit 2；其余 OffipyError→exit 1。
 
     SystemExit/argparse 原样放行（非 OffipyError 内建异常从 _main 逃逸时
     保持裸 traceback + Python 默认 exit 1）。
     """
+    _force_utf8()  # #149：先切 UTF-8，再进任何打印/错误路径
     try:
         return _main(argv)
     except InvalidArgumentError as e:

@@ -1,5 +1,7 @@
 """CLI 参数解析测试（不依赖 Office）。"""
 
+import sys
+
 import pytest
 
 from offipy.cli import build_parser
@@ -1437,3 +1439,88 @@ _CLI_SMOKE_IDS = [f"{row[0][1]}::{row[0][2]}" for row in _CLI_SMOKE_MATRIX]
 def test_cli_smoke_matrix(monkeypatch, capsys, args, exc_cls, msg, code, snippets, absent):
     # S5 冒烟矩阵：逐代表性路径钉 exit code（1/2 按冻结策略）+ stderr 清洗 + 无 traceback
     _assert_cli_error(monkeypatch, capsys, args, exc_cls, msg, code, *snippets, absent=absent)
+
+
+# --- P1 Task 2：feedback 专属子解析器（#135）——op help + 必填兜底 ---
+
+
+def test_feedback_help_lists_all_ops(capsys):
+    """#135：feedback --help 列出 5 个 op 与用途，不再零引导。"""
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["feedback", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    for op in ("train", "status", "append", "recommend", "apply"):
+        assert op in out
+
+
+def test_feedback_unknown_op_rejected(capsys):
+    """#135：未知 feedback op → argparse exit 2（参数错）。"""
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["feedback", "bogus"])
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
+def test_feedback_recommend_missing_pptx_rejected(capsys):
+    """#135：recommend 缺 --pptx → argparse exit 2，不再静默进 REMAINDER。"""
+    from offipy import cli
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["feedback", "recommend"])
+    assert exc.value.code == 2
+
+
+def test_feedback_append_dual_spelling_rule_id(monkeypatch):
+    """#135：--rule-id（短横线）与 --rule_id 等价，都归一化到 rule_id。"""
+    from offipy import cli
+
+    captured = {}
+
+    def fake_call(app, op, **kw):
+        captured["kw"] = kw
+        return {"record": "x.jsonl"}
+
+    monkeypatch.setattr("offipy.cli.call", fake_call)
+    cli.main(
+        [
+            "feedback",
+            "append",
+            "--profile",
+            "balanced",
+            "--rule-id",
+            "art.x.y",
+            "--action",
+            "fixed",
+            "--severity",
+            "MID",
+            "--feedback-dir",
+            r"C:\fb",
+        ]
+    )
+    assert captured["kw"]["rule_id"] == "art.x.y"
+    assert captured["kw"]["feedback_dir"] == r"C:\fb"
+
+
+def test_force_utf8_at_cli_entry(monkeypatch):
+    """#149：CLI 入口统一把 stdout/stderr 切到 UTF-8，Windows GBK 终端中文不乱码。"""
+    from offipy import cli
+
+    calls = []
+
+    class _FakeStream:
+        def reconfigure(self, **kw):
+            calls.append(kw)
+
+        def write(self, s):  # argparse 报错路径会向 stderr 写 usage；缺 write 会 AttributeError
+            pass
+
+    monkeypatch.setattr(sys, "stdout", _FakeStream())
+    monkeypatch.setattr(sys, "stderr", _FakeStream())
+    with pytest.raises(SystemExit):  # 缺 app → argparse exit 2，但 _force_utf8 已先跑
+        cli.main([])
+    assert calls == [{"encoding": "utf-8"}, {"encoding": "utf-8"}]

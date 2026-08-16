@@ -419,7 +419,7 @@ def ensure_server() -> None:
 
 # 这些参数是文件/目录路径，必须在 client 侧按调用方 CWD 绝对化——
 # server 是独立进程，其 CWD 与用户调 CLI 时所在目录无关
-_PATH_KEYS = ("path", "out", "out_dir", "html", "pptx")
+_PATH_KEYS = ("path", "out", "out_dir", "html", "pptx", "feedback_dir")
 
 
 def _raise_error(
