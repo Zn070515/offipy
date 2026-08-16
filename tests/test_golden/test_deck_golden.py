@@ -78,3 +78,18 @@ def test_starter_deck_golden_kickers(tmp_path):
     out = tmp_path / "golden.pptx"
     render(str(STARTER), out=str(out), no_visual_audit=True)
     assert _first_texts(str(out)) == EXPECTED_KICKERS
+
+
+def test_starter_deck_golden_no_elem_anchor_names(tmp_path):
+    pytest.importorskip("pptx")
+    from offipy.deck import render
+
+    out = tmp_path / "golden.pptx"
+    render(str(STARTER), out=str(out), no_visual_audit=True)
+    from pptx import Presentation
+
+    for slide in Presentation(str(out)).slides:
+        for sh in slide.shapes:
+            assert not sh.name.startswith("OFFIPY_ELEM::"), (
+                f"animations=False 不应戳 OFFIPY_ELEM 锚点名（shape={sh.name}）"
+            )

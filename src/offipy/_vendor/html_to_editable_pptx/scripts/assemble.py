@@ -392,6 +392,15 @@ def _find_blank_layout(prs):
     return layouts[-1]
 
 
+def _stamp_elem(shape, elem_id):
+    """给形状打动画锚点名 OFFIPY_ELEM::<elem_id>（animations 关闭时不打）。"""
+    if elem_id and shape is not None:
+        try:
+            shape.name = f"OFFIPY_ELEM::{elem_id}"
+        except Exception:
+            pass  # 戳名失败不阻断装配（动画丢失可接受，装配失败不可接受）
+
+
 def _text_max_font_size(rec) -> float:
     runs = rec.get("runs", []) or []
     return max((float(run.get("fontSize", 16) or 16) for run in runs), default=16)
@@ -516,7 +525,7 @@ def add_background(slide, rgb):
     fill.fore_color.rgb = make_rgb(rgb)
 
 
-def add_shape_box(slide, rec):
+def add_shape_box(slide, rec, elem_id=None):
     """带 background / border 的非文本装饰节点。
 
     border 处理：每条边单独判断。
@@ -604,6 +613,7 @@ def add_shape_box(slide, rec):
             _apply_border_dash(shape.line, deco)
             _set_line_alpha(shape, border_rgba[3])
         _apply_rotation(shape, rec)
+        _stamp_elem(shape, elem_id)
         return shape
 
     # 如果有填充色：画形状（不带 border，border 单独画线）
@@ -629,6 +639,7 @@ def add_shape_box(slide, rec):
             shape.line.fill.background()
         _apply_rotation(shape, rec)
         fill_shape = shape
+        _stamp_elem(fill_shape, elem_id)
 
     # oval / pill（填充已画、边框已并入 outline 或无法直线表达）：直接 return，跳过"按需画线"
     if is_round and deco.get("hasBg"):
@@ -642,16 +653,16 @@ def add_shape_box(slide, rec):
         alpha = side_rgba[3]
         bw = sides[side][1] or 1
         if side == "top":
-            _add_line(slide, x, y, x + w, y, rgb, bw, alpha, dash)
+            _add_line(slide, x, y, x + w, y, rgb, bw, alpha, dash, elem_id)
         elif side == "bottom":
-            _add_line(slide, x, y + h, x + w, y + h, rgb, bw, alpha, dash)
+            _add_line(slide, x, y + h, x + w, y + h, rgb, bw, alpha, dash, elem_id)
         elif side == "left":
-            _add_line(slide, x, y, x, y + h, rgb, bw, alpha, dash)
+            _add_line(slide, x, y, x, y + h, rgb, bw, alpha, dash, elem_id)
         elif side == "right":
-            _add_line(slide, x + w, y, x + w, y + h, rgb, bw, alpha, dash)
+            _add_line(slide, x + w, y, x + w, y + h, rgb, bw, alpha, dash, elem_id)
 
 
-def add_asset_placeholder(slide, rec):
+def add_asset_placeholder(slide, rec, elem_id=None):
     """asset 声明的透明占位符：无填充、无描边的普通 RECTANGLE，name 固定为
     OFFIPY_ASSET::<assetId>，不写文本。render 阶段按 name 定位并整槽替换。
     用普通 shape 而非 picture：占位符是稳定的 XML 锚点。
@@ -665,6 +676,7 @@ def add_asset_placeholder(slide, rec):
     shape.name = f"OFFIPY_ASSET::{asset_id}"
     shape.fill.background()
     shape.line.fill.background()
+    _stamp_elem(shape, elem_id)
     return shape
 
 
@@ -759,7 +771,7 @@ def _apply_border_dash(line, deco):
         line.dash_style = dash
 
 
-def _add_line(slide, x1, y1, x2, y2, color_rgb, width_px, alpha: float = 1.0, dash=None):
+def _add_line(slide, x1, y1, x2, y2, color_rgb, width_px, alpha: float = 1.0, dash=None, elem_id=None):
     """画一条直线。x1/y1/x2/y2 已是 EMU。可选 alpha 支持半透明，dash 可选虚线样式。"""
     from pptx.enum.shapes import MSO_CONNECTOR
     line = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, x1, y1, x2, y2)
@@ -768,6 +780,7 @@ def _add_line(slide, x1, y1, x2, y2, color_rgb, width_px, alpha: float = 1.0, da
     _set_line_alpha(line, alpha)
     if dash is not None:
         line.line.dash_style = dash
+    _stamp_elem(line, elem_id)
     return line
 
 
@@ -843,7 +856,7 @@ def _emit_line_break(paragraph, style_font_size_px):
     rPr.set("sz", str(max(100, int(round(fs_px * PX_TO_PT * 100)))))
 
 
-def add_text_box(slide, rec):
+def add_text_box(slide, rec, elem_id=None):
     """文本节点 → pptx textbox（多 run 富文本）。"""
     r = rec["rect"]
     # 若 text leaf 同时带背景色 / 边框（如 .bar.a 既是柱子又装着文字），
@@ -990,6 +1003,7 @@ def add_text_box(slide, rec):
 
     _fix_empty_paragraph_sizes(tf, style_for_lh.get("fontSize", 16))
 
+    _stamp_elem(tb, elem_id)
     return tb
 
 
@@ -1262,7 +1276,7 @@ def _emit_run(paragraph, text, run, text_transform, part=None):
     t_el.text = text
 
 
-def add_svg_picture(slide, rec):
+def add_svg_picture(slide, rec, elem_id=None):
     """直接用 measure 阶段已经截好的 SVG PNG。"""
     r = rec["rect"]
     if r["w"] <= 0 or r["h"] <= 0:
@@ -1271,14 +1285,16 @@ def add_svg_picture(slide, rec):
     if not png_path or not Path(png_path).exists():
         print(f"  [skip svg] no screenshot for {rec.get('marker', '?')}")
         return
-    slide.shapes.add_picture(png_path,
-                             px_to_emu(r["x"]),
-                             px_to_emu(r["y"]),
-                             px_to_emu(r["w"]),
-                             px_to_emu(r["h"]))
+    pic = slide.shapes.add_picture(png_path,
+                                   px_to_emu(r["x"]),
+                                   px_to_emu(r["y"]),
+                                   px_to_emu(r["w"]),
+                                   px_to_emu(r["h"]))
+    _stamp_elem(pic, elem_id)
+    return pic
 
 
-def add_img_picture(slide, rec):
+def add_img_picture(slide, rec, elem_id=None):
     """measure 阶段截好的 <img> 元素 PNG（src 可能是 PNG/JPG/SVG/远程 URL）。
     走截图通道而不是直接嵌 src，避免 cross-origin / SVG 不能直嵌进 OOXML 等问题。"""
     r = rec["rect"]
@@ -1288,14 +1304,16 @@ def add_img_picture(slide, rec):
     if not png_path or not Path(png_path).exists():
         print(f"  [skip img] no screenshot for {rec.get('src', '?')}")
         return
-    slide.shapes.add_picture(png_path,
-                             px_to_emu(r["x"]),
-                             px_to_emu(r["y"]),
-                             px_to_emu(r["w"]),
-                             px_to_emu(r["h"]))
+    pic = slide.shapes.add_picture(png_path,
+                                   px_to_emu(r["x"]),
+                                   px_to_emu(r["y"]),
+                                   px_to_emu(r["w"]),
+                                   px_to_emu(r["h"]))
+    _stamp_elem(pic, elem_id)
+    return pic
 
 
-def add_canvas_picture(slide, rec):
+def add_canvas_picture(slide, rec, elem_id=None):
     """canvas 元素（Chart.js / WebGL / 自绘图）→ picture 嵌入。
     measure 阶段在切到目标页后等待 canvas 像素稳定再截图。
     """
@@ -1312,10 +1330,11 @@ def add_canvas_picture(slide, rec):
                                     px_to_emu(r["w"]),
                                     px_to_emu(r["h"]))
     _apply_rotation(pic, rec)
+    _stamp_elem(pic, elem_id)
     return pic
 
 
-def add_deco_snapshot(slide, rec):
+def add_deco_snapshot(slide, rec, elem_id=None):
     """装饰元素截图（background-image / box-shadow / 伪元素装饰 / 非平移 transform）
     → picture 嵌入。
 
@@ -1337,6 +1356,7 @@ def add_deco_snapshot(slide, rec):
                                     px_to_emu(r["y"]),
                                     px_to_emu(r["w"]),
                                     px_to_emu(r["h"]))
+    _stamp_elem(pic, elem_id)
     return pic
 
 
@@ -1362,7 +1382,7 @@ def _validate_asset_placeholders(slides_data):
             seen[aid] = i
 
 
-def assemble_slide(slide, data):
+def assemble_slide(slide, data, animations=False):
     """装配一张 slide。"""
     slide_meta = data.get("slide") or {}
     bg_rgb = parse_rgb(slide_meta.get("background", ""))
@@ -1372,6 +1392,7 @@ def assemble_slide(slide, data):
 
     text_records = []
     for rec in records:
+        elem_id = rec.get("elem_id") if animations else None
         if rec.get("kind") == "shape":
             # 整页 section：仅当视觉上与 slide 背景等价（不透明同色、无边框）才跳过
             # （背景已由 add_background 铺，发满页 shape 在 WPS 里会成为可选可拖对象）。
@@ -1386,27 +1407,27 @@ def assemble_slide(slide, data):
                     same_as_bg = a_ >= 1.0 and (r_, g_, b_) == tuple(bg_rgb)
                 if borderless and same_as_bg:
                     continue
-            add_shape_box(slide, rec)
+            add_shape_box(slide, rec, elem_id)
         elif rec.get("kind") == "text":
-            text_records.append(rec)
+            text_records.append((rec, elem_id))
         elif rec.get("kind") == "svg":
-            add_svg_picture(slide, rec)
+            add_svg_picture(slide, rec, elem_id)
         elif rec.get("kind") == "canvas":
-            add_canvas_picture(slide, rec)
+            add_canvas_picture(slide, rec, elem_id)
         elif rec.get("kind") == "deco_snapshot":
-            add_deco_snapshot(slide, rec)
+            add_deco_snapshot(slide, rec, elem_id)
         elif rec.get("kind") == "img":
-            add_img_picture(slide, rec)
+            add_img_picture(slide, rec, elem_id)
         elif rec.get("kind") == "asset":
-            add_asset_placeholder(slide, rec)
+            add_asset_placeholder(slide, rec, elem_id)
 
     # Text sits above rasterized SVG/canvas/deco snapshots. Otherwise an opaque
     # picture can cover positioned labels that belong visually on top of it.
-    for rec in text_records:
-        add_text_box(slide, rec)
+    for rec, elem_id in text_records:
+        add_text_box(slide, rec, elem_id)
 
 
-def assemble(measurement, out_path: Path):
+def assemble(measurement, out_path: Path, animations=False):
     """measurement 可以是 dict（in-process 调用）或 Path（CLI 调用）。"""
     if isinstance(measurement, (str, Path)):
         data = json.loads(Path(measurement).read_text(encoding="utf-8"))
@@ -1457,7 +1478,7 @@ def assemble(measurement, out_path: Path):
     for i, sdata in enumerate(slides_data):
         slide = prs.slides.add_slide(blank_layout)
         if isinstance(sdata, dict):
-            assemble_slide(slide, sdata)
+            assemble_slide(slide, sdata, animations)
         theme = (sdata.get("slide") or {}).get("theme", "") if isinstance(sdata, dict) else ""
         n_records = len(sdata.get("records", []) or []) if isinstance(sdata, dict) else 0
         print(f"  page {i+1:02d}: {n_records} records, theme={theme}")
