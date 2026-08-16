@@ -6,6 +6,7 @@ Usage: python convert.py <input.html> [--out output.pptx] [--no-embed-fonts] ...
 """
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -316,7 +317,8 @@ def convert(html_path: Path, out_path: Path, keep_screenshots: bool, embed_fonts
 
         # 2) assemble（直接拿 dict）
         t0 = time.perf_counter()
-        assemble(meas, intermediate_pptx)
+        assemble(meas, intermediate_pptx,
+                 animations=os.environ.get("OFFIPY_CONVERTER_ANIMATIONS") == "1")
         print(f"[assemble] {time.perf_counter()-t0:.2f}s")
 
         # 3) embed fonts（可选）

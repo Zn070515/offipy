@@ -97,14 +97,32 @@ _NOVA_DECLARATION_MARKERS = (
     ("class='drawio'", "图示(drawio)"),  # 单引号变体，同上
 )
 
+_ANIM_DECLARATION_MARKERS = (
+    ("data-ppt-anim", "动画(data-ppt-anim)"),
+    ("data-ppt-transition", "过渡(data-ppt-transition)"),
+    ("data-aos=", "动画(约定 data-aos)"),
+    ("data-anim=", "动画(约定 data-anim)"),
+)
 
-def _reject_no_visual_audit_declarations(content: str) -> None:
+# 类 token 按词边界匹配（对齐 measure.py 的 /\bfade-in\b/、/\banimate-in\b/），
+# 避免 animate-infinite 之类工具类被裸子串误判成动画声明。
+_ANIM_CLASS_TOKENS = (
+    (r"\bfade-in\b", "动画(约定 .fade-in)"),
+    (r"\banimate-in\b", "动画(约定 .animate-in)"),
+)
+
+
+def _reject_no_visual_audit_declarations(content: str, include_animations: bool = False) -> None:
     """no_visual_audit 与声明注入不兼容 → fail-fast（chromium / convert 之前）。
 
-    图表/图标/资源/图元的注入都依赖 visual audit 的 measurements.json；no_visual_audit
-    不产出 → 命中任一声明类型就报错，信息列出具体类型。
+    图表/图标/资源/图元 + （animations=True 时）动画声明都依赖 visual audit 的
+    measurements.json；no_visual_audit 不产出 → 命中即报错。默认 animations=False
+    时动画 marker 惰性（不拒绝、不注入，行为与今日一致）。
     """
     found = [label for marker, label in _NOVA_DECLARATION_MARKERS if marker in content]
+    if include_animations:
+        found += [label for marker, label in _ANIM_DECLARATION_MARKERS if marker in content]
+        found += [label for token, label in _ANIM_CLASS_TOKENS if re.search(token, content)]
     if found:
         raise InvalidArgumentError(
             "no_visual_audit=True 但 HTML 声明了"
@@ -379,6 +397,7 @@ def _render_tmp(
     theme: str | None,
     apply_layouts: bool,
     overwrite: bool,
+    animations: bool = False,
     defer_audit_preserve: bool = False,
 ) -> Iterator[tuple[str, str]]:
     """生成到临时 .pptx 的上下文：前置检查 → mkstemp → convert → 图表/图标后处理。
@@ -400,7 +419,7 @@ def _render_tmp(
     if no_visual_audit:
         # 声明注入依赖 visual audit 的 measurements.json；no_visual_audit 不产出
         # → 启动 chromium / 跑 convert 之前 fail-fast，省一次白跑的渲染。
-        _reject_no_visual_audit_declarations(content)
+        _reject_no_visual_audit_declarations(content, include_animations=animations)
     _preflight_browser()
     final_out = str(Path(out).resolve()) if out else _default_out(html)
     # #90：out 前置校验——父目录不存在 / out 是目录时给可操作领域错误。否则 mkstemp
@@ -435,6 +454,10 @@ def _render_tmp(
         env["PYTHONIOENCODING"] = "utf-8"  # 中文 Windows 下 convert.py 输出才不会乱码
         # 转换器可变数据（配置/lessons-learned）落用户数据目录，不写包内
         env["OFFIPY_CONVERTER_DATA_DIR"] = str(converter_data_dir())
+        # 动画戳名 env 门控：animations=True 才让 convert.py 给元素打 OFFIPY_ELEM::<id>
+        # 名字（默认 OFF，输出逐字节不变）。必须在 _run_convert 前设置。
+        if animations:
+            env["OFFIPY_CONVERTER_ANIMATIONS"] = "1"
         r = _run_convert(cmd, timeout=timeout, env=env)
         if r.returncode != 0:
             raise ConversionError(f"convert.py 失败 (exit {r.returncode})\n{r.stdout}\n{r.stderr}")
@@ -471,6 +494,14 @@ def _render_tmp(
         tmp_audit_dir = Path(tmp_pptx).parent / f"{Path(tmp_pptx).stem}_audit"
         if tmp_audit_dir.is_dir():
             write_asset_manifest(str(tmp_audit_dir / "assets.json"), report)
+        # 动画后处理（图表→mermaid→drawio→资源之后）：读 measurements → OFFIPY_ELEM 注入。
+        # 必须在 _preserve_audit_dir 改名之前跑（postprocess_animations 按 tmp 审计目录
+        # 定位 measurements.json）；惰性 import；animations=False 时完全不跑（无戳名、
+        # 无注入，输出逐字节不变）。
+        if animations:
+            from .animations.apply import postprocess_animations
+
+            _postprocess("动画", postprocess_animations, target, tmp_pptx)
         # 保留 convert 的 <stem>_audit 测量目录（aesthetic/feedback 回路）：
         # 默认立即改到最终名（render / render_with_report 行为不变）；
         # defer_audit_preserve=True（render_with_quality_report）保持 tmp 名，
@@ -502,6 +533,7 @@ def _render_stage(
     theme: str | None = None,
     apply_layouts: bool = False,
     overwrite: bool = False,
+    animations: bool = False,
 ) -> Iterator[RenderStage]:
     """渲染 + 双产物原子发布阶段（defer audit preserve）。
 
@@ -518,6 +550,7 @@ def _render_stage(
         theme,
         apply_layouts,
         overwrite,
+        animations=animations,
         defer_audit_preserve=True,
     ) as (tmp_pptx, final_out):
         stage = RenderStage(tmp_pptx=tmp_pptx, final_pptx=final_out, overwrite=overwrite)
@@ -537,6 +570,7 @@ def render(
     theme: str | None = None,
     apply_layouts: bool = False,
     overwrite: bool = False,
+    animations: bool = False,
 ) -> str:
     """跑完整转换管线，返回产出 .pptx 的绝对路径。
 
@@ -553,7 +587,15 @@ def render(
     （#audit-H1：审计目录绝不先于 pptx 落位，替换失败时新旧产物一致）。
     """
     with _render_stage(
-        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+        html,
+        out,
+        only_slides,
+        no_visual_audit,
+        timeout,
+        theme,
+        apply_layouts,
+        overwrite,
+        animations=animations,
     ) as stage:
         stage.commit()
     return stage.final_pptx
@@ -645,6 +687,7 @@ def render_with_report(
     theme: str | None = None,
     apply_layouts: bool = False,
     overwrite: bool = False,
+    animations: bool = False,
     audit_mode: Literal["report", "strict"] = "report",
     fail_on: Severity = Severity.HIGH,
     audit_config: AuditConfig | None = None,
@@ -669,7 +712,15 @@ def render_with_report(
         raise InvalidArgumentError("fail_on must be a Severity")
 
     with _render_stage(
-        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+        html,
+        out,
+        only_slides,
+        no_visual_audit,
+        timeout,
+        theme,
+        apply_layouts,
+        overwrite,
+        animations=animations,
     ) as stage:
         audit_report = audit_pptx(stage.tmp_pptx, audit_config)
         gate = audit_report.max_severity
@@ -702,6 +753,7 @@ def _measure_warnings(m: Path) -> list[ArtWarning]:
         "audio": "deck.media.audio_dropped",
         "video": "deck.media.video_static",
         "font": "deck.font.substituted",
+        "anim": "deck.animation.skipped",
     }
     out = []
     for e in entries:
@@ -755,6 +807,7 @@ def render_with_quality_report(
     theme: str | None = None,
     apply_layouts: bool = False,
     overwrite: bool = False,
+    animations: bool = False,
     audit_mode: str = "report",
     fail_on: Severity = Severity.HIGH,
     audit_config: AuditConfig | None = None,
@@ -781,7 +834,15 @@ def render_with_quality_report(
         raise InvalidArgumentError("pixel_analysis must be 'off', 'best_effort', or 'required'")
 
     with _render_stage(
-        html, out, only_slides, no_visual_audit, timeout, theme, apply_layouts, overwrite
+        html,
+        out,
+        only_slides,
+        no_visual_audit,
+        timeout,
+        theme,
+        apply_layouts,
+        overwrite,
+        animations=animations,
     ) as stage:
         audit_report = audit_pptx(stage.tmp_pptx, audit_config)
         gate = audit_report.max_severity
@@ -1048,13 +1109,23 @@ def make(
     theme: str | None = None,
     apply_layouts: bool = False,
     overwrite: bool = False,
+    animations: bool = False,
 ) -> str:
     """render → （可选）打开实况 → （可选）导出 PNG 反馈。返回 .pptx 绝对路径。
 
     theme 给定时注入内置主题 CSS（见 design.py）；apply_layouts 给定时注入
     data-layout 布局 CSS（见 layouts.py），两者可叠加。overwrite 透传给 render。
+    animations 给定时启用 HTML 声明动画（data-ppt-anim / data-ppt-transition）的
+    OFFIPY_ELEM 戳名 + 注入后处理，透传给 render。
     """
-    pptx = render(html, out, theme=theme, apply_layouts=apply_layouts, overwrite=overwrite)
+    pptx = render(
+        html,
+        out,
+        theme=theme,
+        apply_layouts=apply_layouts,
+        overwrite=overwrite,
+        animations=animations,
+    )
     if feedback_dir:
         # 导出必须绑定本次渲染的 deck（P0-2）：open_live 返回其 doc_id，逐页导出
         # 显式传给它，绝不依赖「当前活动焦点」——防用户中途切到别的文稿。
@@ -1066,3 +1137,14 @@ def make(
     elif open_live_flag:
         open_live(pptx)
     return pptx
+
+
+def add_animations(
+    pptx: str,
+    animations: list[Any] | None = None,
+    transitions: list[Any] | None = None,
+) -> dict[str, Any]:
+    """对现成 .pptx 注入动画/过渡（独立 API 便捷入口）。返回注入报告。"""
+    from .animations.apply import apply_animations
+
+    return apply_animations(pptx, animations=animations, transitions=transitions)

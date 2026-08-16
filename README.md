@@ -6,7 +6,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
 面向 Python 开发者与 AI Agent，独立产出**美观、符合审美、言之有物**的 Office 产物（Word / PPT / Excel）。
 
 - **库名 / 命令**：`pip install offipy`、`import offipy`、CLI 命令 `offipy`
-- **当前版本**：0.19.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
+- **当前版本**：0.20.0（当前稳定版；API 经进一步验证后再进入 1.0.0）
 
 ## 特性
 
@@ -318,6 +318,11 @@ Claude 写 deck HTML 时，只需引用 design token（CSS 变量）并给每页
   指定页，否则报错而非静默取第一页。独立 API
   `offipy.drawio.drawio_to_pptx("arch.drawio", "out.pptx", page="架构")` 直接出 16:9
   整页可编辑 PPTX（page 接受 int 页码或 str 页名，默认第一页）。
+- **入场动画 + 页面过渡（v0.20）**：HTML 打 `data-ppt-anim` / `data-ppt-transition`
+  声明（含 `data-aos` / `data-anim` / `.fade-in` 约定回退），`deck make --animations`
+  渲染时注入原生 PPTX 动画；`apply_animations` / `apply_transitions` 或
+  `deck add-anim --pptx X --spec spec.json` 给现成 pptx 注入。默认关，
+  输出与旧版逐字节一致。
 - **资源系统（Asset System v1）**：图标 / 纹理 / 图元统一走 `asset://` 资源管线
   （`data-asset` / `data-asset-param-*` / `data-asset-placement`），渲染成**可编辑的
   PowerPoint 原生对象**而非位图。内置 provider：`ph`（1512 Phosphor 图标）、`lu`

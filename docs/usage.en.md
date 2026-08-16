@@ -151,6 +151,8 @@ expose the `overwrite` parameter.
 
 ```bash
 offipy deck make --html deck.html --out deck.pptx --no-open
+offipy deck make --html deck.html --out deck.pptx --animations   # inject entrance animations + page transitions at render
+offipy deck add-anim --pptx deck.pptx --spec spec.json            # inject animations/transitions into an existing pptx
 offipy deck outline --input outline.md --out deck.html   # markdown outline → HTML skeleton
 ```
 
@@ -193,6 +195,29 @@ for a multipage source raises an error instead of silently taking the first page
 Orthogonal/curved edges render as polylines along their waypoints (arrows kept),
 and `strokeWidth`, `rotation`, and `dashPattern` (space-separated pairs) propagate
 to the generated shapes.
+
+### Animation declarations (v0.20)
+
+Declare entrance animations and page transitions by tagging elements in the HTML
+(off by default; they are injected at render time only with `deck make --animations`):
+
+- **Entrance animations**: `data-ppt-anim="fade|float_up|fly_in|wipe|zoom_in|grow"`;
+  direction `data-ppt-dir="bottom|left|right|top"` (only `fly_in` / `wipe` are
+  affected); trigger `data-ppt-trigger="click|after"`; duration / delay
+  `data-ppt-dur` / `data-ppt-delay` (seconds).
+- **Page transitions**: `data-ppt-transition="fade|wipe|push|cover"` +
+  `data-ppt-transition-speed="slow|medium|fast"`.
+- **Fallback conventions**: `data-aos` / `data-anim` / the `.fade-in` class are also
+  recognized as entrance animations (transitions still need an explicit
+  `data-ppt-transition`).
+- **Enabling**: `deck make --animations` (off by default, output byte-identical to
+  before); `--no-visual-audit` is mutually exclusive with animation declarations
+  (fail-fast).
+- **Injecting into an existing pptx**: `deck add-anim --pptx deck.pptx --spec spec.json`,
+  spec shaped like
+  `{"animations": [{"slide": 1, "target": "title", "effect": "fade", "direction": ..., "trigger": ..., "duration": ..., "delay": ...}], "transitions": [{"slide": 2, "kind": "push", "speed": "medium"}]}`,
+  where `target` is the shape **name** (exact match); returns an injection report
+  (`animations_applied` / `transitions_applied` / `unmatched` / `skipped`).
 
 ### Media fidelity
 
