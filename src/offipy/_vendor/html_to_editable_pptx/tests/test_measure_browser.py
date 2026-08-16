@@ -277,6 +277,17 @@ def test_media_warnings_and_href(tmp_path_factory):
     raise AssertionError("未找到携带 href 的 text run")
 
 
+def test_lone_audio_in_mixed_container_warns(tmp_path_factory):
+    """#141：block 兄弟 + 孤立 <audio> 的混合容器——audio 构成 0×0 inline group，
+    在 emitInlineGroup 的 early return 就被丢掉，必须仍产生 audio 告警。"""
+    data = _measure("media_links.html", tmp_path_factory)
+    # 第二页 = block <p> + 裸 <audio>；audio 单独成组（0×0 / 无文本），
+    # 修复前早退静默丢弃 → 无告警；修复后 slide=2 必须出现 audio 警告。
+    audio_warns = [w for w in data.get("_warnings", [])
+                   if w["kind"] == "audio" and w.get("slide") == 2]
+    assert audio_warns, "slide 2 的孤立 <audio>（0×0 inline group）未告警"
+
+
 def test_gradient_and_shadow_fill_kind_marked(gradient_shadow):
     # #140：渐变/阴影必走 complexDecoration → deco_snapshot（kind 非 "shape"），
     # 断言必须覆盖 deco_snapshot 记录，否则「未写进记录」会误绿。

@@ -570,6 +570,8 @@ EXTRACT_JS = r"""
     const tagLow = el.tagName.toLowerCase();
     if (tagLow === 'canvas' || tagLow === 'video') {
       const r = el.getBoundingClientRect();
+      // 0×0 的 <video>（未设尺寸/无渲染内容）与 canvas 同语义：无可见像素可嵌首帧，
+      // 整组跳过不告警——这不是 silent-drop，是「没有可视内容可披露」。
       if (r.width > 0 && r.height > 0) {
         const canvasIndex = records.filter(x => x.kind === 'canvas').length;
         const marker = `slide${slideIndex+1}-canvas${canvasIndex+1}`;
@@ -783,6 +785,11 @@ EXTRACT_JS = r"""
   // 抽出公用 helper：emitInlineGroupsAround（常规混合容器）与 flex-spacing 容器分支共享。
   const emitInlineGroup = (trimmed, hostEl) => {
     if (!trimmed.length) return;
+    // #141：整组有 <audio>（含 nested）即告警——孤立 audio 组 0×0 / 无文本会在
+    // 下方 early return，永远到不了 walkInline 的 AUDIO 分支，必须在此先告警。
+    const hasAudio = trimmed.some(n =>
+      n.nodeType === 1 && (n.tagName === 'AUDIO' || n.querySelector('audio')));
+    if (hasAudio) dropAudio();
     const range = document.createRange();
     range.setStartBefore(trimmed[0]);
     range.setEndAfter(trimmed[trimmed.length - 1]);
@@ -842,13 +849,6 @@ EXTRACT_JS = r"""
         });
       } else if (n.nodeType === 1) {
         if (n.tagName === 'BR') { runs.push({ text: '\n', linebreak: true }); return; }
-        // #141：inline group 里的 <audio>（section 直接子 / 混合容器）是 0×0 rect，
-        // isHidden 会静默跳过——walk() 只下钻 block 子，到不了这里的 audio 分支，
-        // 必须在 isHidden 前显式告警并丢弃。
-        if (n.tagName === 'AUDIO') {
-          dropAudio();
-          return;
-        }
         // 隐藏的 inline 子树不进 runs（与 extractRuns.walk 同规则）
         if (isHidden(n)) return;
         const before = extractPseudoRun(n, '::before');
