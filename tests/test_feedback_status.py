@@ -68,7 +68,39 @@ def test_status_model_valid(tmp_path):
     assert s["effective_dims"] > 0
     assert s["samples_per_param"] == model["stats"]["capacity"]["samples_per_param"]
     assert isinstance(s["samples_per_param"], float) and s["samples_per_param"] > 0
+    # #134：capacity 全量 dict（level/suggest_n/samples_per_param）透传，不丢字段
+    assert s["capacity"] == model["stats"]["capacity"]
+    assert s["capacity"]["level"] == model["stats"]["capacity"]["level"]
+    assert s["capacity"]["suggest_n"] == model["stats"]["capacity"]["suggest_n"]
+    assert isinstance(s["capacity_warning"], bool)
+    assert s["capacity_warning"] is False  # 本 fixture kept=1 → spp=1.23 → level=ok，无告警
     assert isinstance(s["poor_generalization"], bool)
+
+
+def test_status_surfaces_capacity_warning(tmp_path):
+    """#134：stats.capacity_warning=True（level≠ok）→ status 透传 True，level/suggest_n 可见。"""
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
+    run_training(tmp_path, min_pairs=0)
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["stats"]["capacity"] = {
+        "n": 4,
+        "input_dim": 1,
+        "hidden_dims": [4],
+        "params": 13,
+        "samples_per_param": 0.31,
+        "level": "warn",
+        "suggest_n": 9,
+    }
+    data["stats"]["capacity_warning"] = True
+    path.write_text(json.dumps(data), encoding="utf-8")
+    s = report_status(tmp_path)
+    assert s["model"] == "valid"
+    assert s["capacity"] == data["stats"]["capacity"]
+    assert s["capacity"]["level"] == "warn"
+    assert s["capacity"]["suggest_n"] == 9
+    assert s["capacity_warning"] is True
 
 
 def test_status_model_valid_missing_stats_keys(tmp_path):
@@ -86,8 +118,11 @@ def test_status_model_valid_missing_stats_keys(tmp_path):
     assert s["model"] == "valid"
     assert s["effective_dims"] > 0
     assert s["samples_per_param"] is None
+    # #134：capacity 缺失 → capacity 归一化为 None、capacity_warning 缺省 False，不抛
+    assert s["capacity"] is None
+    assert s["capacity_warning"] is False
 
-    # capacity 非 dict（病理，kept 仍在）→ samples_per_param None，仍 valid 不抛
+    # capacity 非 dict（病理，kept 仍在）→ samples_per_param/capacity None，仍 valid 不抛
     data = json.loads(path.read_text(encoding="utf-8"))
     data["stats"]["capacity"] = "not-a-dict"
     path.write_text(json.dumps(data), encoding="utf-8")
@@ -95,6 +130,8 @@ def test_status_model_valid_missing_stats_keys(tmp_path):
     assert s["model"] == "valid"
     assert s["effective_dims"] > 0
     assert s["samples_per_param"] is None
+    assert s["capacity"] is None  # isinstance 归一化：脏值不泄漏原始对象
+    assert s["capacity_warning"] is False
 
     # kept 缺失 → #150 stale（预处理不完整，不冒充 valid）
     data = json.loads(path.read_text(encoding="utf-8"))
