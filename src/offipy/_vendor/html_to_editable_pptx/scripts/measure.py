@@ -87,6 +87,37 @@ EXTRACT_JS = r"""
   const records = [];
   let nodeId = 0;
 
+  // 动画声明收集（v0.20）：命中显式 data-ppt-anim / 约定回退（data-anim/data-aos/
+  // class fade-in|animate-in）时给 record 追加 anim_decl + elem_id（页内顺序 id）。
+  // bbox 替换型元素（data-chart/data-drawio/data-asset/data-icon/data-primitive/
+  // class mermaid|drawio）会被后处理整槽替换 → 不产动画，跳过收集。
+  let animElemSeq = 0;
+  const isBboxReplacement = (el) =>
+    ['data-chart','data-drawio','data-asset','data-icon','data-primitive']
+      .some((k) => el.hasAttribute(k)) || el.classList.contains('mermaid') ||
+      el.classList.contains('drawio');
+  const collectAnimDecl = (el) => {
+    if (isBboxReplacement(el)) return null;
+    const decl = {};
+    if (el.hasAttribute('data-ppt-anim')) {
+      decl.anim = el.getAttribute('data-ppt-anim');
+      for (const k of ['dir','trigger','dur','delay']) {
+        const v = el.getAttribute('data-ppt-' + k);
+        if (v !== null) decl[k] = v;
+      }
+    } else {
+      const da = el.getAttribute('data-anim');
+      const aos = el.getAttribute('data-aos');
+      const cls = el.className || '';
+      if (da) decl.dataAnim = da;
+      if (aos) decl.dataAos = aos;
+      if (/\bfade-in\b/.test(cls)) decl.fadeIn = true;
+      if (/\banimate-in\b/.test(cls)) decl.animateIn = true;
+    }
+    if (Object.keys(decl).length === 0) return null;
+    return { decl, elemId: (slideIndex + 1) + '.' + (animElemSeq++) };
+  };
+
   // #141：单页保真度告警（audio 丢弃 / video 首帧化等），随 EXTRACT_JS 返回，
   // measure() 聚合进 payload["_warnings"]，deck 端透出为质量报告警告。
   const slideWarnings = [];
@@ -490,6 +521,11 @@ EXTRACT_JS = r"""
       return;
     }
     if (isHidden(el)) return;
+    const anim = collectAnimDecl(el);   // 本元素只算一次；命中才自增 elemSeq
+    const withAnim = (rec) => {
+      if (anim) { rec.anim_decl = anim.decl; rec.elem_id = anim.elemId; }
+      return rec;
+    };
 
     // Asset 声明（data-offipy-asset-id）：converter 只量占位框 + 主题 token，
     // 具体渲染交给 offipy 后处理。整体一个 record、不下钻子节点、不打截图 marker。
@@ -502,7 +538,7 @@ EXTRACT_JS = r"""
       for (const key of ['bg', 'surface', 'ink', 'muted', 'accent', 'accent-soft', 'divider']) {
         themeVars[key] = as.getPropertyValue('--' + key);
       }
-      records.push({
+      records.push(withAnim({
         id: nodeId++,
         kind: 'asset',
         tag: el.tagName.toLowerCase(),
@@ -510,7 +546,7 @@ EXTRACT_JS = r"""
         rect: rectRel(ar),
         themeVars,
         color: as.color,
-      });
+      }));
       return; // 占位容器内部不做任何分割
     }
 
@@ -528,7 +564,7 @@ EXTRACT_JS = r"""
         svgW = el.offsetWidth;
         svgH = (el.offsetWidth * vb.height) / vb.width;
       }
-      records.push({
+      records.push(withAnim({
         id: nodeId++,
         kind: 'svg',
         tag: 'svg',
@@ -538,7 +574,7 @@ EXTRACT_JS = r"""
         color: css(el, 'color'),
         decodedSize: { w: svgW, h: svgH },
         renderedSize: { w: el.offsetWidth, h: el.offsetHeight },
-      });
+      }));
       return; // SVG 整体当一张图，不下钻子节点
     }
 
@@ -546,7 +582,7 @@ EXTRACT_JS = r"""
       const r = el.getBoundingClientRect();
       const imgIndex = records.filter(x => x.kind === 'img').length;
       el.setAttribute('data-pptx-img-id', `slide${slideIndex+1}-img${imgIndex+1}`);
-      records.push({
+      records.push(withAnim({
         id: nodeId++,
         kind: 'img',
         tag: 'img',
@@ -560,7 +596,7 @@ EXTRACT_JS = r"""
         // 供 audit 算拉伸漂移。旧 naturalSize 语义就是渲染尺寸，二义会致 drift≈0 死规则。
         decodedSize: { w: el.naturalWidth || 0, h: el.naturalHeight || 0 },
         renderedSize: { w: el.offsetWidth, h: el.offsetHeight },
-      });
+      }));
       return;
     }
 
@@ -583,7 +619,7 @@ EXTRACT_JS = r"""
           warnSlide('video',
             `slide ${slideIndex + 1} 含 <video>，PPTX 无原生播放，已嵌入首帧静态图（源：${videoSrc || '未知'}）`);
         }
-        records.push({
+        records.push(withAnim({
           id: nodeId++,
           kind: 'canvas',
           tag: tagLow,
@@ -592,7 +628,7 @@ EXTRACT_JS = r"""
           rotation: cumulativeRotation(el),
           marker,
           videoSrc,
-        });
+        }));
       }
       return;
     }
@@ -630,7 +666,7 @@ EXTRACT_JS = r"""
         const decoIndex = records.filter(x => x.kind === 'deco_snapshot').length;
         const marker = `slide${slideIndex+1}-deco${decoIndex+1}`;
         el.setAttribute('data-pptx-deco-id', marker);
-        records.push({
+        records.push(withAnim({
           id: nodeId++,
           kind: 'deco_snapshot',
           tag: el.tagName.toLowerCase(),
@@ -645,7 +681,7 @@ EXTRACT_JS = r"""
             w: r.width,
             h: r.height,
           },
-        });
+        }));
         // overflow:hidden 裁切容器：容器 PNG 已经包含被裁后的子装饰，跳过子的单独处理
         // （旋转子的 AABB 远大于裁切框，单独画会变成超大色块覆盖周围）
         // 例外：slide 根节点。slide 根的 overflow:hidden 是布局结构（裁视口），
@@ -684,7 +720,7 @@ EXTRACT_JS = r"""
         const bodyRect = { left: bodyLeft, top: r.top, width: Math.max(1, r.right - bodyLeft), height: r.height };
         const ps = getComputedStyle(el, '::before');
         for (const rec of pseudoVectorShapes.after) records.push(rec);
-        records.push({
+        records.push(withAnim({
           id: nodeId++,
           kind: 'text',
           tag: el.tagName.toLowerCase() + '::before',
@@ -701,8 +737,8 @@ EXTRACT_JS = r"""
                   borderTopWidth: 0, borderBottomWidth: 0, borderLeftWidth: 0, borderRightWidth: 0,
                   borderRadius: ps.borderTopLeftRadius },
           text: beforeMarker.text,
-        });
-        records.push({
+        }));
+        records.push(withAnim({
           id: nodeId++,
           kind: 'text',
           tag: el.tagName.toLowerCase(),
@@ -714,11 +750,11 @@ EXTRACT_JS = r"""
           style: baseStyle,
           deco: decoForText,
           text: el.innerText,
-        });
+        }));
         return;
       }
       for (const rec of pseudoVectorShapes.after) records.push(rec);
-      records.push({
+      records.push(withAnim({
         id: nodeId++,
         kind: 'text',
         tag: el.tagName.toLowerCase(),
@@ -731,7 +767,7 @@ EXTRACT_JS = r"""
         style: baseStyle,
         deco: decoForText,
         text: el.innerText,
-      });
+      }));
       return;
     }
 
@@ -741,7 +777,7 @@ EXTRACT_JS = r"""
     if (!complexDecoration && (hasBg || hasBorder || isDrawioPlaceholder)) {
       const r = el.getBoundingClientRect();
       const rotDeg = cumulativeRotation(el);
-      records.push({
+      records.push(withAnim({
         id: nodeId++,
         kind: 'shape',
         tag: el.tagName.toLowerCase(),
@@ -752,7 +788,7 @@ EXTRACT_JS = r"""
         rotation: rotDeg,
         fill_kind: fillKindFromStyle(s),
         deco: decoFromStyle(s, hasBg, bg, borderTop, borderBottom, borderLeft, borderRight),
-      });
+      }));
     }
     for (const rec of pseudoVectorShapes.after) records.push(rec);
 
@@ -1157,6 +1193,12 @@ EXTRACT_JS = r"""
       theme: slide.className,  // hero dark / light 等
       background: opaqueBg(slide),
       color: getComputedStyle(slide).color,
+      transition_decl: (() => {
+        const kind = slide.getAttribute('data-ppt-transition');
+        if (!kind) return undefined;
+        const speed = slide.getAttribute('data-ppt-transition-speed') || 'medium';
+        return { kind, speed };
+      })(),
     },
     records,
     warnings: slideWarnings,
