@@ -37,7 +37,7 @@ offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID      # �
 
 # 反馈学习 CLI（train/status/append/recommend/apply，专属子解析器）
 offipy feedback --help                 # 反馈学习 5 op 引导
-offipy feedback train --feedback-dir <dir>          # 离线训练模型
+offipy feedback train [--feedback-dir <dir>]        # 离线训练模型
 offipy feedback status [--feedback-dir <dir>]       # 样本/模型状态
 offipy feedback append --profile <p> --rule-id <id> --action fixed|accepted|ignored --severity LOW|MID|HIGH [--features '<json>'] [--feedback-dir <dir>]
 offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir> [--profile <p>] [--json]

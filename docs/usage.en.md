@@ -40,7 +40,7 @@ offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID      # ba
 
 # Feedback learning CLI (train/status/append/recommend/apply, dedicated subparser)
 offipy feedback --help                 # 5-op guide for feedback learning
-offipy feedback train --feedback-dir <dir>          # offline model training
+offipy feedback train [--feedback-dir <dir>]        # offline model training
 offipy feedback status [--feedback-dir <dir>]       # sample/model status
 offipy feedback append --profile <p> --rule-id <id> --action fixed|accepted|ignored --severity LOW|MID|HIGH [--features '<json>'] [--feedback-dir <dir>]
 offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir> [--profile <p>] [--json]
