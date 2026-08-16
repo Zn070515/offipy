@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -260,7 +261,10 @@ def load_persisted_adjustments(
         clean = {
             str(k): int(v)
             for k, v in rules.items()
-            if isinstance(v, (int, float)) and not isinstance(v, bool) and int(v) in (-1, 1)
+            if isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and math.isfinite(v)
+            and int(v) in (-1, 1)
         }
         if clean:
             out[str(name)] = clean

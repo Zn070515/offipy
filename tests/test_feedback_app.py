@@ -1,5 +1,6 @@
 """FeedbackApp：train/status 可用、has_com_root=False、顶层 numpy-free（F2-F）。"""
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -328,3 +329,21 @@ def test_apply_unknown_profile_raises(tmp_path):
 def test_apply_no_model_raises(tmp_path):
     with pytest.raises(InvalidArgumentError, match="模型"):
         FeedbackApp().apply("balanced", str(tmp_path))
+
+
+def test_persisted_store_corrupt_and_stale(tmp_path):
+    """#160：损坏/非 ±1/NaN 值 → 容错读取 {}；save 原子写可重复。"""
+    from offipy.art.profiles import (
+        load_persisted_adjustments,
+        save_persisted_adjustments,
+    )
+
+    p = tmp_path / "art_profiles.json"
+    p.write_text("{ bad json", encoding="utf-8")
+    assert load_persisted_adjustments(tmp_path) == {}  # 损坏 → {}
+
+    p.write_text(json.dumps({"balanced": {"r1": 1, "r2": 0.5, "r3": "x"}}), encoding="utf-8")
+    assert load_persisted_adjustments(tmp_path) == {"balanced": {"r1": 1}}  # 只留 ±1 int
+
+    save_persisted_adjustments({"balanced": {"r1": -1}}, tmp_path)
+    assert load_persisted_adjustments(tmp_path) == {"balanced": {"r1": -1}}  # 原子写可读回

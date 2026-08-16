@@ -1,8 +1,9 @@
-"""FeedbackApp：feedback 学习系统（schema app，train/status/append 三 op）。
+"""FeedbackApp：feedback 学习系统（schema app，train/status/append/recommend/apply 五 op）。
 
 纯本地纯 CPU，无 COM（has_com_root=False → server._alive 恒 True）。顶层只
-标准库 + numpy-free 红线：numpy 只在 train()/status() 内部惰性 import（append
-不需要 numpy），所以 base install（无 feedback extra）起 server 不崩。
+标准库 + numpy-free 红线：numpy 只在 train()/status()/recommend()/apply() 内部
+惰性 import（append 不需要 numpy），所以 base install（无 feedback extra）起
+server 不崩。
 """
 
 from __future__ import annotations
@@ -104,9 +105,9 @@ class FeedbackApp:
                 "feedback apply 需要有效模型：无模型/过期/损坏时无 rule.delta 可持久化"
             )
         merged = load_persisted_adjustments()
-        current = dict(merged.get(profile, {}))
-        current.update(adjustments)
-        merged[profile] = current
+        # #160 修正：learned_adjustments 是权威全量非零 delta 集——直接替换 profile 条目，
+        # 否则 retrain 后翻 0 的规则会残留陈旧 ±1（deck audit 持续误 shift）。
+        merged[profile] = dict(adjustments)
         store = save_persisted_adjustments(merged)
         return {
             "profile": profile,
