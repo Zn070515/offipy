@@ -884,7 +884,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "status": OpSpec(
             description=(
-                "反馈学习状态：样本数、可配对潜力、当前模型状态（none/valid/expired）。"
+                "反馈学习状态：样本数、可配对潜力、当前模型状态（none/valid/expired/stale/corrupt）。"
                 "只读本机数据，不训练不写文件。"
             ),
             readonly=True,
@@ -912,6 +912,25 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "features": Any,
                 "feature_schema_version": str,
             },
+        ),
+        "recommend": OpSpec(
+            description=(
+                "只读建议：对 .pptx 跑艺术分析 + 学习推理，返回调整 finding 与确定性"
+                "建议（不进文档、不写反馈库）。需要有效模型：无模型/过期/损坏时显式"
+                "报错（不回退 v2）。可用 --json（generic dispatch 恒输出 JSON）。"
+            ),
+            readonly=True,
+            returns="dict",
+            params={"pptx": str, "feedback_dir": str, "profile": str, "json": bool},
+        ),
+        "apply": OpSpec(
+            description=(
+                "把学习到的 rule.delta 持久化到 profile 存储（默认 ~/.offipy/"
+                "art_profiles.json），使 `deck audit --profile <name>`（不带 "
+                "--feedback-dir）也反映学习调整。需要有效模型。"
+            ),
+            returns="dict",
+            params={"profile": str, "feedback_dir": str},
         ),
     },
 }

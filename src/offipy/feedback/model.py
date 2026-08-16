@@ -149,3 +149,26 @@ def weights_from_dict(data: dict[str, Any], *, input_dim: int, hidden_dims: tupl
         mlp.W[i] = W
         mlp.b[i] = b
     return mlp
+
+
+def weights_probe(data: dict[str, Any]) -> bool:
+    """权重可重建性探测（status 的 corrupt 判定）：形状损坏/成员缺失 → False。
+
+    只做「能否重建出 MLP」的形状校验，不做任何推理。numpy 缺失（base install）
+    时无法重建——但那是环境问题不是权重损坏，返回 True 保持 valid（corrupt 专指
+    权重形状损坏）。与 ModelBundle.load 的 weights_from_dict 兜底同判据。
+    """
+    members = data.get("members")
+    if not isinstance(members, list) or not members:
+        return False
+    kept = data.get("preprocessing", {}).get("kept")
+    if not isinstance(kept, list) or not kept:
+        return False
+    try:
+        for m in members:
+            weights_from_dict(m, input_dim=len(kept), hidden_dims=tuple(m["hidden_dims"]))
+    except ImportError:
+        return True  # 环境缺 numpy，非权重损坏
+    except (ValueError, KeyError, TypeError):
+        return False
+    return True

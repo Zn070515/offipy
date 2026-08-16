@@ -79,6 +79,32 @@ def _build_scene():
     )
 
 
+def _build_scene_3slides():
+    """3 页同构场景：每页一个 corner_cluster finding → 3 个 assessed 维度 worth。"""
+    s = _build_scene().slides[0]
+    return make_scene(
+        [
+            make_slide(1, height=1080.0, elements=s.elements),
+            make_slide(2, height=1080.0, elements=s.elements),
+            make_slide(3, height=1080.0, elements=s.elements),
+        ]
+    )
+
+
+def _build_scene_5slides():
+    """5 页同构场景：每页一个 corner_cluster finding → 5 个 assessed 维度 worth。"""
+    s = _build_scene().slides[0]
+    return make_scene(
+        [
+            make_slide(1, height=1080.0, elements=s.elements),
+            make_slide(2, height=1080.0, elements=s.elements),
+            make_slide(3, height=1080.0, elements=s.elements),
+            make_slide(4, height=1080.0, elements=s.elements),
+            make_slide(5, height=1080.0, elements=s.elements),
+        ]
+    )
+
+
 def _finding(report, rule_id):
     for s in report.slides:
         for d in s.dimensions:
@@ -351,12 +377,13 @@ def test_analyze_scene_user_override_beats_feedback(tmp_path):
 
 
 def test_analyze_scene_feedback_empty_store_no_change(tmp_path):
-    """feedback=True 但反馈库为空 → 报告与 feedback=False 完全一致。"""
+    """feedback=True 但反馈库为空 → findings 与 feedback=False 一致，且发 warning。"""
     scene = _build_scene()
     default = analyze_scene(scene, profile="balanced")
-    assert dataclasses.asdict(default) == dataclasses.asdict(
-        analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path / "nope")
-    )
+    report = analyze_scene(scene, profile="balanced", feedback=True, feedback_dir=tmp_path / "nope")
+    assert _findings_map(default) == _findings_map(report)
+    codes = [w.code for w in report.warnings]
+    assert "feedback.model.unavailable" in codes
 
 
 def test_analyze_deck_feedback_adjusts_consistency_rule(tmp_path):
@@ -520,7 +547,15 @@ def test_analyze_learning_pass_applies_severity_shift(monkeypatch, tmp_path):
     assert f is not None
     # 基线 corner_cluster = LOW；+0.8 → round(1+0.8)=2 → MID（未被 override，shift 生效）
     assert f.severity == Severity.MID
-    assert f.severity_override is False  # severity_shift 不标 override
+    # #157：severity_shift 生效 → 标 override=feedback + details 溯源
+    assert f.severity_override is True
+    assert f.severity_override_source == "feedback"
+    fb = f.details["feedback"]
+    assert fb["head"] == "severity_shift"
+    assert fb["before"] == "LOW"
+    assert fb["after"] == "MID"
+    assert fb["worth"] == 0.8
+    assert fb["shift"] == 0.8
 
 
 def test_analyze_shift_gated_by_rule_evidence(monkeypatch, tmp_path):
@@ -579,13 +614,16 @@ def test_analyze_learning_quality_score_replaces_formula(monkeypatch, tmp_path):
     _write_learning_model(tmp_path)
     monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)  # 可接受 → 高分
     report = analyze_scene(
-        _build_scene(),
+        _build_scene_3slides(),  # #158：≥3 assessed worth 才写 score（旧单页 1 worth 不达标）
         profile="balanced",
         feedback=True,
         feedback_dir=tmp_path,
         include_experimental_score=True,
     )
     assert report.experimental_score == 73.1
+    assert report.experimental_score_mode == "worth_sigmoid"  # #130
+    # #133：coverage 断言在 B7 做（quality_score_coverage 字段由 B7 才加到 ArtReport，
+    # B2 阶段访问会 AttributeError）。此处只锁分数与来源 mode。
 
 
 def test_analyze_corrupt_model_falls_back_to_v2(tmp_path):
@@ -663,3 +701,203 @@ def test_apply_learning_pass_appends_saturation_warning(monkeypatch, tmp_path):
     _apply_learning_pass(report, None, "balanced", tmp_path, want_score=False)
     codes = [w.code for w in report.warnings]
     assert "feedback.model.saturated" in codes
+
+
+def test_analyze_learning_model_unavailable_warns(tmp_path):
+    """#158：feedback=True 无有效模型 → 发 feedback.model.unavailable warning，不静默回退。"""
+    report = analyze_scene(
+        _build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path / "nope"
+    )
+    codes = [w.code for w in report.warnings]
+    assert "feedback.model.unavailable" in codes
+
+
+def test_analyze_learning_quality_score_needs_three_worths(monkeypatch, tmp_path):
+    """#158：<3 个 assessed 维度 worth → quality_score 不写（不冒充分数）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)
+    report = analyze_scene(
+        _build_scene(),  # 单页 1 个 corner_cluster finding → 1 worth < 3
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    # 未达 ≥3 worth 门 → 未落 worth_sigmoid mode；grade_mean 兜底保留（90.0），不冒充分数
+    assert report.experimental_score_mode == "grade_mean"
+    assert report.experimental_score == 90.0
+
+
+def test_reconcile_grades_after_severity_shift():
+    """#132：severity 被 shift 后 grade 按 post-shift findings 重推（grade 与 finding 一致）。"""
+    from offipy.art.analyze import _reconcile_grades
+    from offipy.art.models import ArtFinding, ArtReport, ArtSlideReport, DimensionAssessment
+    from offipy.art.rules import grade_from_findings
+
+    f = ArtFinding(
+        rule_id="art.color.no_accent",
+        dimension="color",
+        severity=Severity.LOW,
+        message="x",
+        confidence=0.9,
+    )
+    dim = DimensionAssessment(
+        dimension="color",
+        status="assessed",
+        grade="good",
+        findings=[f],
+    )
+    report = ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[dim])])
+    assert dim.grade == "good"  # LOW×0.9 = 0.45 ≤ 1.0 → good
+    f.severity = Severity.HIGH  # 模拟 severity_shift：LOW→HIGH
+    _reconcile_grades(report)
+    assert dim.grade == "poor"  # HIGH×0.9 = 2.7 > 2.5 → poor
+    assert dim.grade == grade_from_findings(dim.findings)
+
+
+def test_analyze_learning_no_shift_no_provenance(monkeypatch, tmp_path):
+    """#157：worth 小到不改变 severity → 不标 override、不写 details（无虚假溯源）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.3)  # < 0.5 阈值 → 不 step
+    report = analyze_scene(_build_scene(), profile="balanced", feedback=True, feedback_dir=tmp_path)
+    f = _finding(report, RULE_CORNER_CLUSTER)
+    assert f is not None
+    assert f.severity == Severity.LOW
+    assert f.severity_override is False
+    assert "feedback" not in f.details
+
+
+def test_analyze_learning_coverage_counts_subset(monkeypatch, tmp_path):
+    """#133：quality_score_coverage 报出置信子集与全体——abstain/ood 被挡下的 finding 可见。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path, abstain={"worth_margin_p25": 100.0, "std_p80": 1e9})
+    # #122 同款隔离：margin 巨大 → should_abstain 恒 True，全部 finding 被 abstain 挡下
+    monkeypatch.setattr(infer, "learned_adjustments", lambda *a, **k: {})
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: 0.8)
+    report = analyze_scene(
+        _build_scene_3slides(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    # 3 个 finding 全部 abstain → 无 covered → 不写 score；coverage 也空
+    assert report.quality_score_coverage is None
+    assert report.experimental_score_mode != "worth_sigmoid"
+
+
+def test_analyze_learning_coverage_mixed(monkeypatch, tmp_path):
+    """#133：3 页同构全过门 → 分数与 coverage 结构确定（covered=3/3, abstain=0, ood=0）。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(3):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+
+    # 3 页同构且默认 abstain 关 → 全部 finding 过门（不 abstain、不 OOD），covered=3。
+    # OOD/abstain 拦截语义由既有 test_analyze_abstain_skips_severity_shift 覆盖，
+    # 本用例只锁定「计数不崩、覆盖结构正确」。
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)
+    report = analyze_scene(
+        _build_scene_3slides(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    # 3 页同构 → 3 个 corner_cluster worth 全过门 → covered=3 → 有分数与 coverage
+    assert report.experimental_score == 73.1
+    cov = report.quality_score_coverage
+    assert cov["covered_findings"] == 3
+    assert cov["total_findings"] == 3
+    assert cov["abstained_count"] == 0
+    assert cov["ood_count"] == 0
+    assert cov["confident_quality"] == 73.1
+    assert cov["mean_worth"] == -0.5
+
+
+def test_analyze_learning_coverage_mixed_abstain(monkeypatch, tmp_path):
+    """#133：有分数且带 abstain 计数——covered≥3 时 dict 写出非零 abstained_count。"""
+    from offipy.art import features_registry
+    from offipy.feedback import infer
+
+    for _ in range(5):
+        append(
+            "balanced",
+            RULE_CORNER_CLUSTER,
+            "fixed",
+            Severity.MID,
+            features={"finding.confidence": 0.5},
+            feature_schema_version=features_registry.feature_schema_version(),
+            feedback_dir=tmp_path,
+        )
+    _write_learning_model(tmp_path)
+
+    calls = {"n": 0}
+
+    def selective_abstain(self, feats):
+        calls["n"] += 1
+        return calls["n"] <= 2  # 前 2 个 finding abstain，后 3 个过门
+
+    monkeypatch.setattr(infer.ModelBundle, "should_abstain", selective_abstain)
+    monkeypatch.setattr(infer, "model_worth", lambda feats, mlp=None: -0.5)
+    report = analyze_scene(
+        _build_scene_5slides(),
+        profile="balanced",
+        feedback=True,
+        feedback_dir=tmp_path,
+        include_experimental_score=True,
+    )
+    cov = report.quality_score_coverage
+    assert cov["covered_findings"] == 3
+    assert cov["abstained_count"] == 2
+    assert cov["ood_count"] == 0
+    assert cov["total_findings"] == 5
+    assert report.experimental_score == 73.1

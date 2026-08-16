@@ -334,3 +334,26 @@ def test_render_marks_experimental_findings():
     assert "[experimental]" in md
     html = render_html(ArtReport(slides=[ArtSlideReport(slide_index=1, dimensions=[d])]))
     assert "experimental" in html
+
+
+def test_score_label_mode_dependent():
+    """#130：综合指数标签按来源区分——grade_mean 规则评级 / worth_sigmoid 模型置信度。"""
+    from offipy.art.render import score_label
+
+    assert score_label("worth_sigmoid") == "综合指数 (模型置信度)"
+    assert score_label("grade_mean") == "综合指数 (规则评级)"
+    assert score_label(None) == "综合指数 (experimental)"  # 旧报告缺 mode → 兼容旧标签
+
+
+def test_render_markdown_score_label_mode(tmp_path):
+    """#130：markdown/html 用 mode 化标签渲染综合指数。"""
+    from offipy.art.models import ArtReport
+    from offipy.art.render import render_html, render_markdown
+
+    rep = ArtReport(
+        profile="balanced", experimental_score=73.1, experimental_score_mode="worth_sigmoid"
+    )
+    md = render_markdown(rep)
+    assert "综合指数 (模型置信度): 73.1" in md
+    html = render_html(rep)
+    assert "综合指数 (模型置信度): 73.1" in html

@@ -448,3 +448,118 @@ def test_deck_audit_chromium_error_concise(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "playwright install chromium" in err
     assert "几何" not in err  # 不提供假的 geometry-only 兜底
+
+
+def test_project_adjusted_findings_filters_shifted():
+    """#157：只投影 severity_shift head 且实际变化过 severity 的 finding。"""
+    from offipy.art.suggest import project_adjusted_findings
+
+    shifted = _finding(
+        rule_id="art.composition.corner_cluster",
+        dimension="composition",
+        severity=Severity.MID,
+        message="m",
+        details={
+            "feedback": {
+                "head": "severity_shift",
+                "worth": 0.8,
+                "shift": 0.8,
+                "before": "LOW",
+                "after": "MID",
+            },
+        },
+    )
+    shifted.severity_override = True
+    shifted.severity_override_source = "feedback"
+    plain = _finding()  # rule.delta 路径：source=feedback 但无 details["feedback"]
+    plain.severity_override = True
+    plain.severity_override_source = "feedback"
+    art = ArtReport(
+        profile="balanced",
+        slides=[
+            ArtSlideReport(
+                slide_index=1,
+                dimensions=[
+                    DimensionAssessment(
+                        dimension="composition",
+                        status="assessed",
+                        grade="good",
+                        findings=[shifted, plain],
+                    ),
+                ],
+            )
+        ],
+        deck_findings=[],
+    )
+    recs = project_adjusted_findings(DeckQualityReport(geometry=None, art=art, warnings=[]))
+    assert len(recs) == 1
+    assert recs[0]["rule_id"] == "art.composition.corner_cluster"
+    assert recs[0]["severity_before"] == "LOW"
+    assert recs[0]["severity_after"] == "MID"
+    assert recs[0]["worth"] == 0.8
+    assert recs[0]["shift"] == 0.8
+    assert recs[0]["slide_index"] == 1
+
+
+def test_deck_audit_surfaces_rule_delta(monkeypatch, capsys):
+    """#159：rule.delta 在 JSON feedback_adjustments 与文本模型调整段可见。"""
+    from offipy import cli
+
+    rep = _report()
+    rep.art.feedback_adjustments = {
+        "art.composition.corner_cluster": 1,
+        "art.hierarchy.title_too_small": -1,
+    }
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: rep)
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["feedback_adjustments"] == {
+        "art.composition.corner_cluster": 1,
+        "art.hierarchy.title_too_small": -1,
+    }
+    # JSON 载荷 9 键契约：deck audit 的结构化输出键固定
+    assert {
+        "source",
+        "profile",
+        "experimental_score",
+        "experimental_score_mode",
+        "quality_score_coverage",
+        "feedback_adjustments",
+        "adjusted_findings",
+        "warnings",
+        "suggestions",
+    } <= data.keys()
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
+    out = capsys.readouterr().out
+    assert "模型调整 (rule.delta)" in out
+    assert "art.composition.corner_cluster: +1" in out
+    assert "art.hierarchy.title_too_small: -1" in out
+
+
+def test_deck_audit_surfaces_score_coverage(monkeypatch, capsys):
+    """#133：JSON 含 quality_score_coverage；文本含分数覆盖行。"""
+    from offipy import cli
+
+    rep = _report()
+    rep.art.experimental_score = 73.1
+    rep.art.experimental_score_mode = "worth_sigmoid"
+    rep.art.quality_score_coverage = {
+        "mean_worth": -0.5,
+        "confident_quality": 73.1,
+        "covered_findings": 3,
+        "total_findings": 5,
+        "abstained_count": 1,
+        "ood_count": 1,
+    }
+    monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: rep)
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["quality_score_coverage"]["covered_findings"] == 3
+    assert data["quality_score_coverage"]["ood_count"] == 1
+
+    cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
+    out = capsys.readouterr().out
+    assert "分数覆盖: covered=3/5 (abstain 1, ood 1)" in out

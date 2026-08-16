@@ -33,8 +33,8 @@ from .models import (
     DeckQualityReport,
     DimensionAssessment,
 )
-from .profiles import ArtProfile, get_profile
-from .rules import RuleContext, apply_profile_to_finding, assess_dimension
+from .profiles import ArtProfile, get_profile, load_persisted_adjustments
+from .rules import RuleContext, apply_profile_to_finding, assess_dimension, grade_from_findings
 from .typography import RULES as TYPOGRAPHY_RULES
 
 if TYPE_CHECKING:
@@ -56,6 +56,9 @@ _GRADE_SCORE = {"excellent": 0.0, "good": 0.3, "attention": 0.6, "poor": 1.0}
 # #111：规则需 ≥3 条有效标签才允许被 severity_shift（模型仍全特征预测，
 # 但 shift 的「应用」按规则证据门禁——0 标签规则不做跨规则泛化 shift）
 _MIN_LABELS_PER_RULE = 3
+
+# #158：quality_score 需要 ≥3 个 assessed 维度 worth——单点/证据不足不冒充分数
+_MIN_QUALITY_SCORE_SAMPLES = 3
 
 
 def _experimental_score(report: ArtReport) -> float | None:
@@ -96,6 +99,12 @@ def _resolve_profile(
 ) -> ArtProfile:
     prof = profile if isinstance(profile, ArtProfile) else get_profile(profile or "balanced")
     if not feedback:
+        # #160：apply 持久化的 rule.delta 落到 builtin profile 之上（dataclasses.replace
+        # 副本，永不 mutate 共享对象）。feedback=False 也吃默认存储，所以
+        # `deck audit --profile balanced`（不带 --feedback-dir）能反映 apply 结果。
+        persisted = load_persisted_adjustments().get(prof.name)
+        if persisted:
+            prof = dataclasses.replace(prof, feedback_severity_adjustments=persisted)
         return prof
     adjustments = _learned_adjustments_safe(prof.name, feedback_dir)
     if adjustments is not None:
@@ -115,6 +124,18 @@ def _all_findings(report: ArtReport) -> Iterator[tuple[ArtFinding, int | None]]:
         yield f, None
 
 
+def _reconcile_grades(report: ArtReport) -> None:
+    """#132：severity_shift 改了 finding.severity → 重推 assessed 维度 grade。
+
+    grade 的单一事实来源是 rules.grade_from_findings；学习 pass 在 shift 后调用，
+    保证 grade 与 post-shift finding 一致（confidence / evidence_coverage 不动）。
+    """
+    for slide in report.slides:
+        for dim in slide.dimensions:
+            if dim.status == "assessed" and dim.findings:
+                dim.grade = grade_from_findings(dim.findings)
+
+
 def _apply_learning_pass(
     report: ArtReport,
     scene: ArtScene,
@@ -125,9 +146,10 @@ def _apply_learning_pass(
 ) -> None:
     """学习后处理 pass：severity_shift（severity_override=False 才作用）+ quality.score。
 
-    severity_shift 是「推荐」语义：只改 finding.severity，不改 dimension grade
-    （grade 在 assess_dimension 时已定）。quality.score 有请求且模型有效时替换
-    experimental_score。全程惰性 import：无 feedback extra 时 ImportError → 跳过。
+    severity_shift 是「推荐」语义：先改 finding.severity，再按 post-shift findings
+    重推 assessed 维度 grade（#132 _reconcile_grades，避免 grade 与 finding 不一致）。
+    quality.score 有请求且模型有效时替换 experimental_score。全程惰性 import：
+    无 feedback extra 时 ImportError → 跳过。
     """
     try:
         from offipy.art.features_registry import encode_features
@@ -139,7 +161,14 @@ def _apply_learning_pass(
         return
     bundle = infer.ModelBundle.load(feedback_dir)
     if bundle is None:
-        return  # 无模型 / 过期 / 损坏（schema 匹配但权重形状错）→ 回退 v2
+        # #158：显式反馈路径无有效模型 → 不再静默回退 v2，发 warning 让用户知情。
+        report.warnings.append(
+            ArtWarning(
+                code="feedback.model.unavailable",
+                message="指定反馈目录无有效学习模型（缺失/过期/损坏），本次分析回退 v2 规则",
+            )
+        )
+        return
     if bundle.saturation:
         report.warnings.append(
             ArtWarning(
@@ -154,22 +183,65 @@ def _apply_learning_pass(
     labeled = Counter(
         r.rule_id for r in valid_records(load_records(feedback_dir), profile=profile_name)
     )
-    worths: list[float] = []
+    # #133：quality_score 人口统计——covered 是进入分数计算的 assessed 维度 worth 子集；
+    # abstain/ood 被挡下的 finding 单独计数，让「分数只基于置信子集」的偏差可见。
+    # total_findings 含 deck 级/非 assessed 维度 finding（永不进 covered），残余是有意的保守披露。
+    covered: list[float] = []
+    total_findings = 0
+    abstained_count = 0
+    ood_count = 0
     for finding, slide_index in _all_findings(report):
         if finding.severity_override:
             continue  # user / feedback override 的 finding 一律跳过
         if labeled[finding.rule_id] < _MIN_LABELS_PER_RULE:
             continue  # 证据不足的规则不 shift（Counter 对未出现 key 返回 0）
+        total_findings += 1
         slide = scene.by_slide(slide_index) if slide_index is not None else None
         feats = encode_features(finding, slide, scene, profile_name)
-        if bundle.should_abstain(feats) or bundle.ood_flagged(feats):
-            continue  # 保守：模型不确定 / 特征 OOD 的 finding 不 shift（回退 v2）
+        if bundle.should_abstain(feats):
+            abstained_count += 1
+            continue  # 保守：模型不确定的 finding 不 shift（回退 v2）
+        if bundle.ood_flagged(feats):
+            ood_count += 1
+            continue  # 特征 OOD 的 finding 不 shift（回退 v2）
         worth = infer.model_worth(feats, bundle)  # 模块级 seam，测试 monkeypatch 生效
-        finding.severity = apply_severity_shift(finding.severity, severity_shift_from_worth(worth))
-        worths.append(worth)
-    if want_score and worths:
-        mean_worth = sum(worths) / len(worths)
-        report.experimental_score = bundle.quality_score(mean_worth)
+        shift = severity_shift_from_worth(worth)
+        before = finding.severity
+        finding.severity = apply_severity_shift(before, shift)
+        if finding.severity != before:
+            # #157：severity_shift 必须有 provenance——标 override + 来源 + worth/delta/head
+            finding.severity_override = True
+            finding.severity_override_source = "feedback"
+            finding.details["feedback"] = {
+                "head": "severity_shift",
+                "worth": round(worth, 4),
+                "shift": round(shift, 4),
+                "before": before.name,
+                "after": finding.severity.name,
+            }
+        # #158 assessed 门：维度状态在 report 侧（ArtSlideReport.by_dimension）——scene 的
+        # ArtSlide 无 by_dimension；仅 assessed 维度的 slide finding 才计入 quality_score 人口。
+        if slide_index is not None:
+            slide_report = next((sr for sr in report.slides if sr.slide_index == slide_index), None)
+            if slide_report is not None:
+                dim = slide_report.by_dimension(finding.dimension)
+                if dim is not None and dim.status == "assessed":
+                    covered.append(worth)
+    if want_score and len(covered) >= _MIN_QUALITY_SCORE_SAMPLES:
+        mean_worth = sum(covered) / len(covered)
+        confident_quality = bundle.quality_score(mean_worth)
+        report.experimental_score = confident_quality
+        report.experimental_score_mode = "worth_sigmoid"  # #130：区分 grade-mean 来源
+        report.quality_score_coverage = {
+            "mean_worth": round(mean_worth, 4),
+            "confident_quality": confident_quality,
+            "covered_findings": len(covered),
+            "total_findings": total_findings,
+            "abstained_count": abstained_count,
+            "ood_count": ood_count,
+        }
+    # #132：severity_shift 改 severity 后重推 grade，否则 grade 与 finding 不一致
+    _reconcile_grades(report)
 
 
 def analyze_scene(
@@ -209,8 +281,12 @@ def analyze_scene(
             )
         )
     report.deck_findings = [apply_profile_to_finding(f, prof) for f in assess_deck(scene, prof)]
+    # #159：rule.delta 落到报告（profile 已被 _resolve_profile 替换为学习调整后的副本）
+    report.feedback_adjustments = dict(prof.feedback_severity_adjustments)
     if include_experimental_score:
         report.experimental_score = _experimental_score(report)
+        if report.experimental_score is not None:
+            report.experimental_score_mode = "grade_mean"  # #130：分数来源标注
     if feedback:
         _apply_learning_pass(
             report, scene, prof.name, feedback_dir, want_score=include_experimental_score

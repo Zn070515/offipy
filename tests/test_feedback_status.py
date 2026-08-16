@@ -214,3 +214,18 @@ def test_status_surfaces_saturation(tmp_path):
     data["stats"]["saturation"] = True
     path.write_text(json.dumps(data), encoding="utf-8")
     assert report_status(tmp_path)["saturation"] is True
+
+
+def test_status_model_corrupt_weights(tmp_path):
+    """#147：schema 匹配但权重形状损坏 → status 报 corrupt 而非 valid。"""
+    _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
+    _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
+    run_training(tmp_path, min_pairs=0)
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["members"][0]["hidden_dims"] = [8]  # 与权重形状不一致 → weights_from_dict 抛 ValueError
+    path.write_text(json.dumps(data), encoding="utf-8")
+    s = report_status(tmp_path)
+    assert s["model"] == "corrupt"
+    assert "effective_dims" not in s
+    assert "samples_per_param" not in s
