@@ -95,3 +95,49 @@ def test_quality_score_from_worth_mean():
 def test_learned_adjustments_no_dir_returns_none():
     """#113：无 feedback_dir 不碰全局 ~/.offipy，直接回退（None）。"""
     assert learned_adjustments("balanced") is None
+
+
+def test_model_bundle_load_rejects_oob_kept(tmp_path):
+    """#150：kept 下标越界（schema bump 忘重训）→ load 返回 None，不 IndexError。"""
+    from offipy.art import append as art_append
+    from offipy.art.features_registry import feature_schema_version
+    from offipy.audit import Severity
+    from offipy.feedback.infer import ModelBundle
+    from offipy.feedback.train import run_training
+
+    disc = {
+        "fixed": {"finding.severity_ordinal": 3.0, "finding.confidence": 1.0},
+        "accepted": {"finding.severity_ordinal": 1.0, "finding.confidence": 0.2},
+    }
+    for _ in range(12):
+        art_append(
+            "balanced",
+            "art.hierarchy.title_too_small",
+            "fixed",
+            Severity.MID,
+            feedback_dir=tmp_path,
+            features=disc["fixed"],
+            feature_schema_version=feature_schema_version(),
+        )
+    for _ in range(4):
+        art_append(
+            "balanced",
+            "art.hierarchy.title_too_small",
+            "accepted",
+            Severity.MID,
+            feedback_dir=tmp_path,
+            features=disc["accepted"],
+            feature_schema_version=feature_schema_version(),
+        )
+    run_training(tmp_path, min_pairs=0)
+    import json
+
+    from offipy.feedback.model import model_file
+
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["preprocessing"]["kept"][0] = (
+        9999  # 保长度改写：input_dim 与权重仍匹配，逼出 kept 越界检查
+    )
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert ModelBundle.load(tmp_path) is None

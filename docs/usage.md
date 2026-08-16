@@ -286,18 +286,25 @@ if diff.gate_severity() is not None and diff.gate_severity() >= Severity.MID:
   保守回退 v2
 - **样本级 repeated stratified CV（#119）**：按 rule 分层的重复 5 折、绝不做 pair-level split；
   95% 置信下界触 chance → `poor_generalization` soft flag（只记录不拒绝写盘）
-- **容量自适应告警（#121）**：容量按独立样本数自适应（H≈√n），`samples_per_param`
-  分级 ok/warn/critical
-- **逐规则样本诊断（#117）**：样本不足（insufficient_pairs）时返回 per-rule
-  `{fixed, accepted, pairs, single_direction, suggest}` 可行动建议
+- **容量自适应告警（#121/#134）**：容量按独立样本数自适应（H≈√n），`samples_per_param`
+  分级 ok/warn/critical（#134 重标定为 spp≥1 ok / ≥0.25 warn / <0.25 critical），并给
+  `suggest_n`（达到 ok 约需再补的样本数估算，只记录不拒绝写盘）
+- **逐规则样本诊断（#117/#152）**：样本不足（insufficient_pairs）时返回 per-rule
+  `{fixed, accepted, pairs, single_direction, suggest}` 可行动建议；`status` 与
+  `train` 成功返回体也带 `per_rule` 诊断
+- **模型输出饱和检测（#151）**：样本间 quality_score（固定参考 scale）P5-P95 跨度过小 →
+  `saturation` soft flag（只记录不拒绝写盘）；analyze 学习 pass 会发
+  `feedback.model.saturated` warning
 - tiny_image 特征补全 + FEATURES schema v1→v2 bump（#115）
 
 追加标签：`offipy feedback append --profile <p> --rule_id <r> --action fixed
 --severity MID --features '<json>' --feedback_dir <dir>`（写入该目录 JSONL，
 供 train 学习；severity 限 LOW/MID/HIGH）。
 
-状态：`offipy feedback status`（样本数 / 有效样本 / 配对潜力 / 模型 none|valid|expired；
-模型有效时另表面 `effective_dims` / `samples_per_param` / `poor_generalization`）。
+状态：`offipy feedback status`（样本数 / 有效样本 / 配对潜力 / 模型 none|valid|stale|expired；
+模型有效时另表面 `effective_dims` / `samples_per_param` / `poor_generalization` / `saturation`；
+各分支都带 `excluded`（被过滤记录分类）与 `per_rule`（逐规则样本诊断）。`stale` = schema
+匹配但 kept 下标越界/缺失/非数值（bump 忘重训，#150），load 阶段回退 v2）。
 
 消费侧要求（#113）：学习**消费**必须显式 `feedback_dir`——`analyze_scene(feedback=True)`
 不带目录 → `InvalidArgumentError`；`learned_adjustments` 不带目录 → 返回 None，
@@ -318,8 +325,9 @@ CLI 学习消费通道（#114/#116）：
   同证据门禁，只由通过门禁（可被 shift）的 finding 贡献；值由 ensemble 均值 worth 经校准
   （worth_scale 归一）映射
 
-冷启动：无模型 / 模型过期（feature_schema_version / model schema 不符）/ 未装 numpy →
-完全回退 v2 行为（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是可拆卸增强，
+冷启动：无模型 / 模型过期（feature_schema_version / model schema 不符）/ 模型 stale
+（schema 匹配但 kept 下标越界，#150）/ 未装 numpy → 完全回退 v2 行为
+（`recommend_adjustments`）。删除 model.json 即回到 v2。学习系统是可拆卸增强，
 绝不回退 audit 硬门禁。
 
 ## 能力边界：创建/追加 vs 增量修改

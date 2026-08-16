@@ -14,34 +14,78 @@ import numpy as np
 from offipy.art.features_registry import feature_schema_version
 from offipy.art.feedback import load_records
 
+from .heads import quality_score_from_worth
 from .mlp import MLP, SEED, TrainingDiverged, adaptive_hidden_dims, capacity_report, train_mlp
 from .model import model_file, save_model
-from .pairs import build_pairs, per_rule_diagnosis, valid_records
+from .pairs import (
+    MIN_PAIRS,
+    build_pairs,
+    per_rule_diagnosis,
+    record_filter_breakdown,
+    valid_records,
+)
 from .preprocess import fit_preprocessing, transform_features
 from .registry import OUTPUT_SCHEMA_VERSION
 from .validation import repeated_stratified_cv
 from .vector import encode_vector
 
-_MIN_PAIRS = 50
 # #122 A6：ensemble member 数——多 seed 训练取平均降方差，member 之间只 seed 不同。
 K = 5
 # #112：判别力门禁阈值——训练后模型对全量样本输出的 worth 标准差低于该值视为
 # 坍缩成常数（ReLU 全死 / 退化），是坏模型，拒绝写盘。
 MIN_OUTPUT_STD = 1e-6
+# #151：饱和判定参数——样本间 quality_score（P5-P95）跨度低于该值视为模型输出
+# 饱和（sigmoid 把所有样本压到几乎同一分数 → 无判别力）。只记录不拒绝写盘。
+SATURATION_MIN_RANGE = 5.0
+SATURATION_MIN_SAMPLES = 20
+
+
+def _saturation_flag(
+    member_means: np.ndarray[tuple[int, ...], np.dtype[np.float64]],
+    min_range: float = SATURATION_MIN_RANGE,
+    min_samples: int = SATURATION_MIN_SAMPLES,
+) -> bool:
+    """模型输出是否饱和：样本间 quality_score（固定参考 scale=1.0）的 P5-P95 跨度 < min_range。
+
+    复用 heads.quality_score_from_worth 做分数映射（单一事实来源，不重抄公式）。
+    必须用固定参考 scale（1.0）而非训练期 worth_scale：后者由 member_means.std()
+    导出，会把样本间 worth 归一成 z-score → 分数跨度恒大，检测变成 no-op（#151）。
+    样本 < min_samples 不判定（统计上无意义）。soft 告警：只记录，不拒绝写盘。
+    """
+    n = int(member_means.size)
+    if n < min_samples:
+        return False
+    scores = np.array(
+        [quality_score_from_worth(float(w)) for w in member_means.ravel()],
+        dtype=np.float64,
+    )
+    pct = np.percentile(scores, [5.0, 95.0])  # mypy 安全：不拆包 ndarray，走索引
+    return bool(float(pct[1]) - float(pct[0]) < min_range)
 
 
 def run_training(
     feedback_dir: str | Path | None = None,
     *,
     seed: int = SEED,
-    min_pairs: int = _MIN_PAIRS,
+    min_pairs: int = MIN_PAIRS,
 ) -> dict[str, Any]:
     """训练并写 model.json；失败返回状态 JSON（不抛、不覆盖旧模型）。"""
     dir_path = Path(feedback_dir) if feedback_dir else None
     records = load_records(dir_path)
     valid = valid_records(records)
     if not valid:
-        return {"trained": False, "reason": "no_valid_samples", "samples": len(records)}
+        # #131：无有效样本时给出被过滤原因分类，不再静默返回。
+        breakdown = record_filter_breakdown(records)
+        return {
+            "trained": False,
+            "reason": "no_valid_samples",
+            "samples": len(records),
+            "excluded": {k: v for k, v in breakdown.items() if k != "valid"},
+            "hint": (
+                "无带特征快照的可训练样本：features 只能在 analyze 现场编码，"
+                "请经 deck audit 内联标注或 append 时传 --features"
+            ),
+        }
     # #112：NaN 特征 → 不静默 drop 也不训练，保持契约（training_diverged 不写模型）
     X_raw = np.array([encode_vector(r.features or {}) for r in valid])
     if not np.isfinite(X_raw).all():
@@ -114,6 +158,7 @@ def run_training(
         "capacity": capacity,
         "ensemble_size": K,
         "calibration": {"worth_scale": worth_scale},
+        "saturation": _saturation_flag(member_means),
     }
     if capacity["level"] != "ok":
         stats["capacity_warning"] = True  # soft：只记录，不拒绝写盘
@@ -135,4 +180,9 @@ def run_training(
         abstain=abstain,
         path=path,
     )
-    return {"trained": True, **stats, "model": str(path)}
+    return {
+        "trained": True,
+        **stats,
+        "model": str(path),
+        "per_rule": per_rule_diagnosis(valid, min_pairs),
+    }

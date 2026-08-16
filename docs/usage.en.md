@@ -263,10 +263,16 @@ uses global gradient clipping. Requires numpy: `pip install "offipy[feedback]"`.
 - **Sample-level repeated stratified CV (#119)**: per-rule stratified repeated 5-fold, never a
   pair-level split; a 95% confidence lower bound at chance → `poor_generalization` soft flag
   (recorded only, never rejects)
-- **Capacity-adaptive warning (#121)**: capacity adapts to the independent sample count (H≈√n);
-  `samples_per_param` is graded ok/warn/critical
-- **Per-rule sample diagnosis (#117)**: on insufficient_pairs, returns per-rule
-  `{fixed, accepted, pairs, single_direction, suggest}` actionable suggestions
+- **Capacity-adaptive warning (#121/#134)**: capacity adapts to the independent sample count
+  (H≈√n); `samples_per_param` is graded ok/warn/critical (recalibrated in #134 to spp≥1 ok /
+  ≥0.25 warn / <0.25 critical), plus `suggest_n` (estimated samples still needed to reach ok;
+  recorded only, never rejects)
+- **Per-rule sample diagnosis (#117/#152)**: on insufficient_pairs, returns per-rule
+  `{fixed, accepted, pairs, single_direction, suggest}` actionable suggestions; `status` and the
+  `train` success return also carry `per_rule`
+- **Model output saturation detection (#151)**: P5-P95 span of per-sample quality scores (fixed
+  reference scale) too small → `saturation` soft flag (recorded only, never rejects); the analyze
+  learning pass emits a `feedback.model.saturated` warning
 - tiny_image feature completion + FEATURES schema v1→v2 bump (#115)
 
 Append labels: `offipy feedback append --profile <p> --rule_id <r> --action fixed
@@ -274,8 +280,11 @@ Append labels: `offipy feedback append --profile <p> --rule_id <r> --action fixe
 `train` to learn; severity is limited to LOW/MID/HIGH).
 
 Status: `offipy feedback status` (sample count / valid sample count / pairing potential /
-model none|valid|expired; when the model is valid it additionally surfaces `effective_dims` /
-`samples_per_param` / `poor_generalization`).
+model none|valid|stale|expired; when the model is valid it additionally surfaces `effective_dims` /
+`samples_per_param` / `poor_generalization` / `saturation`; every branch carries `excluded`
+(filtered-record breakdown) and `per_rule` (per-rule sample diagnosis). `stale` = schema matches
+but kept indices are out-of-bounds/missing/non-numeric (a bump forgot to retrain, #150); load
+falls back to v2).
 
 Consumption rule (#113): learning **consumption** requires an explicit `feedback_dir` —
 `analyze_scene(feedback=True)` without a dir → `InvalidArgumentError`; `learned_adjustments`
@@ -303,8 +312,9 @@ Inference consumption points:
   (shiftable) findings; the value is mapped from the ensemble-mean worth via calibration
   (worth_scale normalization)
 
-Cold start: no model / expired model (feature_schema_version / model schema mismatch) /
-numpy not installed → full fallback to v2 behavior (`recommend_adjustments`). Deleting
+Cold start: no model / expired model (feature_schema_version / model schema mismatch) / stale
+model (schema matches but kept indices out-of-bounds, #150) / numpy not installed → full fallback
+to v2 behavior (`recommend_adjustments`). Deleting
 model.json returns to v2. The learning system is a detachable enhancement and never relaxes
 the audit hard gate.
 

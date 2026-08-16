@@ -19,19 +19,21 @@ SEVERITY_SHIFT_HIGH = 1.0
 
 
 def quantize_delta(worth: float) -> int:
-    """rule.delta 量化：|worth| < DELTA_THRESHOLD → 0；否则四舍五入到 ±1。"""
-    if abs(worth) < DELTA_THRESHOLD:
+    """rule.delta 量化：非有限值或 |worth| < DELTA_THRESHOLD → 0；否则四舍五入到 ±1。"""
+    if not math.isfinite(worth) or abs(worth) < DELTA_THRESHOLD:
         return 0
     return 1 if worth > 0 else -1
 
 
 def severity_shift_from_worth(worth: float) -> float:
-    """finding.severity_shift：worth → clamp [-1, 1]。"""
+    """finding.severity_shift：worth → clamp [-1, 1]（NaN 视为 0；±inf 落在 clamp 端点）。"""
+    if math.isnan(worth):
+        return 0.0
     return max(SEVERITY_SHIFT_LOW, min(SEVERITY_SHIFT_HIGH, worth))
 
 
 def quality_score_from_worth(worth: float, worth_scale: float = 1.0) -> float:
-    """worth → plausibility score（0-100，保留 1 位小数）。
+    """worth → plausibility score（0-100，保留 1 位小数）。非有限：NaN→0.0，±inf 按符号取极值。
 
     worth_scale 归一避免饱和：worth 幅值被训练分布的 scale 拉伸后再进 sigmoid，
     高幅值/离群 worth 不再直接把分数压到 0 或 100。缺省 1.0 兼容旧测试。
@@ -39,10 +41,24 @@ def quality_score_from_worth(worth: float, worth_scale: float = 1.0) -> float:
     """
     if not worth_scale or worth_scale <= 0:
         worth_scale = 1.0
+    if not math.isfinite(worth):
+        # 非有限：NaN 保守取 0；±inf 按符号取极值（公式 sign-consistent：worth↓→score↑）
+        return 100.0 if worth < 0 else 0.0
     return round(100.0 / (1.0 + math.exp(2.0 * (worth / worth_scale))), 1)
 
 
 def apply_severity_shift(sev: Severity, shift: float) -> Severity:
-    """把连续 shift 应用到 discrete Severity（round 后夹回 LOW..HIGH）。"""
-    moved = round(float(sev) + shift)
-    return Severity(max(int(Severity.LOW), min(int(Severity.HIGH), moved)))
+    """把连续 shift 应用到 discrete Severity：|shift|≥0.5 才 ±1 级（夹回 LOW..HIGH）。
+
+    #148：round() 银行家舍入在 x.5 处就近取偶，+0.5 与 -0.5 的移动方向不对称
+    （如 MID±0.5 一个上移一个不变）。改为与 quantize_delta 同阈值（DELTA_THRESHOLD=0.5）
+    先量化出整数步（±1/0）再叠加——方向明确，且与 rule.delta 的量化语义一致。
+    """
+    if not math.isfinite(shift):
+        return sev
+    step = 0
+    if shift >= DELTA_THRESHOLD:
+        step = 1
+    elif shift <= -DELTA_THRESHOLD:
+        step = -1
+    return Severity(max(int(Severity.LOW), min(int(Severity.HIGH), int(sev) + step)))
