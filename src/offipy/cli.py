@@ -720,7 +720,7 @@ def _main(argv: list[str] | None = None) -> int | None:
                 _usage_exit(
                     "用法: offipy deck make --html <deck.html> "
                     "[--out <x.pptx>] [--no-open] [--export-png <dir>] "
-                    "[--theme <name>] [--layouts] [--overwrite]"
+                    "[--theme <name>] [--layouts] [--overwrite] [--animations]"
                 )
             pptx = deck_make(
                 args.html,
@@ -1003,6 +1003,8 @@ def _deck_add_anim(args: argparse.Namespace) -> int | None:
         if not isinstance(item, dict):
             _usage_exit(f"transitions 元素必须是对象（实际 {type(item).__name__}）")
         transitions.append(TransitionSpec(**item))
+    if not Path(args.pptx).is_file():
+        _usage_exit(f"找不到 pptx 文件: {args.pptx}")
     report = apply_animations(args.pptx, animations=animations, transitions=transitions)
     print(json.dumps({"pptx": args.pptx, **report}, ensure_ascii=False))
     return None

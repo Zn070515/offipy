@@ -1618,3 +1618,41 @@ def test_deck_add_anim_spec(monkeypatch, tmp_path):
     assert captured["pptx"] == str(pptx)
     assert captured["animations"] == [AnimationSpec(slide=1, target="title", effect="fade")]
     assert captured["transitions"] == [TransitionSpec(slide=2, kind="push", speed="medium")]
+
+
+def test_deck_add_anim_missing_pptx_exits_2(monkeypatch, tmp_path, capsys):
+    """deck add-anim 指向不存在的 pptx → SystemExit(2)（干净报错，不泄漏 traceback）。"""
+    import offipy.cli as cli_mod
+
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps({"animations": [{"slide": 1, "target": "x", "effect": "fade"}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit) as ei:
+        cli_mod.main(
+            ["deck", "add-anim", "--pptx", str(tmp_path / "nope.pptx"), "--spec", str(spec)]
+        )
+    assert ei.value.code == 2
+    err = capsys.readouterr().err
+    assert "找不到 pptx" in err
+
+
+def test_deck_add_anim_bad_effect_error(tmp_path, capsys):
+    """deck add-anim spec 里 effect 非法 → InvalidArgumentError 被 main 兜底，干净报错。"""
+    import offipy.cli as cli_mod
+
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps({"animations": [{"slide": 1, "target": "x", "effect": "nope"}]}),
+        encoding="utf-8",
+    )
+    pptx = tmp_path / "x.pptx"
+    pptx.write_bytes(b"pptx")
+    ret = cli_mod.main(["deck", "add-anim", "--pptx", str(pptx), "--spec", str(spec)])
+    # AnimationSpec.__post_init__ 抛 InvalidArgumentError → main 兜底：stderr 打印
+    # "动画声明非法：…" + 返回 2（cli.main 只 catch InvalidArgumentError/OffipyError）。
+    assert ret == 2
+    err = capsys.readouterr().err
+    assert "动画声明非法" in err
+    assert "Traceback" not in err
