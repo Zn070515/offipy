@@ -6,6 +6,8 @@ p:sld schema 顺序（cSld → clrMapOvr → transition → timing）插入 → 
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from lxml import etree
@@ -13,7 +15,7 @@ from pptx import Presentation
 
 from offipy.exceptions import InvalidArgumentError
 
-from .spec import AnimationSpec, TransitionSpec
+from .spec import AnimationSpec, TransitionSpec, parse_declaration
 from .timing import AnimationUnit, build_timing
 from .transition import build_transition
 
@@ -216,3 +218,130 @@ def apply_transitions(
 ) -> dict[str, Any]:
     """只注入页面过渡（薄封装）。"""
     return apply_animations(pptx, animations=None, transitions=transitions)
+
+
+def _measurements_path(pptx_path: str) -> Path:
+    """与 charts.py 一致：<pptx stem>_audit/_cache/measurements.json。"""
+    p = Path(pptx_path)
+    return p.with_name(f"{p.stem}_audit") / "_cache" / "measurements.json"
+
+
+def _warning(message: str) -> dict[str, Any]:
+    """anim 告警条目（对齐 deck._measure_warnings 消费的 {kind, message} 结构）。"""
+    return {"kind": "anim", "message": message}
+
+
+def postprocess_animations(html_path: str, pptx_path: str) -> dict[str, Any]:  # noqa: ARG001
+    """管线入口：读 measurements.json → 按 OFFIPY_ELEM::<elem_id> 定位形状 → 注入。
+
+    spec §管线接入：record 有 anim_decl 但 assemble 没产出形状 → unmatched/告警，
+    不硬失败（转换不因动画缺失而失败）。无声明 → no-op。measurements 缺失或
+    不可读 → no-op。告警（含 spec 解析告警）追加进 measurements.json 的 _warnings
+    （deck._measure_warnings 的 "anim" 码透出）。html_path 保持管线签名一致（未用）。
+    """
+    meas_path = _measurements_path(pptx_path)
+    if not meas_path.is_file():
+        return {"animations_applied": 0, "transitions_applied": 0, "unmatched": [], "skipped": []}
+    try:
+        data = json.loads(meas_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError):
+        return {"animations_applied": 0, "transitions_applied": 0, "unmatched": [], "skipped": []}
+
+    animations: list[AnimationSpec] = []
+    transitions: list[TransitionSpec] = []
+    unmatched: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+
+    slides = data.get("slides") or []
+    for i, sdata in enumerate(slides, start=1):
+        if not isinstance(sdata, dict):
+            continue
+        slide_meta = sdata.get("slide") or {}
+        tdecl = slide_meta.get("transition_decl")
+        if isinstance(tdecl, dict):
+            kind = tdecl.get("kind")
+            speed = tdecl.get("speed", "medium")
+            if kind in {"fade", "wipe", "push", "cover"}:
+                transitions.append(TransitionSpec(slide=i, kind=kind, speed=speed))
+            else:
+                warnings.append(_warning(f"slide {i} 未知过渡类型 {kind!r}，跳过"))
+        for rec in sdata.get("records") or []:
+            if not isinstance(rec, dict):
+                continue
+            raw = rec.get("anim_decl")
+            if not raw:
+                continue
+            spec = parse_declaration(raw, rec)
+            if spec is None:
+                # spec.py 已把解析告警写成 {kind, message} dict 落进 raw['_warnings']
+                warnings.extend(
+                    w
+                    for w in raw.get("_warnings") or []
+                    if isinstance(w, dict) and isinstance(w.get("message"), str)
+                )
+                continue
+            elem_id = rec.get("elem_id")
+            if not elem_id:
+                warnings.append(_warning(f"slide {i} 有动画声明但缺 elem_id，跳过"))
+                continue
+            target = f"OFFIPY_ELEM::{elem_id}"
+            animations.append(
+                AnimationSpec(
+                    slide=i,
+                    target=target,
+                    effect=spec.effect,
+                    direction=spec.direction,
+                    trigger=spec.trigger,
+                    duration=spec.duration,
+                    delay=spec.delay,
+                )
+            )
+
+    if not animations and not transitions:
+        report: dict[str, Any] = {
+            "animations_applied": 0,
+            "transitions_applied": 0,
+            "unmatched": unmatched,
+            "skipped": [],
+        }
+    else:
+        # 管线语义：全 miss 不抛（raise_on_all_unmatched=False），降级为告警。
+        report = apply_animations(
+            pptx_path, animations=animations, transitions=transitions, raise_on_all_unmatched=False
+        )
+        for u in report.get("unmatched", []):
+            target = u.get("target") or ""
+            if target.startswith("OFFIPY_ELEM::"):
+                unmatched.append(
+                    {"elem_id": target[len("OFFIPY_ELEM::") :], "slide": u.get("slide")}
+                )
+            else:
+                unmatched.append(u)
+        warnings.extend(
+            _warning(
+                f"slide {u.get('slide')} 元素 {u.get('elem_id')} 未产出可动画形状（unmatched）"
+            )
+            for u in unmatched
+        )
+        report["unmatched"] = unmatched
+
+    # 有告警才写回 measurements.json（内部产物；无告警不动缓存）
+    if warnings:
+        _append_warnings(meas_path, warnings)
+        report["warnings"] = [w["message"] for w in warnings]
+    return report
+
+
+def _append_warnings(meas_path: Path, warnings: list[dict[str, Any]]) -> None:
+    try:
+        data = json.loads(meas_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError):
+        return
+    if not isinstance(data, dict):
+        return
+    existing = data.get("_warnings")
+    if not isinstance(existing, list):
+        existing = []
+    existing.extend(warnings)
+    data["_warnings"] = existing
+    meas_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
