@@ -13,7 +13,7 @@ from typing import Any
 from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.feedback import load_records
 
-from .model import kept_valid, load_model, model_file, model_valid
+from .model import kept_valid, load_model, model_file, model_valid, weights_probe
 from .pairs import (
     MIN_PAIRS,
     build_pairs,
@@ -42,6 +42,16 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
                 "valid_samples": len(valid),
                 "pair_potential": len(pairs),
                 "model": "stale",
+                "excluded": excluded,
+                "per_rule": per_rule,
+            }
+        # #147：schema 匹配但权重形状损坏 → corrupt（valid 前最后一道门，不冒充有效模型）。
+        if not weights_probe(data):
+            return {
+                "samples": len(records),
+                "valid_samples": len(valid),
+                "pair_potential": len(pairs),
+                "model": "corrupt",
                 "excluded": excluded,
                 "per_rule": per_rule,
             }

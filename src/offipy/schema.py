@@ -884,7 +884,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
         ),
         "status": OpSpec(
             description=(
-                "反馈学习状态：样本数、可配对潜力、当前模型状态（none/valid/expired）。"
+                "反馈学习状态：样本数、可配对潜力、当前模型状态（none/valid/expired/stale/corrupt）。"
                 "只读本机数据，不训练不写文件。"
             ),
             readonly=True,
