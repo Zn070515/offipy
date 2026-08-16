@@ -11,8 +11,21 @@ from pathlib import Path
 
 from offipy import schema
 
-APP_NAMES = {"excel": "Excel", "word": "Word", "ppt": "PowerPoint"}
+APP_NAMES = {
+    "excel": "Excel",
+    "word": "Word",
+    "ppt": "PowerPoint",
+    "diagram": "图表",
+    "feedback": "反馈学习",
+}
+# 品牌名（Excel/Word/PowerPoint）语言中立，zh/en 同名；图表/反馈学习需英文专名
+_EN_APP_NAMES = {"diagram": "Diagram", "feedback": "Feedback"}
 DOCS_API = Path(__file__).resolve().parent.parent / "docs" / "api"
+
+
+def _app_title(app: str, *, en: bool = False) -> str:
+    """应用标题：zh 用 APP_NAMES；en 用 _EN_APP_NAMES，缺省回退 APP_NAMES。"""
+    return _EN_APP_NAMES.get(app, APP_NAMES[app]) if en else APP_NAMES[app]
 
 
 def _type_name(t) -> str:
@@ -75,7 +88,7 @@ def _render_index() -> str:
         count = len(schema.OPS[app])
         read = len(schema.readonly_ops(app))
         destr = len(schema.destructive_ops(app))
-        rows.append(f"| [{APP_NAMES[app]}]({app}.md) | {count} | {read} | {destr} |")
+        rows.append(f"| [{_app_title(app)}]({app}.md) | {count} | {read} | {destr} |")
     table = "\n".join(rows)
     return (
         "> [English](index.en.md)\n\n"
@@ -86,9 +99,10 @@ def _render_index() -> str:
         "| --- | --- | --- | --- |\n"
         f"{table}\n"
         "\n每个操作：`doc_id` 缺省走当前活动文档（Excel `book<hex>` / Word `doc<hex>` / PPT `pres<hex>`，"
-        "高熵不透明，不可枚举）；`expected_target` 用于破坏性操作的绑定校验。\n\n"
+        "高熵不透明，不可枚举）；`expected_target` 用于破坏性操作的绑定校验。"
+        "`diagram`/`feedback` 不经过 COM、无 Office 文档目标，不适用 `doc_id`/`expected_target`。\n\n"
         "> 静态几何质量门禁与基线回归不经过 `schema.py`（纯解析、无 Office/无 COM），"
-        "另见 [PPTX 质量审计](audit.md) 与 [基线回归](audit-baseline.md)。\n"
+        "另见 [PPTX 质量审计](../audit.md) 与 [基线回归](../audit-baseline.md)。\n"
     )
 
 
@@ -420,6 +434,50 @@ _EN_DESC: dict[tuple[str, str], str] = {
         "Quit the PowerPoint session (close the application window). Refuses by default when "
         "attached to an existing Office instance; force=True overrides."
     ),
+    # --- diagram ---
+    ("diagram", "build"): (
+        "Convert a Mermaid/drawio source file into an editable PPTX (16:9 full-page). "
+        "Format is auto-detected by extension and content: .mmd/.md/.mermaid → Mermaid, "
+        ".drawio → draw.io. Mermaid supports only flowchart/graph, sequenceDiagram, "
+        "stateDiagram-v2 and erDiagram; other kinds (gantt/journey/mindmap/timeline) raise "
+        "unsupported diagram kind — use draw.io instead. Existing output is not overwritten "
+        "by default; overwrite=true allows replacement."
+    ),
+    ("diagram", "install_skill"): (
+        "Install the diagram-design and offipy-diagram skills into the host agent's skill "
+        "directory (default ~/.claude/skills/, --target_dir to override). Idempotent: skips "
+        "if the target already exists (never overwrites user edits); --force deletes and "
+        "rebuilds the target directory."
+    ),
+    # --- feedback ---
+    ("feedback", "train"): (
+        "Train the feedback learning system offline: read ~/.offipy/art_feedback.jsonl → "
+        "encode against the current FEATURES schema → build pairs (same rule×profile: "
+        "fixed > accepted) → train a numpy MLP → atomically write art_feedback_model.json. "
+        "With too few samples it returns a status instead of failing (does not delete an "
+        'existing model). Requires numpy: pip install "offipy[feedback]".'
+    ),
+    ("feedback", "status"): (
+        "Feedback learning status: sample count, pairing potential, current model state "
+        "(none/valid/expired/stale/corrupt). Read-only over local data — no training, no writes."
+    ),
+    ("feedback", "append"): (
+        "Append one feedback label: how a user disposed of a finding for a rule "
+        "(fixed = should fix, accepted = rule is right, ignored = irrelevant). Written to the "
+        "feedback_dir JSONL (default ~/.offipy when absent), consumed by feedback train. "
+        "features is a flat feature snapshot (encode_features output); the CLI accepts a JSON string."
+    ),
+    ("feedback", "recommend"): (
+        "Read-only recommendations: run art analysis + learned inference on a .pptx and return "
+        "adjusted findings and deterministic suggestions (no document writes, no feedback-store "
+        "writes). Requires a valid model: without one / expired / corrupt it raises explicitly "
+        "(no silent v2 fallback). --json is accepted (generic dispatch always outputs JSON)."
+    ),
+    ("feedback", "apply"): (
+        "Persist learned rule.delta to the profile store (default ~/.offipy/art_profiles.json), "
+        "so `deck audit --profile <name>` (without --feedback-dir) also reflects learned "
+        "adjustments. Requires a valid model."
+    ),
 }
 
 
@@ -463,7 +521,7 @@ def _render_op_en(app: str, op: str, spec: schema.OpSpec) -> str:
 
 
 def _render_app_en(app: str) -> str:
-    title = APP_NAMES[app]
+    title = _app_title(app, en=True)
     ops = schema.OPS[app]
     body = "\n\n---\n\n".join(_render_op_en(app, op, spec) for op, spec in ops.items())
     return f"> [中文]({app}.md)\n\n# {title} API\n\n{body}\n"
@@ -475,7 +533,7 @@ def _render_index_en() -> str:
         count = len(schema.OPS[app])
         read = len(schema.readonly_ops(app))
         destr = len(schema.destructive_ops(app))
-        rows.append(f"| [{APP_NAMES[app]}]({app}.en.md) | {count} | {read} | {destr} |")
+        rows.append(f"| [{_app_title(app, en=True)}]({app}.en.md) | {count} | {read} | {destr} |")
     table = "\n".join(rows)
     return (
         "> [中文](index.md)\n\n"
@@ -486,12 +544,14 @@ def _render_index_en() -> str:
         "| App | Operations | Read-only | Mutating |\n"
         "| --- | --- | --- | --- |\n"
         f"{table}\n"
-        "\nEvery operation: `doc_id` defaults to the current active document (Excel `book<hex>` "
-        "/ Word `doc<hex>` / PPT `pres<hex>`, high-entropy and opaque, not enumerable); "
-        "`expected_target` provides target binding for destructive operations.\n\n"
+        "\nEvery operation on the three COM apps (Excel/Word/PowerPoint): `doc_id` defaults to the "
+        "current active document (Excel `book<hex>` / Word `doc<hex>` / PPT `pres<hex>`, "
+        "high-entropy and opaque, not enumerable); `expected_target` provides target binding for "
+        "destructive operations. `diagram`/`feedback` do not go through COM and have no Office "
+        "document target.\n\n"
         "> Static geometry quality gates and baseline regression do not go through `schema.py` "
-        "(pure parsing, no Office/COM); see [PPTX Quality Audit](audit.en.md) and "
-        "[Baseline Regression](audit-baseline.en.md).\n"
+        "(pure parsing, no Office/COM); see [PPTX Quality Audit](../audit.en.md) and "
+        "[Baseline Regression](../audit-baseline.en.md).\n"
     )
 
 

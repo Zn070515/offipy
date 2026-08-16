@@ -10,8 +10,6 @@ from pathlib import Path
 
 from offipy import schema
 
-_COM_APPS = ("excel", "word", "ppt")  # docs/api 只覆盖 COM facade 三 app
-
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "gen_api_ref.py"
 
 
@@ -24,7 +22,7 @@ def _load_gen():
 
 def test_every_schema_op_has_english_description():
     gen = _load_gen()
-    for app in _COM_APPS:
+    for app in gen.APP_NAMES:
         for op in schema.ops(app):
             assert (app, op) in gen._EN_DESC, f"{app}.{op} 缺英文描述（_EN_DESC）"
 
@@ -40,5 +38,15 @@ def test_no_orphan_english_descriptions():
 def test_en_coverage_guard_passes():
     # _guard_en_coverage 对当前 schema 应无缺漏（与 test_every_* 一致但不 import 冲突）
     gen = _load_gen()
-    missing = [f"{a}.{o}" for a in _COM_APPS for o in schema.ops(a) if (a, o) not in gen._EN_DESC]
+    missing = [f"{a}.{o}" for a in gen.APP_NAMES for o in schema.ops(a)
+               if (a, o) not in gen._EN_DESC]
     assert missing == []
+
+
+def test_diagram_feedback_pages_render_zh_en():
+    """#161：diagram/feedback 生成中英双语页（zh 中文标题、en 英文标题）。"""
+    gen = _load_gen()
+    zh = gen._render_app("diagram")
+    en = gen._render_app_en("feedback")
+    assert "# 图表 API" in zh
+    assert "# Feedback API" in en

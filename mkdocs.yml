@@ -17,6 +17,8 @@ nav:
       - Excel: api/excel.md
       - Word: api/word.md
       - PowerPoint: api/ppt.md
+      - 图表: api/diagram.md
+      - 反馈学习: api/feedback.md
   - 异常契约: exceptions.md
   - 协议: protocol.md
   - 兼容矩阵: compatibility.md
@@ -33,6 +35,8 @@ nav:
           - Excel: api/excel.en.md
           - Word: api/word.en.md
           - PowerPoint: api/ppt.en.md
+          - Diagram: api/diagram.en.md
+          - Feedback: api/feedback.en.md
       - Exception Contract: exceptions.en.md
       - Protocol: protocol.en.md
       - Compatibility: compatibility.en.md
