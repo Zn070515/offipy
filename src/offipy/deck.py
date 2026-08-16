@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     # 字符串化，绝不触发包加载即拉 python-pptx 链）。
     from collections.abc import Callable, Iterator
 
-    from .art.models import ArtReport, DeckQualityReport
+    from .art.models import ArtReport, ArtWarning, DeckQualityReport
 
 # vendored 转换器位于包内 _vendor/，site-packages 下经 __file__ 自定位
 _CONVERT_DIR = Path(__file__).resolve().parent / "_vendor" / "html_to_editable_pptx"
@@ -684,6 +684,39 @@ def render_with_report(
     return RenderResult(output_path=stage.final_pptx, audit_report=audit_report)
 
 
+def _measure_warnings(m: Path) -> list[ArtWarning]:
+    """读取 measurements.json 的 _warnings（audio/video/font 保真度告警）→ ArtWarning。"""
+    from .art import ArtWarning
+
+    m = Path(m)  # 兼容调用方传入 str（既有 _run_art_analysis 亦以 str(m) 容忍）
+    try:
+        data = json.loads(m.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    entries = data.get("_warnings", [])
+    if not isinstance(entries, list):
+        return []
+    code_map = {
+        "audio": "deck.media.audio_dropped",
+        "video": "deck.media.video_static",
+        "font": "deck.font.substituted",
+    }
+    out = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        kind = e.get("kind")
+        if not isinstance(kind, str):
+            continue
+        code = code_map.get(kind)
+        if code is None:
+            continue
+        out.append(ArtWarning(code=code, message=str(e.get("message", ""))))
+    return out
+
+
 def _run_art_analysis(
     measurements: dict[str, Any] | str,
     profile: str,
@@ -762,6 +795,8 @@ def render_with_quality_report(
         m = stage.measurements_path
         art_report: ArtReport | None = None
         warnings: list[ArtWarning] = []
+        if m is not None:  # #141：媒体保真度告警（audio/video/font）并入既有 warnings
+            warnings.extend(_measure_warnings(m))
         staging_slides: str | None = None
         staging_dir: str | None = None
         try:
