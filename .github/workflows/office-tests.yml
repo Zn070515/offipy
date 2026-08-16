@@ -107,6 +107,17 @@ jobs:
       - name: Reset COM baseline + clear pywin32 gen_py cache (runner 自愈)
         shell: bash
         run: |
+          # server restart 只保证进程已起、不保证 8890 已 listening——restart 后立即走
+          # COM 链路（bench）会撞上未就绪竞态（ppt.set_title FileNotFoundError，真机踩坑）。
+          # _wait_server 用 client._ping()（ProxyHandler({}) 直连 127.0.0.1，规避本机 VPN
+          # 劫持回环）轮询 /ping 最长 ~30s；超时最后一条 assert 失败，步骤红。
+          _wait_server() {
+            for _ in $(seq 1 30); do
+              $1 -c "from offipy.client import _ping; raise SystemExit(0 if _ping() else 1)" && return 0
+              sleep 1
+            done
+            $1 -c "from offipy.client import _ping; assert _ping(), 'server 未在 30s 内就绪'"
+          }
           for p in POWERPNT WINWORD EXCEL; do
             taskkill //F //IM "$p.EXE" 2>/dev/null || true
           done
@@ -114,9 +125,11 @@ jobs:
           if [ "${{ inputs.install_from_wheel }}" = "true" ]; then
             .venv-wheel/Scripts/python.exe -c "import shutil, win32com; shutil.rmtree(win32com.__gen_path__, ignore_errors=True)"
             .venv-wheel/Scripts/python.exe -m offipy.cli server restart >/dev/null 2>&1 || true
+            _wait_server ".venv-wheel/Scripts/python.exe"
           else
             uv run python -c "import shutil, win32com; shutil.rmtree(win32com.__gen_path__, ignore_errors=True)"
             uv run offipy server restart >/dev/null 2>&1 || true
+            _wait_server "uv run python"
           fi
 
       - name: Test COM + deck_render (真机)
@@ -136,11 +149,21 @@ jobs:
         if: ${{ !inputs.install_from_wheel }}
         shell: bash
         run: |
+          # 同上方 reset 步骤：restart 后先就绪轮询再跑 bench，杜绝「重启完立刻 bench」
+          # 的未就绪竞态（bench_ops 走 COM client.call → server → PowerPoint）。
+          _wait_server() {
+            for _ in $(seq 1 30); do
+              $1 -c "from offipy.client import _ping; raise SystemExit(0 if _ping() else 1)" && return 0
+              sleep 1
+            done
+            $1 -c "from offipy.client import _ping; assert _ping(), 'server 未在 30s 内就绪'"
+          }
           for p in POWERPNT WINWORD EXCEL; do
             taskkill //F //IM "$p.EXE" 2>/dev/null || true
           done
           sleep 2
           uv run offipy server restart >/dev/null 2>&1 || true
+          _wait_server "uv run python"
 
       # RPC op 基准轻档（#107）：真机验证 bench 脚本不坏 + 指标能产出。
       # bench_ops 走 COM（client.call → server → Office），只能挂有 Office 的
