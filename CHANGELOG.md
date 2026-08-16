@@ -47,6 +47,16 @@
 - art: experimental 规则 conf 封顶提至 0.4，低权重参与 grade（#154）
 - art: coverage 门控按规则独立判定，不再整维丢弃 findings（#155）
 - art: 强调色评估走 run 级颜色，口径与调色板统一（#156）
+- **feedback 训练链加固（#131 #134 #143 #144 #148 #150 #151 #152）**：
+  - kept 下标越界/缺失/非数值 → `ModelBundle.load` 回退 v2 + `status` 报 `stale`（#150）
+  - heads 非有限值处理：NaN → 中性值、±inf → clamp，`severity_shift` 阈值步进（#148）
+  - append 未传 features 时自动补 `feature_schema_version`（#143）
+  - no_valid_samples 返回 `excluded` 过滤分类 + hint（#131）；`status` 三分支透出
+    `excluded`（#144）
+  - schema 过期记录 `reschema_records` 原子重写（tmp+os.replace，保留空行，#144）
+  - `status` / `train` 成功返回体透出 `per_rule` 逐规则诊断（#152）
+  - 模型输出饱和检测持久化，`status` / analyze warning 透出（#151）
+  - 容量阈值重标定（spp≥1 ok / ≥0.25 warn / <0.25 critical）+ `suggest_n` 补样估算（#134）
 
 ## [0.18.0] - 2026-08-15
 
