@@ -34,11 +34,20 @@ offipy audit deck.pptx                     # 文本报告（默认）
 offipy audit deck.pptx --fail-on HIGH      # 达 HIGH → 退出码 1（CI 门禁）
 offipy audit deck.pptx --format html --out audit.html --slides-dir export/   # SVG 画布报告
 offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID      # 基线回归：只阻断新增/恶化
+
+# 反馈学习 CLI（train/status/append/recommend/apply，专属子解析器）
+offipy feedback --help                 # 反馈学习 5 op 引导
+offipy feedback train --feedback-dir <dir>          # 离线训练模型
+offipy feedback status [--feedback-dir <dir>]       # 样本/模型状态
+offipy feedback append --profile <p> --rule-id <id> --action fixed|accepted|ignored --severity LOW|MID|HIGH [--features '<json>'] [--feedback-dir <dir>]
+offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir> [--profile <p>] [--json]
+offipy feedback apply --profile <p> [--feedback-dir <dir>]
 ```
 
 破坏性 op 需要一个目标：`--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`。
 布尔参数用 `--key true/false`：`--overwrite true`。结构化值可用 `--payload '{"...": ...}'`。
 参数名以下划线分隔（如 `--range_addr`、`--doc_id`），类型由 `schema.py` 声明并自动转换。
+feedback 子命令的参数支持双写法：`--feedback_dir`/`--feedback-dir`、`--rule_id`/`--rule-id` 等价。
 PPTX 审计的参数与退出码、Python API 详见 [docs/audit.md](audit.md)（审计）与
 [docs/audit-baseline.md](audit-baseline.md)（基线回归）。
 

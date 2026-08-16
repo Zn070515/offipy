@@ -37,12 +37,21 @@ offipy audit deck.pptx                     # text report (default)
 offipy audit deck.pptx --fail-on HIGH      # exit code 1 at HIGH (CI gate)
 offipy audit deck.pptx --format html --out audit.html --slides-dir export/   # SVG canvas report
 offipy audit candidate.pptx --baseline baseline.pptx --fail-on-new MID      # baseline regression: only block added/worsened
+
+# Feedback learning CLI (train/status/append/recommend/apply, dedicated subparser)
+offipy feedback --help                 # 5-op guide for feedback learning
+offipy feedback train --feedback-dir <dir>          # offline model training
+offipy feedback status [--feedback-dir <dir>]       # sample/model status
+offipy feedback append --profile <p> --rule-id <id> --action fixed|accepted|ignored --severity LOW|MID|HIGH [--features '<json>'] [--feedback-dir <dir>]
+offipy feedback recommend --pptx <deck.pptx> --feedback-dir <dir> [--profile <p>] [--json]
+offipy feedback apply --profile <p> [--feedback-dir <dir>]
 ```
 
 Destructive ops need a target: `--doc_id <doc_id>` / `--follow-active` / `--expected-target '<json>'`.
 Boolean parameters use `--key true/false`: `--overwrite true`. Structured values can be
 passed with `--payload '{"...": ...}'`. Parameter names use underscores (e.g.
 `--range_addr`, `--doc_id`); types are declared in `schema.py` and converted automatically.
+The `feedback` subcommands accept dual spellings: `--feedback_dir`/`--feedback-dir` and `--rule_id`/`--rule-id` are equivalent.
 For the audit flags, exit codes, and Python API see [docs/audit.en.md](audit.en.md) (audit) and
 [docs/audit-baseline.en.md](audit-baseline.en.md) (baseline regression).
 
