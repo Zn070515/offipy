@@ -92,3 +92,17 @@ def test_quantize_and_shift_consistent_at_threshold():
     assert quantize_delta(-0.5) == -1
     assert quantize_delta(0.49) == 0
     assert quantize_delta(-0.49) == 0
+
+
+def test_quality_score_from_worth_nonfinite():
+    """#148：NaN → 0.0；-inf → 100.0（公式 sign 一致）；+inf → 0.0。"""
+    assert quality_score_from_worth(float("nan")) == 0.0
+    assert quality_score_from_worth(float("-inf")) == 100.0
+    assert quality_score_from_worth(float("inf")) == 0.0
+
+
+def test_severity_shift_from_worth_nonfinite():
+    """#148：NaN → 0.0（不 shift）；±inf → clamp 端点 ±1.0。"""
+    assert severity_shift_from_worth(float("nan")) == 0.0
+    assert severity_shift_from_worth(float("inf")) == 1.0
+    assert severity_shift_from_worth(float("-inf")) == -1.0
