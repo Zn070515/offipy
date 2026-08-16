@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-16
+
 ### Fixed
 
 - **feedback status 透传 capacity（#134）**：valid 分支输出 `capacity` 全量 dict
