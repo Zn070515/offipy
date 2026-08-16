@@ -178,6 +178,14 @@ def _scene_reliability(ctx: RuleContext) -> float:
     return 0.6
 
 
+def _rule_reliability(ev: RuleEvaluation) -> float | None:
+    """规则可靠度：显式 ev.reliability 优先；否则取 findings 的 evidence_reliability 之 min。"""
+    if ev.reliability is not None:
+        return ev.reliability
+    rels = [f.evidence_reliability for f in ev.findings if f.evidence_reliability is not None]
+    return min(rels) if rels else None
+
+
 def assess_dimension(
     dimension: str,
     rule_specs: list[RuleSpec],
@@ -201,13 +209,14 @@ def assess_dimension(
         warnings.extend(ev.warnings)
         if ev.eligible_count > 0:
             applicable += 1
+        rule_rel = _rule_reliability(ev)
         if (
-            ev.reliability is not None
+            rule_rel is not None
             and ev.covered_count > 0
             and not rs.experimental
             and rs.rule_id not in ctx.profile.experimental_rules
         ):
-            reliability_terms.append(ev.reliability)
+            reliability_terms.append(rule_rel)
             reliability_weights.append(ev.covered_count)
         findings.extend(
             apply_profile_to_finding(f, ctx.profile, experimental=rs.experimental)

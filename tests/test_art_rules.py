@@ -275,6 +275,55 @@ def test_dimension_reliability_excludes_profile_experimental():
 
 
 # ---------------------------------------------------------------------------
+# #153：规则无 ev.reliability 时，从 finding.evidence_reliability 取 min 派生
+# ---------------------------------------------------------------------------
+
+
+def test_dimension_reliability_derived_from_finding_evidence():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f = make_finding(
+        RULE_LOW_CONTRAST,
+        "color",
+        Severity.LOW,
+        "m",
+        0.25,
+        slide_index=1,
+        evidence_reliability=0.5,
+    )
+    specs = [_rule(RULE_LOW_CONTRAST, dimension="color", findings=[f], covered=3, eligible=3)]
+    d = assess_dimension("color", specs, _ctx(slide))
+    assert d.status == "assessed"
+    assert abs(d.reliability - 0.5) < 1e-9
+    assert abs(d.minimum_reliability - 0.5) < 1e-9
+
+
+def test_dimension_reliability_derived_min_of_findings():
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    f1 = make_finding(
+        RULE_LOW_CONTRAST,
+        "color",
+        Severity.LOW,
+        "m",
+        0.25,
+        slide_index=1,
+        evidence_reliability=0.5,
+    )
+    f2 = make_finding(
+        RULE_LOW_CONTRAST,
+        "color",
+        Severity.MID,
+        "m",
+        0.9,
+        slide_index=1,
+        evidence_reliability=0.8,
+    )
+    specs = [_rule(RULE_LOW_CONTRAST, dimension="color", findings=[f1, f2], covered=3, eligible=3)]
+    d = assess_dimension("color", specs, _ctx(slide))
+    assert abs(d.reliability - 0.5) < 1e-9  # min(0.5, 0.8)
+    assert abs(d.minimum_reliability - 0.5) < 1e-9
+
+
+# ---------------------------------------------------------------------------
 # _step_severity 边界
 # ---------------------------------------------------------------------------
 
