@@ -38,8 +38,9 @@ def test_no_orphan_english_descriptions():
 def test_en_coverage_guard_passes():
     # _guard_en_coverage 对当前 schema 应无缺漏（与 test_every_* 一致但不 import 冲突）
     gen = _load_gen()
-    missing = [f"{a}.{o}" for a in gen.APP_NAMES for o in schema.ops(a)
-               if (a, o) not in gen._EN_DESC]
+    missing = [
+        f"{a}.{o}" for a in gen.APP_NAMES for o in schema.ops(a) if (a, o) not in gen._EN_DESC
+    ]
     assert missing == []
 
 
