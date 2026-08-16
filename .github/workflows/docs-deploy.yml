@@ -27,9 +27,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c2153863e4b97  # v7
-        with:
-          python-version: "3.12"
+      # 不装 setup-python：uv 按 .python-version（3.12）自管解释器（setup-uv python-install: auto），
+      # sync/run 都用同一解释器，无系统 Python 依赖。
       - name: Sync dev deps
         run: uv sync --extra dev
       - name: Build docs (mkdocs --strict)
