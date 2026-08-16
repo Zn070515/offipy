@@ -72,7 +72,7 @@ class FeedbackApp:
                     f"{feats!r}"
                 ) from exc
         # #143：有特征快照但缺 schema 版本 → 自动补当前版本，避免 valid_records 静默过滤。
-        # 插在 feats 解析（64-73 行）之后、art_append 调用（74 行）之前；原有调用不变。
+        # 插在 feats 解析之后、art_append 调用之前；原有调用不变。
         if feats is not None and feature_schema_version is None:
             from offipy.art.features_registry import feature_schema_version as _current
 
