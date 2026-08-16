@@ -7,6 +7,7 @@ vendor measure 只收集原始声明（anim_decl dict），所有映射/校验/�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from offipy.exceptions import InvalidArgumentError
 
@@ -68,22 +69,34 @@ class AnimationSpec:
 
     def __post_init__(self) -> None:
         problems: list[str] = []
-        if not isinstance(self.slide, int) or self.slide < 1:
+        if not isinstance(self.slide, int) or isinstance(self.slide, bool) or self.slide < 1:
             problems.append(f"slide 必须是 ≥1 的整数（实际 {self.slide!r}）")
         if not isinstance(self.target, str) or not self.target.strip():
             problems.append("target 必须是形状名（非空字符串）")
-        if self.effect not in EFFECT_CATALOG:
-            problems.append(f"effect 不在目录 {sorted(EFFECT_CATALOG)}（实际 {self.effect!r}）")
-        if self.trigger not in _TRIGGERS:
+        if not isinstance(self.effect, str) or self.effect not in EFFECT_CATALOG:
+            problems.append(
+                f"effect 必须是目录内效果 {sorted(EFFECT_CATALOG)}（实际 {self.effect!r}）"
+            )
+        if not isinstance(self.trigger, str) or self.trigger not in _TRIGGERS:
             problems.append(f"trigger 必须是 {'/'.join(_TRIGGERS)}（实际 {self.trigger!r}）")
-        if self.effect in _DIRECTIONAL_EFFECTS and self.direction not in _DIRECTIONS:
+        if isinstance(self.effect, str) and self.effect in _DIRECTIONAL_EFFECTS and (
+            not isinstance(self.direction, str) or self.direction not in _DIRECTIONS
+        ):
             allowed = "/".join(_DIRECTIONS)
             problems.append(
                 f"direction 对 {self.effect} 必须是 {allowed}（实际 {self.direction!r}）"
             )
-        if not (isinstance(self.duration, (int, float)) and self.duration > 0):
+        if not (
+            isinstance(self.duration, (int, float))
+            and not isinstance(self.duration, bool)
+            and self.duration > 0
+        ):
             problems.append(f"duration 必须是正数秒（实际 {self.duration!r}）")
-        if not (isinstance(self.delay, (int, float)) and self.delay >= 0):
+        if not (
+            isinstance(self.delay, (int, float))
+            and not isinstance(self.delay, bool)
+            and self.delay >= 0
+        ):
             problems.append(f"delay 必须是非负数秒（实际 {self.delay!r}）")
         if problems:
             raise InvalidArgumentError("动画声明非法：" + "；".join(problems))
@@ -99,17 +112,17 @@ class TransitionSpec:
 
     def __post_init__(self) -> None:
         problems: list[str] = []
-        if not isinstance(self.slide, int) or self.slide < 1:
+        if not isinstance(self.slide, int) or isinstance(self.slide, bool) or self.slide < 1:
             problems.append(f"slide 必须是 ≥1 的整数（实际 {self.slide!r}）")
-        if self.kind not in {"fade", "wipe", "push", "cover"}:
+        if not isinstance(self.kind, str) or self.kind not in {"fade", "wipe", "push", "cover"}:
             problems.append(f"kind 必须是 fade/wipe/push/cover（实际 {self.kind!r}）")
-        if self.speed not in {"slow", "medium", "fast"}:
+        if not isinstance(self.speed, str) or self.speed not in {"slow", "medium", "fast"}:
             problems.append(f"speed 必须是 slow/medium/fast（实际 {self.speed!r}）")
         if problems:
             raise InvalidArgumentError("过渡声明非法：" + "；".join(problems))
 
 
-def _is_bbox_replacement(record: dict) -> bool:
+def _is_bbox_replacement(record: dict[str, Any]) -> bool:
     kind = record.get("kind")
     if kind in _BBOX_REPLACEMENT_KINDS:
         return True
@@ -117,7 +130,9 @@ def _is_bbox_replacement(record: dict) -> bool:
     return any(tok in cls for tok in _BBOX_REPLACEMENT_CLASS_TOKENS)
 
 
-def parse_declaration(raw: dict | None, record: dict | None) -> ParsedAnimation | None:
+def parse_declaration(
+    raw: dict[str, Any] | None, record: dict[str, Any] | None
+) -> ParsedAnimation | None:
     """把 measure 收集的原始 anim_decl 归一化为 ParsedAnimation（无 slide/target）。
 
     返回 None 表示「不产动画」（未命中/未知值/bbox 替换型），告警写进 raw['_warnings']。
@@ -130,7 +145,8 @@ def parse_declaration(raw: dict | None, record: dict | None) -> ParsedAnimation 
     warnings: list[str] = []
     if _is_bbox_replacement(record):
         warnings.append("bbox 替换型元素（asset/mermaid/drawio）不支持动画，已跳过")
-        return _none_with(raw, warnings)
+        _none_with(raw, warnings)
+        return None
 
     effect: str | None = None
     direction: str | None = None
@@ -150,21 +166,24 @@ def parse_declaration(raw: dict | None, record: dict | None) -> ParsedAnimation 
                 duration = float(dur)
             except (TypeError, ValueError):
                 warnings.append(f"data-ppt-dur={dur!r} 非法，忽略整条动画声明")
-                return _none_with(raw, warnings)
+                _none_with(raw, warnings)
+                return None
         dly = raw.get("delay")
         if dly is not None:
             try:
                 delay = float(dly)
             except (TypeError, ValueError):
                 warnings.append(f"data-ppt-delay={dly!r} 非法，忽略整条动画声明")
-                return _none_with(raw, warnings)
+                _none_with(raw, warnings)
+                return None
     else:  # 约定回退
         legacy = raw.get("dataAnim") or raw.get("dataAos")
         if legacy:
             mapped = _FALLBACK_MAP.get(str(legacy))
             if mapped is None:
                 warnings.append(f"未列入动画约定的值 {legacy!r}，跳过")
-                return _none_with(raw, warnings)
+                _none_with(raw, warnings)
+                return None
             effect, direction = mapped
         elif raw.get("fadeIn") or raw.get("animateIn"):
             effect, direction = "fade", None
@@ -173,22 +192,27 @@ def parse_declaration(raw: dict | None, record: dict | None) -> ParsedAnimation 
 
     if effect not in EFFECT_CATALOG:
         warnings.append(f"未知动画效果 {effect!r}，跳过")
-        return _none_with(raw, warnings)
+        _none_with(raw, warnings)
+        return None
     if effect in _DIRECTIONAL_EFFECTS:
         if direction is not None and direction not in _DIRECTIONS:
             warnings.append(f"direction {direction!r} 对 {effect} 非法，跳过")
-            return _none_with(raw, warnings)
+            _none_with(raw, warnings)
+            return None
     else:
         direction = _DEFAULT_DIRECTION
     if trigger not in _TRIGGERS:
         warnings.append(f"trigger {trigger!r} 非法，跳过")
-        return _none_with(raw, warnings)
+        _none_with(raw, warnings)
+        return None
     if duration <= 0:
         warnings.append(f"duration {duration} 必须为正，跳过")
-        return _none_with(raw, warnings)
+        _none_with(raw, warnings)
+        return None
     if delay < 0:
         warnings.append(f"delay {delay} 必须非负，跳过")
-        return _none_with(raw, warnings)
+        _none_with(raw, warnings)
+        return None
 
     return ParsedAnimation(
         effect=effect,
@@ -199,6 +223,12 @@ def parse_declaration(raw: dict | None, record: dict | None) -> ParsedAnimation 
     )
 
 
-def _none_with(raw: dict, warnings: list[str]) -> None:
-    raw["_warnings"] = (raw.get("_warnings") or []) + warnings
+def _none_with(raw: dict[str, Any], warnings: list[str]) -> None:
+    """把动画告警写成 dict 条目并落进 raw['_warnings']（对齐 deck._measure_warnings
+    消费的 {kind, message} 结构，kind='anim' 走 code_map 新增的 'anim' 码）。"""
+    existing = raw.get("_warnings")
+    if not isinstance(existing, list):
+        existing = []
+    existing.extend({"kind": "anim", "message": m} for m in warnings)
+    raw["_warnings"] = existing
     return

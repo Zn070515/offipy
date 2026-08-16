@@ -108,3 +108,37 @@ def test_animation_spec_invalid_slide_raises():
     # slide<1 触发 __post_init__ 校验
     with pytest.raises(InvalidArgumentError):
         AnimationSpec(slide=0, target="t", effect="fade")
+
+
+def test_parse_unknown_effect_writes_warning_dict():
+    # 告警落 raw['_warnings']，条目是 {kind, message} dict（deck._measure_warnings
+    # 按 kind 匹配 code_map，非 dict 条目会被跳过）
+    raw = {"anim": "wobble"}
+    assert parse_declaration(raw, {}) is None
+    assert raw["_warnings"] == [{"kind": "anim", "message": "未知动画效果 'wobble'，跳过"}]
+
+
+def test_animation_spec_bool_values_rejected():
+    # bool 是 int 子类，须显式排除（对齐 repo 既有校验纪律，如 ppt.py:1515）
+    with pytest.raises(InvalidArgumentError):
+        AnimationSpec(slide=True, target="t", effect="fade")
+    with pytest.raises(InvalidArgumentError):
+        AnimationSpec(slide=1, target="t", effect="fade", duration=True)
+    with pytest.raises(InvalidArgumentError):
+        AnimationSpec(slide=1, target="t", effect="fade", delay=True)
+    with pytest.raises(InvalidArgumentError):
+        TransitionSpec(slide=True, kind="push")
+
+
+def test_animation_spec_unhashable_effect_rejected():
+    # 类型错（非 str）应 InvalidArgumentError，而不是 set 成员判断抛 TypeError
+    with pytest.raises(InvalidArgumentError):
+        AnimationSpec(slide=1, target="t", effect=["fade"])
+    with pytest.raises(InvalidArgumentError):
+        TransitionSpec(slide=1, kind=["push"])
+
+
+def test_parse_fallback_data_anim_precedence():
+    # dataAnim 在场即优先，即使 dataAos 映射合法（未映射则整条跳过）
+    assert parse_declaration({"dataAnim": "flip", "dataAos": "fade"}, {}) is None
+    assert parse_declaration({"dataAnim": "fade", "dataAos": "zoom-in"}, {}).effect == "fade"

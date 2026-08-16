@@ -10,8 +10,8 @@ try:
 except ModuleNotFoundError as exc:  # pragma: no cover - apply.py 尚未创建
     if exc.name != "offipy.animations.apply":
         raise
-    apply_animations = None  # type: ignore[assignment]
-    apply_transitions = None  # type: ignore[assignment]
+    apply_animations = None
+    apply_transitions = None
 
 __all__ = [
     "EFFECT_CATALOG",
