@@ -72,7 +72,7 @@ def test_status_model_valid(tmp_path):
 
 
 def test_status_model_valid_missing_stats_keys(tmp_path):
-    """valid 模型 stats/预处理缺键或异常类型 → 兜底 None，不抛。"""
+    """valid 模型 stats 缺键/异常类型 → 兜底 None 不抛；kept 缺失 → #150 stale。"""
     _add(tmp_path, "fixed", 12, features=_discriminative("fixed"))
     _add(tmp_path, "accepted", 4, features=_discriminative("accepted"))
     run_training(tmp_path, min_pairs=0)
@@ -87,15 +87,23 @@ def test_status_model_valid_missing_stats_keys(tmp_path):
     assert s["effective_dims"] > 0
     assert s["samples_per_param"] is None
 
-    # kept 缺 → effective_dims None；capacity 非 dict（病理）→ samples_per_param None
+    # capacity 非 dict（病理，kept 仍在）→ samples_per_param None，仍 valid 不抛
     data = json.loads(path.read_text(encoding="utf-8"))
-    del data["preprocessing"]["kept"]
     data["stats"]["capacity"] = "not-a-dict"
     path.write_text(json.dumps(data), encoding="utf-8")
     s = report_status(tmp_path)
     assert s["model"] == "valid"
-    assert s["effective_dims"] is None
+    assert s["effective_dims"] > 0
     assert s["samples_per_param"] is None
+
+    # kept 缺失 → #150 stale（预处理不完整，不冒充 valid）
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["preprocessing"]["kept"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    s = report_status(tmp_path)
+    assert s["model"] == "stale"
+    assert "effective_dims" not in s
+    assert "samples_per_param" not in s
 
 
 def test_status_model_expired(tmp_path):
@@ -111,3 +119,41 @@ def test_status_model_expired(tmp_path):
     assert "effective_dims" not in s
     assert "samples_per_param" not in s
     assert "poor_generalization" not in s
+
+
+def test_status_model_stale_when_kept_oob(tmp_path):
+    """#150：kept 越界 → status 报 stale 而非 valid。"""
+    disc = {
+        "fixed": {"finding.severity_ordinal": 3.0, "finding.confidence": 1.0},
+        "accepted": {"finding.severity_ordinal": 1.0, "finding.confidence": 0.2},
+    }
+    for _ in range(12):
+        art_append(
+            "balanced",
+            "art.hierarchy.title_too_small",
+            "fixed",
+            Severity.MID,
+            feedback_dir=tmp_path,
+            features=disc["fixed"],
+            feature_schema_version=feature_schema_version(),
+        )
+    for _ in range(4):
+        art_append(
+            "balanced",
+            "art.hierarchy.title_too_small",
+            "accepted",
+            Severity.MID,
+            feedback_dir=tmp_path,
+            features=disc["accepted"],
+            feature_schema_version=feature_schema_version(),
+        )
+    run_training(tmp_path, min_pairs=0)
+    path = model_file(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["preprocessing"]["kept"][0] = (
+        9999  # 保长度改写（input_dim 与权重匹配），逼出 kept 越界 → stale
+    )
+    path.write_text(json.dumps(data), encoding="utf-8")
+    s = report_status(tmp_path)
+    assert s["model"] == "stale"
+    assert "effective_dims" not in s

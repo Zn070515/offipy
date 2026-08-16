@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from offipy.art.features_registry import feature_schema_version
+from offipy.art.features_registry import feature_keys, feature_schema_version
 from offipy.art.feedback import load_records
 
 from .model import load_model, model_file, model_valid
@@ -24,6 +24,16 @@ def report_status(feedback_dir: str | Path | None = None) -> dict[str, Any]:
     pairs = build_pairs(valid)
     data = load_model(model_file(dir_path))
     if data is not None and model_valid(data, feature_schema_version()):
+        # #150：schema 匹配但 kept 越界（bump 忘重训）→ stale，不冒充 valid。
+        kept = data.get("preprocessing", {}).get("kept")
+        kept_ok = isinstance(kept, list) and bool(kept) and max(kept) < len(feature_keys())
+        if not kept_ok:
+            return {
+                "samples": len(records),
+                "valid_samples": len(valid),
+                "pair_potential": len(pairs),
+                "model": "stale",
+            }
         pre = data.get("preprocessing", {})
         stats = data.get("stats", {})
         kept = pre.get("kept")
