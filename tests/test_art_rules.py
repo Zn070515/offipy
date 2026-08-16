@@ -1,5 +1,7 @@
 from dataclasses import replace
 
+import pytest
+
 from art_helpers import make_slide as _hs
 from art_helpers import make_text_element as _hte
 from offipy.art.color import RULES as COLOR_RULES
@@ -104,17 +106,19 @@ def test_assess_dimension_insufficient_evidence_low_coverage():
 
 
 def test_assess_dimension_keeps_well_covered_finding_when_aggregate_low():
-    # #155：一条规则高覆盖（含 finding）+ 一条低覆盖 → 高覆盖 finding 必须保留
+    # #155：高覆盖（含 finding）+ 低覆盖（也含 finding）→ 高覆盖保留、低覆盖丢弃
     slide = ArtSlide(index=1, width=1920, height=1080)
     f = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.MID, "m", 0.6, slide_index=1)
+    f2 = make_finding(RULE_TITLE_TOO_SMALL, "hierarchy", Severity.LOW, "m", 0.4, slide_index=1)
     specs = [
         _rule("art.hierarchy.no_focus", covered=1, eligible=1, findings=[f]),
-        _rule("art.typography.many_families", covered=1, eligible=10),
+        _rule("art.typography.many_families", covered=1, eligible=10, findings=[f2]),
     ]
     d = assess_dimension("hierarchy", specs, _ctx(slide))
     assert d.status == "assessed"  # 有 ≥1 条 assessable 规则
-    assert d.findings == [f]
+    assert d.findings == [f]  # f2 被门控丢弃
     assert any(w.code == "art.rule.insufficient_coverage" for w in d.warnings)
+    assert d.evidence_coverage == pytest.approx(2 / 11, rel=1e-3)  # applicable 聚合
 
 
 def test_assess_dimension_gated_finding_dropped_when_rule_under_covered():
@@ -124,6 +128,18 @@ def test_assess_dimension_gated_finding_dropped_when_rule_under_covered():
     d = assess_dimension("hierarchy", specs, _ctx(slide))
     assert d.status == "insufficient_evidence"
     assert d.findings == []
+
+
+def test_assess_dimension_gated_rule_no_findings_no_warning():
+    # #155：被门控但无 finding 的规则不产生 insufficient_coverage warning（避免噪音）
+    slide = ArtSlide(index=1, width=1920, height=1080)
+    specs = [
+        _rule("art.hierarchy.no_focus", covered=1, eligible=1),
+        _rule("art.typography.many_families", covered=0, eligible=1),
+    ]
+    d = assess_dimension("hierarchy", specs, _ctx(slide))
+    assert d.status == "assessed"
+    assert not any(w.code == "art.rule.insufficient_coverage" for w in d.warnings)
 
 
 def test_assess_dimension_respects_disabled_rules():

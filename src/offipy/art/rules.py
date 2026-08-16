@@ -1,9 +1,10 @@
 """规则框架：RuleSpec / RuleContext / RuleEvaluation / 三分离维度聚合。
 
-rev2.1：
+rev3（#155）：
 - RuleSpec 显式绑定 rule_id + dimension + run，替代动态函数属性；
 - 规则函数返回 RuleEvaluation(findings, covered_count, eligible_count, warnings)；
-- assess_dimension：先 active 规则 → not_applicable；再 coverage → insufficient_evidence；
+- assess_dimension：先 active 规则 → not_applicable；再逐规则 coverage 门控（assessable）
+  保留其 finding，被门控且确有 finding 的规则发 insufficient_coverage warning；
 - grade 只由 quality_penalty 决定；confidence = coverage × applicability × reliability。
 """
 
@@ -231,12 +232,13 @@ def assess_dimension(
                     for f in ev.findings
                 )
             else:
-                warnings.append(
-                    ArtWarning(
-                        code="art.rule.insufficient_coverage",
-                        message=f"规则 {rs.rule_id} 证据不足，其 finding 已丢弃",
+                if ev.findings:
+                    warnings.append(
+                        ArtWarning(
+                            code="art.rule.insufficient_coverage",
+                            message=f"规则 {rs.rule_id} 证据不足，其 finding 已丢弃",
+                        )
                     )
-                )
     coverage = (applicable_covered / applicable_eligible) if applicable_eligible else 0.0
     if assessable == 0:
         # 无任何规则达到覆盖门槛 → 不误报：丢弃全部 finding，保留 coverage 状态与 warnings
