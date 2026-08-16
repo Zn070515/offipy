@@ -102,8 +102,13 @@ _ANIM_DECLARATION_MARKERS = (
     ("data-ppt-transition", "过渡(data-ppt-transition)"),
     ("data-aos=", "动画(约定 data-aos)"),
     ("data-anim=", "动画(约定 data-anim)"),
-    ("fade-in", "动画(约定 .fade-in)"),
-    ("animate-in", "动画(约定 .animate-in)"),
+)
+
+# 类 token 按词边界匹配（对齐 measure.py 的 /\bfade-in\b/、/\banimate-in\b/），
+# 避免 animate-infinite 之类工具类被裸子串误判成动画声明。
+_ANIM_CLASS_TOKENS = (
+    (r"\bfade-in\b", "动画(约定 .fade-in)"),
+    (r"\banimate-in\b", "动画(约定 .animate-in)"),
 )
 
 
@@ -114,10 +119,10 @@ def _reject_no_visual_audit_declarations(content: str, include_animations: bool 
     measurements.json；no_visual_audit 不产出 → 命中即报错。默认 animations=False
     时动画 marker 惰性（不拒绝、不注入，行为与今日一致）。
     """
-    markers = list(_NOVA_DECLARATION_MARKERS)
+    found = [label for marker, label in _NOVA_DECLARATION_MARKERS if marker in content]
     if include_animations:
-        markers += _ANIM_DECLARATION_MARKERS
-    found = [label for marker, label in markers if marker in content]
+        found += [label for marker, label in _ANIM_DECLARATION_MARKERS if marker in content]
+        found += [label for token, label in _ANIM_CLASS_TOKENS if re.search(token, content)]
     if found:
         raise InvalidArgumentError(
             "no_visual_audit=True 但 HTML 声明了"
