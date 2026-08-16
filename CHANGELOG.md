@@ -3,7 +3,14 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 SemVer
 （正式首发前版本首位恒为 0，破坏性变更只升 MINOR）。
 
-## [Unreleased]
+## [0.20.0] - 2026-08-17
+
+### Added
+
+- **PPTX 动画效果（v0.20）**：HTML 声明 `data-ppt-anim`/`data-ppt-transition` + 约定回退
+  （`data-aos`/`data-anim`/`.fade-in`）→ 入场动画（fade/float_up/fly_in/wipe/zoom_in/grow）
+  与页面过渡（fade/wipe/push/cover）。`deck make --animations` 开启；独立 API
+  `apply_animations`/`apply_transitions` 对现成 .pptx 注入；`deck add-anim --pptx X --spec spec.json` CLI。
 
 ### Build
 
@@ -12,15 +19,6 @@
 - CI：release.yml 发布链接入 setup-uv 依赖缓存
 - Docs：新增 `docs-deploy.yml` 发布 mkdocs 站点到 GitHub Pages（官方
   configure-pages / upload-pages-artifact / deploy-pages 三件套），mkdocs.yml 补 `site_url`
-
-## [0.20.0] - 2026-08-16
-
-### Added
-
-- **PPTX 动画效果（v0.20）**：HTML 声明 `data-ppt-anim`/`data-ppt-transition` + 约定回退
-  （`data-aos`/`data-anim`/`.fade-in`）→ 入场动画（fade/float_up/fly_in/wipe/zoom_in/grow）
-  与页面过渡（fade/wipe/push/cover）。`deck make --animations` 开启；独立 API
-  `apply_animations`/`apply_transitions` 对现成 .pptx 注入；`deck add-anim --pptx X --spec spec.json` CLI。
 
 ## [0.19.0] - 2026-08-16
 
