@@ -506,14 +506,33 @@ def test_deck_audit_surfaces_rule_delta(monkeypatch, capsys):
     from offipy import cli
 
     rep = _report()
-    rep.art.feedback_adjustments = {"art.composition.corner_cluster": 1}
+    rep.art.feedback_adjustments = {
+        "art.composition.corner_cluster": 1,
+        "art.hierarchy.title_too_small": -1,
+    }
     monkeypatch.setattr("offipy.art.analyze.analyze_deck", lambda **kw: rep)
 
     cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d", "--json"])
     data = json.loads(capsys.readouterr().out)
-    assert data["feedback_adjustments"] == {"art.composition.corner_cluster": 1}
+    assert data["feedback_adjustments"] == {
+        "art.composition.corner_cluster": 1,
+        "art.hierarchy.title_too_small": -1,
+    }
+    # JSON 载荷 9 键契约：deck audit 的结构化输出键固定
+    assert {
+        "source",
+        "profile",
+        "experimental_score",
+        "experimental_score_mode",
+        "quality_score_coverage",
+        "feedback_adjustments",
+        "adjusted_findings",
+        "warnings",
+        "suggestions",
+    } <= data.keys()
 
     cli.main(["deck", "audit", "--pptx", "x.pptx", "--feedback-dir", "d"])
     out = capsys.readouterr().out
     assert "模型调整 (rule.delta)" in out
     assert "art.composition.corner_cluster: +1" in out
+    assert "art.hierarchy.title_too_small: -1" in out
