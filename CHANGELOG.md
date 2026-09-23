@@ -22,6 +22,8 @@
 
 ### Build
 
+- **CF-3 frozen build**：新增 PyInstaller Windows x64 onefile 构建链，产出 `Offipy.exe`、
+  `Offipy.MCP.exe`、`Offipy.Server.exe`、`Offipy.Converter.exe`；构建产物不依赖消费者单独安装 Python。
 - **运行时命令抽象**：client / deck 统一通过 `offipy.runtime` 定位 server、converter、用户数据目录和可选的内置 Chromium；源码环境行为保持不变，冻结构建可使用 `Offipy.Server.exe` / `Offipy.Converter.exe` helper。
 - CI：ci.yml 全 job 接入 setup-uv 依赖缓存 + 新增 `workflow-lint` job（actionlint 校验全部
   workflow 语法，防 YAML 结构错 0-jobs 秒挂无日志复发）
