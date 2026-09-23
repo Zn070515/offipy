@@ -37,6 +37,14 @@ offipy 通过本地 HTTP server（默认 `127.0.0.1:8890`）驱动真实 Office�
 `OFFIPY_SERVER_TOKEN` 优先，否则 `user_data_dir()/token` 持久文件。校验失败仅 401，
 **不杀 server**（token 失配是配置问题，不是进程问题）。
 
+## 监听地址安全边界
+
+默认 server 只允许绑定精确的 `127.0.0.1` 或 `::1`。空 host 在
+`socketserver` 中代表 `INADDR_ANY`（所有网卡），`localhost` 也可能由 hosts/DNS
+解析到非回环地址，因此两者都不会作为默认回环地址接受。`allow_remote=True` /
+`--unsafe-allow-remote` 仅保留给显式测试或受信内网兼容场景；远程监听没有 TLS，
+token 和文档内容可能被嗅探，不应在生产环境启用。
+
 ## /call 请求
 
 ```json

@@ -57,7 +57,40 @@ uvx twine check dist/*
 
 ---
 
-## 2. 预发布到 TestPyPI（0.9.0a*）
+## 2. Windows Frozen Build（CF-3）
+
+商业安装包的第一阶段冻结构建使用 PyInstaller，把 Python runtime 一并打进 four 个
+Windows x64 onefile helper；消费者运行这些 exe 不需要另外安装 Python：
+
+```bash
+uv sync --extra dev --extra frozen
+uv run python scripts/build_frozen.py --output-dir build/frozen
+```
+
+预期产物：
+
+```text
+build/frozen/Offipy.exe
+build/frozen/Offipy.MCP.exe
+build/frozen/Offipy.Server.exe
+build/frozen/Offipy.Converter.exe
+```
+
+构建后先做无 Office 的入口冒烟：
+
+```powershell
+build\frozen\Offipy.exe --help
+build\frozen\Offipy.Server.exe --help
+build\frozen\Offipy.Converter.exe --help
+```
+
+`Offipy.MCP.exe` 是 stdio 进程，不使用 `--help`；由 Claude Desktop 直接以该路径启动。
+主程序的 `server status|restart|stop` 会通过 sibling `Offipy.Server.exe` 工作。CF-3 只证明
+无 Python 的 executable 链路；Chromium 随安装包部署属于后续 CF-4，不应在此阶段宣称已包含。
+
+---
+
+## 3. 预发布到 TestPyPI（0.9.0a*）
 
 预发布版本只上 TestPyPI，不上 PyPI 正式版。CI 里 `publish-testpypi` job 自动做；
 手动兜底：
@@ -78,7 +111,7 @@ uv run python scripts/pypi_smoke.py --index https://test.pypi.org --version 0.9.
 
 ---
 
-## 3. 正式版发布（MAJOR.MINOR.PATCH）
+## 4. 正式版发布（MAJOR.MINOR.PATCH）
 
 正式版才推 PyPI 正式版（CI `publish-pypi` 对非预发布 tag 自动触发）。**硬门禁：**
 
@@ -94,7 +127,7 @@ Release 不先于发布门禁——GitHub Release 与 PyPI 正式版都等 TestP
 
 ---
 
-## 4. 发布后检查清单
+## 5. 发布后检查清单
 
 - [ ] `offipy check` 全分组 ✓（`uv run offipy check`）
 - [ ] `uv run python -c "import offipy; print(offipy.__version__)"` 与 tag 一致

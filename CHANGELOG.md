@@ -5,6 +5,14 @@
 
 ## [0.20.0] - 2026-08-17
 
+### Fixed
+
+- **server 幂等超时安全**：HTTP waiter 超时不再释放已入 worker 的 inflight
+  `request_id`，也不再按时间接管 stale entry；同 ID 重试持续合并等待或回放，避免慢的
+  破坏性 Office 操作重复执行。
+- **server 默认监听边界**：默认仅接受精确 `127.0.0.1` / `::1`；空 host（`INADDR_ANY`）
+  与 `localhost` 不再伪装成回环地址。
+
 ### Added
 
 - **PPTX 动画效果（v0.20）**：HTML 声明 `data-ppt-anim`/`data-ppt-transition` + 约定回退
@@ -14,6 +22,9 @@
 
 ### Build
 
+- **CF-3 frozen build**：新增 PyInstaller Windows x64 onefile 构建链，产出 `Offipy.exe`、
+  `Offipy.MCP.exe`、`Offipy.Server.exe`、`Offipy.Converter.exe`；构建产物不依赖消费者单独安装 Python。
+- **运行时命令抽象**：client / deck 统一通过 `offipy.runtime` 定位 server、converter、用户数据目录和可选的内置 Chromium；源码环境行为保持不变，冻结构建可使用 `Offipy.Server.exe` / `Offipy.Converter.exe` helper。
 - CI：ci.yml 全 job 接入 setup-uv 依赖缓存 + 新增 `workflow-lint` job（actionlint 校验全部
   workflow 语法，防 YAML 结构错 0-jobs 秒挂无日志复发）
 - CI：release.yml 发布链接入 setup-uv 依赖缓存

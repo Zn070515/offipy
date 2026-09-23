@@ -61,7 +61,41 @@ Office machine: Windows + real-machine Office COM + deck_render); locally you ca
 
 ---
 
-## 2. Pre-release to TestPyPI (0.9.0a*)
+## 2. Windows Frozen Build (CF-3)
+
+The first commercial freeze stage uses PyInstaller to bundle the Python runtime into four
+Windows x64 onefile helpers. Consumers do not need a separate Python installation:
+
+```bash
+uv sync --extra dev --extra frozen
+uv run python scripts/build_frozen.py --output-dir build/frozen
+```
+
+Expected artifacts:
+
+```text
+build/frozen/Offipy.exe
+build/frozen/Offipy.MCP.exe
+build/frozen/Offipy.Server.exe
+build/frozen/Offipy.Converter.exe
+```
+
+Run the no-Office entrypoint smoke checks after building:
+
+```powershell
+build\frozen\Offipy.exe --help
+build\frozen\Offipy.Server.exe --help
+build\frozen\Offipy.Converter.exe --help
+```
+
+`Offipy.MCP.exe` is a stdio process and does not use `--help`; Claude Desktop launches it by
+absolute path. The main executable uses sibling `Offipy.Server.exe` for `server status|restart|stop`.
+CF-3 proves the no-Python executable chain only; bundling Chromium belongs to CF-4 and must not be
+claimed at this stage.
+
+---
+
+## 3. Pre-release to TestPyPI (0.9.0a*)
 
 Pre-release versions go only to TestPyPI, not to the PyPI stable release. The `publish-testpypi`
 job does this automatically in CI; the manual fallback is:
@@ -83,7 +117,7 @@ concern; the script only proves the package itself can be installed and run.
 
 ---
 
-## 3. Stable Release (MAJOR.MINOR.PATCH)
+## 4. Stable Release (MAJOR.MINOR.PATCH)
 
 Only stable releases go to the PyPI stable index (the CI `publish-pypi` job triggers automatically
 for non-pre-release tags). **Hard gates:**
@@ -103,7 +137,7 @@ Manual fallback (when there is no OIDC): use the commands from Section 2 but rep
 
 ---
 
-## 4. Post-Release Checklist
+## 5. Post-Release Checklist
 
 - [ ] `offipy check` all groups ✓ (`uv run offipy check`)
 - [ ] `uv run python -c "import offipy; print(offipy.__version__)"` matches the tag
