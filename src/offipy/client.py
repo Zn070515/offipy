@@ -25,7 +25,8 @@ from .exceptions import (
     TargetNotFoundError,
     UnsupportedPlatformError,
 )
-from .paths import user_data_dir
+from .runtime import data_root as user_data_dir
+from .runtime import server_command
 
 # error_code（server 失败响应携带）→ 领域异常：RPC 错误与库异常一一对应（P1-4）
 _ERROR_CODE_TO_EXC = {
@@ -50,7 +51,6 @@ _CALL_TIMEOUT = 600
 # PID 归属时间窗口（P1-3）：pid 文件 started_at 与进程真实创建时间偏差超过
 # 此值即视为 PID 已被复用（旧文件 + 新进程），拒认归属、不杀错目标。
 _START_WINDOW = 60.0
-SERVER_MOD = "offipy.server"
 _TOKEN_FILENAME = "token"
 # 部分机器会把系统代理写进注册表且 ProxyOverride 为空，连 127.0.0.1 回环请求
 # 也会被劫持给代理（返回 502）。本地回环必须强制直连；真正出站的请求才该走代理。
@@ -403,7 +403,7 @@ def ensure_server() -> None:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with pathlib.Path(logpath).open("a", encoding="utf-8") as logfile:
         subprocess.Popen(
-            [sys.executable, "-m", SERVER_MOD, "--port", str(port())],
+            server_command(port()),
             stdout=logfile,
             stderr=logfile,
             creationflags=creationflags,

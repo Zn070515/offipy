@@ -18,7 +18,6 @@ import re
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -34,6 +33,7 @@ from .design import inject_theme
 from .exceptions import ConversionError, FileConflictError, InvalidArgumentError
 from .layouts import chart_dominant_slide_indices, inject_layouts
 from .paths import converter_data_dir
+from .runtime import converter_command, converter_script
 
 if TYPE_CHECKING:
     # 注解用到的 art 类型（惰性：运行时已被 from __future__ import annotations
@@ -42,9 +42,9 @@ if TYPE_CHECKING:
 
     from .art.models import ArtReport, ArtWarning, DeckQualityReport
 
-# vendored 转换器位于包内 _vendor/，site-packages 下经 __file__ 自定位
-_CONVERT_DIR = Path(__file__).resolve().parent / "_vendor" / "html_to_editable_pptx"
-CONVERT_PY = _CONVERT_DIR / "convert.py"
+# vendored 转换器位于包内 _vendor/；路径由 runtime 统一解析，兼容冻结构建。
+CONVERT_PY = converter_script()
+_CONVERT_DIR = CONVERT_PY.parent
 
 
 def _preflight_chart_layout(
@@ -248,7 +248,7 @@ def _prepare_target(
 def _convert_cmd(
     html: str, out: str | None, only_slides: list[int] | None, no_visual_audit: bool
 ) -> list[str]:
-    cmd = [sys.executable, str(CONVERT_PY), str(html)]
+    cmd = converter_command(html)
     if out:
         cmd += ["--out", str(out)]
     if only_slides:
