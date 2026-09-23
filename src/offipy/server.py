@@ -105,7 +105,6 @@ class _IdempotencyEntry:
     result: dict[str, Any] | None = None
     expiry: float = 0.0  # done 后 = 完成时刻 + TTL；inflight 恒 0（不参与过期）
     event: threading.Event = field(default_factory=threading.Event)
-    started_at: float = field(default_factory=time.monotonic)  # 创建时刻（inflight 陈旧判定）
 
 
 # request_id 幂等缓存（方案 A）：request_id → entry。线程锁保护——_claim 是
@@ -492,7 +491,8 @@ def _claim(request_id: str, payload_hash: str) -> tuple[_IdempotencyEntry, bool]
     - 有 entry 且 hash 匹配：
       - done 未过期 → 复用缓存（直接回放，不执行）。
       - done 已过期 → 移除重建，调用方为 owner。
-      - inflight → 合并（等待 owner 完成，不重复入队）。
+      - inflight → 合并（等待 owner 完成，不重复入队）；无论等待多久都不接管，
+        因为 worker 可能仍在执行破坏性操作。
     - hash 不匹配 → InvalidArgumentError（同 id 不同 payload 是调用方 bug）。
     """
     now = time.monotonic()
@@ -504,13 +504,6 @@ def _claim(request_id: str, payload_hash: str) -> tuple[_IdempotencyEntry, bool]
                     f"request_id {request_id!r} 已用于不同 payload；请改用新 request_id"
                 )
             if entry.state == "done" and now > entry.expiry:
-                _REQUEST_ID_CACHE.pop(request_id, None)
-                entry = None
-            elif entry.state == "inflight" and now - entry.started_at > _CALL_TIMEOUT:
-                # D3：owner 失联（连接中断/线程被杀）未释放 → 陈旧 inflight 可被接管，
-                # 重建为新的 owner 重新执行。不接管 → 该 request_id 永久 inflight，
-                # 同 id 重试永远 merge-wait → 504 死循环。正常 owner 会在 wait
-                # 超时后主动 _release_inflight，故此处只兜底「owner 没机会释放」的场景。
                 _REQUEST_ID_CACHE.pop(request_id, None)
                 entry = None
             else:
@@ -537,19 +530,6 @@ def _complete_entry(entry: _IdempotencyEntry, payload: dict[str, Any]) -> None:
         entry.state = "done"
         entry.expiry = time.monotonic() + _REQUEST_ID_TTL
         entry.event.set()
-
-
-def _release_inflight(request_id: str, entry: _IdempotencyEntry) -> None:
-    """owner 超时后释放 inflight entry（移出缓存），让同 id 重试重建为新的 owner。
-
-    权衡：释放可避免 request_id 永久 inflight（worker 卡死时同 id 重试永远
-    merge-wait → 504 死循环）；代价是慢 op 超时后重试可能重复执行一次。
-    仅当缓存仍指向同一 entry 且仍为 inflight 时才移除——entry 已被新 claim
-    接管、或 worker 恰好已将其置 done 时，不误伤缓存结果。
-    """
-    with _REQUEST_LOCK:
-        if _REQUEST_ID_CACHE.get(request_id) is entry and entry.state == "inflight":
-            _REQUEST_ID_CACHE.pop(request_id, None)
 
 
 def _evict_lru() -> None:
@@ -944,10 +924,9 @@ class Handler(BaseHTTPRequestHandler):
             _complete_entry(entry, busy)
             return self._reply(dict(busy), status=503)
         if not entry.event.wait(_CALL_TIMEOUT):
-            # D3：超时释放 inflight entry（移出缓存），同 id 重试重建为新的 owner
-            # 重新执行。不释放 → worker 卡死时该 request_id 永久 inflight，重试
-            # 永远 merge-wait → 504 死循环。代价：慢 op 超时后重试可能重复执行。
-            _release_inflight(request_id, entry)
+            # worker 已经获得执行权，不能因为 HTTP waiter 超时就释放 entry：
+            # worker 可能仍在执行破坏性操作，同 request_id 重试必须继续合并等待，
+            # 绝不能重新入队造成双写。若 worker 真卡死，调用方应重启 server。
             return self._reply(
                 {
                     "ok": False,
@@ -1028,11 +1007,16 @@ class Server(ThreadingHTTPServer):
                 request.close()
 
 
-_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
 
 def _validate_host(host: str, allow_remote: bool) -> None:
-    """拒绝绑定非回环地址：token 挡不了端口扫描，回环是默认安全边界。"""
+    """拒绝默认绑定非精确回环地址：token 挡不了端口扫描。
+
+    空 host 在 socketserver 中代表 INADDR_ANY，localhost 也可能由 hosts/DNS
+    解析到非回环地址；两者都不能作为默认安全边界。远程监听仅保留显式
+    ``allow_remote=True`` 的兼容/测试路径。
+    """
     if not allow_remote and host not in _LOOPBACK_HOSTS:
         raise ServerStartError(
             f"拒绝绑定非回环地址 {host!r}；如需远程访问请显式传 allow_remote=True"
@@ -1044,9 +1028,9 @@ def _warn_if_remote(host: str) -> None:
 
     offipy 无 TLS：token 以 Authorization: Bearer 明文走网络，文档内容也可能
     被嗅探。host="" 在 socketserver 语义下绑定所有接口（INADDR_ANY），即使
-    _validate_host 把空串当回环放行，实际也能被远程连上——同样警告。
+    默认校验会先拒绝空 host；显式远程绑定同样发出警告。
     """
-    if host not in {"127.0.0.1", "localhost", "::1"}:
+    if host not in _LOOPBACK_HOSTS:
         print(
             f"[警告] 绑定 {host!r} 可能接收远程连接：offipy 走明文 HTTP（无 TLS），"
             "token 与文档内容可能被网络嗅探；仅限受信内网/测试，勿暴露公网。",

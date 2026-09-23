@@ -253,14 +253,17 @@ def test_validate_host_rejects_non_loopback():
         server._validate_host("192.168.1.5", allow_remote=False)
 
 
-def test_validate_host_allows_loopback_and_explicit_remote():
-    for host in ("127.0.0.1", "localhost", "::1", ""):
+def test_validate_host_allows_exact_loopback_and_explicit_remote():
+    for host in ("127.0.0.1", "::1"):
         server._validate_host(host, allow_remote=False)  # 不抛
+    for host in ("localhost", ""):
+        with pytest.raises(server.ServerStartError):
+            server._validate_host(host, allow_remote=False)
     server._validate_host("0.0.0.0", allow_remote=True)  # 显式放行不抛
 
 
 def test_warn_if_remote_prints_plaintext_warning(capsys):
-    # D6：非回环绑定打印明文传输警告；"" 绑定所有接口同样警告；回环不警告
+    # D6：非回环绑定打印明文传输警告；"" 绑定所有接口同样警告；精确回环不警告
     server._warn_if_remote("0.0.0.0")
     out = capsys.readouterr().out
     assert "明文" in out and "TLS" in out and "0.0.0.0" in out
@@ -268,6 +271,7 @@ def test_warn_if_remote_prints_plaintext_warning(capsys):
     assert "明文" in capsys.readouterr().out  # "" = INADDR_ANY，同样警告
     server._warn_if_remote("127.0.0.1")
     server._warn_if_remote("localhost")
+    assert "明文" in capsys.readouterr().out
     server._warn_if_remote("::1")
     assert capsys.readouterr().out == ""  # 回环不警告
 
