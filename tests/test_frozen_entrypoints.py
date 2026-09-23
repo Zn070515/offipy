@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from offipy import frozen_cli, frozen_converter, frozen_mcp, frozen_server
 
 
@@ -43,4 +41,3 @@ def test_frozen_converter_runs_vendored_script(monkeypatch, tmp_path):
     assert frozen_converter.main() is None
     assert calls == [(str(script), "__main__")]
     assert str(converter_dir) in frozen_converter.sys.path
-

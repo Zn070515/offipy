@@ -13,6 +13,8 @@ from pathlib import Path
 
 SERVER_MODULE = "offipy.server"
 SERVER_EXECUTABLE = "Offipy.Server.exe"
+MCP_MODULE = "offipy.mcp_server"
+MCP_EXECUTABLE = "Offipy.MCP.exe"
 CONVERTER_EXECUTABLE = "Offipy.Converter.exe"
 _CONVERTER_RELATIVE_PATH = Path("_vendor") / "html_to_editable_pptx" / "convert.py"
 _CHROMIUM_DIRECTORY = "chromium"
@@ -54,6 +56,14 @@ def server_command(port: int) -> list[str]:
     if is_packaged():
         return [str(resource_root() / SERVER_EXECUTABLE), "--port", str(port)]
     return [sys.executable, "-m", SERVER_MODULE, "--port", str(port)]
+
+
+def mcp_command() -> list[str]:
+    """Build the command used to start the MCP stdio server."""
+
+    if is_packaged():
+        return [str(resource_root() / MCP_EXECUTABLE)]
+    return [sys.executable, "-m", MCP_MODULE]
 
 
 def converter_command(html: str | Path) -> list[str]:

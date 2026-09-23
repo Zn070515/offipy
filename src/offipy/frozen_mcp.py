@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import mcp_server
+from offipy import mcp_server
 
 
 def main() -> None:
@@ -13,4 +13,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import server
+from offipy import server
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -13,4 +13,3 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-
