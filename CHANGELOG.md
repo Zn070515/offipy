@@ -5,6 +5,14 @@
 
 ## [0.20.0] - 2026-08-17
 
+### Fixed
+
+- **server 幂等超时安全**：HTTP waiter 超时不再释放已入 worker 的 inflight
+  `request_id`，也不再按时间接管 stale entry；同 ID 重试持续合并等待或回放，避免慢的
+  破坏性 Office 操作重复执行。
+- **server 默认监听边界**：默认仅接受精确 `127.0.0.1` / `::1`；空 host（`INADDR_ANY`）
+  与 `localhost` 不再伪装成回环地址。
+
 ### Added
 
 - **PPTX 动画效果（v0.20）**：HTML 声明 `data-ppt-anim`/`data-ppt-transition` + 约定回退

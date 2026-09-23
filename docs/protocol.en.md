@@ -27,6 +27,16 @@ All other paths return 404.
 
 All protected endpoints require `Authorization: Bearer <token>`. Token sources: the `OFFIPY_SERVER_TOKEN` environment variable takes precedence; otherwise a persistent `user_data_dir()/token` file is used. A validation failure yields only 401 and does **not kill the server** (a token mismatch is a configuration problem, not a process problem).
 
+## Listener Security Boundary
+
+By default the server accepts only the exact loopback addresses `127.0.0.1` and
+`::1`. An empty host means `INADDR_ANY` (all interfaces) in `socketserver`, and
+`localhost` may resolve to a non-loopback address through hosts/DNS, so neither is
+accepted as a default loopback binding. `allow_remote=True` / `--unsafe-allow-remote`
+is retained only for explicit test or trusted-LAN compatibility scenarios; remote
+listening has no TLS, so the token and document contents may be sniffed and it must
+not be enabled in production.
+
 ## /call Request
 
 ```json
