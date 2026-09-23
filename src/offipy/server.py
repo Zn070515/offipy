@@ -721,6 +721,30 @@ class Handler(BaseHTTPRequestHandler):
     # _MAX_CONCURRENCY 槽位，拖垮 /call。
     timeout = _SOCKET_TIMEOUT
 
+    def _drain_rejected_body(self) -> None:
+        """在拒绝请求前排空小请求体，避免 Windows TCP 复位客户端。
+
+        未鉴权的 POST 仍可能已经把 body 写入 socket。若服务端直接回包并
+        关闭连接，Windows 在接收缓冲尚未消费时可能发送 RST，客户端会把
+        401 变成 ``ConnectionAbortedError``。只排空有界的小 body；超出上限
+        的请求直接关闭，避免攻击者用超大或不完整 body 占住 handler。
+        """
+        try:
+            content_length = int(self.headers.get("Content-Length", 0) or 0)
+        except (TypeError, ValueError):
+            return
+        if content_length <= 0 or content_length > _DRAIN_CAP:
+            return
+        previous_timeout = self.connection.gettimeout()
+        try:
+            self.connection.settimeout(0.2)
+            self.rfile.read(content_length)
+        except (OSError, TimeoutError):
+            pass
+        finally:
+            with contextlib.suppress(OSError):
+                self.connection.settimeout(previous_timeout)
+
     def do_GET(self) -> None:
         if self.path == "/ping":
             # 健康检查免鉴权：不暴露任何数据，供 client 探测存活
@@ -751,6 +775,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         if not _check_auth(self):
+            self.close_connection = True
+            self._drain_rejected_body()
             return self._reply({"ok": False, "error": "unauthorized"}, status=401)
         if self.path in ("/call", "/shutdown") and (
             (self.headers.get("X-Offipy-Protocol") or "") != _PROTOCOL
