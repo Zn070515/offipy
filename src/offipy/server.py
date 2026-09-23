@@ -1116,7 +1116,9 @@ def serve(
         _close_mutex(mutex_handle)
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> None:
+    """Parse server options and run the resident HTTP server."""
+
     import argparse
 
     ap = argparse.ArgumentParser()
@@ -1127,5 +1129,9 @@ if __name__ == "__main__":
         action="store_true",
         help="显式允许绑定非回环地址（有安全风险，仅测试/内网用）",
     )
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     serve(a.port, a.host, allow_remote=a.unsafe_allow_remote)
+
+
+if __name__ == "__main__":
+    main()
