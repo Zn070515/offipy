@@ -8,7 +8,7 @@ Train the feedback learning system offline: read ~/.offipy/art_feedback.jsonl â†
 
 - **Parameters**: `feedback_dir: str`, `seed: int`
 - **Returns**: `dict`
-- **Flags**: normal operation
+- **Flags**: Experimental (hidden from MCP by default)
 
 ---
 
@@ -18,7 +18,7 @@ Feedback learning status: sample count, pairing potential, current model state (
 
 - **Parameters**: `feedback_dir: str`
 - **Returns**: `dict`
-- **Flags**: read-only
+- **Flags**: read-only, Experimental (hidden from MCP by default)
 
 ---
 
@@ -28,7 +28,7 @@ Append one feedback label: how a user disposed of a finding for a rule (fixed = 
 
 - **Parameters**: `profile: str`, `rule_id: str`, `action: str`, `severity: str`, `slide_index: int`, `message: str`, `source: str`, `feedback_dir: str`, `ts: str`, `features: any`, `feature_schema_version: str`
 - **Returns**: `dict`
-- **Flags**: normal operation
+- **Flags**: Experimental (hidden from MCP by default)
 
 ---
 
@@ -38,7 +38,7 @@ Read-only recommendations: run art analysis + learned inference on a .pptx and r
 
 - **Parameters**: `pptx: str`, `feedback_dir: str`, `profile: str`, `json: bool`
 - **Returns**: `dict`
-- **Flags**: read-only
+- **Flags**: read-only, Experimental (hidden from MCP by default)
 
 ---
 
@@ -48,7 +48,7 @@ Persist learned rule.delta to the profile store (default ~/.offipy/art_profiles.
 
 - **Parameters**: `profile: str`, `feedback_dir: str`
 - **Returns**: `dict`
-- **Flags**: normal operation
+- **Flags**: Experimental (hidden from MCP by default)
 
 ---
 
@@ -58,4 +58,4 @@ Rewrite schema-expired historical feedback records that carry a feature snapshot
 
 - **Parameters**: `feedback_dir: str`
 - **Returns**: `dict`
-- **Flags**: normal operation
+- **Flags**: Experimental (hidden from MCP by default)

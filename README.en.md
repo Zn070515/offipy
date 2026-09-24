@@ -75,7 +75,7 @@ tool contract or support promise.
 
 ```bash
 py -m pip install "offipy[all]"       # everything (office COM + deck pipeline + MCP)
-py -m playwright install chromium     # the converter needs chromium for DOM measurement
+py -m playwright install chromium     # OSS/developer install only; commercial installer bundles Chromium
 offipy check --profile all            # one-shot environment readiness check (Python/deps/Office/browser/server)
 ```
 
@@ -86,7 +86,8 @@ The core `import offipy` has zero extra dependencies; install extras incremental
 - `offipy[mcp]`: MCP server (`offipy mcp`, for Claude Desktop and similar)
 - `offipy[all]`: all of the above
 
-The converter itself is vendored into the wheel, so it works right after install; the deck pipeline additionally needs `playwright install chromium`.
+The converter itself is vendored into the wheel, so it works right after install. OSS/developer deck
+installs additionally need `playwright install chromium`; the commercial installer bundles a verified Chromium runtime.
 
 ## Session semantics (read me)
 
@@ -377,6 +378,9 @@ print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insu
 with windows visible in real time; read ops act on the user's currently active document, and destructive tool
 arguments include `expected_target` / `follow_active` (see "Session semantics" above).
 
+MCP registers Formal / Advanced tools by default; Experimental feedback tools are hidden. Developers who
+need to try them must set `OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1` before starting the process.
+
 Add it to Claude Desktop's `claude_desktop_config.json`. The `offipy` command must be on PATH (pip install adds it automatically); if you use a dedicated venv, point `command` at that venv's `offipy.exe` absolute path (e.g. `<venv>\\Scripts\\offipy.exe`):
 
 ```json
@@ -403,7 +407,7 @@ To develop from source (rather than the PyPI release):
 ```bash
 uv venv --python 3.12 .venv
 uv pip install -e ".[all]"            # source dev install (everything)
-uv run playwright install chromium    # needed by the deck pipeline
+uv run playwright install chromium    # source/developer build only; commercial installer bundles Chromium
 ```
 
 ```bash

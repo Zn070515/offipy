@@ -139,6 +139,8 @@ MCP server 走 stdio，工具集合从 `schema.py` 自动注册。Claude Desktop
 PowerPoint 会话操作属于 Formal；deck 转换、图表/图形后处理和当前动画属于 Advanced。
 feedback MLP、实验性 art 规则和实验分数属于 Experimental：源码和开发 CLI 可以保留，但不作为
 商业默认工具契约、clean-machine 验收或售后保证。
+默认 MCP 不注册 Experimental 工具；开发者试用时须在启动进程前设置
+`OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1`。
 
 ## HTML→PPTX 管线（deck）
 

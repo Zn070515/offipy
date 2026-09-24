@@ -72,7 +72,7 @@ feedback MLP、实验性 art 规则与实验分数保留在源码中，但不属
 
 ```bash
 py -m pip install "offipy[all]"       # 全部能力（office COM + deck 管线 + MCP）
-py -m playwright install chromium     # 转换器依赖 chromium 做 DOM 测量
+py -m playwright install chromium     # 仅 OSS/开发环境；商业安装包自带 Chromium runtime
 offipy check --profile all            # 一键检查环境就绪（Python/依赖/Office/浏览器/server）
 ```
 
@@ -83,7 +83,8 @@ offipy check --profile all            # 一键检查环境就绪（Python/依赖
 - `offipy[mcp]`：MCP server（`offipy mcp`，Claude Desktop 等接入）
 - `offipy[all]`：以上全部
 
-转换器本体已 vendored 进 wheel，装完即可用；deck 管线需额外跑 `playwright install chromium`。
+转换器本体已 vendored 进 wheel，装完即可用；OSS/开发环境的 deck 管线需额外跑
+`playwright install chromium`，商业安装包自带经过验证的 Chromium runtime。
 
 ## 会话语义（读我）
 
@@ -406,6 +407,9 @@ print(deck_report.art.slides[0].by_dimension("color").status)  # assessed / insu
 窗口实时可见；读 op 作用在用户当前激活的文档上，破坏性 op 的调用参数含
 `expected_target` / `follow_active`（见上「会话语义」）。
 
+MCP 默认只注册 Formal / Advanced 工具；Experimental feedback 工具默认隐藏。开发者试用时，
+须在启动进程前设置 `OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1`。
+
 在 Claude Desktop 的 `claude_desktop_config.json` 添加。`offipy` 命令需在 PATH（pip 安装后自动加入）；若用了专用 venv，`command` 换成该 venv 的 `offipy.exe` 绝对路径（如 `<venv>\\Scripts\\offipy.exe`）：
 
 ```json
@@ -432,7 +436,7 @@ offipy mcp        # 阻塞运行，等待 stdio 客户端接入
 ```bash
 uv venv --python 3.12 .venv
 uv pip install -e ".[all]"            # 源码开发安装（全部能力）
-uv run playwright install chromium    # deck 管线需要
+uv run playwright install chromium    # 仅源码/开发环境；商业安装包自带 Chromium
 ```
 
 ```bash

@@ -44,7 +44,7 @@ extra 增量安装；各 extra 有各自的平台/版本要求，见下表。
 
 | Office | Word | Excel | PowerPoint | 备注 |
 |--------|------|-------|------------|------|
-| Office 2016 | 🟡 Expected | 🟡 Expected | 🟡 Expected | 最低支持版本，合理预期未实测 |
+| Office 2016 | 🟡 Expected | 🟡 Expected | 🟡 Expected | OSS 预期组合；非商业 1.0 支持，未逐版本实测 |
 | Office 2019 | 🟡 Expected | 🟡 Expected | 🟡 Expected | 合理预期未实测 |
 | Office 2021 / LTSC | 🟡 Expected | 🟡 Expected | 🟡 Expected | 合理预期未实测 |
 | Microsoft 365 | ✅ Tested | ✅ Tested | ✅ Tested | 开发与验证主力（本机实测） |
@@ -62,7 +62,8 @@ extra 增量安装；各 extra 有各自的平台/版本要求，见下表。
 | `mcp` | mcp SDK | 任意（服务消费 Office 时需 Windows + office） | `offipy mcp`，Claude Desktop 等接入 |
 | `all` | 以上三合一 | 按需 | `pip install offipy[all]` 一键全装 |
 
-`deck` 管线首次使用需装 chromium：`playwright install chromium`。
+OSS/开发环境的 `deck` 管线首次使用需装 chromium：`playwright install chromium`；商业安装包
+自带经过验证的 Chromium runtime。
 playwright 渲染在非 Windows 亦可行，但 deck 产物常回灌 Office 会话，因此
 整体仍按 Windows 支持。
 
@@ -70,7 +71,7 @@ playwright 渲染在非 Windows 亦可行，但 deck 产物常回灌 Office 会�
 
 ```bash
 pip install "offipy[all]"        # 或按用途：offipy[office] / offipy[deck] / offipy[mcp]
-# deck 首次：
+# 仅 OSS/开发环境；商业安装包自带 Chromium：
 playwright install chromium
 ```
 

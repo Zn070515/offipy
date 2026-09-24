@@ -152,6 +152,8 @@ PowerPoint session operations in MCP are Formal; deck conversion, chart/diagram 
 the current animation behavior are Advanced. The feedback MLP, experimental art rules, and experimental
 scores remain available to source/developer workflows but are not part of the default commercial tool
 contract, clean-machine acceptance, or support promise.
+Experimental tools are not registered in MCP by default; developers must set
+`OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1` before starting the process to opt in.
 
 ## HTML→PPTX pipeline (deck)
 

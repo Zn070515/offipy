@@ -8,7 +8,7 @@ Convert a Mermaid/drawio source file into an editable PPTX (16:9 full-page). For
 
 - **Parameters**: `source: str`, `out: str`, `direction: str`, `page: int | str`, `overwrite: bool`
 - **Returns**: `dict`
-- **Flags**: normal operation
+- **Flags**: Advanced (bounded commercial 1.0 commitment)
 
 ---
 
@@ -18,4 +18,4 @@ Install the diagram-design and offipy-diagram skills into the host agent's skill
 
 - **Parameters**: `target_dir: str`, `force: bool`
 - **Returns**: `dict`
-- **Flags**: normal operation
+- **Flags**: Advanced (bounded commercial 1.0 commitment)

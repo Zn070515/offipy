@@ -8,7 +8,7 @@
 
 - **参数**: `feedback_dir: str`、`seed: int`
 - **返回**: `dict`
-- **标志**: 普通操作
+- **标志**: Experimental（默认 MCP 不暴露）
 
 ---
 
@@ -18,7 +18,7 @@
 
 - **参数**: `feedback_dir: str`
 - **返回**: `dict`
-- **标志**: 只读
+- **标志**: 只读，Experimental（默认 MCP 不暴露）
 
 ---
 
@@ -28,7 +28,7 @@
 
 - **参数**: `profile: str`、`rule_id: str`、`action: str`、`severity: str`、`slide_index: int`、`message: str`、`source: str`、`feedback_dir: str`、`ts: str`、`features: any`、`feature_schema_version: str`
 - **返回**: `dict`
-- **标志**: 普通操作
+- **标志**: Experimental（默认 MCP 不暴露）
 
 ---
 
@@ -38,7 +38,7 @@
 
 - **参数**: `pptx: str`、`feedback_dir: str`、`profile: str`、`json: bool`
 - **返回**: `dict`
-- **标志**: 只读
+- **标志**: 只读，Experimental（默认 MCP 不暴露）
 
 ---
 
@@ -48,7 +48,7 @@
 
 - **参数**: `profile: str`、`feedback_dir: str`
 - **返回**: `dict`
-- **标志**: 普通操作
+- **标志**: Experimental（默认 MCP 不暴露）
 
 ---
 
@@ -58,4 +58,4 @@
 
 - **参数**: `feedback_dir: str`
 - **返回**: `dict`
-- **标志**: 普通操作
+- **标志**: Experimental（默认 MCP 不暴露）

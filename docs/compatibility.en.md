@@ -48,7 +48,7 @@ Office is unavailable.
 
 | Office | Word | Excel | PowerPoint | Notes |
 |--------|------|-------|------------|------|
-| Office 2016 | 🟡 Expected | 🟡 Expected | 🟡 Expected | Minimum supported version; reasonably expected, not individually verified |
+| Office 2016 | 🟡 Expected | 🟡 Expected | 🟡 Expected | OSS expected combination; outside commercial 1.0, not individually verified |
 | Office 2019 | 🟡 Expected | 🟡 Expected | 🟡 Expected | Reasonably expected, not individually verified |
 | Office 2021 / LTSC | 🟡 Expected | 🟡 Expected | 🟡 Expected | Reasonably expected, not individually verified |
 | Microsoft 365 | ✅ Tested | ✅ Tested | ✅ Tested | Primary development and verification environment (verified on this machine) |
@@ -67,7 +67,8 @@ in `CHANGELOG.md`.
 | `mcp` | mcp SDK | Any (needs Windows + office when the service consumes Office) | `offipy mcp`, for Claude Desktop and other integrations |
 | `all` | The three above combined | As needed | One-command install of everything via `pip install offipy[all]` |
 
-The `deck` pipeline needs chromium installed for first use: `playwright install chromium`.
+For the OSS/developer install, the `deck` pipeline needs chromium installed for first use:
+`playwright install chromium`. The commercial installer bundles the verified Chromium runtime.
 Playwright rendering also works on non-Windows, but deck output is often fed back into Office
 sessions, so overall support remains Windows-based.
 
@@ -75,7 +76,7 @@ sessions, so overall support remains Windows-based.
 
 ```bash
 pip install "offipy[all]"        # 或按用途：offipy[office] / offipy[deck] / offipy[mcp]
-# deck 首次：
+# OSS/developer install only; the commercial installer bundles Chromium:
 playwright install chromium
 ```
 

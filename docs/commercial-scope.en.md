@@ -55,6 +55,8 @@ are outside the commercial 1.0 scope.
 These capabilities may remain in the OSS snapshot for developer use, but are not part of the default
 commercial Agent tool contract, clean-machine acceptance, compatibility promise, or support SLA. Their
 presence in the schema or CLI does not imply commercial availability.
+Developers who explicitly need to try Experimental tools through MCP must set
+`OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1` before starting the MCP process; the commercial default does not set it.
 
 ## Freeze rules
 
