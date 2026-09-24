@@ -48,6 +48,7 @@ MCP 接入 Claude Desktop：参考 README 的 MCP 配置段，指向 `offipy mcp
 - [API 参考](api/index.md)：全部操作（由 schema 自动生成）。
 - [异常契约](exceptions.md)：策略 A 领域异常与 RPC `error_code` 映射。
 - [协议](protocol.md)：HTTP 协议、token、`/shutdown`、协议版本握手。
+- [商业 1.0 范围](commercial-scope.md)：Formal / Advanced / Experimental 承诺边界与首发验收矩阵。
 - [兼容矩阵](compatibility.md)：Windows / Office / Python / extras 支持情况。
 - [弃用政策](deprecation.md)：弃用流程与响应 `warning` 字段。
 - [迁移指南](migration.md)：0.9 → 0.10 破坏性变更与迁移步骤。

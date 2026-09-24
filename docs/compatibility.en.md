@@ -6,6 +6,11 @@ offipy is a Windows-only Office COM automation library. The core package has zer
 dependencies, with capabilities installed incrementally by extra; each extra has its own
 platform/version requirements, as shown in the table below.
 
+> **Commercial 1.0 limit:** launch and clean-machine acceptance cover only **Windows 11 x64 +
+> Microsoft 365 desktop Word / Excel / PowerPoint**. Expected combinations in the table must not be
+> advertised as commercially supported without real-machine evidence; see the [Commercial 1.0 Scope
+> Freeze](commercial-scope.en.md) for the complete boundary.
+
 ## Three-Column Overview: Tested / Expected / Unsupported
 
 | Dimension | ✅ Tested (verified on this machine) | 🟡 Expected (reasonably expected) | 🚫 Unsupported (explicitly unsupported) |

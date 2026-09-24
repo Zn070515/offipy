@@ -22,6 +22,7 @@ nav:
       - 反馈学习: api/feedback.md
   - 异常契约: exceptions.md
   - 协议: protocol.md
+  - 商业 1.0 范围: commercial-scope.md
   - 兼容矩阵: compatibility.md
   - 弃用政策: deprecation.md
   - 性能基准: benchmarks.md
@@ -40,6 +41,7 @@ nav:
           - Feedback: api/feedback.en.md
       - Exception Contract: exceptions.en.md
       - Protocol: protocol.en.md
+      - Commercial 1.0 Scope: commercial-scope.en.md
       - Compatibility: compatibility.en.md
       - Deprecation Policy: deprecation.en.md
       - Benchmarks: benchmarks.en.md
