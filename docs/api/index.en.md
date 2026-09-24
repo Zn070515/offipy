@@ -2,7 +2,7 @@
 
 # API Reference
 
-This reference is generated from the single source of truth `schema.py` by `scripts/gen_api_ref.py` and covers the same set of operations across the three entry points (server / CLI / MCP).
+This reference is generated from the single source of truth `schema.py` by `scripts/gen_api_ref.py` and covers the same set of operations across the three entry points (server / CLI / MCP); Experimental operations are hidden from MCP by default and require explicit opt-in.
 
 | App | Operations | Read-only | Mutating |
 | --- | --- | --- | --- |

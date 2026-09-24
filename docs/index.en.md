@@ -30,7 +30,7 @@ processes, and provides three consistent entry points: server / CLI / MCP.
 
 ```bash
 py -m pip install "offipy[all]"     # office + deck + mcp
-py -m playwright install chromium   # required by the deck pipeline
+py -m playwright install chromium   # OSS/developer install only; commercial installer bundles Chromium
 ```
 
 Split by use case: `offipy[office]` (COM automation only), `offipy[deck]` (HTML→PPTX),

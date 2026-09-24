@@ -8,7 +8,7 @@ Mermaid/drawio 源码文件 → 可编辑 PPTX（16:9 整页）。格式按扩�
 
 - **参数**: `source: str`、`out: str`、`direction: str`、`page: int | str`、`overwrite: bool`
 - **返回**: `dict`
-- **标志**: 普通操作
+- **标志**: Advanced（商业 1.0 有限承诺）
 
 ---
 
@@ -18,4 +18,4 @@ Mermaid/drawio 源码文件 → 可编辑 PPTX（16:9 整页）。格式按扩�
 
 - **参数**: `target_dir: str`、`force: bool`
 - **返回**: `dict`
-- **标志**: 普通操作
+- **标志**: Advanced（商业 1.0 有限承诺）

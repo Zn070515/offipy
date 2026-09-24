@@ -10,6 +10,10 @@
   暴露自动生成或显式传入的请求 ID，超时响应也会回显该 ID。
 - **动画声明校验（#162/#163/#164，行为变化）**：`deck add-anim` 对未知字段返回友好
   `InvalidArgumentError`/exit 2；越界 `slide` fail-fast；同页混用 `click` 与 `after` 直接拒绝。
+- **MCP Experimental 工具默认隐藏（CF-6，行为变化）**：schema 为每个操作声明
+  `formal` / `advanced` / `experimental` tier；`feedback_*` 等 Experimental 工具默认不注册到
+  MCP。开发者若需要试用，须在启动 MCP 进程前设置 `OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1`；CLI / HTTP
+  路径保持可用，商业 1.0 不把这些操作列入默认 Agent 工具契约。
 
 ---
 

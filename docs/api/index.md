@@ -2,7 +2,7 @@
 
 # API 参考
 
-本参考由 `scripts/gen_api_ref.py` 从 `schema.py` 单一来源生成，覆盖 server / CLI / MCP 三入口的同一批操作。
+本参考由 `scripts/gen_api_ref.py` 从 `schema.py` 单一来源生成，覆盖 server / CLI / MCP 三入口的同一 schema；Experimental 操作默认不注册为 MCP 工具，需显式 opt-in。
 
 | 应用 | 操作数 | 只读 | 改动状态 |
 | --- | --- | --- | --- |

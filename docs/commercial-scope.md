@@ -48,6 +48,8 @@ Advanced 能力会继续修复明确 bug，但不承诺覆盖所有 HTML、Offic
 
 这些能力可以留在开源快照中供开发者试用，但不进入商业 1.0 的默认 Agent 工具契约、
 clean-machine 验收、兼容性承诺或售后 SLA；其 schema/CLI 是否存在不代表商业可用性保证。
+开发者若确实需要在 MCP 中试用 Experimental 工具，必须在启动 MCP 进程前显式设置
+`OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1`；商业默认配置不设置该变量。
 
 ## 冻结规则
 
