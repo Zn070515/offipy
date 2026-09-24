@@ -218,6 +218,9 @@ Declare entrance animations and page transitions by tagging elements in the HTML
   `{"animations": [{"slide": 1, "target": "title", "effect": "fade", "direction": ..., "trigger": ..., "duration": ..., "delay": ...}], "transitions": [{"slide": 2, "kind": "push", "speed": "medium"}]}`,
   where `target` is the shape **name** (exact match); returns an injection report
   (`animations_applied` / `transitions_applied` / `unmatched` / `skipped`).
+- **Declaration validation**: animation/transition slide numbers outside the PPTX fail fast. A slide
+  cannot mix `click` and `after` triggers (avoiding PowerPoint interpreting `after` as an absolute
+  timeline offset). Unknown fields in a CLI spec produce a friendly `offipy:` error and exit 2.
 
 ### Media fidelity
 

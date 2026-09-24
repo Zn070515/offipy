@@ -90,7 +90,8 @@ in `args`). In normal use, provide just one. Constraints:
 
 ### Idempotency (request_id, P0-2 Plan A)
 
-When `request_id` is present, the server enables the idempotency path — "timeout retries never re-execute":
+When `request_id` is present, the server enables the idempotency path **within the lifetime of the
+current server process** — "timeout retries never re-execute":
 
 - **Payload hash binding**: `sha256(json.dumps({"app","op","args"}, sort_keys=True))`. The same
   request_id with a different payload (argument drift) → 400 `invalid_argument` (caller bug, not a silent
@@ -104,9 +105,14 @@ When `request_id` is present, the server enables the idempotency path — "timeo
   still merge and never double-write. A full COM queue → 503 and the entry is rolled back (same-id retries
   rebuild it rather than merging into a never-completing deadlock).
 - Calls without request_id use the legacy path: no cache, no dedupe, no merge.
+- **Lifetime boundary**: `_REQUEST_ID_CACHE` lives only in the current server process. After a server
+  crash, restart, or cache eviction, the outcome may be unknown. Do not blindly replay a destructive
+  operation; read the target document state before deciding whether to retry.
 
 Client side: `client.request/call` auto-generates a uuid4 by default and carries it on the request; the
-response echoes the request_id for the caller to verify. On timeout, retry with the **same** request_id.
+response echoes the request_id for the caller to verify. Timeout responses also echo it, and
+`RemoteCallError.request_id` exposes the ID (including an auto-generated one). On timeout, retry with the
+**same** request_id.
 
 ## /call Response
 
