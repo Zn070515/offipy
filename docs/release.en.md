@@ -90,12 +90,39 @@ build\frozen\Offipy.Converter.exe --help
 
 `Offipy.MCP.exe` is a stdio process and does not use `--help`; Claude Desktop launches it by
 absolute path. The main executable uses sibling `Offipy.Server.exe` for `server status|restart|stop`.
-CF-3 proves the no-Python executable chain only; bundling Chromium belongs to CF-4 and must not be
-claimed at this stage.
+CF-3 proves the no-Python executable chain; CF-4 stages Chromium separately so it is not duplicated
+inside all four EXEs.
+
+## 3. Frozen Chromium Runtime (CF-4)
+
+Commercial builds use Playwright's headless shell (the pipeline only needs HTML/DOM measurement,
+not browser UI) and deploy it once in a shared directory next to the four EXEs. The default keeps
+only the `en-US` and `zh-CN` locale packs; the current Playwright revision stages at about 230 MiB.
+Do not add Chromium as PyInstaller data to every executable.
+
+Download the browser matching the installed Playwright version, then build:
+
+```bash
+uv run playwright install chromium
+uv run python scripts/build_frozen.py --output-dir build/frozen --with-chromium
+```
+
+The builder reads Playwright's `--dry-run` install location to select the matching revision. An
+explicit `chromium_headless_shell-<revision>` directory can also be supplied:
+
+```bash
+uv run python scripts/build_frozen.py \
+  --output-dir build/frozen \
+  --chromium-source D:\\Cache\\playwright\\chromium_headless_shell-1234
+```
+
+The final layout is `build/frozen/chromium/<browser-package>/...`. Frozen CLI, MCP, converter, and
+asset rendering automatically point `PLAYWRIGHT_BROWSERS_PATH` there; development mode keeps
+Playwright's normal discovery. Use `--full-chromium` only when every locale is required.
 
 ---
 
-## 3. Pre-release to TestPyPI (0.9.0a*)
+## 4. Pre-release to TestPyPI (0.9.0a*)
 
 Pre-release versions go only to TestPyPI, not to the PyPI stable release. The `publish-testpypi`
 job does this automatically in CI; the manual fallback is:

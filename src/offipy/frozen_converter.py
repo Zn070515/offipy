@@ -6,6 +6,8 @@ import runpy
 import sys
 from pathlib import Path
 
+from offipy.runtime import configure_browser_env
+
 _SOURCE_CONVERTER_DIR = Path(__file__).resolve().parent / "_vendor" / "html_to_editable_pptx"
 
 
@@ -26,6 +28,7 @@ _CONVERTER_DIR = _SOURCE_CONVERTER_DIR
 def main() -> None:
     """Run the vendored converter as a script so its local imports keep working."""
 
+    configure_browser_env()
     converter_dir = _converter_dir()
     converter_dir_text = str(converter_dir)
     if converter_dir_text not in sys.path:

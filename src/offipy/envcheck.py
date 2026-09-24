@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-from . import __version__
+from . import __version__, runtime
 from .exceptions import UnsupportedPlatformError
 
 # (dist 名, import 名, 适用 sys.platform 或 None)：pywin32 仅 Windows，
@@ -96,8 +96,6 @@ _EXTRA_HINT = {
 def _check_dependency(dist: str, mod: str) -> Check:
     try:
         importlib.import_module(mod)
-        version = importlib.metadata.version(dist)
-        return Check("依赖", dist, True, version)
     except ImportError:
         return Check(
             "依赖",
@@ -106,6 +104,13 @@ def _check_dependency(dist: str, mod: str) -> Check:
             "未安装",
             hint=_EXTRA_HINT.get(dist, f"uv pip install {dist}"),
         )
+    if runtime.is_packaged():
+        return Check("依赖", dist, True, "随安装包提供")
+    try:
+        version = importlib.metadata.version(dist)
+    except importlib.metadata.PackageNotFoundError:
+        return Check("依赖", dist, True, "已加载")
+    return Check("依赖", dist, True, version)
 
 
 def _check_dependencies() -> list[Check]:
@@ -156,6 +161,17 @@ def _check_office() -> list[Check]:
 
 
 def _check_browser() -> Check:
+    packaged = runtime.is_packaged()
+    if packaged:
+        runtime.configure_browser_env()
+        if runtime.chromium_executable() is None:
+            return Check(
+                "浏览器",
+                "Chromium",
+                False,
+                "安装包内 Chromium runtime 缺失",
+                hint="请运行 Offipy 安装程序的修复安装",
+            )
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -164,14 +180,27 @@ def _check_browser() -> Check:
         )
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            launch_kwargs: dict[str, Any] = {"headless": True}
+            if packaged:
+                executable = runtime.chromium_executable()
+                if executable is None:
+                    return Check(
+                        "浏览器",
+                        "Chromium",
+                        False,
+                        "安装包内 Chromium runtime 缺失",
+                        hint="请运行 Offipy 安装程序的修复安装",
+                    )
+                launch_kwargs["executable_path"] = str(executable)
+            browser = p.chromium.launch(**launch_kwargs)
             browser.close()
         return Check("浏览器", "Chromium", True, "可正常启动（headless）")
     except Exception as e:
         # playwright.sync_api.Error（chromium 缺失/无法启动），宽捕获做降级
-        return Check(
-            "浏览器", "Chromium", False, f"启动失败: {e}", hint="uv run playwright install chromium"
+        hint = (
+            "请运行 Offipy 安装程序的修复安装" if packaged else "uv run playwright install chromium"
         )
+        return Check("浏览器", "Chromium", False, f"启动失败: {e}", hint=hint)
 
 
 def _check_server() -> Check:

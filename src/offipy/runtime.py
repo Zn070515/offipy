@@ -8,6 +8,7 @@ and user data) into paths and commands.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,7 @@ MCP_EXECUTABLE = "Offipy.MCP.exe"
 CONVERTER_EXECUTABLE = "Offipy.Converter.exe"
 _CONVERTER_RELATIVE_PATH = Path("_vendor") / "html_to_editable_pptx" / "convert.py"
 _CHROMIUM_DIRECTORY = "chromium"
+_CHROMIUM_EXECUTABLES = ("chrome-headless-shell.exe", "chrome.exe")
 
 
 def is_packaged() -> bool:
@@ -86,3 +88,34 @@ def chromium_path() -> Path | None:
         return None
     path = resource_root() / _CHROMIUM_DIRECTORY
     return path if path.is_dir() else None
+
+
+def chromium_executable() -> Path | None:
+    """Return the executable in the packaged Chromium runtime, if present."""
+
+    root = chromium_path()
+    if root is None:
+        return None
+    for name in _CHROMIUM_EXECUTABLES:
+        matches = sorted(path for path in root.rglob(name) if path.is_file())
+        if matches:
+            return matches[0]
+    return None
+
+
+def configure_browser_env() -> Path | None:
+    """Point Playwright at the sibling browser runtime in frozen builds.
+
+    Playwright's vendored converter launches Chromium from JavaScript-side
+    browser discovery, so an explicit ``executable_path`` is not enough for
+    every call site.  Development mode is intentionally untouched.
+    """
+
+    if not is_packaged():
+        return None
+    path = chromium_path()
+    if path is not None:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(path)
+    else:
+        os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+    return path

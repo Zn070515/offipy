@@ -84,6 +84,16 @@ def test_check_dependencies_import_failure(monkeypatch):
         assert checks["pywin32"].ok is True
 
 
+def test_packaged_dependencies_do_not_require_distribution_metadata(monkeypatch):
+    monkeypatch.setattr(envcheck.runtime, "is_packaged", lambda: True)
+
+    checks = envcheck._check_dependencies()
+
+    assert checks
+    assert all(check.ok for check in checks)
+    assert all(check.detail == "随安装包提供" for check in checks)
+
+
 # --- Office 安装检测（fake winreg） ---
 
 
@@ -163,7 +173,7 @@ def _inject_fake_playwright(monkeypatch, playwright_ctx):
 
 
 class _OkChromium:
-    def launch(self, headless=False):
+    def launch(self, headless=False, **kwargs):
         assert headless is True
         return self
 
@@ -204,6 +214,33 @@ def test_check_browser_launch_fails(monkeypatch):
     assert c.ok is False
     assert "启动失败" in c.detail
     assert "playwright install chromium" in c.hint
+
+
+def test_check_browser_packaged_missing_uses_repair_hint(monkeypatch):
+    _inject_fake_playwright(monkeypatch, _OkPW())
+    monkeypatch.setattr(envcheck.runtime, "is_packaged", lambda: True)
+    monkeypatch.setattr(envcheck.runtime, "configure_browser_env", lambda: None)
+    monkeypatch.setattr(envcheck.runtime, "chromium_executable", lambda: None)
+
+    c = envcheck._check_browser()
+
+    assert c.ok is False
+    assert "安装包" in c.detail
+    assert "修复" in c.hint
+    assert "playwright" not in c.hint
+
+
+def test_check_browser_packaged_launches_resolved_executable(monkeypatch, tmp_path):
+    _inject_fake_playwright(monkeypatch, _OkPW())
+    executable = tmp_path / "chrome-headless-shell.exe"
+    executable.write_bytes(b"fake")
+    monkeypatch.setattr(envcheck.runtime, "is_packaged", lambda: True)
+    monkeypatch.setattr(envcheck.runtime, "configure_browser_env", lambda: tmp_path)
+    monkeypatch.setattr(envcheck.runtime, "chromium_executable", lambda: executable)
+
+    c = envcheck._check_browser()
+
+    assert c.ok is True
 
 
 def test_check_browser_missing_package(monkeypatch):
