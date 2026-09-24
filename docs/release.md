@@ -86,11 +86,37 @@ build\frozen\Offipy.Converter.exe --help
 
 `Offipy.MCP.exe` 是 stdio 进程，不使用 `--help`；由 Claude Desktop 直接以该路径启动。
 主程序的 `server status|restart|stop` 会通过 sibling `Offipy.Server.exe` 工作。CF-3 只证明
-无 Python 的 executable 链路；Chromium 随安装包部署属于后续 CF-4，不应在此阶段宣称已包含。
+无 Python 的 executable 链路；Chromium runtime 由下一节 CF-4 单独 staging，不会重复嵌入四个 EXE。
+
+## 3. Frozen Chromium Runtime（CF-4）
+
+商业构建使用 Playwright 的 headless shell（只需要 HTML/DOM 测量，不需要完整浏览器 UI），
+并把它作为四个 EXE 旁边的**一份共享目录**部署。默认只保留 `en-US` 与 `zh-CN` locale，当前
+Playwright revision 的 staging 约 230 MiB；不要把 Chromium 作为 PyInstaller 数据重复打进每个 EXE。
+
+先把与当前 Playwright 版本匹配的浏览器下载到本机缓存，再构建：
+
+```bash
+uv run playwright install chromium
+uv run python scripts/build_frozen.py --output-dir build/frozen --with-chromium
+```
+
+构建脚本会从 Playwright 的 `--dry-run` 安装位置选择匹配 revision。也可以显式指定某个
+`chromium_headless_shell-<revision>` 目录：
+
+```bash
+uv run python scripts/build_frozen.py \
+  --output-dir build/frozen \
+  --chromium-source D:\\Cache\\playwright\\chromium_headless_shell-1234
+```
+
+最终布局为 `build/frozen/chromium/<browser-package>/...`。冻结 CLI、MCP、converter 与资产
+渲染会自动把 `PLAYWRIGHT_BROWSERS_PATH` 指向该目录；开发环境仍使用 Playwright 的默认发现。
+只有确实需要完整 locale 集时才使用 `--full-chromium`，否则会无谓增加安装包体积。
 
 ---
 
-## 3. 预发布到 TestPyPI（0.9.0a*）
+## 4. 预发布到 TestPyPI（0.9.0a*）
 
 预发布版本只上 TestPyPI，不上 PyPI 正式版。CI 里 `publish-testpypi` job 自动做；
 手动兜底：
