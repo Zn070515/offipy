@@ -975,6 +975,7 @@ def _deck_add_anim(args: argparse.Namespace) -> int | None:
     """offipy deck add-anim --pptx X --spec spec.json：给现成 .pptx 注入动画/过渡。"""
     from .animations.apply import apply_animations
     from .animations.spec import AnimationSpec, TransitionSpec
+    from .exceptions import InvalidArgumentError
 
     if not args.pptx:
         _usage_exit("用法: offipy deck add-anim --pptx <deck.pptx> --spec <spec.json>")
@@ -996,13 +997,18 @@ def _deck_add_anim(args: argparse.Namespace) -> int | None:
     for item in data.get("animations") or []:
         if not isinstance(item, dict):
             _usage_exit(f"animations 元素必须是对象（实际 {type(item).__name__}）")
-        # 字段非法 → InvalidArgumentError 冒泡（main 兜底）
-        animations.append(AnimationSpec(**item))
+        try:
+            animations.append(AnimationSpec(**item))
+        except TypeError as exc:
+            raise InvalidArgumentError(f"动画声明 dict 含非法字段：{exc}") from exc
     transitions = []
     for item in data.get("transitions") or []:
         if not isinstance(item, dict):
             _usage_exit(f"transitions 元素必须是对象（实际 {type(item).__name__}）")
-        transitions.append(TransitionSpec(**item))
+        try:
+            transitions.append(TransitionSpec(**item))
+        except TypeError as exc:
+            raise InvalidArgumentError(f"过渡声明 dict 含非法字段：{exc}") from exc
     if not Path(args.pptx).is_file():
         _usage_exit(f"找不到 pptx 文件: {args.pptx}")
     report = apply_animations(args.pptx, animations=animations, transitions=transitions)

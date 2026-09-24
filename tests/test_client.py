@@ -299,14 +299,30 @@ def test_server_status_none_on_protocol_mismatch(monkeypatch):
 
 def test_request_wraps_http_error(monkeypatch):
     def raiser(req, timeout=None):
-        body = json.dumps({"ok": False, "error": "unauthorized"}).encode()
+        body = json.dumps({"ok": False, "error": "unauthorized", "request_id": "rid-http"}).encode()
         raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, io.BytesIO(body))
 
     monkeypatch.setattr("offipy.client._probe", lambda: "ok")
     monkeypatch.setattr("offipy.client._OPENER.open", raiser)
     with pytest.raises(RemoteCallError) as exc:
-        request("ppt", "save")
+        request("ppt", "save", request_id="rid-http")
     assert "unauthorized" in str(exc.value)
+    assert exc.value.request_id == "rid-http"
+
+
+def test_request_timeout_exposes_auto_generated_request_id(monkeypatch):
+    captured = {}
+
+    def raiser(req, timeout=None):
+        captured.update(json.loads(req.data.decode("utf-8")))
+        raise TimeoutError("slow server")
+
+    monkeypatch.setattr("offipy.client._OPENER.open", raiser)
+    with pytest.raises(RemoteCallError) as exc:
+        request("ppt", "save", base_url="http://127.0.0.1:8890")
+
+    assert captured["request_id"]
+    assert exc.value.request_id == captured["request_id"]
 
 
 def test_request_wraps_urlerror(monkeypatch):

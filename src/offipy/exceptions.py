@@ -38,6 +38,10 @@ class RemoteCallError(OffipyError):
 
     code = "remote_call"
 
+    def __init__(self, message: str, *, request_id: str | None = None):
+        super().__init__(message)
+        self.request_id = request_id
+
 
 class TargetNotFoundError(OffipyError):
     """目标不存在：没有打开的工作簿/文档/演示文稿，或 expected_target 绑定不匹配。"""

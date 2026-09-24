@@ -59,6 +59,33 @@ def _resolve_spids(slide: Any, target: str) -> list[int]:
     return [sh.shape_id for sh in slide.shapes if sh.name == target]
 
 
+def _validate_slide_references(
+    animations: list[AnimationSpec],
+    transitions: list[TransitionSpec],
+    slide_count: int,
+) -> None:
+    """Reject declarations that cannot address a slide in the input deck."""
+
+    for animation in animations:
+        if animation.slide > slide_count:
+            raise InvalidArgumentError(
+                f"slide {animation.slide} 超出 PPTX 页数 {slide_count}，请使用 1-{slide_count}"
+            )
+    for transition in transitions:
+        if transition.slide > slide_count:
+            raise InvalidArgumentError(
+                f"slide {transition.slide} 超出 PPTX 页数 {slide_count}，请使用 1-{slide_count}"
+            )
+
+    triggers_by_slide: dict[int, set[str]] = {}
+    for animation in animations:
+        triggers_by_slide.setdefault(animation.slide, set()).add(animation.trigger)
+    for slide, triggers in triggers_by_slide.items():
+        if len(triggers) > 1:
+            names = "/".join(sorted(triggers))
+            raise InvalidArgumentError(f"slide {slide} 不支持混用 click/after 触发器（{names}）")
+
+
 def _insert_sld_elements(
     sld_el: etree._Element,
     transition_el: etree._Element | None,
@@ -176,6 +203,7 @@ def apply_animations(
         return {"animations_applied": 0, "transitions_applied": 0, "unmatched": [], "skipped": []}
 
     prs = Presentation(str(pptx))
+    _validate_slide_references(anim_specs, trans_specs, len(prs.slides))
     total_anim = 0
     total_trans = 0
     all_unmatched: list[dict[str, Any]] = []
