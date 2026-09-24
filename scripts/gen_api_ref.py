@@ -58,6 +58,10 @@ def _flags(spec: schema.OpSpec) -> list[str]:
         out.append("会改动文档/应用状态")
     if spec.deprecated:
         out.append("已弃用（响应带 warning）")
+    if spec.tier == "advanced":
+        out.append("Advanced（商业 1.0 有限承诺）")
+    elif spec.tier == "experimental":
+        out.append("Experimental（默认 MCP 不暴露）")
     return out
 
 
@@ -94,7 +98,7 @@ def _render_index() -> str:
         "> [English](index.en.md)\n\n"
         "# API 参考\n\n"
         "本参考由 `scripts/gen_api_ref.py` 从 `schema.py` 单一来源生成，"
-        "覆盖 server / CLI / MCP 三入口的同一批操作。\n\n"
+        "覆盖 server / CLI / MCP 三入口的同一 schema；Experimental 操作默认不注册为 MCP 工具，需显式 opt-in。\n\n"
         "| 应用 | 操作数 | 只读 | 改动状态 |\n"
         "| --- | --- | --- | --- |\n"
         f"{table}\n"
@@ -509,6 +513,10 @@ def _en_flags(spec: schema.OpSpec) -> list[str]:
         out.append("mutates document/app state")
     if spec.deprecated:
         out.append("deprecated (response carries a warning)")
+    if spec.tier == "advanced":
+        out.append("Advanced (bounded commercial 1.0 commitment)")
+    elif spec.tier == "experimental":
+        out.append("Experimental (hidden from MCP by default)")
     return out
 
 
@@ -546,7 +554,7 @@ def _render_index_en() -> str:
         "# API Reference\n\n"
         "This reference is generated from the single source of truth `schema.py` by "
         "`scripts/gen_api_ref.py` and covers the same set of operations across the three "
-        "entry points (server / CLI / MCP).\n\n"
+        "entry points (server / CLI / MCP); Experimental operations are hidden from MCP by default and require explicit opt-in.\n\n"
         "| App | Operations | Read-only | Mutating |\n"
         "| --- | --- | --- | --- |\n"
         f"{table}\n"

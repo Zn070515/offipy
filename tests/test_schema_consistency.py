@@ -142,9 +142,43 @@ def test_every_schema_op_has_mcp_tool():
         for op in schema.ops(app):
             if op == "quit":
                 continue  # quit 对整个会话太危险，MCP 不暴露
+            if schema.spec(app, op).tier == "experimental":
+                continue  # Experimental MCP tools require explicit opt-in
             name = mcp_server._tool_name(app, op)
             assert name in tools, f"schema 有 {app}.{op} 但缺 MCP 工具 {name}"
             assert hasattr(mcp_server, name)  # 模块级函数可直调（_invoke 契约）
+
+
+def test_experimental_mcp_tools_are_hidden_by_default():
+    tools = _mcp_tools()
+    experimental = [
+        (app, op)
+        for app in schema.apps()
+        for op in schema.ops(app)
+        if schema.spec(app, op).tier == "experimental"
+    ]
+    assert experimental
+    for app, op in experimental:
+        name = mcp_server._tool_name(app, op)
+        assert name not in tools
+        assert not hasattr(mcp_server, name)
+
+
+def test_experimental_mcp_tools_require_explicit_opt_in(monkeypatch):
+    monkeypatch.delenv("OFFIPY_MCP_INCLUDE_EXPERIMENTAL", raising=False)
+    assert mcp_server._include_experimental_tools() is False
+    monkeypatch.setenv("OFFIPY_MCP_INCLUDE_EXPERIMENTAL", "1")
+    assert mcp_server._include_experimental_tools() is True
+
+
+def test_schema_tiers_match_commercial_scope():
+    assert all(
+        schema.spec(app, op).tier == "formal"
+        for app in ("excel", "word", "ppt")
+        for op in schema.ops(app)
+    )
+    assert all(schema.spec("diagram", op).tier == "advanced" for op in schema.ops("diagram"))
+    assert all(schema.spec("feedback", op).tier == "experimental" for op in schema.ops("feedback"))
 
 
 def test_quit_not_exposed_to_mcp():
@@ -170,6 +204,8 @@ def test_mcp_tool_annotations_match_schema():
             if op == "quit":
                 continue
             spec = schema.spec(app, op)
+            if spec.tier == "experimental":
+                continue
             ann = tools[mcp_server._tool_name(app, op)].annotations
             assert ann is not None, f"{app}.{op} MCP 工具缺 annotations"
             if spec.readonly:

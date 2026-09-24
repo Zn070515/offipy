@@ -1,7 +1,7 @@
 """operation schema：server / CLI / MCP 三入口的单一来源（P1-2）。
 
 新增一个 RPC 只需两处：① 在 App 类实现方法（签名即参数类型与默认值），
-② 在此登记一条 OpSpec（readonly/destructive/description/deprecated）。
+② 在此登记一条 OpSpec（readonly/destructive/description/deprecated/tier）。
 server 白名单（_OPS，目标绑定由 supports_expected_target 派生）、CLI 参数
 校验/类型转换、MCP 工具注册全部从此派生，不再三处手工同步。
 
@@ -13,7 +13,7 @@ server 白名单（_OPS，目标绑定由 supports_expected_target 派生）、C
 """
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 REQUIRED = object()  # 未用——参数必填性由 App 方法签名（无默认值）派生
 
@@ -29,6 +29,7 @@ class OpSpec:
     supports_expected_target: bool = False  # 传输层额外支持 expected_target 绑定
     accepts_follow_active: bool = False  # #25：只读 op 也显式接受 follow_active（默认已跟随活动）
     deprecated: bool = False  # P2-9 预留：已弃用 op，响应带 warning
+    tier: Literal["formal", "advanced", "experimental"] = "formal"
     returns: str = "void"  # void/int/str/bool/list/dict/any（文档化用）
     params: dict[str, Any] = field(default_factory=dict)  # 参数类型（与 App 方法签名一致）
 
@@ -859,6 +860,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "page": (int, str),
                 "overwrite": bool,
             },
+            tier="advanced",
         ),
         "install_skill": OpSpec(
             description=(
@@ -868,6 +870,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             returns="dict",  # {"installed": [...], "skipped": [...]}
             params={"target_dir": str, "force": bool},
+            tier="advanced",
         ),
     },
     # ============================================================== Feedback
@@ -881,6 +884,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             returns="dict",
             params={"feedback_dir": str, "seed": int},
+            tier="experimental",
         ),
         "status": OpSpec(
             description=(
@@ -890,6 +894,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             readonly=True,
             returns="dict",
             params={"feedback_dir": str},
+            tier="experimental",
         ),
         "append": OpSpec(
             description=(
@@ -912,6 +917,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
                 "features": Any,
                 "feature_schema_version": str,
             },
+            tier="experimental",
         ),
         "recommend": OpSpec(
             description=(
@@ -922,6 +928,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             readonly=True,
             returns="dict",
             params={"pptx": str, "feedback_dir": str, "profile": str, "json": bool},
+            tier="experimental",
         ),
         "apply": OpSpec(
             description=(
@@ -931,6 +938,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             returns="dict",
             params={"profile": str, "feedback_dir": str},
+            tier="experimental",
         ),
         "reschema": OpSpec(
             description=(
@@ -940,6 +948,7 @@ OPS: dict[str, dict[str, OpSpec]] = {
             ),
             returns="dict",
             params={"feedback_dir": str},
+            tier="experimental",
         ),
     },
 }

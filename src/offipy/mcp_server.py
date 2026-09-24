@@ -7,14 +7,16 @@ Claude Desktop 等 MCP 客户端通过 stdio 拉起本进程（`offipy mcp` 或
 窗口实时可见、状态跨调用保持，等同用户在 Office 里亲自操作当前文档。
 
 工具集由 operation schema（P1-2）驱动注册：schema 声明每个 op 的存在、
-描述与 readonly/destructive 元数据；参数签名（必填/默认值/类型）以 App
-方法为唯一权威派生。新增 RPC 只改 schema.py + App 方法，MCP 工具自动
-跟随。quit 不暴露（对整个会话太危险）；get_target 随 schema 透出。
+描述、tier 与 readonly/destructive 元数据；参数签名（必填/默认值/类型）以
+App 方法为唯一权威派生。新增 RPC 只改 schema.py + App 方法，MCP 工具自动
+跟随。quit 不暴露（对整个会话太危险）；Experimental 工具只有在进程启动前
+设置 `OFFIPY_MCP_INCLUDE_EXPERIMENTAL=1` 才注册；get_target 随 schema 透出。
 
 注意：本进程绝不向 stdout 打印任何东西（stdio 传输协议占用 stdout）。
 """
 
 import inspect
+import os
 from typing import Any, cast
 
 from mcp.server import MCPServer
@@ -106,6 +108,16 @@ def _tool_name(app: str, op: str) -> str:
     return f"{app}_{_TOOL_SUFFIX.get((app, op), op)}"
 
 
+def _include_experimental_tools() -> bool:
+    """Return whether explicit developer opt-in enables Experimental MCP tools."""
+    return os.environ.get("OFFIPY_MCP_INCLUDE_EXPERIMENTAL", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _build_tool(app: str, op: str) -> None:
     """按 schema + App 方法签名生成一个 MCP 工具并注册到 server。
 
@@ -171,10 +183,14 @@ def _build_tool(app: str, op: str) -> None:
 
 
 def _register_tools() -> None:
-    """schema 驱动注册：除 quit（对整个会话太危险）外全部暴露。"""
+    """Register Formal/Advanced tools; Experimental tools require explicit opt-in."""
+    include_experimental = _include_experimental_tools()
     for app in schema.apps():
         for op in schema.ops(app):
             if op == "quit":
+                continue
+            spec = schema.spec(app, op)
+            if spec is not None and spec.tier == "experimental" and not include_experimental:
                 continue
             _build_tool(app, op)
 
