@@ -17,7 +17,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   - Word 另含版式能力——样式系统（文字 / 段落格式）、页面结构（页眉页脚 / 页码 / 页面设置 / 目录）、列表与表格（合并 / 边框 / 列宽 / 行高 / 自动调整）、文档辅助（查找替换 / 图片 / 分页）
 - **实时文档会话语义**：读 op 默认作用在用户**当前激活**的文档上（ActiveDocument / ActiveWorkbook / ActivePresentation）；破坏性 op 需显式 `doc_id` 或 `follow_active=True` 或 `expected_target` 绑定，杜绝改错文档；关窗后自动重建
 - **断连自愈**：用户关窗或 Office 退出后自动重建会话
-- **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（见下方「设计系统」）
+- **HTML-first 管线 + 设计系统**：Claude 写 HTML 幻灯片 → 原生可编辑 `.pptx` → 实况展示 + 视觉迭代；内置设计 token、3 套主题、11 种布局、审美审计、自动选型、反馈学习（反馈学习属于 Experimental，见下方「设计系统」）
 - **MCP server**：把全部三套件操作暴露为 MCP 工具，Claude Desktop 等可直接驱动真实 Office
 - **环境诊断**：`offipy check` 一键检查 Python / 依赖 / Office 三件套 / 浏览器 / server 是否就绪（`--json` 机器可读，失败退出码非 0）
 - **server 进程管理**：`offipy server status|stop|restart` 用 `/status` 真实握手 + PID 文件 / netstat 探测管理常驻进程
@@ -33,7 +33,7 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   抽象成 ArtScene，5 个维度规则（层级 / 构图 / 排版 / 颜色 / 媒体）评估，grade / confidence /
   evidence_coverage 三分离、证据不足降级不误报；`analyze_deck` 三源（measurements + pptx 几何 +
   slides_dir 逐页 PNG 像素）一次评估，`deck.render_with_quality_report` 生成即质量参考
-- **可学习 feedback（v0.18）**：numpy MLP + 注册式输入输出（FEATURES/OUTPUTS），
+- **可学习 feedback（v0.18，Experimental）**：numpy MLP + 注册式输入输出（FEATURES/OUTPUTS），
   `offipy feedback train` / `status` / `append` / `recommend` / `apply` / `reschema`，
   冷启动回退 v2，核心零 numpy 依赖。学习质量（#115-#122）：预处理标准化（零方差 drop +
   高相关去重 +
@@ -54,6 +54,10 @@ Live Microsoft Office automation via COM（会话式驱动）+ HTML-first 可编
   产物契约设计的 Mermaid / draw.io 图转成可编辑 PPTX；`offipy diagram install_skill` 把
   diagram-design 设计指引 + offipy-diagram 契约桥 skill 装进宿主 agent 技能目录
   （默认 `~/.claude/skills/`）。offipy 自身不调 LLM
+
+商业 1.0 的首发承诺只覆盖 Windows 11 x64 + Microsoft 365 桌面版三件套；功能分层、
+兼容边界和验收标准见 [`docs/commercial-scope.md`](https://github.com/Zn070515/offipy/blob/main/docs/commercial-scope.md)。
+feedback MLP、实验性 art 规则与实验分数保留在源码中，但不属于商业 1.0 的默认 Agent 工具契约或售后承诺。
 
 ## 环境要求
 

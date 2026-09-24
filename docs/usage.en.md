@@ -147,6 +147,12 @@ Read operations (`read_range` / `read_doc_text` / `read_slide_summary` / `read_s
 marked read-only; write operations are marked as modifying state; `save` / `save_pdf`
 expose the `overwrite` parameter.
 
+See the [Commercial 1.0 Scope Freeze](commercial-scope.en.md) for the support boundary. Word / Excel /
+PowerPoint session operations in MCP are Formal; deck conversion, chart/diagram post-processing, and
+the current animation behavior are Advanced. The feedback MLP, experimental art rules, and experimental
+scores remain available to source/developer workflows but are not part of the default commercial tool
+contract, clean-machine acceptance, or support promise.
+
 ## HTML→PPTX pipeline (deck)
 
 ```bash

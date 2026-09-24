@@ -17,7 +17,7 @@ Built for Python developers and AI agents to independently produce **polished, a
   - Word also includes layout capabilities — a style system (character / paragraph formatting), page structure (header/footer, page numbers, page setup, table of contents), lists and tables (merge / borders / column width / row height / auto-fit), document helpers (find & replace / images / page breaks)
 - **Real-time document session semantics**: read ops default to acting on the user's **currently active** document (ActiveDocument / ActiveWorkbook / ActivePresentation); destructive ops require an explicit `doc_id`, `follow_active=True`, or an `expected_target` binding, so they can never silently modify the wrong document; sessions auto-rebuild after a window closes
 - **Disconnect self-healing**: automatically rebuilds the session when the user closes a window or Office exits
-- **HTML-first pipeline + design system**: Claude writes HTML slides → natively editable `.pptx` → live presentation + visual iteration; built-in design tokens, 3 themes, 11 layouts, aesthetic audit, automatic pick, feedback learning (see "Design system" below)
+- **HTML-first pipeline + design system**: Claude writes HTML slides → natively editable `.pptx` → live presentation + visual iteration; built-in design tokens, 3 themes, 11 layouts, aesthetic audit, automatic pick, feedback learning (feedback learning is Experimental; see "Design system" below)
 - **MCP server**: exposes all three-suite operations as MCP tools, so Claude Desktop and similar can drive real Office directly
 - **Environment diagnostics**: `offipy check` one-shot check of Python / dependencies / the Office three-suite / browser / server readiness (`--json` machine-readable, non-zero exit code on failure)
 - **Server process management**: `offipy server status|stop|restart` uses a real `/status` handshake plus PID file / netstat probing to manage the resident process
@@ -36,7 +36,7 @@ Built for Python developers and AI agents to independently produce **polished, a
   `analyze_deck` evaluates all three sources (measurements + pptx geometry + slides_dir per-page PNG
   pixels, lazy Pillow) in one call, and
   `deck.render_with_quality_report` turns generation into a quality reference
-- **Learnable feedback (v0.18)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
+- **Learnable feedback (v0.18, Experimental)**: numpy MLP + registry-based inputs/outputs (FEATURES / OUTPUTS),
   `offipy feedback train` / `status` / `append` / `recommend` / `apply` / `reschema`, cold-start falls
   back to v2, core stays numpy-free. Learning quality (#115-#122): standardized preprocessing (zero-variance
   drop + high-correlation dedup + z-score), ensemble K=5 + calibration + abstain + OOD, sample-level
@@ -56,6 +56,12 @@ Built for Python developers and AI agents to independently produce **polished, a
   diagrams that a host agent designed per the artifact contract into editable PPTX;
   `offipy diagram install_skill` installs the diagram-design guide plus the offipy-diagram
   contract-bridge skill into the host agent's skill directory
+
+Commercial 1.0 is committed only for Windows 11 x64 + Microsoft 365 desktop Word, Excel, and PowerPoint.
+See [`docs/commercial-scope.en.md`](https://github.com/Zn070515/offipy/blob/main/docs/commercial-scope.en.md)
+for the capability tiers, compatibility boundary, and acceptance criteria. The feedback MLP, experimental
+art rules, and experimental scores remain source-visible but are not part of the default commercial Agent
+tool contract or support promise.
 
 ## Requirements
 

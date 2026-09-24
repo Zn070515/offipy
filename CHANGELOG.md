@@ -7,6 +7,9 @@
 
 ### Fixed
 
+- **商业 1.0 范围冻结（CF-6）**：固化 Formal / Advanced / Experimental 三层承诺、Windows 11
+  x64 + Microsoft 365 首发验收矩阵，以及不新增 Office 操作面的商业线规则；实验性 art / feedback
+  能力继续保留在源码中，但不作为默认 Agent 工具契约或售后保证。
 - **request_id 契约收口（CF-5）**：超时响应回显 request ID，`RemoteCallError.request_id` 暴露
   自动生成的 ID；文档明确幂等保证仅覆盖同一 server 进程生命周期，重启后结果未知需先 read-back。
 - **动画声明校验（#162/#163/#164）**：越界页号不再静默丢弃；CLI 非法字段不再泄漏裸

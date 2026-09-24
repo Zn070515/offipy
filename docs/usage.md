@@ -135,6 +135,11 @@ MCP server 走 stdio，工具集合从 `schema.py` 自动注册。Claude Desktop
 读操作（`read_range` / `read_doc_text` / `read_slide_summary` / `read_slide_texts` / `list_docs`）标记只读，
 写操作标记会改动状态；`save` / `save_pdf` 暴露 `overwrite` 参数。
 
+商业 1.0 的支持边界见[商业 1.0 范围冻结](commercial-scope.md)。MCP 中的 Word / Excel /
+PowerPoint 会话操作属于 Formal；deck 转换、图表/图形后处理和当前动画属于 Advanced。
+feedback MLP、实验性 art 规则和实验分数属于 Experimental：源码和开发 CLI 可以保留，但不作为
+商业默认工具契约、clean-machine 验收或售后保证。
+
 ## HTML→PPTX 管线（deck）
 
 ```bash

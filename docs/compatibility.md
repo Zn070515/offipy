@@ -5,6 +5,10 @@
 offipy 是 Windows-only 的 Office COM 自动化库。核心包零平台依赖，能力按
 extra 增量安装；各 extra 有各自的平台/版本要求，见下表。
 
+> **商业 1.0 限定**：商品首发与 clean-machine 验收只覆盖 **Windows 11 x64 + Microsoft 365
+> 桌面版 Word / Excel / PowerPoint**。下表中的 Expected 组合不能在没有真机证据时对外宣传为
+> 商业已支持；完整边界见[商业 1.0 范围冻结](commercial-scope.md)。
+
 ## 三栏总览：Tested / Expected / Unsupported
 
 | 维度 | ✅ Tested（本机实测） | 🟡 Expected（合理预期） | 🚫 Unsupported（明确不支持） |

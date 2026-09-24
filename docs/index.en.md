@@ -54,6 +54,7 @@ pointing at `offipy mcp`.
 - [API reference](api/index.en.md): all operations (auto-generated from schema).
 - [Exception contract](exceptions.en.md): strategy A domain exceptions and the RPC `error_code` mapping.
 - [Protocol](protocol.en.md): HTTP protocol, token, `/shutdown`, protocol version handshake.
+- [Commercial 1.0 scope](commercial-scope.en.md): Formal / Advanced / Experimental commitments and launch acceptance matrix.
 - [Compatibility matrix](compatibility.en.md): Windows / Office / Python / extras support.
 - [Deprecation policy](deprecation.en.md): deprecation workflow and the response `warning` field.
 - [Migration guide](migration.md): 0.9 → 0.10 breaking changes and migration steps.
