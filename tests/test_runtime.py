@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -53,3 +54,40 @@ def test_packaged_chromium_path_is_reported_only_when_bundled(monkeypatch, tmp_p
     chromium = tmp_path / "chromium"
     chromium.mkdir()
     assert runtime.chromium_path() == chromium
+
+
+def test_packaged_chromium_executable_prefers_headless_shell(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime, "is_packaged", lambda: True)
+    monkeypatch.setattr(runtime, "resource_root", lambda: tmp_path)
+
+    chromium = (
+        tmp_path / "chromium" / "chromium_headless_shell-1234" / "chrome-headless-shell-win64"
+    )
+    chromium.mkdir(parents=True)
+    headless = chromium / "chrome-headless-shell.exe"
+    headless.write_bytes(b"fake")
+    normal = tmp_path / "chromium" / "chromium-1234" / "chrome-win64"
+    normal.mkdir(parents=True)
+    (normal / "chrome.exe").write_bytes(b"fake")
+
+    assert runtime.chromium_executable() == headless
+
+
+def test_configure_browser_env_points_to_packaged_runtime(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime, "is_packaged", lambda: True)
+    monkeypatch.setattr(runtime, "resource_root", lambda: tmp_path)
+    chromium = tmp_path / "chromium"
+    chromium.mkdir()
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+
+    assert runtime.configure_browser_env() == chromium
+    assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(chromium)
+
+
+def test_configure_browser_env_clears_missing_packaged_runtime(monkeypatch, tmp_path):
+    monkeypatch.setattr(runtime, "is_packaged", lambda: True)
+    monkeypatch.setattr(runtime, "resource_root", lambda: tmp_path)
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", "external-cache")
+
+    assert runtime.configure_browser_env() is None
+    assert "PLAYWRIGHT_BROWSERS_PATH" not in os.environ

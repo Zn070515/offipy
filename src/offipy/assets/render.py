@@ -380,12 +380,19 @@ def _make_svg_to_png() -> tuple[Callable[[str], bytes | None], Callable[[], None
         if pw is None:
             try:
                 from playwright.sync_api import sync_playwright
+
+                from offipy.runtime import chromium_executable, configure_browser_env
             except ImportError:
                 return None
+            configure_browser_env()
             pw = sync_playwright().start()
         if browser is None:
             try:
-                browser = pw.chromium.launch()
+                executable = chromium_executable()
+                if executable is None:
+                    browser = pw.chromium.launch()
+                else:
+                    browser = pw.chromium.launch(executable_path=str(executable))
             except Exception:
                 return None
         page = None

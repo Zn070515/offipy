@@ -75,15 +75,15 @@ def _preflight_chart_layout(
 
 
 def _preflight_browser() -> None:
-    """渲染前置：确保 chromium 可用，否则给安装提示（P0-2）。"""
+    """渲染前置：确保 chromium 可用，否则给环境对应的修复提示（P0-2）。"""
     from .envcheck import _check_browser
 
     check = _check_browser()
     if not check.ok:
-        raise ConversionError(
-            "HTML→PPTX 渲染需要 Chromium："
-            f"{check.detail}。请运行: python -m playwright install chromium"
-        )
+        hint = check.hint or "请运行 Offipy 安装程序的修复安装"
+        if not hint.startswith("请"):
+            hint = f"请运行: {hint}"
+        raise ConversionError(f"HTML→PPTX 渲染需要 Chromium：{check.detail}。{hint}")
 
 
 _NOVA_DECLARATION_MARKERS = (
