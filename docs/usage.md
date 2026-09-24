@@ -181,6 +181,9 @@ HTML 里给元素打属性即可声明入场动画与页面过渡（默认关闭
   `{"animations": [{"slide": 1, "target": "title", "effect": "fade", "direction": ..., "trigger": ..., "duration": ..., "delay": ...}], "transitions": [{"slide": 2, "kind": "push", "speed": "medium"}]}`，
   `target` 为形状**名称**（精确匹配）；返回注入报告（`animations_applied` /
   `transitions_applied` / `unmatched` / `skipped`）。
+- **声明校验**：动画/过渡的 `slide` 超出 PPTX 页数会直接报错；同一页不能混用 `click` 与
+  `after` 触发器（避免 PowerPoint 把 `after` 误当成进页后的绝对时间）；CLI spec 含未知字段时
+  返回友好的 `offipy:` 错误并以 exit 2 退出。
 
 ### Mermaid 图
 

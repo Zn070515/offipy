@@ -306,7 +306,8 @@ When Claude writes deck HTML, it only needs to reference design tokens (CSS vari
   `data-anim` / `.fade-in` fallback conventions); `deck make --animations` injects
   native PPTX animations at render, and `apply_animations` / `apply_transitions` or
   `deck add-anim --pptx X --spec spec.json` inject into an existing pptx. Off by
-  default — output stays byte-identical to before.
+  default — output stays byte-identical to before. Invalid slide numbers fail fast, and a
+  slide cannot mix `click` and `after` triggers.
 - **Feedback learning**: post-audit dispositions (fixed / accepted / ignored) are recorded to `~/.offipy/feedback.jsonl`; `feedback.dimension_weights()` reweights the audit weights, getting stricter the more it fixes (P2 validation build)
 
 ```python

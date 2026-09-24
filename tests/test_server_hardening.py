@@ -227,8 +227,9 @@ def test_request_id_timeout_then_retry_does_not_reexecute(srv, monkeypatch):
     calls.clear()
     body = {"app": "ppt", "op": "slow", "request_id": "rid-gated"}
 
-    s1, _r1 = _post(port, body, token=TOKEN)
+    s1, r1 = _post(port, body, token=TOKEN)
     assert s1 == 504  # owner 在 _CALL_TIMEOUT 内没等到 worker → 超时但不释放 entry
+    assert r1["request_id"] == "rid-gated"
     assert entered.wait(2)  # worker 已进入（op 执行了一次）
 
     gate.set()  # 放行 worker

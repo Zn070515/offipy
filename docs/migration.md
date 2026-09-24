@@ -5,6 +5,11 @@
   （字号三元组同源，避免 px/pt 混用）。若测量源缺前景色 / 背景色 / 字号 / 透明度 /
   fill_kind，合并结果现在会带上 pptx 审计提供的证据（`source="merged"` 语义不变）。
   audit 侧图表框架透明度、drawio 折线边识别/透明为纯新增行为，无迁移动作。
+- **request_id 契约收口（CF-5，行为变化）**：幂等去重只保证在同一 Offipy Server 进程生命周期
+  内；server 重启/崩溃后结果可能未知，破坏性操作需先 read-back。`RemoteCallError.request_id`
+  暴露自动生成或显式传入的请求 ID，超时响应也会回显该 ID。
+- **动画声明校验（#162/#163/#164，行为变化）**：`deck add-anim` 对未知字段返回友好
+  `InvalidArgumentError`/exit 2；越界 `slide` fail-fast；同页混用 `click` 与 `after` 直接拒绝。
 
 ---
 

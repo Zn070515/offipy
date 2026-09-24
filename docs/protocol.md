@@ -95,7 +95,7 @@ read_slide_summary）都有意义（#25：只读 op 对齐破坏性语义，写�
 
 ### 幂等（request_id，P0-2 方案 A）
 
-提供 `request_id` 时，server 开启幂等路径——「超时重试不重执行」：
+提供 `request_id` 时，server 在**当前进程生命周期内**开启幂等路径——「超时重试不重执行」：
 
 - **payload hash 绑定**：`sha256(json.dumps({"app","op","args"}, sort_keys=True))`。同 request_id
   换了 payload（参数漂移）→ 400 `invalid_argument`（调用方 bug，不静默返回旧结果）。
@@ -106,8 +106,11 @@ read_slide_summary）都有意义（#25：只读 op 对齐破坏性语义，写�
 - **超时**：owner 等待超 `_CALL_TIMEOUT` → 504，但 entry 留 inflight——同 id 重试仍合并、绝不双写。
   COM 队列满 → 503 并回滚 entry（同 id 重试重建，不 merge 到永不完成）。
 - 不带 request_id 的调用走老路径：不入缓存、不去重、不合并。
+- **生命周期边界**：`_REQUEST_ID_CACHE` 仅在当前 server 进程内存中；server 崩溃、重启或缓存条目
+  被淘汰后，结果可能未知。此时不要盲目重放破坏性操作，应先重新读取目标文档状态再决定是否重试。
 
 client 侧：`client.request/call` 缺省自动生成 uuid4 并随请求带上；响应回显 request_id 供调用方核对。
+超时响应也会回显 request_id；`RemoteCallError.request_id` 暴露本次请求 ID（包括自动生成的 ID）。
 超时重试务必复用同一 request_id。
 
 ## /call 响应

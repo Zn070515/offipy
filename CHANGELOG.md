@@ -7,6 +7,10 @@
 
 ### Fixed
 
+- **request_id 契约收口（CF-5）**：超时响应回显 request ID，`RemoteCallError.request_id` 暴露
+  自动生成的 ID；文档明确幂等保证仅覆盖同一 server 进程生命周期，重启后结果未知需先 read-back。
+- **动画声明校验（#162/#163/#164）**：越界页号不再静默丢弃；CLI 非法字段不再泄漏裸
+  `TypeError`；同页混用 `click` / `after` 直接 fail-fast，避免错误时间轴。
 - **server 幂等超时安全**：HTTP waiter 超时不再释放已入 worker 的 inflight
   `request_id`，也不再按时间接管 stale entry；同 ID 重试持续合并等待或回放，避免慢的
   破坏性 Office 操作重复执行。

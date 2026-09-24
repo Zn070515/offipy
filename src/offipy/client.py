@@ -429,6 +429,7 @@ def _raise_error(
     detail: str | None,
     hresult: str | None = None,
     trace: str | None = None,
+    request_id: str | None = None,
 ) -> NoReturn:
     """按 server 错误码映射回领域异常；ComOperationError 透传 hresult（契约5）。"""
     msg = f"[{app}::{op}] 失败: {detail}"
@@ -440,7 +441,7 @@ def _raise_error(
         raise ComOperationError(msg, hresult=hr)
     if exc_cls is not None:
         raise exc_cls(msg)
-    raise RemoteCallError(msg)
+    raise RemoteCallError(msg, request_id=request_id)
 
 
 def request(
@@ -456,9 +457,11 @@ def request(
     会话）；显式给出可指向其他 offipy server。
 
     request_id（P0-2 幂等方案 A）：缺省自动生成 uuid4；调用方超时重试应复用
-    同一 request_id——server 对同 id 同 payload 合并/回放缓存，不重复执行。
-    响应带 request_id 回显，可核对。
+    同一 request_id——同一 server 进程内对同 id 同 payload 合并/回放缓存，不重复执行。
+    响应带 request_id 回显，可核对；RemoteCallError.request_id 暴露请求 ID。
     """
+    if request_id is None:
+        request_id = str(uuid.uuid4())
     if base_url is None:
         ensure_server()
     for k in _PATH_KEYS:
@@ -469,8 +472,6 @@ def request(
     et = args.get("expected_target")
     if isinstance(et, dict) and isinstance(et.get("path"), str):
         args["expected_target"] = {**et, "path": str(pathlib.Path(et["path"]).resolve())}
-    if request_id is None:
-        request_id = str(uuid.uuid4())
     # request_id 幂等标识（§4/方案 A）：client 重试带同一 id，server 命中缓存
     # 不再重执行；payload hash 绑定保证同 id 必须同 payload。
     data = json.dumps({"app": app, "op": op, "args": args, "request_id": request_id}).encode(
@@ -494,13 +495,21 @@ def request(
             detail = f"HTTP {e.code}: {e.reason}"
             code = None
         hresult = body.get("hresult") if isinstance(body, dict) else None
-        _raise_error(app, op, code, detail, hresult=hresult)
+        response_request_id = body.get("request_id") if isinstance(body, dict) else None
+        _raise_error(
+            app,
+            op,
+            code,
+            detail,
+            hresult=hresult,
+            request_id=response_request_id or request_id,
+        )
     except urllib.error.URLError as e:
-        raise RemoteCallError(f"[{app}::{op}] 连接失败: {e.reason}") from e
+        raise RemoteCallError(f"[{app}::{op}] 连接失败: {e.reason}", request_id=request_id) from e
     except TimeoutError as e:
-        raise RemoteCallError(f"[{app}::{op}] 调用超时: {e}") from e
+        raise RemoteCallError(f"[{app}::{op}] 调用超时: {e}", request_id=request_id) from e
     except json.JSONDecodeError as e:
-        raise RemoteCallError(f"[{app}::{op}] 响应非 JSON: {e}") from e
+        raise RemoteCallError(f"[{app}::{op}] 响应非 JSON: {e}", request_id=request_id) from e
 
 
 def call(

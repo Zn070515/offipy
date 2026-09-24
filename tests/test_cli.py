@@ -1656,3 +1656,25 @@ def test_deck_add_anim_bad_effect_error(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "动画声明非法" in err
     assert "Traceback" not in err
+
+
+def test_deck_add_anim_unknown_field_error(tmp_path, capsys):
+    """deck add-anim spec 含未知字段 → 友好 InvalidArgumentError，不泄漏 traceback。"""
+    import offipy.cli as cli_mod
+
+    spec = tmp_path / "spec.json"
+    spec.write_text(
+        json.dumps(
+            {"animations": [{"slide": 1, "target": "title", "effect": "fade", "bounce": True}]}
+        ),
+        encoding="utf-8",
+    )
+    pptx = tmp_path / "x.pptx"
+    pptx.write_bytes(b"pptx")
+
+    ret = cli_mod.main(["deck", "add-anim", "--pptx", str(pptx), "--spec", str(spec)])
+
+    assert ret == 2
+    err = capsys.readouterr().err
+    assert "非法字段" in err
+    assert "Traceback" not in err

@@ -232,9 +232,10 @@ with RemoteExcel() as x:  # 默认连本地 8890（自动拉起 server）
 对应领域异常，三入口同源。
 
 **幂等重试（P0-2 方案 A）**：`client.call/request` 默认自动生成 `request_id`。若调用超时
-（`RemoteCallError`）需要重试，务必**复用同一 `request_id`**——server 对同 `request_id` 同
-payload 合并/回放缓存（响应带 `cached: true`），绝不重复执行；同 `request_id` 换了 payload
-则返回 `InvalidArgumentError`（400）。
+（`RemoteCallError`），可从 `exc.request_id` 取得本次 ID，并务必**复用同一 `request_id`**——
+同一 server 进程内对同 ID 同 payload 合并/回放缓存（响应带 `cached: true`），绝不重复执行；
+同 ID 换了 payload 则返回 `InvalidArgumentError`（400）。server 重启/崩溃后结果可能未知，
+破坏性操作应先 read-back 再决定是否重试。
 
 ```python
 import uuid

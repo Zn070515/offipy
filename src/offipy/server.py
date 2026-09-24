@@ -925,6 +925,7 @@ class Handler(BaseHTTPRequestHandler):
                         "ok": False,
                         "error": f"操作超时（同 request_id 仍在处理，>{_CALL_TIMEOUT}s）",
                         "error_code": "internal",
+                        "request_id": request_id,
                     },
                     status=504,
                 )
@@ -958,6 +959,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": False,
                     "error": f"操作超时（worker 忙或卡住，>{_CALL_TIMEOUT}s）",
                     "error_code": "internal",
+                    "request_id": request_id,
                 },
                 status=504,
             )

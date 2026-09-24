@@ -199,3 +199,23 @@ def test_apply_animations_dict_coercion(tmp_path):
             p2,
             animations=[{"slide": 1, "target": "title", "effect": "fade", "bogus": 1}],
         )
+
+
+def test_apply_animations_rejects_out_of_range_slide(tmp_path):
+    p = _build_pptx(tmp_path, [("title",)])
+
+    with pytest.raises(InvalidArgumentError, match="slide 2"):
+        apply_animations(p, animations=[AnimationSpec(slide=2, target="title", effect="fade")])
+
+
+def test_apply_animations_rejects_mixed_triggers_on_same_slide(tmp_path):
+    p = _build_pptx(tmp_path, [("title",), ("body",)])
+
+    with pytest.raises(InvalidArgumentError, match=r"click.*after|after.*click"):
+        apply_animations(
+            p,
+            animations=[
+                AnimationSpec(slide=1, target="title", effect="fade", trigger="after"),
+                AnimationSpec(slide=1, target="body", effect="fade", trigger="click"),
+            ],
+        )
